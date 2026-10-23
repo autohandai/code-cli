@@ -78,7 +78,15 @@ autohand extensions install ./company.release-helper --trust
 
 `--trust` is a code-execution decision, not a permission shortcut. A trusted runtime executes inside the Autohand process with the same operating-system access as Autohand. It is not sandboxed. Review the runtime and its bundled dependencies before trusting it.
 
-Trust is stored in Autohand state outside the package, survives disable/enable, and disappears on removal. Disable and removal deactivate every registration from that extension. A failing activation contributes nothing, appears in `extensions doctor`, and does not prevent healthy extensions or the CLI from starting.
+Trust is stored in Autohand state outside the package, survives disable/enable, and disappears on removal. Disable and removal deactivate every registration from that extension. A failing first activation contributes nothing, appears in `extensions doctor`, and does not prevent healthy extensions or the CLI from starting. A failed live replacement keeps the last working runtime and its package contributions until a repaired edit succeeds. Explicit disable, removal, or trust revocation still removes registrations.
+
+## Editing in the running REPL
+
+Install with `--link --trust` while developing, then rebuild the JavaScript file declared in `contributes.runtime` after editing TypeScript. The REPL watches installed and linked packages, coalesces changes, and reloads when the current turn and any modal finish. Installs and enable/disable changes made by another CLI process also refresh automatically. Commands, views, lines, shortcuts, hooks, providers, policies, tools, agents, and skills update without losing your draft or conversation.
+
+Use `/extensions reload` to retry explicitly and `/extensions doctor` to inspect failures. Failed live edits retain the last working package until a repaired build succeeds. Release resources from activation cleanup or `deactivate`. Bundle dependencies or import them statically for live reload; computed imports and native modules retain normal runtime caching. Newly registered CLI flag defaults work immediately; argv values are parsed at startup. `--bare` and `--no-daemon` do not run a watcher.
+
+Extension API v1 is versioned independently of CLI releases. Keep `extensionApi: 1` and use the public `api` surface instead of CLI internals. Upgrades preserve `.autohand/extensions` and `$AUTOHAND_HOME/extensions`, with their enabled/trusted state. Compatible JavaScript extensions need no reinstall or rebuild after replacing the CLI. Unsupported API versions produce diagnostics. Verify a copied install and discovery in a new CLI process before distributing a package.
 
 ## Runtime entrypoint
 

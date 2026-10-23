@@ -136,7 +136,9 @@ describe('/theme command modal lifecycle', () => {
 });
 
 describe('/status command screen isolation', () => {
-  it('uses an alternate screen and restores it when leaving status', async () => {
+  it.each(['\u0003', '\u001b[27u', '\u001b[27;1:1u', '\u001b[99;5u'])('restores the screen and releases input resources on %j', async (exitKey) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const timerBaseline = vi.getTimerCount();
     const { EventEmitter } = await import('node:events');
     const originalStdin = process.stdin;
     const originalStdout = process.stdout;
@@ -197,8 +199,15 @@ describe('/status command screen isolation', () => {
       while (input.listenerCount('data') === 0) {
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
-      input.emit('data', '\u0003');
+      input.emit('data', '\u001b[9u');
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Autohand preferences'));
+      input.emit('data', '\u001b[9;2u');
+      input.emit('data', '\u001b[27;1:3u');
+      expect(input.listenerCount('data')).toBeGreaterThan(0);
+      for (const byte of exitKey) input.emit('data', byte);
       await statusPromise;
+      expect(vi.getTimerCount()).toBe(timerBaseline);
+      expect(input.listenerCount('data')).toBe(0);
 
       expect(writes).toContain('\x1b[?1049h\x1b[2J\x1b[H');
       expect(writes).toContain('\x1b[?1049l');
@@ -209,6 +218,7 @@ describe('/status command screen isolation', () => {
       Object.defineProperty(process, 'stdin', { value: originalStdin, writable: true, configurable: true });
       Object.defineProperty(process, 'stdout', { value: originalStdout, writable: true, configurable: true });
       consoleSpy.mockRestore();
+      vi.useRealTimers();
       vi.restoreAllMocks();
     }
   });

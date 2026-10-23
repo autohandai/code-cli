@@ -80,7 +80,7 @@ export async function tester(ctx: TesterCommandContext, args: string[] = []): Pr
         result.message,
         `Evidence: [report.md](<${result.reportPath}>)`,
         `Manifest: [manifest.json](<${result.manifestPath}>)`,
-      ].join('\n');
+      ].join('  \n');
     }
     if (action === 'capture') {
       const [url, scenarioPath, extra] = rest;
@@ -95,7 +95,7 @@ export async function tester(ctx: TesterCommandContext, args: string[] = []): Pr
         `Manifest: [manifest.json](<${result.manifestPath}>)`,
         ...(result.animationPath ? [`Animation: [animated WebP](<${result.animationPath}>)`] : []),
         'Open and inspect the retained frames before claiming visual confirmation. Playwright assertions and project test results remain separate.',
-      ].join('\n');
+      ].join('  \n');
     }
   } catch (error) {
     return `Tester not completed: ${error instanceof Error ? error.message : String(error)}`;

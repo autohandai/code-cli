@@ -48,7 +48,7 @@ describe('Modal Types', () => {
       'utf8'
     );
     expect(source).toContain("theme.fg('accent', title)");
-    expect(source).toContain('theme.fg(color ?? \'text\'');
+    expect(source).toContain('theme.fg(view.color, view.label)');
     expect(source).toContain('<ThemeProvider>');
     expect(source).not.toContain('color="cyan"');
     expect(source).not.toContain("color = 'green'");

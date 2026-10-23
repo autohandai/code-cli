@@ -26,6 +26,7 @@ import type { MobileClaimedTurnContext } from '../../mobile/MobileRelay.js';
 import type { TurnMemoryReflectionOutcome } from '../../memory/extractSessionMemories.js';
 import type { QueuedInstructionPolicy } from './PostTurnActionCoordinator.js';
 import type { PeerCommunicationRuntime } from './PeerCommunicationRuntime.js';
+import type { AgentProgramStatus } from './AgentProgramStatus.js';
 import type { PeerReference } from '../../ui/peerMention.js';
 import type {
   AgentLoopStep,
@@ -42,6 +43,7 @@ const INCOMPLETE_LOOP_REASONS: Record<Extract<ReactLoopResult, { status: 'incomp
   iteration_limit: 'The agent loop reached its iteration limit before completion',
   pending_todos: 'The turn ended with unfinished todo items',
   advisor_review: 'The turn ended before its Moa checkpoint review was resolved',
+  goal_completion: 'The final answer was delivered but the goal completion could not be persisted',
 };
 
 interface InstructionConversation {
@@ -94,6 +96,9 @@ function readCompletedTurnUsage(host: AgentInstructionHost): TurnUsage {
 }
 
 export interface AgentInstructionHost {
+  extensionReloadController?: Pick<import('../../extensions/ExtensionReloadController.js').ExtensionReloadController, 'withStableExtensions'>;
+  repositoryReadiness?: Pick<import('./RepositoryReadiness.js').RepositoryReadiness, 'markTurnCompleted'> | null;
+  programStatus?: AgentProgramStatus;
   computerUseLifecycle?: ComputerUseLifecycle;
   peerCommunicationRuntime?: PeerCommunicationRuntime;
   recordPeerReferences?: (instruction: string, references: PeerReference[]) => Promise<void>;
@@ -187,6 +192,8 @@ export interface AgentInstructionHost {
 }
 
 export interface RunInstructionOptions extends QueuedInstructionPolicy {
+  /** Native read-only operations already supply their specialist contract. */
+  specialistPreparation?: 'skip';
   peerReferences?: PeerReference[];
   mentionedFiles?: string[];
   hookInstruction?: string;
@@ -210,10 +217,14 @@ export class InstructionRunner {
   constructor(private readonly host: AgentInstructionHost) {}
 
   async run(instruction: string, options: RunInstructionOptions = {}): Promise<boolean> {
-    while (true) {
-      const result = await this.runAttempt(instruction, options);
-      if (result !== 'retry-provider') return result;
-    }
+    const execute = async (): Promise<boolean> => {
+      while (true) {
+        const result = await this.runAttempt(instruction, options);
+        if (result !== 'retry-provider') return result;
+      }
+    };
+    return this.host.extensionReloadController
+      ? this.host.extensionReloadController.withStableExtensions(execute) : execute();
   }
 
   private async runAttempt(instruction: string, options: RunInstructionOptions): Promise<boolean | 'retry-provider'> {
@@ -262,7 +273,10 @@ export class InstructionRunner {
     }
 
     host.peerCommunicationRuntime?.beginTurn();
-    const pausePeers = () => host.peerCommunicationRuntime?.setPaused('cancelled', true);
+    const pausePeers = () => {
+      host.programStatus?.cancel();
+      host.peerCommunicationRuntime?.setPaused('cancelled', true);
+    };
     abortController.signal.addEventListener('abort', pausePeers, { once: true });
 
     try {
@@ -443,6 +457,7 @@ export class InstructionRunner {
     const recordIncompleteLoop = (result: Extract<ReactLoopResult, { status: 'incomplete' }>): false => {
       success = false;
       recordReflectionFailure('incomplete', INCOMPLETE_LOOP_REASONS[result.reason]);
+      host.stopUI(true);
       host.clearActivityForCompletedTurn?.();
       return false;
     };
@@ -464,7 +479,7 @@ export class InstructionRunner {
       if (!canceledByUser) {
         canceledByUser = true;
         host.stopStatusUpdates();
-        host.stopUI();
+        host.stopUI(true);
         // Don't console.log here — terminal regions may still be active,
         // which routes output through writeAbove and corrupts the composer.
         // The cancel message is printed in the finally block after cleanup.
@@ -507,7 +522,7 @@ export class InstructionRunner {
       if (!canceledByUser) {
         canceledByUser = true;
         host.stopStatusUpdates();
-        host.stopUI();
+        host.stopUI(true);
         // Don't console.log here — terminal regions may still be active,
         // which routes output through writeAbove and corrupts the composer.
         // The cancel message is printed in the finally block after cleanup.
@@ -525,7 +540,8 @@ export class InstructionRunner {
     // return and any failure raised while preparing specialists.
     let stopPreparation: () => void = () => {};
     try {
-      const specialistResults = await host.prepareSpecialists?.(instruction);
+      const specialistResults = options.specialistPreparation === 'skip'
+        ? undefined : await host.prepareSpecialists?.(instruction);
       if (specialistResults) {
         host.conversation.addSystemNote(specialistResults, '[Specialist Results]');
       }
@@ -621,6 +637,7 @@ export class InstructionRunner {
       // error UI so we don't double-print failure messages.
       if (error instanceof Error && error.name === 'LoopAbortedError') {
         recordReflectionFailure('loop-guard', error.message);
+        host.stopUI(true);
         host.clearActivityForCompletedTurn?.();
         // Fall through to finally with success = false
       } else {
@@ -755,6 +772,7 @@ export class InstructionRunner {
         `[DEBUG] runInstruction finally: useInkRenderer=${host.useInkRenderer}, inkRenderer exists=${!!host.inkRenderer}`,
         host.writeDebugLine?.bind(host)
       );
+      if (abortController.signal.aborted) host.stopUI(true);
       await host.cleanupUI(host.useInkRenderer);
 
       if (host.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
@@ -853,6 +871,10 @@ export class InstructionRunner {
       host.isInstructionActive = false;
       host.activeAbortController = null;
       host.clearExplorationLog();
+      if (success && !canceledByUser && !abortController.signal.aborted && !reflectionSuperseded
+        && !host.runtime.isCommandMode && !host.runtime.options?.prompt && options.echoInTranscript !== false) {
+        host.repositoryReadiness?.markTurnCompleted();
+      }
     }
     return success;
   }

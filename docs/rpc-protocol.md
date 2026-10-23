@@ -624,6 +624,28 @@ All changes ready for review.
 
 Hook notifications allow clients to respond to agent lifecycle events for custom integrations.
 
+### `autohand.hook.programStatus`
+
+Reports runtime status independently of configured shell hooks. Both native ACP
+and JSON-RPC send this notification as JSON, without OSC7501 terminal escapes.
+The record id stays stable for the agent lifetime; `clear` removes that record.
+ACP also includes the owning `sessionId`.
+
+```typescript
+{
+  state: 'idle' | 'working' | 'blocked' | 'done' | 'error' | 'clear';
+  id: string;
+  app: 'autohand';
+  kind?: 'permission' | 'question' | 'auth'; // blocked only
+  title?: string;
+  message?: string;
+  timestamp: string;
+}
+```
+
+See [program status lifecycle](hooks.md#program-status-and-terminal-tabs) for
+input, cancellation, research, goal, and shutdown behavior.
+
 ### `autohand.hook.preTool`
 Fired before a tool begins execution.
 

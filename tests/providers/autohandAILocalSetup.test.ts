@@ -30,6 +30,29 @@ const {
 } = await import('../../src/providers/autohandAILocalSetup.js');
 
 describe('autohandai local setup', () => {
+  it('refuses to start a local model server with --no-daemon before launching helpers', async () => {
+    const argv = process.argv;
+    process.argv = [...argv, '--no-daemon'];
+    mockRunCommand.mockResolvedValue({ code: 1, stdout: '', stderr: '' });
+    try {
+      const result = await ensureAutohandAILocalRuntime({ cwd: '/repo', model: AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS[0]! });
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('--no-daemon');
+      expect(mockRunCommand).not.toHaveBeenCalled();
+    } finally { process.argv = argv; }
+  });
+
+  it('connects to an existing local model server with --no-daemon without launching helpers', async () => {
+    const argv = process.argv;
+    process.argv = [...argv, '--no-daemon'];
+    const model = AUTOHAND_AI_LOCAL_CODING_MODEL_FALLBACKS[0]!;
+    globalThis.fetch = vi.fn().mockResolvedValue(Response.json({ data: [{ id: model.id }] }));
+    try {
+      const result = await ensureAutohandAILocalRuntime({ cwd: '/repo', model });
+      expect(result.ok).toBe(true);
+      expect(mockRunCommand).not.toHaveBeenCalled();
+    } finally { process.argv = argv; }
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsMLXSupported.mockReturnValue(true);

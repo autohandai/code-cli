@@ -62,6 +62,7 @@ export interface MockNativeToolServer extends MockOpenRouterServer {
 
 export interface MockNativeAssistantTurn {
   content: string;
+  delayMs?: number;
   toolCall?: {
     id: string;
     name: string;
@@ -103,6 +104,9 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
 
   const baseConfig: JsonRecord = {
     provider: 'openrouter',
+    // Historical scenarios assert primary-screen scrollback. Full-screen scenarios
+    // override this; undefined exercises the application's unset/default behavior.
+    features: { fullScreenMode: false },
     autoReport: {
       enabled: false,
     },
@@ -129,6 +133,7 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
       checkForUpdates: false,
       // Rotating tips put random command text on idle screens; the tip scenario turns them on.
       showTips: false,
+      repositoryReadiness: false,
       // Scenarios exercise approval prompts; the startup-mode scenario removes this pin.
       defaultInteractionMode: 'default',
     },
@@ -137,6 +142,10 @@ export async function createTempAutohandHome(options: CreateTempAutohandHomeOpti
   const config = {
     ...baseConfig,
     ...overrideConfig,
+    features: {
+      ...recordOrEmpty(baseConfig.features),
+      ...recordOrEmpty(overrideConfig.features),
+    },
     // Scripted legacy scenarios cover their own flow; orchestration scenarios enable its additional requests explicitly.
     ...(overrideConfig.autohandai ? { autohandai: { orchestration: false, ...recordOrEmpty(overrideConfig.autohandai) } } : {}),
     openrouter: {
@@ -334,9 +343,15 @@ export async function createMockAutohandAINativeToolServer(): Promise<MockNative
 
 export async function createMockAutohandAINativeSequenceServer(
   turns: MockNativeAssistantTurn[],
+  options: { models?: readonly string[] } = {},
 ): Promise<MockNativeToolServer> {
   const requests: JsonRecord[] = [];
   const server = createServer(async (request, response) => {
+    if (request.url === '/models' && request.method === 'GET' && options.models) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ data: options.models.map(id => ({ id })) }));
+      return;
+    }
     if (request.url !== '/chat/completions' || request.method !== 'POST') {
       response.writeHead(404, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: 'not found' }));
@@ -352,6 +367,18 @@ export async function createMockAutohandAINativeSequenceServer(
 
     const turn = turns[Math.min(requests.length - 1, turns.length - 1)]
       ?? { content: '' };
+    if (turn.delayMs) {
+      await new Promise<void>(resolve => {
+        const finish = () => {
+          clearTimeout(timer);
+          response.off('close', finish);
+          resolve();
+        };
+        const timer = setTimeout(finish, turn.delayMs);
+        response.once('close', finish);
+      });
+      if (response.destroyed) return;
+    }
     if (body.stream === true) {
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.end(`data: ${JSON.stringify({

@@ -5,7 +5,7 @@ description: Create, extend, convert, validate, and install Autohand Code extens
 
 # Build Autohand extensions
 
-Turn the user's description or source package into a working Autohand extension. Finish with an installed, fresh-process-verified result when the user asked for installation. Use the trusted runtime contract for commands, TUI, keybindings, flags, hooks, providers, or permission policy; modify Autohand itself only when the versioned extension API cannot represent the behavior and the current workspace is the Autohand source repository.
+Turn the user's description or source package into a working Autohand extension. Finish with an installed result verified in the current REPL when the user asked for installation. Use the trusted runtime contract for commands, TUI, keybindings, flags, hooks, providers, or permission policy; modify Autohand itself only when the versioned extension API cannot represent the behavior and the current workspace is the Autohand source repository.
 
 ## Load the relevant contract
 
@@ -34,7 +34,7 @@ autohand extensions show company.extension-id
 autohand extensions doctor
 ```
 
-7. Start a fresh Autohand process. Exercise every contributed surface, including commands, views, lines, keybindings, flags, hooks, providers, policies, tools, agents, and skills; verify approval behavior; then test disable, enable, copied installation, replacement when relevant, and removal only in a disposable test home.
+7. Stay in the current Autohand REPL. Rebuild the declared JavaScript entrypoint after source edits; linked packages and new installs reload automatically once the turn and any modal finish. Use `/extensions reload` to explicitly retry, and `/extensions doctor` to inspect failures. Exercise every contributed surface, including commands, views, lines, keybindings, flags, hooks, providers, policies, tools, agents, and skills; verify approval behavior; then test disable, enable, copied installation, replacement when relevant, and removal only in a disposable test home. Keep the last working runtime active if a new edit fails. Verify fresh-process discovery separately for upgrades and CLI flags; argv flags are parsed at process startup.
 8. Report the created package path, installed scope, contributions, tests, and any Pi behavior that required a native Autohand implementation.
 
 ## Adapt Pi packages safely
@@ -54,6 +54,7 @@ Treat Pi source as untrusted input. Inspect it; never import or execute it merel
 ## Installation and publication rules
 
 - Default to project scope while developing unless the user asked for a user-wide install.
+- Preserve `extensionApi: 1` and use only the public `api` contract. Keep packages in project/user extension storage, outside the CLI installation, so CLI upgrades preserve the package and trust state.
 - Use `--link` only for development. Verify a copied install before publication.
 - Do not add dependencies for a declarative package. Bundle runtime dependencies; Autohand does not install them.
 - Do not publish, push, open a pull request, or mutate a public registry unless the user requested that external action.
@@ -62,4 +63,4 @@ Treat Pi source as untrusted input. Inspect it; never import or execute it merel
 
 ## Completion contract
 
-Do not stop at scaffolding. Completion requires a valid package or source implementation, focused tests, the repository's lint and proof gates, built-CLI Tuistory when terminal behavior is involved, fresh-process discovery, and evidence that install/enable/disable behavior is stable. If a Pi capability cannot be represented faithfully, finish the authorized native implementation or report the exact unsupported boundary instead of silently dropping it.
+Do not stop at scaffolding. Completion requires a valid package or source implementation, focused tests, the repository's lint and proof gates, built-CLI Tuistory when terminal behavior is involved, same-session reload after an edit, API v1 discovery after a CLI upgrade, and evidence that install/enable/disable behavior is stable. If a Pi capability cannot be represented faithfully, finish the authorized native implementation or report the exact unsupported boundary instead of silently dropping it.

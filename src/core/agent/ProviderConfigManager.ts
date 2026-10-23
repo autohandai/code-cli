@@ -2385,6 +2385,22 @@ export class ProviderConfigManager {
       }
       return;
     }
+    if (verification.warning) {
+      // Some OpenAI-compatible endpoints (routers, gateways) accept model names
+      // they don't list in /models, so a missing model is a warning, not a stop.
+      console.log(chalk.yellow(`\n⚠ ${verification.warning}`));
+      if (verification.hint) {
+        console.log(chalk.gray(verification.hint));
+      }
+      const saveAnyway = await showConfirm({
+        title: t("providers.custom.saveAnyway", { model: customProvider.model }),
+        defaultValue: false,
+      });
+      if (!saveAnyway) {
+        console.log(chalk.gray("\n" + t("providers.config.cancelled")));
+        return;
+      }
+    }
 
     this.runtime.config.customProviders = {
       ...this.runtime.config.customProviders,
@@ -2410,7 +2426,7 @@ export class ProviderConfigManager {
 
   private async verifyCustomProvider(
     provider: CustomProviderSettings,
-  ): Promise<{ valid: boolean; error?: string; hint?: string }> {
+  ): Promise<{ valid: boolean; error?: string; warning?: string; hint?: string }> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -2434,8 +2450,8 @@ export class ProviderConfigManager {
       const modelIds = this.extractOpenAIModelIds(body);
       if (modelIds.length > 0 && !modelIds.includes(provider.model)) {
         return {
-          valid: false,
-          error: t("providers.custom.modelNotFound", {
+          valid: true,
+          warning: t("providers.custom.modelNotFound", {
             model: provider.model,
           }),
           hint: t("providers.custom.modelNotFoundHint", {
@@ -4208,6 +4224,14 @@ export class ProviderConfigManager {
   /**
    * Reset the LLM client with a new provider and model
    */
+  refreshExtensionProvider(): void {
+    const provider = this.runtime.config.provider;
+    if (!provider?.startsWith('extension:')) return;
+    const settings = getProviderConfig(this.runtime.config, provider);
+    const model = this.runtime.options.model ?? settings?.model;
+    if (model) this.resetLlmClient(provider, model);
+  }
+
   private resetLlmClient(provider: ProviderName, model: string): void {
     // Update config to use the selected provider and model
     this.runtime.config.provider = provider;

@@ -18,7 +18,7 @@ interface ResumeCommandDependencies {
 export function registerResumeOptions(program: Command): void {
   program
     .option('-c, --continue', 'Resume the latest session in this folder (supports -p)', false)
-    .option('-r, --resume [id]', 'Resume a saved session, or open the folder picker without an id')
+    .option('-r, --resume [reference]', 'Resume a saved session, or open the folder picker without one; with --cloud, resume an owned cloud session by ID or Web URL')
     .option('--auto-commit', 'Auto-commit with LLM-generated message (runs lint & test first)', false);
 }
 

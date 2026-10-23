@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { renderMarkdownForTerminal } from '../../src/ui/terminalMarkdown.js';
 import { tester } from '../../src/commands/tester.js';
 
 describe('/tester', () => {
@@ -38,6 +39,10 @@ describe('/tester', () => {
     const result = await tester({ workspaceRoot, queueInstruction }, ['run', 'test']);
     expect(result).toContain('Project script: passed');
     expect(result).toContain('Exit code: 0');
+    const rendered = renderMarkdownForTerminal(result!, { color: false, hyperlinks: false, width: 120 });
+    expect(rendered).toMatch(/^Exit code: 0$/m);
+    expect(rendered).toMatch(/^Visual inspection: not-run$/m);
+    expect(rendered).toMatch(/^Evidence: report.md/m);
     expect(result).toContain('report.md');
     expect(result).toContain('Visual inspection: not-run');
     expect(queueInstruction).not.toHaveBeenCalled();

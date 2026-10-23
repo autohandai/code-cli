@@ -196,6 +196,10 @@ export class Theme {
  * Detect terminal color capabilities.
  */
 export function detectColorMode(): ColorMode {
+  if (process.env.TERM === 'dumb') {
+    return 'none';
+  }
+
   // Check for NO_COLOR environment variable
   if (process.env.NO_COLOR !== undefined) {
     return 'none';

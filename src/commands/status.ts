@@ -149,6 +149,7 @@ function renderStatusUI(data: StatusData): Promise<void> {
         };
 
         const handler = (chunk: Buffer | string) => {
+            if (completed) return;
             clearEscTimer();
             buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
 
@@ -166,11 +167,9 @@ function renderStatusUI(data: StatusData): Promise<void> {
                     }
 
                     if (buffer[1] === '[') {
-                        if (buffer.length < 3) {
-                            return false;
-                        }
-                        const seq = buffer.slice(0, 3);
-                        buffer = buffer.slice(3);
+                        const seq = /^\x1b\[[0-?]*[ -/]*[@-~]/.exec(buffer)?.[0];
+                        if (!seq) return false;
+                        buffer = buffer.slice(seq.length);
                         handleSequence(seq);
                         return true;
                     }
@@ -187,7 +186,7 @@ function renderStatusUI(data: StatusData): Promise<void> {
                 return true;
             };
 
-            while (processNext()) {
+            while (!completed && processNext()) {
                 // Keep processing buffered sequences until we run out or need more bytes
             }
 
@@ -196,18 +195,31 @@ function renderStatusUI(data: StatusData): Promise<void> {
             // that byte never comes, so the panel would ignore the exit key it
             // advertises. Settle it the way terminals do: if nothing follows
             // shortly, it was a standalone Esc.
-            if (buffer === '\u001b') {
+            if (!completed && buffer.startsWith('\u001b')) {
+                if (buffer.length > 256) buffer = '';
                 escTimer = setTimeout(() => {
                     escTimer = null;
                     if (buffer === '\u001b') {
                         buffer = '';
                         handleSequence('\u001b');
+                    } else {
+                        buffer = '';
                     }
                 }, 50);
             }
         };
 
         const handleSequence = (sequence: string) => {
+            const encoded = /^\x1b\[(\d+)(?:;(\d+)(?::([123]))?)?u$/.exec(sequence);
+            if (encoded) {
+                if (encoded[3] === '3') return;
+                const code = Number(encoded[1]);
+                const modifiers = Number(encoded[2] ?? 1);
+                if (code === 27) sequence = '\u001b';
+                else if (code === 99 && ((modifiers - 1) & 4) !== 0) sequence = '\u0003';
+                else if (code === 9 && modifiers === 1) sequence = '\t';
+                else if (code === 9 && modifiers === 2) sequence = '\u001b[Z';
+            }
             switch (sequence) {
                 case '\u001b': // ESC
                 case '\u0003': // Ctrl+C

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/autohandai/code-extensions/main/schema/autohand.extension.schema.json",
+  "schemaVersion": 1,
+  "extensionApi": 1,
+  "id": "autohand.document-factory",
+  "name": "Document Factory",
+  "version": "1.0.0",
+  "description": "Seed a staff-level engineering document factory: TRD, PRD, Implementation Design, TDD, Code, and ADRs, orchestrated with sub-agents.",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/autohandai/code-cli",
+  "contributes": {
+    "runtime": [
+      "dist/extension.mjs"
+    ]
+  }
+}

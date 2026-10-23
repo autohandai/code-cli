@@ -32,6 +32,7 @@ For local repository scanning and credential reuse during workflow uploads, see
 - [Configuration File Location](#configuration-file-location)
 - [Environment Variables](#environment-variables)
 - [Bare Mode](#bare-mode)
+- [Foreground Mode](#foreground-mode)
 - [Provider Settings](#provider-settings)
 - [Workspace Settings](#workspace-settings)
 - [UI Settings](#ui-settings)
@@ -162,6 +163,16 @@ AUTOHAND_THINKING_LEVEL=extended autohand --prompt "refactor this module"
 ```
 
 ---
+
+## Foreground Mode
+
+Run `autohand --no-daemon` to disable automatic background services for this invocation. Normal foreground model requests, file tools, shell commands, Git, slash commands, and session history remain available.
+
+The flag skips trace-daemon reconciliation, settings sync, pings, account polling, peer heartbeats, update/catalog/announcement prefetches, suggestions, automatic memory reflection, repository readiness, hooks, MCP and computer/browser helpers. Native search indexing and watchers are replaced by foreground search. Background shell tools, teammate processes, scheduled tasks and service-starting commands are blocked. Local-model setup can connect to an existing server and will not start one. Existing services started by another invocation are left alone. These overrides are never saved to your configuration. `--tmux` cannot be combined with `--no-daemon`.
+
+`/clear` compacts the current session into a bounded handoff containing the user request, learned facts, changes and final answer. With a configured hosted Autohand AI provider it makes one Weka `/decisions` call to select useful evidence; Weka is a typed decision API, so the CLI assembles the handoff from that evidence. It falls back to local extraction when credentials are absent, Weka fails, or its ten-second deadline expires. Escape cancels without replacing the conversation. The original transcript stays on disk, and resume starts from the latest saved compaction checkpoint.
+
+`/new` archives the current session and starts a new session ID with fresh conversation and accounting state. It does not wait for an inference or memory-extraction call.
 
 ## Bare Mode
 
@@ -772,7 +783,8 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `activityVerbs`              | string or string[] | built-in pool | Custom activity verb or verb pool for the working indicator, rendered as `Verb...` |
 | `activityVerbsEnabled`       | boolean | `true`  | Show rotating activity verbs like `Compiling...` while the agent is working |
 | `activitySymbol`             | string | `"✳"`   | Symbol shown before the activity verb in activity indicator output |
-| `showTips`                   | boolean | `true`  | Rotate tips about slash commands, the `/ @ $ ! : ?` triggers and shortcuts beside the idle composer |
+| `showTips`                   | boolean | `true`  | Rotate built-in capability tips below the working status or completion summary and above the composer |
+| `repositoryReadiness`        | boolean | `true`  | Review repository readiness in the background; show one reminder per repository after a successful interactive turn. Set false to disable background reviews |
 | `enterWhileWorking`          | string  | `select` | While a turn runs, Enter queues a draft; select a queued message with the arrow keys, press Enter to edit it, then Enter to steer or Shift+Enter to save it in the queue. `steer` and `queue` retain the earlier direct steering shortcuts for configured sessions |
 | `defaultInteractionMode`    | `"default"`, `"plan"`, `"automode"` or `"yolo"` | `"default"` | Mode an interactive terminal session starts in. The default asks before risky actions. Auto mode requires an explicit flag, mode selection, or `defaultInteractionMode` set to `"automode"`, and runs without approval prompts. `--plan`, `--yolo`, `--restricted`, `--dry-run`, `--unrestricted`, `--yes` and a `restricted` or `external` `permissions.mode` take precedence, and command, RPC and ACP runs are never switched to auto mode |
 | `statusLine.showProviderModel` | boolean | `true`  | Show the active provider and model in the composer status line |
@@ -939,7 +951,7 @@ Customize the verbs in the config file when you want a fixed status label or a s
 }
 ```
 
-`activityVerbs` accepts either a single string or a non-empty string array. When `activityVerbsEnabled` is `false`, Autohand falls back to `Working...` instead of rotating through custom or built-in verbs. While no turn is running, a tip rotates every 30 seconds at the right end of the row above the composer, beside the `Completed in …` summary. Tips cover slash commands, the `/ @ $ ! : ?` composer triggers, keyboard shortcuts and your installed skills; only tips that fit the remaining width are drawn, and they hide while the agent works. Set `showTips` to `false`, or toggle Idle tips in `/settings`, to turn them off.
+`activityVerbs` accepts either a single string or a non-empty string array. When `activityVerbsEnabled` is `false`, Autohand falls back to `Working...` instead of rotating through custom or built-in verbs. A tip rotates every 30 seconds on its own left-aligned row above the composer, below the working status or the `Completed in …` summary. Tips remain visible across turns, and starting or finishing work does not reset their rotation. Tips include practical prompts for debugging, tests, codebase exploration and git worktrees, along with reviews, browser checks, recurring tasks, slash commands, the `/ @ $ ! : ?` composer triggers, keyboard shortcuts and your installed skills. Tips use the full composer width; only tips that fit are selected. Set `showTips` to `false`, or toggle Capability tips in `/settings`, to turn them off.
 
 You can toggle completion reports, including the structured `SITREP` prompt, without editing the file:
 
@@ -987,7 +999,29 @@ Emergency fallback for terminal compatibility:
 AUTOHAND_LEGACY_UI=1 autohand
 ```
 
-Note: This feature is experimental and may have edge cases. The default ora-based UI remains stable and fully functional.
+### Full-screen Mode
+
+Full-screen mode is **stable and enabled by default** in interactive terminals (config path `features.fullScreenMode`, default `true`). To opt out, set the following configuration, run `/experiments disable full_screen_mode` inside the CLI, or run `autohand experiments disable full_screen_mode` from your shell, then restart Autohand. Explicit `false` settings are preserved. To restore full-screen mode, set it to `true` or use the corresponding `enable` command and restart. The existing feature-switch commands support stable features as well as experiments.
+
+```json
+{
+  "features": {
+    "fullScreenMode": false
+  }
+}
+```
+
+The full-screen layout shows Autohand Code, its runtime version, and the working directory at the top, with loading activity directly beneath the directory. Navigation and search hints appear below the composer's status line. A scrollable transcript fills the space above the composer. Page Up/Page Down browse the transcript; Ctrl+Home jumps to the first message. Ctrl+End returns to the latest output and resumes automatic following. While browsing, a line above the composer shows “Back to bottom” and marks new activity without moving your reading position. Escape returns to the bottom after closing any open menu or shortcut help; at the bottom, Escape keeps its normal interruption behavior. Ctrl+F opens transcript search, Enter finds the next match, Shift+Enter finds the previous match with wraparound, and Escape closes search without changing your draft. Ctrl+O retains the existing tool-detail toggle. Opening `/usage` or another modal preserves the parent screen, transcript position, and draft when you return. Long multiline drafts display a bounded window around the cursor.
+
+Full-screen mode requires interactive TTY input and output and is skipped for `TERM=dumb`. Noninteractive, piped, RPC and ACP output retains its existing format. Mouse behavior follows `ui.mouseComposerCursor` and the existing terminal defaults. When enabled, clicking positions the composer caret and the wheel scrolls the transcript. Set it to `false` to leave mouse selection to the terminal; terminal selection modifiers and hyperlinks remain terminal-dependent. The `?` shortcut opens grouped keyboard help above the composer. Full-screen suggestion menus also open above the input, keeping the composer and status bar anchored. Shell scrollback returns when Autohand exits; conversation history remains in saved Autohand sessions. There is no change to model context, token accounting, permissions, or session storage.
+
+See the [specification](full-screen-mode/spec.md), [design](full-screen-mode/design.md), and [implementation checklist](full-screen-mode/implementation.md).
+
+### Repository Readiness Suggestions
+
+`ui.repositoryReadiness` defaults to `true`. The background review shows one short reminder after a successful interactive turn, **once per repository**, shared across sessions and worktrees on this machine. New or reworded findings do not repeat the reminder. Its shown or dismissed state is saved under `~/.autohand/repository-readiness/` (or your configured Autohand home); existing caches with previously shown findings also suppress it.
+
+Use `/readiness` whenever you want to see the latest report, `/readiness apply 1` to queue a selected review, or `/readiness dismiss` to hide the automatic reminder for that repository. The reminder appears as one transcript entry and scrolls into history as you continue working. Dismissal keeps the report available for manual review. Set `"ui": { "repositoryReadiness": false }` and restart to disable background readiness reviews entirely. Reviews and reminders do not run in offline, bare, ephemeral, command, RPC, or ACP sessions.
 
 ### Mouse Composer Cursor
 
@@ -1015,7 +1049,7 @@ machine), in `/settings` → UI → Keyboard shortcuts, or directly:
 autohand config set ui.keybindingProfile codex
 ```
 
-Every profile keeps Autohand's fixed keys: Enter submits (while a turn runs it queues drafts; select a queued message and submit it to steer, see `ui.enterWhileWorking`), Esc interrupts,
+Every profile keeps Autohand's fixed keys: Enter submits (while a turn runs it queues drafts; select a queued message and submit it to steer, see `ui.enterWhileWorking`), Ctrl+Enter steers queued input, and Esc interrupts.
 Shift+Tab cycles interaction modes, Ctrl+C clears the input and exits on a
 second press, `?` on an empty composer shows the shortcuts panel, and Ctrl+O,
 Ctrl+T and Ctrl+G expand command output and toggle the team and goals panels.
@@ -1184,6 +1218,11 @@ Set `idleTimeoutMs` to a positive duration in milliseconds to change the idle pe
 
 ### Goals and auto mode
 
+From 0.9.9, persistent goals are enabled by default. A stored
+`features.slashGoal: false` keeps them disabled. Use
+`/experiments disable slash_goal` to opt out, or
+`/experiments enable slash_goal` to enable them again.
+
 A goal is a standing instruction to keep working, so starting one switches the
 session into auto mode: the agent drives its own turns and stops asking for tool
 approval until the goal is complete. Setting a new goal while one is active
@@ -1317,7 +1356,10 @@ Three ways to enable debug mode (in order of precedence):
 When `enableRequestQueue` is enabled, you can continue typing messages while the agent processes a previous request. Your input will be queued and processed automatically when the current task completes.
 
 - Type your message and press Enter to add it to the queue
+- Press Ctrl+Enter to steer the highlighted queued message, or the oldest queued message when none is highlighted
+- Ctrl+Enter preserves an unrelated composer draft and the remaining queue. The active turn reads the message on its next model request, after any in-flight request or tool completes
 - The status line shows how many requests are queued
+- The queue previews up to five messages, using fewer rows in short terminals. Arrow-key selection keeps the highlighted message visible; a count shows how many other messages remain queued
 - Requests are processed in FIFO (first-in, first-out) order
 - Maximum queue size is 10 requests
 
@@ -2857,6 +2899,7 @@ These flags override config file settings:
 | `--dry-run`                   | Preview without executing                                                                      |
 | `-d, --debug`                 | Enable verbose debug output                                                                    |
 | `--bare`                      | Minimal explicit mode; also sets `AUTOHAND_CODE_SIMPLE=1` and disables slash commands          |
+| `--no-daemon`                 | Disable background services and child processes for this run; retain foreground tools and slash commands |
 | `--ephemeral`                 | Keep the run out of session history: no session directory or index entry, no automatic memory extraction, no session sync. Files the agent writes in the workspace are unaffected. Cannot be combined with `--resume` or `--fork` |
 | `--profile <name>`            | Layer `profiles.<name>` from the config onto this run; see [Profiles and One-Run Overrides](#profiles-and-one-run-overrides) |
 | `--set <key=value>`           | Override one setting for this run by dotted path; repeatable; never saved                       |
@@ -2909,7 +2952,7 @@ autohand --zit -p "Add a short Usage section to README.md" --yes
 
 What happens:
 
-1. Autohand requires a git repository and the `zit` CLI (`ZIT_BIN`, else `zit` on `PATH`; install with `cargo install zit`).
+1. Autohand requires a git repository and the `zit` CLI (`ZIT_BIN`, an existing `zit` on `PATH`, or the binary included in npm/Bun packages, in that order). The package includes verified Zit binaries for macOS and Linux on ARM64 and x64, so package installs need no separate Rust or Zit setup, even when lifecycle scripts are disabled. Source checkouts can install Zit with `cargo install zit`.
 2. If the repository has no Zit graph yet (`refs/zit/current`), it runs `zit init`.
 3. It runs `zit materialise --agent autohand --intent <intent>` and uses the printed directory as the session workspace. `ZIT_WORKSPACE` is set to the workspace id, so the agent's `zit claim` and `zit status` commands target it; when `ZIT_BIN` points outside `PATH`, its directory is added to `PATH` for the agent's shell. Zit ignores Autohand's own session state (`.autohand/memory/`, `goals.local.json`, `settings.local.json`, `session-permissions.json`), so it never becomes part of the recorded change.
 4. Before any file tool writes (`write_file`, `append_file`, `apply_patch`, `search_replace`, `multi_file_edit`, `notebook_edit`, `format_file`, `delete_path`, `rename_path`, `copy_path`, `git_apply_patch`, `git_checkout <path>`, dependency edits to `package.json`), Autohand claims what the tool changes, once per resource per session. For an edit to an existing file it writes the new content to a temporary file and asks Zit which resources the edit changes (`zit claim --workspace <id> --edit <path> --content <file> --dry-run --json`), then claims those it does not already hold: the changed functions, types and methods, imports, module-level code (`path#`) or Markdown sections, as Zit indexes them; files Zit cannot parse are claimed whole. New files, deletes, renames, copies and patches claim the whole file (`zit claim --workspace <id> <path>`). A claim on one function or section does not conflict with another agent's work on a different one in the same file. With a Zit that predates `claim --edit`, Autohand falls back to its own Markdown section diff and claims other files whole. If Zit refuses, the tool writes nothing and returns Zit's refusal, naming the holder, with "Another agent holds this. Pick other work or stop." If `zit` fails for another reason, the tool also writes nothing and returns the error.
@@ -3016,6 +3059,7 @@ To register the native stdio agent in Zed, JetBrains IDEs, JetBrains Air, or ano
 
 Remote feature flags are fetched from `/v1/feature-flags/evaluate`, cached at `~/.autohand/feature-flags.json`, and refreshed after the API-provided TTL expires. Use `features.environment` to select a remote flag environment and `features.remoteOverrides` for local opt-outs of user-overridable remote flags.
 
+
 `cli_usage_v2` is an experimental feature switch for the project token activity dashboard shown by `/usage`, `/usage weekly`, and `/usage monthly` (config path `features.cliUsageV2`, default on). Disable it with `autohand experiments disable cli_usage_v2`.
 
 In an interactive terminal, `/usage` opens a dedicated keyboard-driven screen with Overview, Usage, Messages, Extensions, Skills, Sessions, and Traces reports. Tab/Shift+Tab or 1–7 selects a report, left/right selects a chart day, up/down and Page Up/Page Down browse content, and Enter opens session details. Press `r` for 7/30 days, `p` for this project/all local projects, `s` to sort sessions, `R` to refresh, and `?` for help. Escape goes back; Escape at the report level or Ctrl+C closes the screen and restores the composer.
@@ -3072,8 +3116,8 @@ The picker loads twenty sessions per page and provides **More sessions** and **P
 | ------------- | ----------------------------------------------------- |
 | `/quit`       | Exit the current session                              |
 | `/exit`       | Exit the current session                              |
-| `/new`        | Start fresh conversation (with memory extraction)     |
-| `/clear`      | Clear conversation with automatic memory extraction   |
+| `/new`        | Archive current session and start a fresh session ID   |
+| `/clear`      | Compact context and retain a resumable session handoff |
 | `/session`    | Show current session details                          |
 | `/sessions`   | List past sessions                                    |
 | `/resume`     | Resume a previous session                             |
@@ -3117,7 +3161,7 @@ Node builds install an environment proxy dispatcher at startup when `HTTPS_PROXY
 | `/agents view` | Inspect direct and team runs                          |
 | `/agents provider [agent]` | Choose and confirm the provider/model default for new teammates, or an override for one sub-agent definition |
 | `/agents-new` | Create a new agent via wizard                         |
-| `/squad`      | Open/manage the standalone Autohand Squad runtime     |
+| `/squad`      | Open the Autohand Squad app (installs it if missing); subcommands manage the runtime |
 | `/team`       | Manage team for parallel work                         |
 | `/tasks`      | Manage tasks in team                                  |
 | `/message`    | Send message to teammate                              |
@@ -3404,3 +3448,11 @@ Cloud Autohand sessions expose a Moa reasoning effort control through
 values are \`medium\`, \`high\` (default), and \`xhigh\`. Changes apply to the
 active session's subsequent Moa requests and do not overwrite the global config.
 Fantail ignores this setting; local sessions do not advertise it.
+
+## Web search
+
+`search.provider` accepts `autohand`, `browser-profile`, `exa`, `brave`, `parallel`, `google`, and `duckduckgo`. An explicit `--search-engine` wins over the saved setting in interactive, patch, automatic, RPC, and ACP modes.
+
+When no provider is selected, a signed-in account with server-verified paid access uses Autohand Web Search. Lite, Pro, Pro Plus, Max, Team, and Enterprise include this service through `https://dev.autohand.ai/api/native/web-search`; Free users configure an existing provider during standard or quick setup, or with `/search`. Queries are limited to 1,024 characters, 10 results, and 30 requests per account per minute. Access uses the selected Autohand account and existing account credentials; customers do not need Cloudflare credentials. A failed hosted search reports its status and does not change providers.
+
+Browser Profile is the local default. Connect Chromium through `/browser` or provide an available Chrome/Brave profile. A missing, locked, or blocked profile produces a setup error instead of silently switching to Google. Exa, Brave, and Parallel require `search.exaApiKey`, `search.braveApiKey`, or `search.parallelApiKey`, respectively, or `EXA_API_KEY`, `BRAVE_SEARCH_API_KEY`, or `PARALLEL_API_KEY`. Onboarding never saves a keyed provider with a blank key. Google and DuckDuckGo can be selected explicitly; automated requests may receive CAPTCHA challenges.

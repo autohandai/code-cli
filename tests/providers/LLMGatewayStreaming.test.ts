@@ -8,6 +8,16 @@ const client = () => new LLMGatewayClient({ apiKey: 'fixture', model: 'moa' }, {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('cloud inference streaming', () => {
+  it.each(['', '{"choices":'])('does not replay accepted malformed HTTP JSON and identifies its transport stage: %j', async body => {
+    const fetch = vi.fn().mockImplementation(() => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetch);
+    const cloud = new LLMGatewayClient({ apiKey: 'fixture', model: 'moa' }, { maxRetries: 2, retryDelay: 1 }, {
+      serviceName: 'Autohand AI', credentialName: 'Autohand API key', accountName: 'Autohand account',
+    });
+    await expect(cloud.complete({ messages: [] })).rejects.toMatchObject({ retryable: false,
+      message: expect.stringContaining('stage=http-json') });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
   it.each([false, true])('preserves a safety rejection without retries or completed tool calls (stream=%s)', async (stream) => {
     const error = { type: 'content_blocked', categories: ['S7'], requestId: 'server-request-123', message: "This message was blocked by Autohand's safety check. Rephrase it and try again." };
     const tool = { index: 0, id: 'call-1', type: 'function', function: { name: 'mcp__autohand-computer-use__click', arguments: '{}' } };
@@ -30,6 +40,58 @@ describe('cloud inference streaming', () => {
     await expect(result).rejects.toThrow('Request ID: server-request-123');
     await expect(result).rejects.not.toThrow(/malformed|network|Check \/usage/);
     expect(fetch).toHaveBeenCalledOnce();
+  });
+  it('retains the tool identity when later stream chunks carry empty or null IDs', async () => {
+    const body = event({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-original', function: { name: 'read_file', arguments: '' } }] } }] })
+      + event({ choices: [{ delta: { tool_calls: [{ index: 0, id: '', function: { arguments: '' } }] } }] })
+      + event({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"path":"README.md"}' } }] } }] })
+      + event({ choices: [{ delta: { tool_calls: [{ index: 0, id: null, function: { arguments: '' } }] }, finish_reason: 'tool_calls' }] })
+      + 'data: [DONE]\n\n';
+    const fetch = vi.fn().mockResolvedValue(new Response(body, { headers: { 'content-type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetch);
+    expect(await client().complete({ messages: [], stream: true })).toMatchObject({
+      toolCalls: [{ id: 'call-original', function: { name: 'read_file', arguments: '{"path":"README.md"}' } }],
+      finishReason: 'tool_calls',
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it.each([
+    { id: undefined, name: 'run_command' },
+    { id: 'call-incomplete', name: '' },
+  ])('withholds a genuinely incomplete tool header for bounded continuation: %j', async ({ id, name }) => {
+    const body = event({ choices: [{ delta: { content: 'Run git status to confirm everything is clean', tool_calls: [
+      { index: 0, id, function: { name, arguments: '{"command":"git status --short"}' } },
+    ] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 7, completion_tokens: 9, total_tokens: 16 } })
+      + 'data: [DONE]\n\n';
+    const fetch = vi.fn().mockResolvedValue(new Response(body, { headers: { 'content-type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetch);
+    const response = await client().complete({ messages: [], stream: true });
+    expect(response).toMatchObject({ content: 'Run git status to confirm everything is clean', finishReason: 'length',
+      usage: { promptTokens: 7, completionTokens: 9, totalTokens: 16 } });
+    expect(response.toolCalls).toBeUndefined();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it('withholds the entire tool batch when one header is incomplete', async () => {
+    const body = event({ choices: [{ delta: { tool_calls: [
+      { index: 0, id: 'valid-read', function: { name: 'read_file', arguments: '{"path":"package.json"}' } },
+      { index: 1, function: { name: 'write_file', arguments: '{"path":"must-not-run","contents":"invalid"}' } },
+    ] }, finish_reason: 'tool_calls' }] }) + 'data: [DONE]\n\n';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body)));
+    const response = await client().complete({ messages: [], stream: true });
+    expect(response.finishReason).toBe('length');
+    expect(response.toolCalls).toBeUndefined();
+    const fetch = vi.mocked(globalThis.fetch);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('preserves a content-filter finish while withholding an incomplete header', async () => {
+    const body = event({ choices: [{ delta: { content: 'Blocked.', tool_calls: [
+      { index: 0, function: { name: 'run_command', arguments: '{}' } },
+    ] }, finish_reason: 'content_filter' }] }) + 'data: [DONE]\n\n';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body)));
+    const response = await client().complete({ messages: [], stream: true });
+    expect(response.finishReason).toBe('content_filter');
+    expect(response.toolCalls).toBeUndefined();
   });
   it('targets inference directly by default', () => {
     expect(AUTOHAND_AI_DEFAULT_BASE_URL).toBe('https://inference.autohand.ai/v1');

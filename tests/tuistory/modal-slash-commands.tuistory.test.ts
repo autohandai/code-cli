@@ -47,9 +47,10 @@ async function waitForComposer(session: Session): Promise<void> {
   });
 }
 
-async function launchInteractive(): Promise<Session> {
+async function launchInteractive(fullScreenMode: boolean): Promise<Session> {
   const state = await createTempAutohandHome({
     config: {
+      features: { fullScreenMode },
       ui: { promptSuggestions: false },
     },
   });
@@ -76,8 +77,9 @@ async function expectStillRunning(session: Session, command: string): Promise<vo
 }
 
 describe('raw-stdin modal slash commands Tuistory', () => {
-  it('keeps the CLI alive while the /status panel is open', async () => {
-    const session = await launchInteractive();
+  it.each([false, true])('keeps the CLI alive while the /status panel is open (full screen: %s)', async fullScreen => {
+    const session = await launchInteractive(fullScreen);
+    const baseline = (await session.text()).split('\n').findIndex(line => line.trimStart().startsWith('❯'));
 
     await session.type('/status');
     await session.press('enter');
@@ -92,13 +94,15 @@ describe('raw-stdin modal slash commands Tuistory', () => {
     // "Esc to exit" does nothing.
     await session.press('escape');
     await waitForComposer(session);
+    if (fullScreen) expect((await session.text()).split('\n').findIndex(line => line.trimStart().startsWith('❯'))).toBe(baseline);
     expect(session.exitInfo, 'Escape closed the /status panel and killed the CLI').toBeNull();
 
     await exitInteractive(session);
   }, 90_000);
 
-  it('keeps the CLI alive while the /agents live view is open', async () => {
-    const session = await launchInteractive();
+  it.each([false, true])('keeps the CLI alive while the /agents live view is open (full screen: %s)', async fullScreen => {
+    const session = await launchInteractive(fullScreen);
+    const baseline = (await session.text()).split('\n').findIndex(line => line.trimStart().startsWith('❯'));
 
     await session.type('/agents');
     await session.press('enter');
@@ -111,6 +115,7 @@ describe('raw-stdin modal slash commands Tuistory', () => {
 
     await session.press('escape');
     await waitForComposer(session);
+    if (fullScreen) expect((await session.text()).split('\n').findIndex(line => line.trimStart().startsWith('❯'))).toBe(baseline);
     expect(session.exitInfo, 'Escape closed the /agents view and killed the CLI').toBeNull();
 
     await exitInteractive(session);

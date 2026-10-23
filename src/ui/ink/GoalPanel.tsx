@@ -18,6 +18,7 @@ export interface GoalEditRequest {
 }
 
 export interface GoalPanelProps {
+  compact?: boolean;
   snapshot: GoalSessionSnapshot;
   selectedIndex: number | null;
   onRowLayoutChange?: (target: GoalEditRequest, layout: OutputLayout | null) => void;
@@ -102,6 +103,7 @@ const GoalRow = memo(function GoalRow({
 });
 
 export const GoalPanel = memo(function GoalPanel({
+  compact = false,
   snapshot,
   selectedIndex,
   onRowLayoutChange,
@@ -122,7 +124,7 @@ export const GoalPanel = memo(function GoalPanel({
   const receiptObjective = snapshot.goal?.completionReceipt ? snapshot.goal.objective : lastCompleted?.objective;
 
   return (
-    <Box flexDirection="column" marginTop={1} marginBottom={1}>
+    <Box flexDirection="column" marginTop={compact ? 0 : 1} marginBottom={compact ? 0 : 1}>
       <Box gap={1}>
         <Text bold>Goals · {total} total</Text>
         <Text color={colors.muted}>· Ctrl+G close</Text>

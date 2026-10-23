@@ -1,0 +1,7 @@
+Repository readiness
+
+Small CLI with a package manifest and repository guidance.
+
+1. Update repository guidance
+   Review changed startup commands against current instructions.
+   Evidence: AGENTS.md

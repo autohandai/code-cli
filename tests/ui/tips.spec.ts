@@ -25,14 +25,14 @@ describe('tool_tips.json', () => {
     }
   });
 
-  it('points every static tip at a trigger, a slash command or a key', () => {
-    const actionable = /(^|\s)[/@$!:?]|\b(Shift|Ctrl|Esc|Tab)\b|↑/u;
+  it('offers a command, shortcut, attachment action or concrete example prompt', () => {
+    const actionable = /(^|\s)[/@$!:?]|\b(Shift|Ctrl|Esc|Tab|Enter)\b|↑|^Ask: "|^Drop /u;
     for (const text of staticTips) {
       expect(text).toMatch(actionable);
     }
   });
 
-  it('keeps every static tip short enough to sit beside the completion summary', () => {
+  it('keeps every static tip readable on its own terminal row', () => {
     for (const text of staticTips) {
       expect(text.length, text).toBeLessThanOrEqual(60);
     }
@@ -53,6 +53,19 @@ describe('tool_tips.json', () => {
       expect(pool, command).toContain(`${command} `);
     }
     expect(staticTips.length).toBeGreaterThanOrEqual(40);
+  });
+
+  it('shows practical built-in workflows beyond command discovery', () => {
+    const pool = staticTips.join('\n');
+    for (const capability of ['/browser', '/review security', '/review performance', '/agents view', '/readiness', '/repeat 5m']) {
+      expect(pool, capability).toContain(capability);
+    }
+    const examples = staticTips.filter((text) => text.startsWith('Ask: "'));
+    expect(examples.length).toBeGreaterThanOrEqual(6);
+    for (const capability of ['test', 'root cause', 'codebase', 'worktree', 'docs', 'edge cases']) {
+      expect(examples.join('\n'), capability).toContain(capability);
+    }
+    expect(staticTips.some((text) => text.startsWith('Drop ') && text.includes('screenshot'))).toBe(true);
   });
 
   it('suggests the user own installed skills, with a short form for tight rows', () => {

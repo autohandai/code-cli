@@ -5,6 +5,7 @@
  */
 
 import chalk from 'chalk';
+import { formatToolObservation } from '../agent/AgentToolOutputRuntime.js';
 import { randomUUID } from 'node:crypto';
 import { SUBAGENT_SKILLS_PROMPT_KEY, SubAgentSkills, type SubAgentSkillsRegistry } from './subAgentSkills.js';
 import type { RunBudgetGate } from '../agent/RunBudget.js';
@@ -591,9 +592,7 @@ export class SubAgent {
                 for (let j = 0; j < results.length; j++) {
                     const result = results[j];
                     const toolCall = toolCalls[j];
-                    const content = result.success
-                        ? result.output ?? '(no output)'
-                        : result.error ?? 'Tool failed';
+                    const content = formatToolObservation(result);
                     await this.options.onProgress?.({ status: 'tool', tool: result.tool, output: content, usage: this.getUsage() });
 
                     const message: LLMMessage = {

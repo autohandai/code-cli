@@ -21,9 +21,10 @@ export const metadata: SlashCommand = {
 /** The parent command, so `/handoff` alone offers the surfaces instead of failing. */
 export const handoffMetadata: SlashCommand = {
   command: '/handoff',
-  description: 'hand this session to Autohand Web or the Autohand Code iOS app',
+  description: 'continue this session in Cloud, Web, or the Autohand Code iOS app',
   implemented: true,
   subcommands: [
+    { name: 'cloud', description: 'continue this conversation and repository in a hosted cloud agent' },
     { name: 'web', description: 'continue this conversation in Autohand Web' },
     { name: 'session', description: 'continue this session in the Autohand Code iOS app' },
   ],
@@ -42,7 +43,7 @@ interface HandoffWebContext {
 }
 
 /** Keep user-visible history and embedded images; never copy tools, reasoning, or runtime configuration. */
-function conversationSnapshot(session: Session, ctx: HandoffWebContext): SessionTransfer {
+export function conversationSnapshot(session: Session, ctx: HandoffWebContext): SessionTransfer {
   const messages: TransferMessage[] = [];
   for (const message of session.getMessages()) {
     if (message.role !== 'user' && message.role !== 'assistant') continue;

@@ -115,7 +115,8 @@ describe('built cloud token streaming', () => {
     expect(completed).not.toContain('Session failed');
     expect(completed).not.toContain('Work paused for Moa review');
     expect(turns).toBe(2);
-    expect(reviews).toHaveLength(3);
+    // The provisional answer appears before the completion checkpoint request.
+    await vi.waitFor(() => expect(reviews).toHaveLength(3), { timeout: 10_000 });
     expect(reviews[0].max_tokens).toBe(8000);
     expect(reviews[1].max_tokens).toBe(16000);
     expect(execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: state.workspaceRoot, encoding: 'utf8' }).trim()).toBe('fixture.txt');

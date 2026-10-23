@@ -1341,3 +1341,23 @@ describe('SubAgent', () => {
     }
   });
 });
+
+
+describe('SubAgent failed observations', () => {
+  it('lets a worker use partial evidence returned alongside an operational error', async () => {
+    const complete: LLMProvider['complete'] = async request => {
+      const observation = request.messages.find(message => message.role === 'tool');
+      return observation
+        ? { content: String(observation.content).includes('PARTIAL_EVIDENCE') ? 'Verified partial evidence.' : 'Partial evidence was lost.' }
+        : { content: '', toolCalls: [nativeToolCall('read_file', { path: 'fixture.txt' })] };
+    };
+    const agent = new SubAgent({ name: 'reader', description: 'Reader', systemPrompt: 'Inspect source.',
+      tools: ['read_file'], path: '/tmp/reader.md' }, {
+      getName: () => 'autohandai', complete, getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool: async () => ({ success: false, kind: 'operational', error: 'Source unavailable', output: 'PARTIAL_EVIDENCE' }) } as unknown as ActionExecutor,
+    { clientContext: 'cli', depth: 1, maxDepth: 1 });
+
+    await expect(agent.run('Review available evidence.')).resolves.toBe('Verified partial evidence.');
+  });
+});

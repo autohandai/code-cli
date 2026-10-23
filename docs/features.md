@@ -39,6 +39,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [ ] Search history and command palette
 
 ## Session Management
+- [x] [Cloud sessions](cloud.md): hosted execution, reconnect, queue steering, approvals, and local/cloud handoff for Pro, Pro+, and Max
 - [x] Auto-save to `~/.autohand/sessions`
 - [x] Resume with `/resume` or `autohand resume <id>`
 - [x] History tracking (interactions, tool outputs, agent thoughts)
@@ -119,7 +120,9 @@ Persistent goal files survive between conversations, while execution and usage a
 
 ## Viewing and managing goals
 
-If goals are disabled, run `/experiments enable slash_goal`. Open the panel with
+Goals are enabled by default from 0.9.9. Existing explicit settings are preserved.
+Turn goals off with `/experiments disable slash_goal`; turn them back on with
+`/experiments enable slash_goal`. Open the panel with
 `/goals`, `/goals view`, or `/goal view`. Opening the view does not start queued work.
 Without an interactive panel, the view command returns a read-only text snapshot.
 

@@ -30,6 +30,7 @@ export interface ExtensionPackage {
 }
 
 export interface LoadedExtension extends ExtensionPackage {
+  installationPath?: string;
   scope: ExtensionScope;
   disabled: boolean;
   linked: boolean;

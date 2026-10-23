@@ -208,6 +208,7 @@ function createDefaultConfig(): AutohandConfig {
       completionReportEnabled: true,
       activityVerbsEnabled: true,
       promptSuggestions: true,
+      repositoryReadiness: true,
     },
     telemetry: {
       enabled: false,
@@ -1371,6 +1372,7 @@ function normalizeConfig(
         completionReportEnabled: true,
         activityVerbsEnabled: true,
         promptSuggestions: true,
+        repositoryReadiness: true,
       },
     };
   }
@@ -1578,6 +1580,9 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       typeof config.ui.autoConfirm !== "boolean"
     ) {
       throw new Error(`ui.autoConfirm must be boolean in ${configPath}`);
+    }
+    if (config.ui.repositoryReadiness !== undefined && typeof config.ui.repositoryReadiness !== "boolean") {
+      throw new Error(`ui.repositoryReadiness must be boolean in ${configPath}`);
     }
     if (
       config.ui.promptSuggestions !== undefined &&

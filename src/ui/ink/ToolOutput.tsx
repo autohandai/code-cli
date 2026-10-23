@@ -648,16 +648,20 @@ export interface LiveCommandBlockProps {
   onLayoutChange?: (layout: OutputLayout | null) => void;
 }
 
-export function LiveCommandBlock({ entry, onLayoutChange }: LiveCommandBlockProps) {
-  const { colors } = useTheme();
-  const rootRef = useRef<DOMElement | null>(null);
-  const metrics = useBoxMetrics(rootRef);
-  const { stdoutView, stderrView } = entry.isExpanded
+export function getLiveCommandViews(entry: LiveCommandEntry) {
+  return entry.isExpanded
     ? {
       stdoutView: { lines: getLines(entry.stdout), hiddenLineCount: 0 },
       stderrView: { lines: getLines(entry.stderr), hiddenLineCount: 0 },
     }
     : getCollapsedLiveCommandViews(entry.stdout, entry.stderr, LIVE_COMMAND_COLLAPSED_LINES);
+}
+
+export function LiveCommandBlock({ entry, onLayoutChange }: LiveCommandBlockProps) {
+  const { colors } = useTheme();
+  const rootRef = useRef<DOMElement | null>(null);
+  const metrics = useBoxMetrics(rootRef);
+  const { stdoutView, stderrView } = getLiveCommandViews(entry);
   const hiddenLineCount = stdoutView.hiddenLineCount + stderrView.hiddenLineCount;
   const hint = entry.isExpanded ? 'Ctrl+O collapse' : 'Ctrl+O expand';
   const hasVisibleOutput = stdoutView.lines.length > 0 || stderrView.lines.length > 0;

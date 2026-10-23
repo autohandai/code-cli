@@ -37,7 +37,7 @@ vi.mock('../../../src/providers/ProviderFactory.js', () => ({
   ProviderFactory: { create: vi.fn().mockReturnValue({}) },
 }));
 vi.mock('../../../src/actions/filesystem.js', () => ({ FileActionManager: class {} }));
-vi.mock('../../../src/actions/web.js', () => ({ configureSearchFromSettings: vi.fn() }));
+vi.mock('../../../src/actions/web.js', () => ({ configureSearchFromAccount: vi.fn() }));
 vi.mock('../../../src/core/conversationManager.js', () => ({
   ConversationManager: {
     getInstance: vi.fn().mockReturnValue({ addSystemNote: vi.fn() }),

@@ -213,7 +213,7 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     await exitInteractive(session);
   }, 90_000);
 
-  it('shows deep research status while the model turn is still active', async () => {
+  it.each([false, true])('shows deep research status while the model turn is active (full screen: %s)', async (fullScreenMode) => {
     const openRouterServer = await createMockOpenRouterSequenceServer([
       JSON.stringify({
         thought: 'The delayed response should arrive after the live status check.',
@@ -225,6 +225,7 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
 
     const state = await createTempAutohandHome({
       config: {
+        features: { fullScreenMode },
         openrouter: {
           baseUrl: openRouterServer.baseUrl,
         },
@@ -248,6 +249,7 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
       ], {
         autohandHome: state.autohandHome,
         cwd: state.workspaceRoot,
+        rows: 40,
         waitForDataTimeout: 15_000,
       })
     );

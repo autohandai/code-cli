@@ -80,6 +80,29 @@ describe('handleAgentSlashCommand telemetry', () => {
 });
 
 describe('renderAgentSlashCommandResult', () => {
+  it.each(['/deep-research', '/deep-search', '/help', '/?'])('preserves structured report rows from %s', (command) => {
+    const addAssistantMessage = vi.fn();
+    const host = { inkRenderer: { isRunning: () => true, addAssistantMessage } };
+    renderAgentSlashCommandResult(host, command, 'State: Running\nProgress: No task plan recorded yet.');
+    expect(addAssistantMessage).toHaveBeenCalledWith('State: Running\nProgress: No task plan recorded yet.', false);
+  });
+
+  it.each(['/pr-review', '/deslop', '/tester'])('preserves explicit usage rows from %s', (command) => {
+    const addAssistantMessage = vi.fn();
+    const host = { inkRenderer: { isRunning: () => true, addAssistantMessage } };
+    const usage = `Usage: ${command} [scope]\nPreserves behavior and unrelated work.`;
+    renderAgentSlashCommandResult(host, command, usage);
+    expect(addAssistantMessage).toHaveBeenCalledWith(usage, false);
+  });
+
+  it('keeps tester evidence links as Markdown', () => {
+    const addAssistantMessage = vi.fn();
+    const host = { inkRenderer: { isRunning: () => true, addAssistantMessage } };
+    const report = 'Project script: passed\nEvidence: [report.md](</tmp/report.md>)';
+    renderAgentSlashCommandResult(host, '/tester', report);
+    expect(addAssistantMessage).toHaveBeenCalledWith(report, true);
+  });
+
   it.each(['/tasks', '/team', '/squad'])('pins %s below the status line', (command) => {
     const setCommandResult = vi.fn();
     const addAssistantMessage = vi.fn();
@@ -107,15 +130,26 @@ describe('renderAgentSlashCommandResult', () => {
       },
     };
 
-    renderAgentSlashCommandResult(host, '/help', 'Help output');
+    renderAgentSlashCommandResult(host, '/review', 'Review output');
 
     expect(setCommandResult).not.toHaveBeenCalled();
-    expect(addAssistantMessage).toHaveBeenCalledWith('Help output', false);
+    expect(addAssistantMessage).toHaveBeenCalledWith('Review output', false);
   });
 });
 
 describe('runAgentSlashCommandWithInput', () => {
-  it.each(['/whatityped', '/feedback'])('preserves the active draft after %s', async (command) => {
+  it('preserves text entered as the composer returns from status', async () => {
+    let draft = '/status';
+    const host = {
+      runtime: { options: {}, config: {} },
+      inkRenderer: { isRunning: () => true, clearInput: () => { draft = ''; } },
+      handleSlashCommand: async () => { draft = 'next instruction'; return null; },
+    };
+    await runAgentSlashCommandWithInput(host, '/status', []);
+    expect(draft).toBe('next instruction');
+  });
+
+  it.each(['/whatityped', '/feedback', '/sync'])('preserves the active draft after %s', async (command) => {
     const clearInput = vi.fn();
     const host = {
       runtime: { options: {}, config: {} },
@@ -126,7 +160,7 @@ describe('runAgentSlashCommandWithInput', () => {
     expect(clearInput).not.toHaveBeenCalled();
   });
 
-  it.each(['/browser', '/chrome', '/whatityped'])('keeps the persistent composer paused for %s', async (command) => {
+  it.each(['/browser', '/chrome', '/whatityped', '/sync'])('keeps the persistent composer paused for %s', async (command) => {
     const restoreStdoutTTY = overrideStreamTTY(process.stdout, true);
     const restoreStdinTTY = overrideStreamTTY(process.stdin, true);
     const start = vi.fn();

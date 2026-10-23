@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import { resolveRunToolScope } from '../../permissions/runToolScope.js';
 import { RunBudget } from './RunBudget.js';
 import { SessionAutoNamer } from './SessionAutoNamer.js';
+import { RepositoryReadiness } from './RepositoryReadiness.js';
 import { AxoResponder } from './AxoResponder.js';
 import { syncAgentTerminalTitleName } from './AgentSessionTitle.js';
 import type { PeerComposerDraft } from '../../ui/peerMention.js';
@@ -37,6 +38,7 @@ import { SlashCommandHandler } from '../slashCommandHandler.js';
 import { routeOutput } from '../immediateCommandRouter.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
+import { applyNoDaemonConfig, NO_DAEMON_TOOLS } from '../../runtime/noDaemon.js';
 import { parseYoloPattern, buildPermissionSettingsFromYolo } from '../../permissions/yoloMode.js';
 import { SessionManager, type Session } from '../../session/SessionManager.js';
 import { ProjectManager } from '../../session/ProjectManager.js';
@@ -130,6 +132,7 @@ import type { GoalSessionSnapshot } from '../../goals/types.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SuggestionEngine } from '../SuggestionEngine.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
+import { ExtensionReloadController } from '../../extensions/ExtensionReloadController.js';
 import { configureAgentRegistry, syncDynamicRuntimeExtensions } from './dynamicRuntimeExtensions.js';
 import { runCancellableAgentCommand } from './AgentCommandRuntime.js';
 import { SquadRunMonitor } from '../agents/SquadRunSnapshot.js';
@@ -472,14 +475,15 @@ export function initializeAgentDependencies(
   files: FileActionManager,
   runtime: AgentRuntime
 ): void {
+    runtime.config = applyNoDaemonConfig(runtime.config, runtime.options);
     host.runtimeMcpServers = resolveRuntimeMcpServers(runtime.config, {
-      bare: runtime.options.bare,
+      bare: runtime.options.bare || runtime.options.daemon === false,
     });
     const initialProvider = runtime.config.provider ?? 'openrouter';
     const providerSettings = getProviderConfig(runtime.config, initialProvider);
     const model = runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     host.contextWindow = getContextWindow(model, providerSettings?.contextWindow);
-    if (!runtime.options.bare && initialProvider === 'openrouter' && !providerSettings?.contextWindow && model !== 'unconfigured') {
+    if (!runtime.options.bare && runtime.options.daemon !== false && initialProvider === 'openrouter' && !providerSettings?.contextWindow && model !== 'unconfigured') {
       void getOpenRouterModelContextWindow(model)
         .then((contextWindow) => {
           if (!contextWindow || contextWindow === host.contextWindow) return;
@@ -542,6 +546,21 @@ export function initializeAgentDependencies(
       getProvider: () => host.llm,
       enabled: !runtime.options.bare && runtime.options.offline !== true && runtime.config.ui?.promptSuggestions !== false,
     });
+    if (!runtime.options.bare && !runtime.options.ephemeral && !runtime.options.offline
+      && !runtime.options.prompt && !runtime.isCommandMode && !runtime.isRpcMode
+      && runtime.config.ui?.repositoryReadiness !== false) {
+      host.repositoryReadiness = new RepositoryReadiness({
+        workspaceRoot: runtime.repositorySourceRoot ?? runtime.workspaceRoot,
+        signal: host.runtimeResourceShutdownController?.signal,
+        getProvider: () => host.llm,
+        notify: message => {
+          if (host.inkRenderer?.isRunning()) host.inkRenderer.addNotification(message, { placement: 'transcript' });
+          else host.notifyUser(message);
+        },
+        isIdle: () => !host.isInstructionActive && !host.modalActive,
+      });
+      void host.repositoryReadiness.start();
+    }
     // Offline means no Autohand cloud services, not no model: turns still reach the
     // provider, so a question the user puts to Axo does too.
     host.axoResponder = new AxoResponder({
@@ -568,6 +587,21 @@ export function initializeAgentDependencies(
           .map((skill) => skill.name),
       }),
     });
+    if (!runtime.options.bare && runtime.options.daemon !== false && !runtime.options.prompt
+      && !runtime.isCommandMode && !runtime.isRpcMode) {
+      host.extensionReloadController = new ExtensionReloadController({
+        roots: [AUTOHAND_PATHS.extensions, join(runtime.workspaceRoot, PROJECT_DIR_NAME, 'extensions')],
+        signal: host.runtimeResourceShutdownController?.signal,
+        isIdle: () => !host.isInstructionActive && !host.modalActive,
+        reload: async () => {
+          const snapshot = await syncDynamicRuntimeExtensions(host, runtime);
+          for (const diagnostic of snapshot.diagnostics) {
+            host.notifyUser(`Extension ${diagnostic.extensionId ?? diagnostic.scope}: ${diagnostic.message}`);
+          }
+        },
+        onError: (error) => host.writeDebugLine(`Extension reload: ${error instanceof Error ? error.message : String(error)}`),
+      });
+    }
     host.memoryManager = new MemoryManager(runtime.workspaceRoot, {
       getSessionId: () => host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
       projectMemory: runtime.options.bare || runtime.options.ephemeral
@@ -1017,7 +1051,7 @@ export function initializeAgentDependencies(
     });
     host.specialistOrchestrator = new SpecialistOrchestrator(host.delegator, {
       maxParallel: runtime.config.teams?.maxTeammates,
-      offline: runtime.options.offline === true || runtime.options.bare === true,
+      offline: runtime.options.offline === true || runtime.options.bare === true || runtime.options.daemon === false,
       getAllowedTools: () => new Set(
         (host.toolManager?.listAllDefinitions() ?? []).map((definition: ToolDefinition) => definition.name),
       ),
@@ -1045,18 +1079,18 @@ export function initializeAgentDependencies(
       companySecret: runtime.config.telemetry?.companySecret || runtime.config.api?.companySecret || '',
       authToken: runtime.config.auth?.token,
       clientVersion: packageJson.version,
-      offline: runtime.options.offline === true || runtime.options.bare === true,
+      offline: runtime.options.offline === true || runtime.options.bare === true || runtime.options.daemon === false,
     });
     host.featureFlagManager = new RemoteFeatureFlagManager(runtime.config);
-    if (!runtime.options.bare) {
+    if (!runtime.options.bare && runtime.options.daemon !== false) {
       host.featureFlagManager.refreshFeatureFlags().catch(() => {});
     }
     host.announcementManager = getAnnouncementManager(runtime.config);
-    host.announcementManager.setNetworkEnabled(!runtime.options.bare && !runtime.options.offline);
+    host.announcementManager.setNetworkEnabled(!runtime.options.bare && runtime.options.daemon !== false && !runtime.options.offline);
     host.announcementUnsubscribe = host.announcementManager.subscribe(() => {
       syncAgentAnnouncementLine(host);
     });
-    if (!runtime.options.bare && !runtime.options.offline) {
+    if (!runtime.options.bare && runtime.options.daemon !== false && !runtime.options.offline) {
       host.announcementManager.refresh().catch(() => {});
     }
 
@@ -1361,9 +1395,11 @@ export function initializeAgentDependencies(
       ?? (runtime.options.restricted ? 'restricted' : 'cli');
 
     // Block ask_followup_question in command mode (--prompt flag) since it requires interactive terminal
-    const customPolicy = runtime.options.prompt ? {
-      blockedTools: ['ask_followup_question']
-    } : undefined;
+    const blockedTools = [
+      ...(runtime.options.prompt ? ['ask_followup_question'] : []),
+      ...(runtime.options.daemon === false ? NO_DAEMON_TOOLS : []),
+    ];
+    const customPolicy = blockedTools.length > 0 ? { blockedTools } : undefined;
 
     host.toolManager = new ToolManager({
       getActiveProvider: () => host.activeProvider ?? runtime.config.provider ?? 'openrouter',
@@ -2112,8 +2148,8 @@ export function initializeAgentDependencies(
       }),
       toolsRegistry: host.toolsRegistry,
       extensionService: host.extensionService,
-      refreshDynamicExtensions: async () => {
-        await syncDynamicRuntimeExtensions(host, host.runtime);
+      refreshDynamicExtensions: async (options?: { force?: boolean }) => {
+        await syncDynamicRuntimeExtensions(host, host.runtime, options);
       },
       mcpManager: host.mcpManager,
       backgroundProcessRegistry: host.backgroundProcessRegistry,
@@ -2130,9 +2166,14 @@ export function initializeAgentDependencies(
         const providerSettings = getProviderConfig(runtime.config, provider);
         return runtime.options.model ?? providerSettings?.model ?? model;
       },
-      resetConversation: async () => {
+      get commandSignal() { return host.activeAbortController?.signal ?? host.runtimeResourceShutdownController.signal; },
+      backgroundServicesEnabled: runtime.options.daemon !== false,
+      startNewSession: () => host.startNewConversationSession(),
+      resetConversation: async (summary?: string) => {
         await host.resetConversationContext();
         await host.injectSessionBootstrap();
+        if (summary) host.conversation.addSystemNote(summary);
+        host.updateContextUsage(host.conversation.history());
       },
       restoreSession: async (sessionId: string) => {
         await host.restoreSessionState(sessionId);
@@ -2204,6 +2245,7 @@ export function initializeAgentDependencies(
       requestFeedbackSurvey: () =>
         host.feedbackSurvey?.show('manual', sessionMgr.getCurrentSession()?.metadata.sessionId) ?? false,
       notifyUser: (message: string) => host.notifyUser(message),
+      get repositoryReadiness() { return host.repositoryReadiness; },
       // Add-dir command context
       fileManager: host.files,
       get additionalDirs() {

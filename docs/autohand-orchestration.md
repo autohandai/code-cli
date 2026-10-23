@@ -30,10 +30,26 @@ internally cannot be detected as Git checkpoints; the final review still runs.
 
 The lead addresses requested changes before proceeding. An unavailable review
 or three rejected checkpoints ends the turn as incomplete with the reason
-visible. Simple chat and routine shell steps do not call the advisor. Advisor
+visible. When a final answer is ready, it remains visible as an unreviewed or
+unapproved draft alongside the review feedback. The turn retains a failed
+footer and a prepared goal stays active with its successor queued. Goal
+completion is persisted only after approval and final answer delivery succeed.
+Resolve the review feedback and ask to continue; a visible draft is not proof
+of approval. Simple chat and routine shell steps do not call the advisor. Advisor
 requests share the run's request and token budgets, support cancellation, and
 report usage with the lead. Moa reviews are disabled for known Free accounts;
 when entitlements are unknown they run only if Moa or Auto is already selected.
+
+Each review request has a five-minute generation deadline, including a fresh
+deadline for the larger-output recovery request after an empty or output-limited
+verdict. An unavailable checkpoint gets one further review attempt; all requests
+count against the run budget. Escape can interrupt the review at any time.
+Deadline expiry is identified as a timeout, separately from user cancellation.
+Failures report the deadline, provider, or verdict-parsing stage, content length,
+finish reason, and a bounded response ID when available, without recording raw
+review text or HTTP bodies.
+Invalid accepted HTTP JSON is identified separately and is not automatically
+replayed by the transport. A late or malformed answer never counts as approval.
 
 ## Controls
 

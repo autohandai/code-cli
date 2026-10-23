@@ -26,6 +26,13 @@ const createFinder = () => ({
 });
 
 describe('FFFSearchProvider', () => {
+  it('does not start a native scanner or watcher in foreground mode', async () => {
+    createFileFinder.mockReset();
+    const { FFFSearchProvider } = await import('../../src/search/fffSearchProvider.js');
+    const provider = await FFFSearchProvider.create('/workspace', { background: false });
+    expect(createFileFinder).not.toHaveBeenCalled();
+    provider.destroy();
+  });
   beforeEach(() => {
     vi.resetModules();
     createFileFinder.mockReset();

@@ -169,6 +169,7 @@ Native ACP clients receive hook events as `autohand.hook.*` notifications, inclu
 
 | Event | When Fired | Context Available |
 |-------|-----------|-------------------|
+| `program-status` | When runtime status changes | `program_status`: state, record id, app, optional kind, title, message |
 | `pre-tool` | Before a tool begins execution | tool name, args, toolCallId |
 | `post-tool` | After a tool completes | tool name, success, duration, output |
 | `file-modified` | When a file is created, modified, or deleted | file path, change type |
@@ -234,6 +235,30 @@ Native ACP clients receive hook events as `autohand.hook.*` notifications, inclu
 | `context:critical` | When context usage crosses the critical threshold | context lifecycle details |
 
 > **Note**: `post-response` is an alias for `stop` for backward compatibility.
+
+### Program status and terminal tabs
+
+Interactive sessions emit [OSC7501 Program Status](https://www.superlogical.com/rex/docs/build/program-status)
+reports for `idle`, `working`, `blocked`, `done`, and `error`. Actual input waits
+use `kind: permission`, `question`, or `auth`; automatic approvals do not block.
+Cancellation returns to `idle`. Session names label the records, and shutdown
+clears only the session's own record. Unsupported terminals ignore the reports.
+
+These reports follow runtime operations, including research and goal turns,
+independently of the title spinner. No heartbeat or capability query is needed.
+Messages and labels use bounded, sanitized UTF-8 encoded as base64; work without
+a measured percentage omits `progress`.
+
+The `program-status` hook receives the structured report as `program_status` in
+JSON stdin and `HOOK_PROGRAM_STATUS` in the environment. It is an observational,
+best-effort event; its result does not approve tools or stop an operation.
+Trusted runtime extensions can subscribe with `api.hooks.on('program-status', handler)`
+and receive the report in `context.programStatus`.
+ACP and JSON-RPC publish `autohand.hook.programStatus` even when shell hooks are
+disabled. ACP includes `sessionId`. Stream JSON includes `program_status` output
+events; local JSON keeps its single final result. Protocol modes, command mode,
+and redirected output never receive OSC7501 escapes. During immediate process
+exit, only synchronous terminal cleanup runs.
 
 ### Rate limits
 

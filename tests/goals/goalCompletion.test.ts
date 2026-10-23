@@ -86,6 +86,39 @@ describe('goal completion evidence', () => {
     expect((await manager.updateGoal({ status: 'complete' })).ok).toBe(true);
   });
 
+  it('validates completion without archiving the goal or advancing its queue before delivery', async () => {
+    const manager = new GoalManager(workspaceRoot);
+    await manager.createGoal({ objective: 'Deliver the changelog', acceptanceCriteria: ['Changelog delivered'] });
+    await manager.enqueueGoal({ objective: 'Repair installer tests', source: 'tool' });
+    const before = await manager.getSessionSnapshot();
+
+    const prepared = await manager.prepareGoalCompletion({ completionEvidence: {
+      summary: 'The changelog draft is ready',
+      checks: [{ criterion: 'Changelog delivered', status: 'passed', evidence: 'Proposed final response' }],
+    } });
+
+    expect(prepared).toMatchObject({ ok: true, completionPending: true, goal: { status: 'active' } });
+    const after = await manager.getSessionSnapshot();
+    expect(after.goal?.goalId).toBe(before.goal?.goalId);
+    expect(after.completed).toEqual([]);
+    expect(after.queue).toEqual(before.queue);
+  });
+
+  it('refuses to finalize a prepared goal after another operation starts its successor', async () => {
+    const manager = new GoalManager(workspaceRoot);
+    const first = await manager.createGoal({ objective: 'First goal' });
+    await manager.enqueueGoal({ objective: 'Successor goal', source: 'tool' });
+    await manager.prepareGoalCompletion({});
+    await manager.updateGoal({ status: 'complete' });
+
+    const result = await manager.updateGoal({ status: 'complete', expectedGoalId: first.goal!.goalId });
+
+    expect(result.ok).toBe(false);
+    const snapshot = await manager.getSessionSnapshot();
+    expect(snapshot.goal).toMatchObject({ objective: 'Successor goal', status: 'active' });
+    expect(snapshot.completed).toHaveLength(1);
+  });
+
   it.each([
     { checks: [] },
     { checks: [{ criterion: 'Something else', status: 'passed', evidence: 'log' }] },

@@ -84,7 +84,8 @@ export async function readOpenAIEventStream(
       }
       const call = calls.get(index) ?? { id: '', type: 'function', function: { name: '', arguments: '' } };
       const fn = record(part?.function);
-      if (typeof part?.id === 'string') call.id = part.id;
+      // Continuation chunks may carry an empty ID; only identity-bearing chunks replace it.
+      if (typeof part?.id === 'string' && part.id) call.id = part.id;
       if (typeof fn?.name === 'string') call.function.name += fn.name;
       if (typeof fn?.arguments === 'string') {
         responseChars += fn.arguments.length;
@@ -133,8 +134,10 @@ export async function readOpenAIEventStream(
       processLines();
     }
     // A terminal event is required before any streamed action can reach an executor.
-    const toolCalls = interrupted || finishReason === 'length' ? [] : [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call);
-    if (toolCalls.some(call => !call.id || !call.function.name)) throw streamError('Incomplete streamed tool call.');
+    const assembledCalls = [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call);
+    const incompleteToolCall = assembledCalls.some(call => !call.id || !call.function.name);
+    if (incompleteToolCall && finishReason !== 'content_filter') finishReason = 'length';
+    const toolCalls = interrupted || finishReason === 'length' || incompleteToolCall ? [] : assembledCalls;
     // Reasoning stays out of `content` so the show-thinking setting, not the
     // transcript, decides whether the user sees it.
     const inline = splitInlineThinking(content);

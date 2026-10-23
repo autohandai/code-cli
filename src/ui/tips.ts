@@ -7,7 +7,7 @@ import { shuffleInPlace } from './displayUtils.js';
 import toolTips from './tool_tips.json' with { type: 'json' };
 
 /**
- * Tips shown beside the composer while no turn is running.
+ * Tips shown above the composer, below the working status or completion summary.
  *
  * Edit `src/ui/tool_tips.json` to add or change them. Entries without a
  * `kind` are shown verbatim. `skill` and `command` entries are templates
@@ -28,9 +28,8 @@ export interface TipContext {
 }
 
 /**
- * How long each tip stays beside the composer before the next one rotates in.
- * Tips only rotate while the composer is idle, so this is a reading pace rather
- * than a progress pace: long enough to finish the line and look away.
+ * How long each tip stays above the composer before the next one rotates in.
+ * This allows time to read the line while working or between turns.
  */
 export const TIP_ROTATION_MS = 30_000;
 

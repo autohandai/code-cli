@@ -1,5 +1,7 @@
 # Continue a Web conversation in the CLI
 
+For hosted execution and handoff directly from the terminal, see [Autohand Cloud](cloud.md).
+
 In Autohand Code Web, open the conversation menu and choose **Continue in CLI**.
 Copy its command and run it from the folder where you want to continue:
 

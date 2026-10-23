@@ -126,21 +126,25 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(await handler.handle('/handoff web')).toContain('/login');
   });
 
-  it('/handoff is registered with both surfaces as subcommands', () => {
+  it('/handoff registers Cloud, Web, and local session surfaces', () => {
     const handoff = SLASH_COMMANDS.find((cmd) => cmd.command === '/handoff');
     expect(handoff?.implemented).toBe(true);
-    expect(handoff?.subcommands?.map((sub) => sub.name)).toEqual(['web', 'session']);
+    expect(handoff?.subcommands?.map((sub) => sub.name)).toEqual(['cloud', 'web', 'session']);
   });
 
-  it('bare /handoff lists the surfaces instead of handing off', async () => {
+  it('bare /handoff enters the authenticated cloud handoff flow', async () => {
     const handler = new SlashCommandHandler(createMinimalContext(), SLASH_COMMANDS);
     expect(handler.isCommandSupported('/handoff')).toBe(true);
 
     const result = await handler.handle('/handoff');
 
-    expect(result).toContain('/handoff web');
-    expect(result).toContain('/handoff session');
-    expect(result).not.toContain('/login');
+    expect(result).toBe('Sign in first with /login, then run /cloud.');
+  });
+
+  it('/handoff --help lists all surfaces without starting a transfer', async () => {
+    const handler = new SlashCommandHandler(createMinimalContext(), SLASH_COMMANDS);
+    const result = await handler.handle('/handoff', ['--help']);
+    for (const surface of ['cloud', 'web', 'session']) expect(result).toContain(`/handoff ${surface}`);
   });
 
   it('/handoff web runs the web handoff when the surface arrives as an argument', async () => {
@@ -277,14 +281,18 @@ describe('slash command dispatch – output vs instruction', () => {
     }
   });
 
-  // ── Commands that MUST return null (self-printing) ────────────────────
+  // ── Retained output and modal ownership ───────────────────────────────
 
-  it('/help returns null (prints its own output)', async () => {
-    const ctx = createMinimalContext();
+  it.each(['/help', '/?'])('%s returns retained help without taking input ownership', async (command) => {
+    const ctx = { ...createMinimalContext(), onBeforeModal: vi.fn(), onAfterModal: vi.fn() };
     const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);
 
-    const result = await handler.handle('/help');
-    expect(result).toBeNull();
+    const result = await handler.handle(command);
+    expect(result).toContain('/about');
+    expect(result).toContain('docs.autohand.ai');
+    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(ctx.onBeforeModal).not.toHaveBeenCalled();
+    expect(ctx.onAfterModal).not.toHaveBeenCalled();
   });
 
   it('/model returns null (handles its own UI)', async () => {
@@ -295,14 +303,14 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(result).toBeNull();
   });
 
-  // ── Unknown commands return null (don't forward garbage to LLM) ───────
+  // ── Unknown commands return a visible diagnostic ───────
 
-  it('unknown slash commands return null', async () => {
+  it('unknown slash commands return a visible diagnostic', async () => {
     const ctx = createMinimalContext();
     const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);
 
     const result = await handler.handle('/nonexistent-command');
-    expect(result).toBeNull();
+    expect(result).toContain('Command /nonexistent-command is not supported.');
   });
 
   // ── Multi-word commands ───────────────────────────────────────────────
@@ -417,7 +425,7 @@ describe('slash command dispatch – output vs instruction', () => {
 
     // /help should still work
     const helpResult = await handler.handle('/help');
-    expect(helpResult).toBeNull(); // help prints its own output
+    expect(helpResult).toContain('docs.autohand.ai');
 
     // /mcp should still work
     const mcpResult = await handler.handle('/mcp');

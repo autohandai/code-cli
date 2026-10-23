@@ -5,6 +5,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { stripVTControlCharacters } from 'node:util';
+import stripAnsi from 'strip-ansi';
+import stringWidth from 'string-width';
 import { COMPACT_LINE_CHARS, COMPACT_PREVIEW_LINES, formatToolOutputForDisplay, hiddenLineCount } from '../src/ui/toolOutput.js';
 
 describe('formatToolOutputForDisplay', () => {
@@ -281,6 +283,28 @@ describe('compact tool output', () => {
     expect(result.output).toBe('line 1\nline 2\nline 3');
     expect(result.expandedOutput).toBeUndefined();
     expect(result.truncated).toBe(false);
+  });
+
+  it('preserves short coloured diff lines without counting escape sequences as columns', () => {
+    const line = '  │    1 -  const oldValue = true;';
+    const content = [...line].map(char => `\x1b[38;2;237;154;154m${char}\x1b[39m`).join('');
+    const result = compact({ tool: 'apply_patch', content });
+
+    expect(result.output).toBe(content);
+    expect(stripAnsi(result.output)).toBe(line);
+    expect(result.truncated).toBe(false);
+    expect(result.expandedOutput).toBeUndefined();
+  });
+
+  it('clips coloured wide text at terminal columns without breaking colour sequences', () => {
+    const content = `\x1b[31m${'界'.repeat(200)}\x1b[39m`;
+    const result = compact({ tool: 'fetch_url', content });
+
+    expect(stripAnsi(result.output)).toBe(`${'界'.repeat(79)}…`);
+    expect(stringWidth(result.output)).toBeLessThanOrEqual(COMPACT_LINE_CHARS);
+    expect(result.output).toContain('\x1b[39m');
+    expect(result.expandedOutput).toBe(content);
+    expect(result.truncated).toBe(true);
   });
 
   it('clips a page that arrives as one enormous line', () => {

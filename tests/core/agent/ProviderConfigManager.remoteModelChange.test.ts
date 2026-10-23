@@ -114,6 +114,23 @@ describe('ProviderConfigManager.applyModelChangeRemote', () => {
     );
   });
 
+  it('refreshes an active extension provider and delegator without persisting or changing the model', () => {
+    runtime.config.provider = 'extension:live';
+    manager.refreshExtensionProvider();
+    expect(mockCreate).toHaveBeenCalledWith(runtime.config);
+    expect(setLlm).toHaveBeenCalledOnce();
+    expect(setDelegator).toHaveBeenCalledOnce();
+    expect(setActiveProvider).toHaveBeenCalledWith('extension:live');
+    expect(mockCreate.mock.results[0].value.setModel).toHaveBeenCalledWith('tencent/hy3:free');
+    expect(mockSaveConfig).not.toHaveBeenCalled();
+  });
+
+  it('leaves built-in providers alone during an extension refresh', () => {
+    manager.refreshExtensionProvider();
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(setLlm).not.toHaveBeenCalled();
+  });
+
   it('switches provider and model, persists config, and reinitializes the LLM client', async () => {
     const result = await manager.applyModelChangeRemote('openrouter', 'anthropic/claude-sonnet-4.5');
 

@@ -62,6 +62,8 @@ import {
   getGcloudAccount,
 } from '../utils/gcloudAuth.js';
 import { TRACE_CONSENT_VERSION } from '../integrations/ahtraces/consent.js';
+import { ManagedWebSearch, managedSearchIdentity } from '../search/managedWebSearch.js';
+import { SEARCH_PROVIDER_OPTIONS } from '../search/providers.js';
 import { promptTraceConsentChoice } from '../integrations/ahtraces/consentPrompt.js';
 
 /**
@@ -128,6 +130,7 @@ interface OnboardingState {
     provider?: SearchProvider;
     braveApiKey?: string;
     parallelApiKey?: string;
+    exaApiKey?: string;
   };
   mcpEnabled?: boolean;
   agentSettings?: {
@@ -331,8 +334,6 @@ export class SetupWizard {
           await this.promptNotifications();
           // 12b: Network
           await this.promptNetwork();
-          // 12c: Web search provider
-          await this.promptSearch();
           // 12d: MCP support
           await this.promptMcp();
           // 12e: Agent behavior
@@ -340,10 +341,10 @@ export class SetupWizard {
           // 12f: Community skills
           await this.promptCommunitySkills();
         } else {
-          this.state.skipped.push('advanced', 'notifications', 'network', 'search', 'mcp', 'agentBehavior', 'communitySkills');
+          this.state.skipped.push('advanced', 'notifications', 'network', 'mcp', 'agentBehavior', 'communitySkills');
         }
       } else {
-        this.state.skipped.push('advanced', 'notifications', 'network', 'search', 'mcp', 'agentBehavior', 'communitySkills');
+        this.state.skipped.push('advanced', 'notifications', 'network', 'mcp', 'agentBehavior', 'communitySkills');
       }
 
       // Step 13: Create AGENTS.md
@@ -355,6 +356,8 @@ export class SetupWizard {
       } else {
         this.state.skipped.push('registration');
       }
+
+      await this.promptSearch();
 
       // Step 15: Review summary (skip in quickSetup)
       if (!options?.quickSetup) {
@@ -2378,29 +2381,39 @@ export class SetupWizard {
   private async promptSearch(): Promise<void> {
     this.state.currentStep = 'search';
 
-    const options: ModalOption[] = [
-      { label: 'Google', value: 'google', description: 'Default web search' },
-      { label: 'Brave Search', value: 'brave', description: 'Privacy-focused search (requires API key)' },
-      { label: 'DuckDuckGo', value: 'duckduckgo', description: 'Privacy-focused, no API key needed' },
-      { label: 'Parallel.ai', value: 'parallel', description: 'AI-optimized search (requires API key)' }
-    ];
-
-    const result = await showModal({
-      title: t('setup.search.prompt'),
-      options
+    const identity = managedSearchIdentity({
+      ...this.existingConfig,
+      auth: { token: this.state.authToken ?? this.state.autohandAIAccountToken ?? this.existingConfig?.auth?.token },
     });
-
-    const provider = (result?.value as SearchProvider) ?? 'google';
-    const searchState: OnboardingState['search'] = { provider };
-
-    if (provider === 'brave') {
-      const key = await showPassword({ title: t('setup.search.braveKeyPrompt'), placeholder: t('ui.apiKeyPlaceholder') });
-      if (key) searchState.braveApiKey = key;
-    } else if (provider === 'parallel') {
-      const key = await showPassword({ title: t('setup.search.parallelKeyPrompt'), placeholder: t('ui.apiKeyPlaceholder') });
-      if (key) searchState.parallelApiKey = key;
+    const included = identity ? await new ManagedWebSearch(identity).available() : false;
+    if (included && !this.existingConfig?.search?.provider) {
+      this.state.search = { provider: 'autohand' };
+      console.log(chalk.gray('Autohand Web Search is included with your plan and ready to use.'));
+      return;
     }
-
+    const options: ModalOption[] = [
+      ...SEARCH_PROVIDER_OPTIONS.filter(option => option.value !== 'autohand' || included),
+      { label: 'Set up later', value: 'later', description: 'Use /search before requesting web searches' },
+    ];
+    const result = await showModal({ title: t('setup.search.prompt'), options,
+      initialIndex: Math.max(0, options.findIndex(option => option.value === (this.existingConfig?.search?.provider ?? 'browser-profile'))) });
+    const choice = SEARCH_PROVIDER_OPTIONS.find(option => option.value === result?.value);
+    if (!choice) { this.state.skipped.push('search'); return; }
+    const provider = choice.value;
+    const searchState: OnboardingState['search'] = { provider };
+    const keyField = provider === 'brave' ? 'braveApiKey' : provider === 'parallel' ? 'parallelApiKey' : provider === 'exa' ? 'exaApiKey' : undefined;
+    if (keyField) {
+      const environment = provider === 'brave' ? process.env.BRAVE_SEARCH_API_KEY : provider === 'parallel' ? process.env.PARALLEL_API_KEY : process.env.EXA_API_KEY;
+      const existing = this.existingConfig?.search?.[keyField];
+      const key = existing ?? environment ?? await showPassword({ title: `Enter ${choice.label} API key:`, placeholder: t('ui.apiKeyPlaceholder') });
+      if (!key?.trim()) {
+        console.log(chalk.yellow('Search setup deferred: an API key is required. Run /search to finish setup.'));
+        this.state.skipped.push('search');
+        return;
+      }
+      searchState[keyField] = key.trim();
+    }
+    if (provider === 'browser-profile') console.log(chalk.gray('Connect Chromium with /browser for search, or keep a Chrome/Brave profile available. Use /search if your browser blocks automated requests.'));
     this.state.search = searchState;
   }
 

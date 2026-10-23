@@ -3,11 +3,13 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import fs from 'fs-extra';
 import { Option, type Command } from 'commander';
 import * as Ink from 'ink';
 import React, { type ComponentType } from 'react';
-import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import fs from 'fs-extra';
+import { ExtensionStateSchema } from './schema.js';
+import { ExtensionRuntimeLoader } from './ExtensionRuntimeLoader.js';
 import type { HookContext } from '../core/HookManager.js';
 import type { LineExtension, LineSegmentColor } from '../ui/ink/StatusLine.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
@@ -249,6 +251,7 @@ const HOOK_EVENTS = new Set<HookEvent>([
   'context:overflow',
   'context:warning',
   'context:critical',
+  'program-status',
 ]);
 
 function errorMessage(error: unknown): string {
@@ -394,19 +397,16 @@ function longFlagName(flags: string): string {
   return match[1];
 }
 
-function runtimeSignature(snapshot: ExtensionSnapshot): Promise<string> {
-  return Promise.all(snapshot.runtimes.map(async (runtime) => {
-    const extension = snapshot.extensions.find((candidate) =>
-      candidate.manifest.id === runtime.provenance.extensionId);
-    const stat = await fs.stat(runtime.file).catch(() => null);
-    return [
-      runtime.provenance.extensionId,
-      runtime.file,
-      stat?.mtimeMs ?? 'missing',
-      extension?.trusted === true,
-      extension?.disabled === true,
-    ].join(':');
-  })).then((parts) => parts.sort().join('|'));
+interface ActiveRuntime {
+  extension: LoadedExtension;
+  signature: string;
+  collector: RuntimeCollector;
+}
+
+async function disposeCollector(collector: RuntimeCollector): Promise<void> {
+  for (const deactivate of [...collector.deactivators].reverse()) {
+    await Promise.resolve().then(deactivate).catch(() => {});
+  }
 }
 
 export class ExtensionRuntimeHost {
@@ -419,10 +419,13 @@ export class ExtensionRuntimeHost {
   private hooks: ExtensionRuntimeHook[] = [];
   private providers: ExtensionRuntimeProvider[] = [];
   private permissionPolicies: ExtensionPermissionPolicy[] = [];
-  private deactivators: Array<() => void | Promise<void>> = [];
   private cliOptions: Record<string, unknown> = {};
-  private signature = '';
-  private diagnostics: ExtensionDiagnostic[] = [];
+  private defaultOptionNames = new Set<string>();
+  private readonly loader = new ExtensionRuntimeLoader();
+  private readonly active = new Map<string, ActiveRuntime>();
+  private readonly failed = new Map<string, { signature: string; diagnostic: ExtensionDiagnostic }>();
+  private retained = new Set<string>();
+  private pending: Promise<void> = Promise.resolve();
   private readonly reservedCommands: Set<string>;
   private readonly reservedProviders: Set<string>;
   private readonly reservedKeybindings: Set<string>;
@@ -453,77 +456,130 @@ export class ExtensionRuntimeHost {
     }
   }
 
-  async sync(snapshot: ExtensionSnapshot): Promise<ExtensionDiagnostic[]> {
-    const signature = await runtimeSignature(snapshot);
-    if (signature === this.signature) {
-      return [...this.diagnostics];
-    }
+  sync(snapshot: ExtensionSnapshot, options: { force?: boolean } = {}): Promise<ExtensionDiagnostic[]> {
+    return this.enqueue(() => this.synchronize(snapshot, options.force === true));
+  }
 
-    await this.deactivateAll();
-    this.signature = signature;
+  private async synchronize(snapshot: ExtensionSnapshot, force: boolean): Promise<ExtensionDiagnostic[]> {
     const diagnostics: ExtensionDiagnostic[] = [];
+    this.retained = new Set();
     const runtimesByExtension = new Map<string, typeof snapshot.runtimes>();
     for (const runtime of snapshot.runtimes) {
       const values = runtimesByExtension.get(runtime.provenance.extensionId) ?? [];
       values.push(runtime);
       runtimesByExtension.set(runtime.provenance.extensionId, values);
     }
-
+    for (const [id, previous] of this.active) {
+      const current = snapshot.extensions.find((extension) => extension.manifest.id === id);
+      const invalidEdit = !current && snapshot.diagnostics.some((diagnostic) =>
+        ['invalid_manifest', 'invalid_runtime', 'invalid_tool', 'invalid_agent', 'invalid_skill', 'contribution_conflict'].includes(diagnostic.code)
+        && diagnostic.scope === previous.extension.scope
+        && (diagnostic.extensionId === id || path.basename(path.dirname(diagnostic.file ?? '')) === id));
+      const statePath = previous.extension.installationPath
+        ? path.join(path.dirname(previous.extension.installationPath), '.state', `${id}.json`) : undefined;
+      const state = invalidEdit && statePath
+        ? ExtensionStateSchema.safeParse(await fs.readJson(statePath).catch(() => null)) : undefined;
+      if (invalidEdit && state?.success && state.data.trusted === true && state.data.disabled !== true) {
+        this.retained.add(id);
+      } else if (!current || current.disabled || !current.trusted || !runtimesByExtension.has(id)) {
+        this.active.delete(id);
+        this.failed.delete(id);
+        this.publish();
+        await disposeCollector(previous.collector);
+      }
+    }
     for (const extension of snapshot.extensions
       .filter((candidate) => !candidate.disabled && runtimesByExtension.has(candidate.manifest.id))
       .sort((left, right) => left.manifest.id.localeCompare(right.manifest.id))) {
+      const id = extension.manifest.id;
       if (!extension.trusted) {
-        diagnostics.push(this.diagnostic(
-          extension,
-          'runtime_untrusted',
-          'Runtime entrypoints are installed but not trusted; reinstall with --trust after review',
-        ));
+        diagnostics.push(this.diagnostic(extension, 'runtime_untrusted',
+          'Runtime entrypoints are installed but not trusted; reinstall with --trust after review'));
         continue;
       }
-
+      const previous = this.active.get(id);
       const collector = emptyCollector();
+      let signature: string | undefined;
       try {
+        const files = (runtimesByExtension.get(id) ?? []).map((runtime) => runtime.file);
+        const prepared = await this.loader.prepare(files, force);
+        signature = JSON.stringify([extension.root, extension.scope, extension.manifest, prepared.signature]);
+        if (!force && previous?.signature === signature) continue;
+        const failed = this.failed.get(id);
+        if (!force && failed?.signature === signature) {
+          diagnostics.push(failed.diagnostic);
+          if (previous) this.retained.add(id);
+          continue;
+        }
         const api = this.createAPI(extension, collector);
-        for (const runtime of runtimesByExtension.get(extension.manifest.id) ?? []) {
-          const stat = await fs.stat(runtime.file);
-          const moduleUrl = `${pathToFileURL(runtime.file).href}?mtime=${stat.mtimeMs}`;
-          const module = await import(moduleUrl) as RuntimeModule;
+        const graph = await this.loader.evaluate(prepared) as { loadRuntimes: Array<() => Promise<RuntimeModule>> };
+        for (const [index, load] of graph.loadRuntimes.entries()) {
+          const module = await load();
           const defaultExport = module.default;
           const activate = module.activate
             ?? (typeof defaultExport === 'function' ? defaultExport : defaultExport?.activate);
           const deactivate = module.deactivate
             ?? (typeof defaultExport === 'object' ? defaultExport?.deactivate : undefined);
+          if (typeof deactivate === 'function') collector.deactivators.push(deactivate);
           if (typeof activate !== 'function') {
-            throw new Error(`Runtime entrypoint does not export activate(api) or a default activation function: ${runtime.file}`);
+            throw new Error(`Runtime entrypoint does not export activate(api) or a default activation function: ${files[index]}`);
           }
           const returnedDeactivate = await activate(api);
-          if (typeof returnedDeactivate === 'function') {
-            collector.deactivators.push(returnedDeactivate);
-          }
-          if (typeof deactivate === 'function') {
-            collector.deactivators.push(deactivate);
-          }
+          if (typeof returnedDeactivate === 'function') collector.deactivators.push(returnedDeactivate);
         }
-        this.commit(extension, collector);
+        const validator = new ExtensionRuntimeHost({
+          reservedCommands: this.reservedCommands,
+          reservedProviders: this.reservedProviders,
+          reservedKeybindings: this.reservedKeybindings,
+          reservedCliFlags: this.reservedCliFlags,
+        });
+        for (const [otherId, runtime] of this.active) {
+          if (otherId !== id) validator.append(runtime.collector);
+        }
+        validator.commit(extension, collector);
+        this.active.set(id, { extension, signature, collector });
+        this.failed.delete(id);
+        this.publish();
+        if (previous) await disposeCollector(previous.collector);
       } catch (error) {
-        for (const deactivate of collector.deactivators.reverse()) {
-          await Promise.resolve(deactivate()).catch(() => {});
-        }
-        diagnostics.push(this.diagnostic(
-          extension,
-          'runtime_activation_failed',
-          `Runtime activation failed: ${errorMessage(error)}`,
-        ));
+        await disposeCollector(collector);
+        const diagnostic = this.diagnostic(extension, 'runtime_activation_failed',
+          `Runtime activation failed${previous ? '; keeping the last working version' : ''}: ${errorMessage(error)}`);
+        diagnostics.push(diagnostic);
+        if (signature) this.failed.set(id, { signature, diagnostic });
+        if (previous) this.retained.add(id);
       }
     }
-
-    this.diagnostics = diagnostics;
+    this.loader.retain(snapshot.runtimes.map((runtime) => runtime.file));
+    for (const id of this.failed.keys()) {
+      if (!runtimesByExtension.has(id)) this.failed.delete(id);
+    }
     return [...diagnostics];
   }
 
-  async deactivateAll(): Promise<void> {
-    const deactivators = this.deactivators.splice(0).reverse();
-    await Promise.allSettled(deactivators.map((deactivate) => Promise.resolve(deactivate())));
+  getRetainedExtensionIds(): ReadonlySet<string> {
+    return new Set(this.retained);
+  }
+
+  deactivateAll(): Promise<void> {
+    return this.enqueue(async () => {
+      const active = [...this.active.values()].reverse();
+      this.active.clear();
+      this.publish();
+      for (const runtime of active) await disposeCollector(runtime.collector);
+      this.failed.clear();
+      this.retained.clear();
+      this.loader.clear();
+    });
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.pending.then(operation);
+    this.pending = result.then(() => {}, () => {});
+    return result;
+  }
+
+  private publish(): void {
     this.commands = [];
     this.views = [];
     this.statusLines = [];
@@ -533,16 +589,31 @@ export class ExtensionRuntimeHost {
     this.hooks = [];
     this.providers = [];
     this.permissionPolicies = [];
-    this.diagnostics = [];
-    this.signature = '';
+    for (const runtime of this.active.values()) this.append(runtime.collector);
   }
 
-  setCliOptions(options: Record<string, unknown>): void {
+  private append(collector: RuntimeCollector): void {
+    this.commands.push(...collector.commands);
+    this.views.push(...collector.views);
+    this.statusLines.push(...collector.statusLines);
+    this.helpLines.push(...collector.helpLines);
+    this.keybindings.push(...collector.keybindings);
+    this.cliFlags.push(...collector.cliFlags);
+    this.hooks.push(...collector.hooks);
+    this.providers.push(...collector.providers);
+    this.permissionPolicies.push(...collector.permissionPolicies);
+  }
+
+  setCliOptions(options: Record<string, unknown>, defaultOptionNames: Iterable<string> = []): void {
     this.cliOptions = { ...options };
+    this.defaultOptionNames = new Set(defaultOptionNames);
   }
 
   getCliOption(name: string): unknown {
-    return this.cliOptions[name];
+    if (Object.hasOwn(this.cliOptions, name) && !this.defaultOptionNames.has(name)) return this.cliOptions[name];
+    const flag = this.cliFlags.find((flag) => new Option(flag.flags).attributeName() === name);
+    if (!flag) return this.cliOptions[name];
+    return flag.defaultValue ?? (new Option(flag.flags).negate ? true : undefined);
   }
 
   getCommands(): ExtensionRuntimeCommand[] {
@@ -736,17 +807,6 @@ export class ExtensionRuntimeHost {
       assertPermissionPolicy(policy.settings);
     }
 
-    this.commands.push(...collector.commands);
-    this.views.push(...collector.views);
-    this.statusLines.push(...collector.statusLines);
-    this.helpLines.push(...collector.helpLines);
-    this.keybindings.push(...collector.keybindings);
-    this.cliFlags.push(...collector.cliFlags);
-    this.hooks.push(...collector.hooks);
-    this.providers.push(...collector.providers);
-    this.permissionPolicies.push(...collector.permissionPolicies);
-    this.deactivators.push(...collector.deactivators);
-
     if (collector.commands.length === 0
       && collector.views.length === 0
       && collector.statusLines.length === 0
@@ -758,6 +818,7 @@ export class ExtensionRuntimeHost {
       && collector.permissionPolicies.length === 0) {
       throw new Error(`Runtime extension "${extension.manifest.id}" registered no capabilities`);
     }
+    this.append(collector);
   }
 
   private diagnostic(

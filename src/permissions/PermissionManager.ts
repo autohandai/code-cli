@@ -275,14 +275,26 @@ export class PermissionManager {
    * Get merged settings (global + local)
    */
   private runToolScope: RunToolScope | undefined;
+  private readonly additionalRunToolScopes = new Set<RunToolScope>();
 
   /** Installs the per-run tool scope from the CLI; it is never merged or persisted. */
   setRunToolScope(scope: RunToolScope | undefined): void {
     this.runToolScope = scope;
   }
 
+  /** Temporary restrictions compose with CLI/user policy and never persist. */
+  addRunToolScope(scope: RunToolScope): () => void {
+    const snapshot = structuredClone(scope);
+    this.additionalRunToolScopes.add(snapshot);
+    return () => { this.additionalRunToolScopes.delete(snapshot); };
+  }
+
   getRunToolScope(): RunToolScope | undefined {
-    return this.runToolScope;
+    if (this.additionalRunToolScopes.size === 0) return this.runToolScope;
+    return {
+      allowed: [], denied: [],
+      allOf: [...(this.runToolScope ? [this.runToolScope] : []), ...this.additionalRunToolScopes],
+    };
   }
 
   private autoApproval: { timer: YoloTimer; baseline: PermissionSettings; onExpire?: () => void } | undefined;
@@ -313,14 +325,15 @@ export class PermissionManager {
   /** Run scope decision for one concrete call, matched on its command line or path. */
   checkRunToolScope(context: PermissionContext): ReturnType<typeof checkRunToolScope> {
     const call = this.contextToCall(context);
-    return checkRunToolScope(this.runToolScope, { kind: context.requestedTool ?? context.tool, target: call.target });
+    return checkRunToolScope(this.getRunToolScope(), { kind: context.requestedTool ?? context.tool, target: call.target });
   }
 
   /** Tool schemas worth offering the model under the run scope and effective settings. */
   filterAdvertisedTools<T extends { name: string }>(definitions: readonly T[]): T[] {
+    const scope = this.getRunToolScope();
     const inScope = definitions.filter((definition) =>
       (!this.readOnlyReview || READ_ONLY_REVIEW_TOOLS.has(definition.name))
-      && isToolAdvertisedByScope(this.runToolScope, definition.name));
+      && isToolAdvertisedByScope(scope, definition.name));
     return filterAdvertisedTools(inScope, this.getMergedSettings());
   }
 
@@ -378,7 +391,8 @@ export class PermissionManager {
       return { allowed: false, reason: 'blacklisted' };
     }
 
-    if (this.readOnlyReview && (!READ_ONLY_REVIEW_TOOLS.has(context.tool)
+    const reviewTool = context.tool === 'run_command' && context.requestedTool ? context.requestedTool : context.tool;
+    if (this.readOnlyReview && (!READ_ONLY_REVIEW_TOOLS.has(reviewTool)
       || (context.requestedTool !== undefined && !READ_ONLY_REVIEW_TOOLS.has(context.requestedTool)))) {
       return { allowed: false, reason: 'mode_restricted' };
     }
@@ -727,7 +741,7 @@ export class PermissionManager {
     // 0. The run scope from the CLI is checked before any merged policy so a
     //    local or extension allowlist cannot widen it. It names the tool the
     //    model called, not the capability the call maps to.
-    const scoped = checkRunToolScope(this.runToolScope, { kind: context.requestedTool ?? context.tool, target: call.target });
+    const scoped = checkRunToolScope(this.getRunToolScope(), { kind: context.requestedTool ?? context.tool, target: call.target });
     if (!scoped.allowed) {
       return { allowed: false, reason: scoped.reason };
     }

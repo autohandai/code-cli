@@ -2279,11 +2279,12 @@ describe('agent startup and active input UI', () => {
     expect(agent.emitStatus).toHaveBeenCalled();
   });
 
-  it('wires loaded skills into the Ink composer skill mention provider', () => {
+  it.each([undefined, false, true])('wires skills and the explicit full-screen setting (%s) into the Ink composer', (fullScreenMode) => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     let restoreStdoutTTY: () => void = () => {};
     let restoreStdinTTY: () => void = () => {};
 
+    if (fullScreenMode !== undefined) agent.runtime = { config: { features: { fullScreenMode } } };
     agent.useInkRenderer = true;
     agent.ui = null;
     agent.workspaceFileCollector = {
@@ -2307,6 +2308,7 @@ describe('agent startup and active input UI', () => {
       (agent as any).initializeUIManager();
 
       const options = (agent.ui as any).options;
+      expect(options.fullScreenMode).toBe(fullScreenMode !== false);
       expect(options.skillsProvider).toBeTypeOf('function');
       expect(options.skillsProvider()).toEqual([
         {

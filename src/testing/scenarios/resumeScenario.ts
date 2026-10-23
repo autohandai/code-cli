@@ -1,8 +1,9 @@
 import path from 'node:path';
 import fs from 'fs-extra';
 import type { Session as TerminalSession } from 'tuistory';
-import { Session } from '../../session/SessionManager.js';
+import { Session, SessionManager } from '../../session/SessionManager.js';
 import type { SessionMessage, SessionMetadata } from '../../session/types.js';
+import type { PtyDriver } from '../drivers/pty-driver.js';
 
 interface FixtureMessage { role: 'user' | 'assistant'; content: string; }
 
@@ -93,6 +94,43 @@ export async function chooseResumeSession(session: TerminalSession): Promise<str
   const screen = await session.text({ immediate: true });
   await session.press('enter');
   return screen;
+}
+
+export async function seedMarkdownResumeScenario(autohandHome: string, workspaceRoot: string): Promise<string> {
+  const manager = new SessionManager(path.join(autohandHome, 'sessions'));
+  await manager.initialize();
+  const session = await manager.createSession(workspaceRoot, 'openai/gpt-4o-mini');
+  try {
+    for (let index = 0; index < 24; index += 1) {
+      await session.append({ role: 'user', content: `Saved question ${index}`, timestamp: new Date().toISOString() });
+      await session.append({ role: 'assistant', content: `**RESUMED_MARKDOWN_${index}**`, timestamp: new Date().toISOString() });
+    }
+    return session.metadata.sessionId;
+  } finally {
+    await manager.closeSession();
+  }
+}
+
+export async function runMarkdownResumeScenario(session: TerminalSession): Promise<string> {
+  await session.waitForText('RESUMED_MARKDOWN_23', { timeout: 30_000 });
+  await session.waitForText('❯');
+  session.resize({ cols: 60, rows: 36 });
+  await session.type('restored history draft');
+  return session.text({ timeout: 10_000, waitFor: text => text.includes('❯ restored history draft') });
+}
+
+export async function runMarkdownResizePtyScenario(terminal: PtyDriver): Promise<string> {
+  await terminal.waitFor('RESTORED_ANSWER_31');
+  terminal.resize(60, 36);
+  terminal.type('resize verified');
+  await terminal.waitFor('❯ resize verified');
+  terminal.enter();
+  await terminal.waitFor('SUBMITTED: resize verified');
+  terminal.ctrlC();
+  await terminal.waitFor('Press Ctrl+C');
+  terminal.ctrlC();
+  await terminal.waitFor('RESIZE_RESULT');
+  return terminal.snapshot();
 }
 
 export async function chooseOlderResumeSession(session: TerminalSession): Promise<void> {

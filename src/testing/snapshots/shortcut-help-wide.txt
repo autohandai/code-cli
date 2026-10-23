@@ -1,0 +1,11 @@
+Keyboard shortcuts
+
+Compose                                       Session                                       Transcript
+/              Commands                       shift + tab  Change mode                      /whatityped     Typed history
+@              Mention files                  enter        Queue while working              ctrl + o        Expand output
+$              Skills                         ↑ / ↓        Select queued message            pgup / pgdn     Scroll
+!              Shell command                  enter        Steer selected message           ctrl+f          Find text
+shift + enter  New line                       ctrl+enter   Steer queued input               ctrl+home       First message
+alt + enter    New line                       esc          Interrupt                        ctrl+end / esc  Back to bottom
+tab            Accept suggestion              ctrl+c       Clear input / exit               ↑ / ↓           Recall prompt
+enter          Send prompt                    ?            Close shortcuts

@@ -105,7 +105,7 @@ export interface AgentContextRuntimeHost {
 const STATUS_LINE_GIT_LABEL_CACHE_MS = 5000;
 
 export interface StatusLineGitLabelHost {
-  runtime?: { workspaceRoot?: string };
+  runtime?: { workspaceRoot?: string; options?: { daemon?: boolean } };
   statusLineGitLabelCache?: {
     workspaceRoot: string;
     value?: string;
@@ -159,6 +159,7 @@ async function refreshStatusLineGitLabel(
  * expired, which the composer showed as a stutter, so the caller never waits.
  */
 export function resolveStatusLineGitLabel(host: StatusLineGitLabelHost): string | undefined {
+  if (host.runtime?.options?.daemon === false) return host.statusLineGitLabelCache?.value;
   const workspaceRoot = host.runtime?.workspaceRoot;
   if (!workspaceRoot) {
     return undefined;

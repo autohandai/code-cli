@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useContext, useEffect, useMemo, useRef } from 'react';
 import {
   Box,
   Text,
@@ -13,6 +13,7 @@ import {
   useStdout,
   type DOMElement,
 } from 'ink';
+import { ComposerOriginContext } from './FullScreenFrame.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
@@ -29,6 +30,7 @@ function drawInkRule(width: number, edge: 'top' | 'bottom'): string {
 }
 
 export interface InputLineProps {
+  maxRows?: number;
   value: string;
   cursorOffset: number;
   isActive: boolean;
@@ -66,6 +68,7 @@ export function resolveInputLineCursorPosition(
 }
 
 function InputLineComponent({
+  maxRows,
   value,
   cursorOffset,
   isActive,
@@ -81,6 +84,7 @@ function InputLineComponent({
   const { theme } = useTheme();
   const rootRef = useRef<DOMElement | null>(null);
   const metrics = useBoxMetrics(rootRef);
+  const origin = useContext(ComposerOriginContext);
   const { setCursorPosition } = useCursor();
   const { stdout } = useStdout();
 
@@ -110,17 +114,20 @@ function InputLineComponent({
         inlineGhostSuffix,
       }
     );
+    const limit = maxRows === undefined ? lines.length : Math.max(1, maxRows);
+    const start = Math.max(0, Math.min(lines.length - limit, cursorRow - limit + 1));
     return {
-      plainLines: lines.map((line) => stripAnsiCodes(line)),
-      cursorRow,
+      plainLines: lines.slice(start, start + limit).map((line) => stripAnsiCodes(line)),
+      cursorRow: cursorRow - start,
+      firstVisibleRow: start,
       cursorColumn,
     };
-  }, [value, cursorOffset, width, borderStyle, placeholderText, nextPromptSuggestion, inlineGhostSuffix]);
+  }, [value, cursorOffset, width, borderStyle, placeholderText, nextPromptSuggestion, inlineGhostSuffix, maxRows]);
 
   setCursorPosition(
     resolveInputLineCursorPosition(
       isActive && enableHardwareCursor && metrics.hasMeasured,
-      metrics,
+      { left: metrics.left + origin.left, top: metrics.top + origin.top },
       displayData
     )
   );
@@ -140,6 +147,7 @@ function InputLineComponent({
     const position = measureElement(rootRef.current);
     onLayoutChange?.({
       ...position,
+      firstVisibleRow: displayData.firstVisibleRow,
       cursorX: position.x + displayData.cursorColumn,
       cursorY: position.y + displayData.cursorRow + 1,
     });
@@ -150,6 +158,7 @@ function InputLineComponent({
   }, [
     displayData.cursorColumn,
     displayData.cursorRow,
+    displayData.firstVisibleRow,
     enableHardwareCursor,
     enableMouseCursor,
     isActive,
@@ -159,6 +168,8 @@ function InputLineComponent({
     metrics.top,
     metrics.width,
     onLayoutChange,
+    origin.left,
+    origin.top,
   ]);
 
   useEffect(() => {
@@ -191,7 +202,7 @@ function InputLineComponent({
 
   // Active state mirrors the open prompt style from readline mode.
   return (
-    <Box ref={rootRef} flexDirection="column">
+    <Box ref={rootRef} flexDirection="column" flexShrink={0}>
       <Text>{theme.fgBg(borderToken, 'userMessageBg', rules.top)}</Text>
       {displayData.plainLines.map(renderContentLine)}
       <Text>{theme.fgBg(borderToken, 'userMessageBg', rules.bottom)}</Text>

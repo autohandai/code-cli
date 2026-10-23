@@ -44,6 +44,15 @@ export const AWS_BEDROCK_PROVIDER_FLAG = 'aws_bedrock_provider';
 
 export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
   {
+    id: 'full_screen_mode',
+    label: 'Full-screen terminal',
+    description: 'Keep the composer visible with a scrollable and searchable full-screen transcript.',
+    stage: 'stable',
+    configPath: 'features.fullScreenMode',
+    defaultEnabled: true,
+    requiresRestart: true,
+  },
+  {
     id: 'mcp',
     label: 'MCP tools',
     description: 'Connect configured Model Context Protocol servers and expose their tools.',
@@ -161,10 +170,10 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
   {
     id: 'slash_goal',
     label: 'Slash goal',
-    description: 'Enable experimental persistent goals across /goal, /goals, --goal, tools, RPC, and ACP.',
-    stage: 'experimental',
+    description: 'Manage persistent goals across /goal, /goals, --goal, tools, RPC, and ACP.',
+    stage: 'stable',
     configPath: 'features.slashGoal',
-    defaultEnabled: false,
+    defaultEnabled: true,
   },
   {
     id: 'code_mode',

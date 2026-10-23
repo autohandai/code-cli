@@ -37,6 +37,15 @@ describe('cancellable command runtime', () => {
     expect(host.setupEscListener).not.toHaveBeenCalled();
   });
 
+  it('reports cancelled research commands to the program status lifecycle', async () => {
+    const host = { ...createHost(), programStatus: { cancel: vi.fn() } };
+    await runCancellableAgentCommand(host, async signal => {
+      host.currentInkOnCancel?.();
+      expect(signal.aborted).toBe(true);
+    });
+    expect(host.programStatus.cancel).toHaveBeenCalled();
+  });
+
   it('registers and cleans up fallback ESC/Ctrl+C even when a command throws', async () => {
     const host = createHost(false);
     await expect(runCancellableAgentCommand(host, async () => { throw new Error('capture failed'); }))
@@ -53,11 +62,14 @@ describe('cancellable command runtime', () => {
     await runCancellableAgentCommand(host, async signal => {
       parent.abort();
       expect(signal.aborted).toBe(true);
+      expect(host.activeAbortController?.signal.aborted).toBe(true);
+      expect(host.currentInkAbortController?.signal.aborted).toBe(true);
     });
     host.activeAbortController = null;
     await runCancellableAgentCommand(host, async signal => {
       host.runtimeResourceShutdownController.abort();
       expect(signal.aborted).toBe(true);
+      expect(host.activeAbortController?.signal.aborted).toBe(true);
     });
   });
 

@@ -8,7 +8,7 @@ import { resetConversationSession, type ClearCommandContext } from './clear.js';
 export type NewCommandContext = ClearCommandContext;
 
 /**
- * New conversation command - extracts memories, then creates a fresh session and resets conversation.
+ * Archive the current session and start a fresh conversation without inference.
  */
 export async function newConversation(ctx: NewCommandContext): Promise<string | null> {
     return resetConversationSession(ctx, 'Session ended - new conversation started');

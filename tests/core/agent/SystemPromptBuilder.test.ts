@@ -115,7 +115,7 @@ describe('SystemPromptBuilder', () => {
   });
 
   it('only includes persistent goal guidance when slash_goal is enabled', async () => {
-    const disabledPrompt = await createBuilder().build();
+    const disabledPrompt = await createBuilder({ runtime: { options: {}, workspaceRoot: process.cwd(), config: { features: { slashGoal: false } } } }).build();
     const enabledPrompt = await createBuilder({
       runtime: {
         options: {},
@@ -128,6 +128,7 @@ describe('SystemPromptBuilder', () => {
     }).build();
 
     expect(disabledPrompt).not.toContain('### Persistent Goals');
+    expect(await createBuilder().build()).toContain('### Persistent Goals');
     expect(enabledPrompt).toContain('### Persistent Goals');
     expect(enabledPrompt).toContain('create_goal');
     expect(enabledPrompt).toContain('Persistent goal execution is session-scoped');
@@ -143,9 +144,13 @@ describe('SystemPromptBuilder', () => {
   it('includes completion report guidance by default', async () => {
     const prompt = await createBuilder().build();
 
-    expect(prompt).toContain('## Completion Report');
-    expect(prompt).toContain('For code work, include the details a staff engineer would expect');
-    expect(prompt).toContain('SITREP:');
+    expect(prompt).toContain('## Final Answer');
+    expect(prompt).toContain('short recap');
+    expect(prompt).toContain('confirmed memory writes');
+    expect(prompt).toContain('reflection is pending');
+    expect(prompt).not.toContain('SITREP:');
+    expect(prompt).not.toContain('After ANY tool failure');
+    expect(prompt).not.toContain('Next: Run `npm test`');
   });
 
   it('omits completion report guidance when disabled in config', async () => {

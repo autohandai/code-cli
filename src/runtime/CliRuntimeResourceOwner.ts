@@ -37,6 +37,7 @@ export interface CliRuntimeResourceOwnerOptions<
   setSyncService(service: Service | null): void;
   onSignal(signal: 'SIGINT' | 'SIGTERM'): void | Promise<void>;
   shutdownTimeoutMs?: number;
+  backgroundEnabled?: boolean;
 }
 
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2500;
@@ -89,6 +90,7 @@ export class CliRuntimeResourceOwner<
     signal: 'SIGINT' | 'SIGTERM',
   ) => void | Promise<void>;
   private readonly shutdownTimeoutMs: number;
+  private readonly backgroundEnabled: boolean;
 
   private generation = 0;
   private closed = false;
@@ -125,11 +127,12 @@ export class CliRuntimeResourceOwner<
     this.setSyncServiceCallback = options.setSyncService;
     this.onSignal = options.onSignal;
     this.shutdownTimeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
+    this.backgroundEnabled = options.backgroundEnabled !== false;
     this.installProcessListeners();
   }
 
   startPing(startPing: () => void): void {
-    if (this.closed || this.pingStarted) return;
+    if (!this.backgroundEnabled || this.closed || this.pingStarted) return;
     this.pingStarted = true;
     this.installProcessListeners();
     startPing();
@@ -138,7 +141,7 @@ export class CliRuntimeResourceOwner<
   startBackgroundStartup(
     startup: CliBackgroundStartup<AuthUser, VersionResult, Service>,
   ): void {
-    if (this.closed || this.startupPromise) return;
+    if (!this.backgroundEnabled || this.closed || this.startupPromise) return;
     this.installProcessListeners();
     const generation = this.generation;
     const startupPromise = this.runBackgroundStartup(startup, generation)

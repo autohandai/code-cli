@@ -55,6 +55,16 @@ describe('/extensions command', () => {
     expect(refreshDynamicExtensions).toHaveBeenCalledTimes(2);
   });
 
+  it('forces a reload in the current session and exposes reload in interactive help', async () => {
+    const refreshDynamicExtensions = vi.fn(async () => {});
+    const context = { extensionService: new ExtensionService(), refreshDynamicExtensions };
+    expect(await extensions(context, ['reload'])).toContain('Extensions refreshed.');
+    expect(refreshDynamicExtensions).toHaveBeenCalledExactlyOnceWith({ force: true });
+    expect(await extensions(context, ['reload', 'unexpected'])).toBe('Usage: /extensions reload');
+    expect(await extensions(context, ['help'])).toContain('/extensions reload');
+    expect(refreshDynamicExtensions).toHaveBeenCalledTimes(1);
+  });
+
   it('returns a clear error when the extension service is unavailable', async () => {
     await expect(extensions({}, ['list'])).resolves.toBe('Extensions service not available.');
   });

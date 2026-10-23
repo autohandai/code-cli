@@ -35,12 +35,8 @@ export const TipLine = memo(TipLineComponent);
 export const IDLE_TIP_PREFIX = 'Tip: ';
 /** Below this many columns a tip would be cut to noise, so none is shown. */
 export const MIN_IDLE_TIP_WIDTH = 24;
-const IDLE_TIP_GAP = 2;
-
-/** Columns left for an idle tip on the row above the composer, after the summary on its left. */
-export function idleTipWidth(columns: number, summary?: string): number {
-  const used = summary ? stringWidth(summary) + IDLE_TIP_GAP : 0;
-  return Math.max(0, getPromptBlockWidth(columns) - used);
+export function idleTipWidth(columns: number): number {
+  return getPromptBlockWidth(columns);
 }
 
 /** Whether a tip fits whole, prefix included, in `width` columns. */
@@ -49,40 +45,28 @@ export function fitsIdleTip(tip: string, width: number): boolean {
 }
 
 export interface IdleTipRowProps {
-  /** The finished turn's "Completed in …" line, kept on the left. */
   summary?: string;
   tip?: string;
   columns: number;
 }
 
-/**
- * The row directly above the composer while no turn runs: the last turn's
- * summary on the left and a rotating tip aligned to the composer's right edge.
- */
 function IdleTipRowComponent({ summary, tip, columns }: IdleTipRowProps): React.ReactNode {
   const { colors } = useTheme();
-  const width = idleTipWidth(columns, summary);
+  const width = idleTipWidth(columns);
   const tipText = tip && width >= MIN_IDLE_TIP_WIDTH
     ? truncateAnnouncementLine(`${IDLE_TIP_PREFIX}${tip}`, width)
     : '';
 
-  if (!tipText) {
-    return summary ? (
-      <Box marginTop={1}>
-        <Text color={colors.muted}>{summary}</Text>
-      </Box>
-    ) : null;
-  }
+  if (!summary && !tipText) return null;
 
   return (
     <Box
       marginTop={summary ? 1 : 0}
-      width={getPromptBlockWidth(columns)}
-      justifyContent={summary ? 'space-between' : 'flex-end'}
+      width={width}
+      flexDirection="column"
     >
       {summary ? <Text color={colors.muted}>{summary}</Text> : null}
-      {/* Dim and italic so a rotating hint never competes with the turn above it. */}
-      <Text color={colors.muted} dimColor italic>{tipText}</Text>
+      {tipText ? <Text color={colors.muted} dimColor italic>{tipText}</Text> : null}
     </Box>
   );
 }

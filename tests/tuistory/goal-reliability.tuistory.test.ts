@@ -110,7 +110,7 @@ describe('built CLI goal reliability', () => {
       expect(JSON.stringify(server.requests[0])).toContain('RECOVERED_CONVERSATION_MARKER');
       expect((await owner.getSessionSnapshot()).goal?.status).toBe('paused');
       await finishRecoveredGoal(session);
-      expect((await owner.getSessionSnapshot()).goal?.status).toBe('complete');
+      await expect.poll(async () => (await owner.getSessionSnapshot()).goal?.status).toBe('complete');
       expect((await owner.getSnapshot()).goals[other.metadata.sessionId]?.status).toBe('active');
       await exitInteractive(session);
     } finally {
@@ -302,8 +302,8 @@ describe('built CLI goal reliability', () => {
     }
   });
 
-  it('accepts the enabled --goal flag and persists its objective', async () => {
-    const state = await createTempAutohandHome({ config: { features: { slashGoal: true } } });
+  it('accepts --goal by default and persists its objective without opt-in', async () => {
+    const state = await createTempAutohandHome();
     let session: Session | undefined;
     try {
       session = await launchBuiltAutohand([
@@ -313,6 +313,23 @@ describe('built CLI goal reliability', () => {
       expect(session.readAll()).toContain('Goal created.');
       expect((await new GoalManager(state.workspaceRoot).getSessionSnapshot()).goal?.objective)
         .toBe('approved CLI objective');
+    } finally {
+      session?.close();
+      await state.cleanup();
+    }
+  });
+
+  it('keeps --goal disabled when the user has explicitly opted out', async () => {
+    const state = await createTempAutohandHome({ config: { features: { slashGoal: false } } });
+    let session: Session | undefined;
+    try {
+      session = await launchBuiltAutohand([
+        '--path', state.workspaceRoot, '--config', state.configPath, '--goal', 'must remain disabled',
+      ], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
+      await waitForExit(session);
+      expect(session.readAll()).toContain('/goal feature is disabled');
+      expect(await fs.pathExists(path.join(state.workspaceRoot, '.autohand', 'goals.local.json'))).toBe(false);
+      expect((await fs.readJson(state.configPath)).features.slashGoal).toBe(false);
     } finally {
       session?.close();
       await state.cleanup();

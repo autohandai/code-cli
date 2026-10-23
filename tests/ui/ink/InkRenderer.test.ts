@@ -4,10 +4,31 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
+import { AgentUI } from '../../../src/ui/ink/AgentUI.js';
+import { renderInkScreen } from '../../../src/testing/drivers/ink-driver.js';
+import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 
 describe('InkRenderer live command blocks', () => {
+  it('renders the first command result after clearing an existing Static transcript', async () => {
+    const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+    const screen = () => React.createElement(AgentUI, {
+      state: renderer.getState(), onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {},
+    });
+    renderer.addUserMessage('Previous request');
+    renderer.addAssistantMessage('Previous final answer');
+    const rendered = renderInkScreen(screen());
+    try {
+      renderer.resetAndClearScreen();
+      renderer.addAssistantMessage('Context compacted. Handoff retained.');
+      rendered.rerender(React.createElement(ThemeProvider, null, screen()));
+      await vi.waitFor(() => expect(rendered.frames.join('\n')).toContain('Context compacted. Handoff retained.'));
+      const message = rendered.frames.join('\n').split('\n').find(line => line.includes('Context compacted'))?.trim();
+      expect(message).toMatchInlineSnapshot('"Context compacted. Handoff retained."');
+    } finally { rendered.unmount(); renderer.stop(); }
+  });
   it('keeps failed retries, parallel call identities, and interrupted actions honest', () => {
     const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
     renderer.setWorking(true);
@@ -573,6 +594,17 @@ describe('InkRenderer live command blocks', () => {
     expect(renderer.getState().chatMessages).toEqual([]);
   });
 
+  it('keeps a one-time transcript notice in order instead of pinning it below future turns', () => {
+    const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+    renderer.addNotification('Repository suggestions available.', { placement: 'transcript' });
+    renderer.addUserMessage('Continue working');
+    expect(renderer.getState().notifications).toEqual([]);
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'notification', content: 'Repository suggestions available.' },
+      { role: 'user', content: 'Continue working' },
+    ]);
+  });
+
   it('tracks a running command and finalizes it into tool output', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},
@@ -711,5 +743,19 @@ describe('InkRenderer live command blocks', () => {
     expect(output).toContain('[earlier live output truncated]');
     expect(output).toContain('latest-completed-line');
     expect(output).toContain('latest-completed-warning');
+  });
+});
+
+describe('preformatted transcript messages', () => {
+  it('preserves edge whitespace for terminal art while trimming ordinary replies and ignoring empty output', () => {
+    const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+    const content = '\n    logo top  \n  logo bottom\n';
+    renderer.addAssistantMessage(content, false);
+    renderer.addAssistantMessage('   \n', false);
+    renderer.addAssistantMessage('  ordinary reply  \n');
+    expect(renderer.getState().chatMessages).toEqual([
+      { role: 'assistant', content, renderMarkdown: false },
+      { role: 'assistant', content: 'ordinary reply' },
+    ]);
   });
 });

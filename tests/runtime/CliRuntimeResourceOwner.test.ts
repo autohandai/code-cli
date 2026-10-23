@@ -48,6 +48,18 @@ function makeService() {
 }
 
 describe('CliRuntimeResourceOwner', () => {
+  it('never starts background work when disabled by the launch policy', async () => {
+    const stopPing = vi.fn();
+    const startPing = vi.fn();
+    const owner = new CliRuntimeResourceOwner({ process: new TestProcess(), stopPing, setSyncService: vi.fn(), onSignal: vi.fn(), backgroundEnabled: false });
+    const startup = { resolveAuthAndVersion: vi.fn(), onVersionResult: vi.fn(), shouldStartSync: vi.fn(), createSyncService: vi.fn() };
+    owner.startPing(startPing);
+    owner.startBackgroundStartup(startup);
+    await owner.shutdown();
+    expect(startPing).not.toHaveBeenCalled();
+    expect(stopPing).not.toHaveBeenCalled();
+    expect(startup.resolveAuthAndVersion).not.toHaveBeenCalled();
+  });
   it('stops the ping and sync service synchronously on process exit', async () => {
     const runtimeProcess = new TestProcess();
     const service = makeService();

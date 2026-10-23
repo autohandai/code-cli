@@ -19,6 +19,12 @@ import type { AgentRuntime, ToolCallRequest } from '../../src/types.js';
 const EXAMPLES_ROOT = path.resolve(import.meta.dirname, '../../examples/extensions');
 
 const EXPECTED_EXAMPLES = {
+  'autohand.document-factory': {
+    tools: [],
+    agents: [],
+    skills: [],
+    runtime: ['dist/extension.mjs'],
+  },
   'autohand.code-health': {
     tools: ['find_todos'],
     agents: ['code-health-reviewer'],
@@ -97,7 +103,7 @@ describe('extension example compatibility', () => {
     };
   }
 
-  it('ships exactly seven documented, independently valid packages', async () => {
+  it('ships exactly eight documented, independently valid packages', async () => {
     const directories = (await fs.readdir(EXAMPLES_ROOT)).sort();
 
     expect(directories).toEqual(Object.keys(EXPECTED_EXAMPLES).sort());
@@ -120,7 +126,7 @@ describe('extension example compatibility', () => {
     }
   });
 
-  it('runs the complete lifecycle for all seven packages and reloads them in a fresh service', async () => {
+  it('runs the complete lifecycle for all eight packages and reloads them in a fresh service', async () => {
     const { service, userRoot } = await createService();
 
     for (const id of Object.keys(EXPECTED_EXAMPLES) as Array<keyof typeof EXPECTED_EXAMPLES>) {
@@ -139,7 +145,7 @@ describe('extension example compatibility', () => {
     expect(snapshot.tools).toHaveLength(10);
     expect(snapshot.agents).toHaveLength(4);
     expect(snapshot.skills).toHaveLength(1);
-    expect(snapshot.runtimes).toHaveLength(1);
+    expect(snapshot.runtimes).toHaveLength(2);
     for (const [id, expected] of Object.entries(EXPECTED_EXAMPLES)) {
       const installedExtension = snapshot.extensions.find(
         (extension) => extension.manifest.id === id,

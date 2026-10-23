@@ -7,6 +7,7 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ProviderFactory, ProviderNotConfiguredError } from '../../../src/providers/ProviderFactory.js';
 import type { AgentRuntime } from '../../../src/types.js';
 import {
   configureAgentRegistry,
@@ -16,12 +17,15 @@ import { ToolsRegistry } from '../../../src/core/toolsRegistry.js';
 import type { ToolDefinition, ToolManager } from '../../../src/core/toolManager.js';
 import { AgentRegistry } from '../../../src/core/agents/AgentRegistry.js';
 import { ExtensionRegistry } from '../../../src/extensions/ExtensionRegistry.js';
+import { extensionRuntimeHost } from '../../../src/extensions/ExtensionRuntimeHost.js';
+import { ExtensionService } from '../../../src/extensions/ExtensionService.js';
 import { SkillsRegistry } from '../../../src/skills/SkillsRegistry.js';
 
 describe('syncDynamicRuntimeExtensions', () => {
   const tempRoots: string[] = [];
 
   afterEach(async () => {
+    await extensionRuntimeHost.deactivateAll();
     (AgentRegistry as unknown as { instance?: AgentRegistry }).instance = undefined;
     await Promise.all(tempRoots.splice(0).map((root) => fs.remove(root)));
   });
@@ -234,6 +238,95 @@ describe('syncDynamicRuntimeExtensions', () => {
     expect(host.toolsRegistry.getMetaTool('refresh_tool')).toBeUndefined();
     expect(AgentRegistry.getInstance().getAgent('refresh')).toBeUndefined();
     expect(skillsRegistry.getSkill('refresh-skill')).toBeNull();
+  });
+
+  it('keeps the complete last working package when a runtime edit fails and applies the repaired package', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-dynamic-rollback-'));
+    tempRoots.push(root);
+    const source = path.join(root, 'source');
+    await fs.ensureDir(path.join(source, 'tools'));
+    await fs.writeJson(path.join(source, 'autohand.extension.json'), {
+      schemaVersion: 1, extensionApi: 1, id: 'autohand.rollback', name: 'Rollback',
+      version: '1.0.0', description: 'Transactional runtime fixture',
+      contributes: { runtime: ['runtime.mjs'], tools: ['tools/value.json'] },
+    });
+    const runtimeFile = path.join(source, 'runtime.mjs');
+    const toolFile = path.join(source, 'tools/value.json');
+    const tool = { name: 'value_tool', description: 'Working tool', parameters: { type: 'object', properties: {} }, handler: 'echo first', source: 'user' };
+    await fs.writeJson(toolFile, tool);
+    await fs.writeFile(runtimeFile, `export function activate(api) {
+      api.commands.register({command:'/rollback',description:'Working command',execute:()=> 'first'});
+    }`);
+    const userRoot = path.join(root, 'extensions');
+    const service = new ExtensionService({ userRoot });
+    await service.install(source, { link: true, trust: true });
+    const host = {
+      extensionRegistry: new ExtensionRegistry({ userRoot }),
+      toolsRegistry: new ToolsRegistry(path.join(root, 'tools')),
+      toolManager: { replaceRuntimeMetaTools: vi.fn() },
+      inkRenderer: { setRuntimeSlashCommands: vi.fn(), setExtensionKeybindings: vi.fn(), setRuntimeLineExtensions: vi.fn() },
+    };
+    const runtime = { config: { configPath: '', externalAgents: { enabled: false, paths: [] } }, workspaceRoot: root, options: {} } as AgentRuntime;
+    await syncDynamicRuntimeExtensions(host, runtime);
+    await fs.writeJson(toolFile, { ...tool, description: 'Repaired tool' });
+    await fs.writeFile(runtimeFile, `export function activate() { throw new Error('unfinished edit'); }`);
+    const failed = await syncDynamicRuntimeExtensions(host, runtime);
+    expect(failed.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'runtime_activation_failed' })]));
+    expect(host.toolsRegistry.getMetaTool('value_tool')?.description).toBe('Working tool');
+    expect(extensionRuntimeHost.getCommand('/rollback')?.description).toBe('Working command');
+    await fs.writeFile(runtimeFile, `export function activate(api) {
+      api.commands.register({command:'/repaired',description:'Repaired command',execute:()=> 'second'});
+    }`);
+    await syncDynamicRuntimeExtensions(host, runtime);
+    expect(host.toolsRegistry.getMetaTool('value_tool')?.description).toBe('Repaired tool');
+    expect(extensionRuntimeHost.getCommand('/rollback')).toBeUndefined();
+    expect(host.inkRenderer.setRuntimeSlashCommands).toHaveBeenLastCalledWith(expect.arrayContaining([expect.objectContaining({command:'/repaired'})]));
+    await fs.writeFile(path.join(source, 'autohand.extension.json'), '{unfinished');
+    await syncDynamicRuntimeExtensions(host, runtime);
+    expect(host.toolsRegistry.getMetaTool('value_tool')?.description).toBe('Repaired tool');
+    await fs.remove(path.join(userRoot, 'autohand.rollback'));
+    await syncDynamicRuntimeExtensions(host, runtime);
+    expect(extensionRuntimeHost.getCommand('/repaired')).toBeUndefined();
+    expect(host.toolsRegistry.getMetaTool('value_tool')).toBeUndefined();
+  });
+
+  it('replaces the selected provider client on reload and stops using it immediately after disable', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-dynamic-provider-'));
+    tempRoots.push(root);
+    const source = path.join(root, 'source');
+    await fs.ensureDir(source);
+    await fs.writeJson(path.join(source, 'autohand.extension.json'), {
+      schemaVersion: 1, extensionApi: 1, id: 'autohand.provider', name: 'Provider', version: '1.0.0',
+      description: 'Live provider fixture', contributes: {runtime:['runtime.mjs']},
+    });
+    const writeRuntime = async (value: string) => fs.writeFile(path.join(source,'runtime.mjs'), `
+      export function activate(api) { api.providers.register({name:'extension:live',displayName:'Live',create:()=>({
+        getName:()=> 'extension:live',setModel:()=>{},listModels:async()=>['live-model'],isAvailable:async()=>true,
+        complete:async()=>({id:'live',created:0,raw:null,content:${JSON.stringify(value)}})
+      })}); }
+    `);
+    await writeRuntime('first');
+    const userRoot = path.join(root, 'extensions');
+    const service = new ExtensionService({userRoot});
+    await service.install(source,{link:true,trust:true});
+    const runtime: AgentRuntime = { workspaceRoot:root, options:{}, config:{configPath:'',provider:'extension:live',
+      extensionProviders:{'extension:live':{model:'live-model'}}} };
+    let activeProvider = ProviderFactory.create(runtime.config);
+    const host = { extensionRegistry:new ExtensionRegistry({userRoot}), providerConfigManager:{
+      refreshExtensionProvider: vi.fn(() => { activeProvider = ProviderFactory.create(runtime.config); }),
+    }};
+    await syncDynamicRuntimeExtensions(host,runtime);
+    expect((await activeProvider.complete({messages:[]})).content).toBe('first');
+    await writeRuntime('second');
+    await syncDynamicRuntimeExtensions(host,runtime);
+    expect((await activeProvider.complete({messages:[]})).content).toBe('second');
+    await service.setEnabled('autohand.provider',false);
+    await syncDynamicRuntimeExtensions(host,runtime);
+    await expect(activeProvider.complete({messages:[]})).rejects.toBeInstanceOf(ProviderNotConfiguredError);
+    await service.setEnabled('autohand.provider',true);
+    await syncDynamicRuntimeExtensions(host,runtime);
+    expect((await activeProvider.complete({messages:[]})).content).toBe('second');
+    expect(host.providerConfigManager.refreshExtensionProvider).toHaveBeenCalledTimes(4);
   });
 
   it('registers inline session agents passed through CLI options', () => {

@@ -37,34 +37,41 @@ function rowAboveComposer(lines: string[]): string {
 const idle: AgentUIState = { ...createInitialUIState(), isWorking: false };
 
 describe('AgentUI tips', () => {
-  it('shows an idle tip right-aligned on the row directly above the composer', () => {
+  it('shows an idle tip left-aligned on the row directly above the composer', () => {
     const row = rowAboveComposer(renderLines({
       ...idle,
       tip: { kind: 'tip', text: 'Type / to browse every slash command' },
     }));
     expect(row.trimEnd().endsWith('Tip: Type / to browse every slash command')).toBe(true);
-    expect(row.indexOf('Tip:')).toBeGreaterThan(0);
+    expect(row.indexOf('Tip:')).toBe(0);
   });
 
-  it('shares the row above the composer with the completion summary', () => {
-    const row = rowAboveComposer(renderLines({
+  it('keeps the tip on its own row below the completion summary', () => {
+    const lines = renderLines({
       ...idle,
       completionStats: { elapsed: '0m 15s', tokens: '↑37.3k ↓433' },
       tip: { kind: 'tip', text: 'Type @ to attach a file' },
-    }));
-    expect(row.startsWith('Completed in 0m 15s · ↑37.3k ↓433')).toBe(true);
-    expect(row.trimEnd().endsWith('Tip: Type @ to attach a file')).toBe(true);
+    });
+    const tipIndex = lines.findIndex((line) => line.startsWith('Tip:'));
+    expect(rowAboveComposer(lines)).toBe('Tip: Type @ to attach a file');
+    expect(lines[tipIndex - 1]).toBe('Completed in 0m 15s · ↑37.3k ↓433');
   });
 
-  it('shows no tip anywhere while a turn runs', () => {
+  it('keeps the working status directly above the tip and composer', () => {
     const lines = renderLines({
       ...idle,
       isWorking: true,
-      status: 'Grokking...',
+      status: 'Piping...',
+      elapsed: '0m 11s',
+      tokens: '↑0 ↓0 · context: 0.0% (0/262.1k)',
       tip: { kind: 'tip', text: 'Type @ to attach a file' },
     });
-    expect(lines.some((line) => line.includes('Grokking...'))).toBe(true);
-    expect(lines.join('\n')).not.toContain('Tip:');
+    const tipIndex = lines.findIndex(line => line.startsWith('Tip:'));
+    expect(rowAboveComposer(lines)).toBe('Tip: Type @ to attach a file');
+    expect(lines[tipIndex - 1]).toContain('Piping...');
+    expect(lines[tipIndex - 1]).toContain('0m 11s');
+    expect(lines[tipIndex - 1]).toContain('↑0 ↓0');
+    expect(lines[tipIndex - 1]).toContain('esc to cancel');
   });
 
   it('keeps a pinned upgrade hint under the status line', () => {

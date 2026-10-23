@@ -70,6 +70,28 @@ describe('SyncService', () => {
     expect(control.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(mockApiClient.getRemoteManifest).mock.invocationCallOrder[0]);
   });
 
+  it.each(['A signed-in Code client is required.', '401 Unauthorized'])('continues file sync when Console rejects a valid device credential (%s)', async (error) => {
+    const authFailure = vi.fn();
+    const service = new SyncService({
+      authToken: `ahc_${'D'.repeat(43)}`, userId: 'test-user',
+      config: { enabled: true, interval: 60000 }, apiClient: mockApiClient,
+      onAuthFailure: authFailure,
+    });
+    (service as unknown as { basePath: string }).basePath = tempDir;
+    vi.spyOn(service as unknown as { syncCodingAgentControlPlane: () => Promise<void> }, 'syncCodingAgentControlPlane')
+      .mockRejectedValue(new Error(error));
+    vi.mocked(mockApiClient.getRemoteManifest).mockResolvedValue(null);
+
+    const result = await service.sync();
+
+    expect(mockApiClient.getRemoteManifest).toHaveBeenCalledOnce();
+    expect(result.error).toContain(error);
+    expect(authFailure).not.toHaveBeenCalled();
+    expect(await fs.pathExists(path.join(tempDir, '.sync-state.json'))).toBe(true);
+    await service.sync();
+    expect(mockApiClient.getRemoteManifest).toHaveBeenCalledTimes(2);
+  });
+
   describe('createSyncService', () => {
     it('creates a sync service with required options', () => {
       const service = createSyncService({

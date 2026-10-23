@@ -172,6 +172,14 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     getPlanModeManager().restore({ enabled: false, plan: null, phase: 'planning' });
   });
 
+  it.each(['add_teammate', 'compose_team', 'cron_create', 'install_mcp_server'])('blocks background tool %s with --no-daemon before executing it', async tool => {
+    const { internals } = createAgent({ daemon: false });
+    internals.teamManager.addTeammate = vi.fn();
+    const [result] = await internals.toolManager.execute([{ id: 'no-daemon', tool, args: { name: 'helper', agent_name: 'helper', prompt: 'repeat', interval: '1m' } }]);
+    expect(result).toMatchObject({ success: false, kind: 'authorization' });
+    expect(internals.teamManager.addTeammate).not.toHaveBeenCalled();
+  });
+
   it.each([{}, { yes: true }, { unrestricted: true }])('starts in read-only plan mode with permission options %j', async (permissions) => {
     const { internals } = createAgent({ ...permissions, plan: true });
     internals.actionExecutor.executeForTool = vi.fn();

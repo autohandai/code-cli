@@ -21,6 +21,7 @@ import {
   getAutohandAICloudModelContextWindow,
 } from '../providers/AutohandAIProvider.js';
 import { applyTraceAuthenticationChange } from '../integrations/ahtraces/settingsLifecycle.js';
+import { withProgramStatusAuthentication, reportProgramStatusFailure, reportProgramStatusCancellation } from '../core/agent/AgentProgramStatus.js';
 
 export const metadata = {
   command: '/login',
@@ -195,6 +196,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 export async function login(ctx: LoginContext): Promise<string | null> {
+  return withProgramStatusAuthentication(() => performLogin(ctx));
+}
+
+async function performLogin(ctx: LoginContext): Promise<string | null> {
   const config = ctx.config as LoadedConfig;
 
   // Check if already logged in
@@ -207,6 +212,7 @@ export async function login(ctx: LoginContext): Promise<string | null> {
     });
 
     if (!result || !result.continueLogin) {
+      reportProgramStatusCancellation();
       console.log(chalk.gray(t('commands.login.cancelled')));
       return null;
     }
@@ -219,6 +225,7 @@ export async function login(ctx: LoginContext): Promise<string | null> {
   const initResult = await authClient.initiateDeviceAuth();
 
   if (!initResult.success || !initResult.deviceCode || !initResult.userCode) {
+    reportProgramStatusFailure('Authentication could not start');
     console.log(chalk.red(t('commands.login.failed', { error: initResult.error || 'Unknown error' })));
     return null;
   }
@@ -331,12 +338,14 @@ export async function login(ctx: LoginContext): Promise<string | null> {
     }
 
     if (pollResult.status === 'expired') {
+      reportProgramStatusFailure('Authorization code expired');
       process.stdout.write('\r' + ' '.repeat(20) + '\r');
       console.log(chalk.red('Authorization code expired. Please try again.'));
       return null;
     }
 
     if (pollResult.status === 'cancelled') {
+      reportProgramStatusCancellation();
       process.stdout.write('\r' + ' '.repeat(20) + '\r');
       console.log(chalk.yellow('Authentication cancelled. Run /login again when you are ready.'));
       return null;
@@ -346,6 +355,7 @@ export async function login(ctx: LoginContext): Promise<string | null> {
   }
 
   // Timeout
+  reportProgramStatusFailure('Authorization timed out');
   process.stdout.write('\r' + ' '.repeat(20) + '\r');
   console.log(chalk.red('Authorization timed out. Please try again.'));
   return null;

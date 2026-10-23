@@ -1,8 +1,9 @@
 import { defineConfig } from 'vitest/config';
 
 const isCi = process.env.CI === 'true';
-const workerCount = isCi ? 1 : 2;
-const minWorkerCount = isCi ? 1 : 2;
+const requestedWorkers = Number(process.env.AUTOHAND_TEST_WORKERS);
+const workerCount = isCi ? 1 : Number.isSafeInteger(requestedWorkers) && requestedWorkers > 0 ? requestedWorkers : 2;
+const minWorkerCount = workerCount;
 
 export default defineConfig({
   cacheDir: '.vitest',
@@ -26,6 +27,8 @@ export default defineConfig({
       '**/dist/**',
       '**/.worktrees/**',
       '**/.claude/worktrees/**',
+      '**/.tmp/**',
+      '**/.artifacts/**',
       '**/.{idea,git,cache,output,temp}/**',
       'tests/tuistory/**',
     ],

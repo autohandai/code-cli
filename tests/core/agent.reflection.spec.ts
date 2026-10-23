@@ -180,6 +180,45 @@ function createReactLoopHarness(
 /* ── Tests ────────────────────────────────────────────────── */
 
 describe('checkpoint review in the live execution loop', () => {
+  it('shows and records a provisional reply and continuation reason when completion review requests changes', async () => {
+    const review = vi.fn<TurnAdvisor['review']>()
+      .mockResolvedValueOnce({ verdict: 'changes_requested', feedback: 'Add the missing edge-case verification.' })
+      .mockResolvedValue({ verdict: 'approved', feedback: 'Verified.' });
+    const draft = 'The implementation is ready for review.';
+    const final = 'The implementation and edge-case verification are complete.';
+    const { host, emittedMessages } = createReactLoopHarness([
+      { content: 'Reading the implementation.', toolCalls: [createNativeToolCall('read')] },
+      { content: draft },
+      { content: final },
+    ], { advisor: { review, observeFailure: () => false } });
+
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'completed' });
+    expect(emittedMessages.some(message => message.includes(draft))).toBe(true);
+    expect(emittedMessages.some(message => message.includes('Add the missing edge-case verification.'))).toBe(true);
+    expect(emittedMessages.at(-1)).toBe(final);
+    expect(host.saveAssistantMessage).toHaveBeenCalledWith(expect.stringContaining('Add the missing edge-case verification.'), undefined);
+  });
+
+  it('keeps the available reply visible when completion review is interrupted', async () => {
+    const controller = new AbortController();
+    const draft = 'The source changes are ready for completion review.';
+    const { host, emittedMessages } = createReactLoopHarness([
+      { content: 'Reading the source.', toolCalls: [createNativeToolCall('read')] },
+      { content: draft },
+    ], { advisor: {
+      observeFailure: () => false,
+      review: async () => {
+        controller.abort();
+        controller.signal.throwIfAborted();
+        return { verdict: 'approved', feedback: 'Unreachable.' };
+      },
+    } });
+
+    await expect(runAgentReactLoop(host, controller)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(emittedMessages.some(message => message.includes(draft))).toBe(true);
+    expect(emittedMessages.some(message => /review.*interrupt/i.test(message))).toBe(true);
+  });
+
   it('refreshes orchestration instructions across setting and provider changes without losing history', async () => {
     const { host } = createReactLoopHarness(Array.from({ length: 5 }, () => ({ content: 'The requested source review is complete and its findings are ready.' })), { provider: 'autohandai' });
     host.runtime.config.provider = 'autohandai';
@@ -704,7 +743,10 @@ describe('Reflection guard integration', () => {
 
     expect(complete).toHaveBeenCalledTimes(2);
     expect(systemNotes.some((note) => note.includes('unfinished todo'))).toBe(true);
-    expect(emittedMessages).toEqual(['The todos are complete and the work is verified.']);
+    expect(emittedMessages).toEqual([
+      expect.stringContaining('Turn update: the current turn still has unfinished todo items.'),
+      'The todos are complete and the work is verified.',
+    ]);
   });
 
   it('ends the turn as incomplete instead of looping when todos stay unfinished after the completion check', async () => {
@@ -720,7 +762,10 @@ describe('Reflection guard integration', () => {
 
     expect(complete).toHaveBeenCalledTimes(2);
     expect(systemNotes.filter((note) => note.includes('unfinished todo'))).toHaveLength(1);
-    expect(emittedMessages).toEqual(['The implementation is in place; two todo items remain open.']);
+    expect(emittedMessages).toEqual([
+      expect.stringContaining('Turn update: the current turn still has unfinished todo items.'),
+      'The implementation is in place; two todo items remain open.',
+    ]);
     expect(result).toEqual({ status: 'incomplete', reason: 'pending_todos' });
   });
 

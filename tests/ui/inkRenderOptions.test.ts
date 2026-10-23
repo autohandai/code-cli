@@ -6,8 +6,9 @@
 
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { inkRenderOptions } from '../../src/ui/inkRenderOptions.js';
+import { PassThrough } from 'node:stream';
+import { describe, expect, it, vi } from 'vitest';
+import { createScrollbackPreservingOutput, inkRenderOptions } from '../../src/ui/inkRenderOptions.js';
 
 const SOURCE_ROOT = path.join(process.cwd(), 'src');
 const UNSUPPORTED_INK_RENDER_OPTIONS = ['concurrent', 'alternateScreen', 'maxFps'] as const;
@@ -29,6 +30,36 @@ async function collectSourceFiles(dir: string): Promise<string[]> {
 }
 
 describe('Ink 7 render options', () => {
+  it('keeps scrollback intact when Ink clears an overflowing startup frame', async () => {
+    const output = new PassThrough() as PassThrough & NodeJS.WriteStream;
+    let received = '';
+    output.on('data', (chunk: Buffer) => { received += chunk.toString(); });
+    const protectedOutput = createScrollbackPreservingOutput(output);
+    const flushed = vi.fn();
+    expect(protectedOutput.write('\x1b[2J\x1b[3J\x1b[Hlogo', 'utf8', flushed)).toBe(true);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(received).toBe('\x1b[2J\x1b[Hlogo');
+    expect(flushed).toHaveBeenCalledOnce();
+    protectedOutput.write(Buffer.from(' next'));
+    expect(received).toBe('\x1b[2J\x1b[Hlogo next');
+    output.destroy();
+  });
+
+  it('forwards current terminal dimensions and resize listener cleanup to the real output', () => {
+    const output = new PassThrough() as PassThrough & NodeJS.WriteStream;
+    Object.assign(output, { columns: 80, rows: 24, isTTY: true });
+    const protectedOutput = createScrollbackPreservingOutput(output);
+    const resize = vi.fn();
+    protectedOutput.on('resize', resize);
+    output.columns = 26;
+    output.emit('resize');
+    expect(protectedOutput.columns).toBe(26);
+    expect(resize).toHaveBeenCalledOnce();
+    protectedOutput.off('resize', resize);
+    expect(output.listenerCount('resize')).toBe(0);
+    output.destroy();
+  });
+
   it('returns only Ink-supported render options', () => {
     expect(inkRenderOptions({})).toEqual({});
     expect(inkRenderOptions({ exitOnCtrlC: false })).toEqual({ exitOnCtrlC: false });

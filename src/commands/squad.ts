@@ -15,6 +15,8 @@ import path from 'node:path';
 import type { SlashCommand } from '../core/slashCommands.js';
 import type { LoadedConfig } from '../types.js';
 import { readSquadRunSnapshot } from '../core/agents/SquadRunSnapshot.js';
+import { openSquadDesktop } from './squadDesktop.js';
+import type { SquadDesktopDeps } from './squadDesktop.js';
 import type { AgentRunSource } from '../core/agents/AgentRunStore.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.autohand.ai';
@@ -30,6 +32,7 @@ interface SquadContext {
   config?: LoadedConfig;
   workspaceRoot: string;
   onToggleAgentRunsView?: (visible: boolean, source?: AgentRunSource) => void;
+  onProgress?: (line: string) => void;
 }
 
 interface SquadDeps {
@@ -38,6 +41,7 @@ interface SquadDeps {
   homeDir?: string;
   now?: () => Date;
   spawnProcess?: typeof spawn;
+  desktop?: SquadDesktopDeps;
 }
 
 export interface SquadCommandResult {
@@ -107,7 +111,7 @@ interface RuntimeConfig {
 
 export const metadata: SlashCommand = {
   command: '/squad',
-  description: 'open and manage the local Autohand Squad runtime',
+  description: 'open the Autohand Squad app, installing it if needed',
   implemented: true,
   subcommands: [{ name: 'view', description: 'inspect recorded workspace runs from independent Squad sessions' }],
 };
@@ -134,6 +138,17 @@ export async function runSquadCommand(
       output: [snapshot.message, ...snapshot.runs.map(run =>
         `${run.agentName} · ${run.status} · ${run.task}`)].join('\n'),
     };
+  }
+  // Plain `autohand squad` opens the desktop app. Subcommands and flags keep
+  // driving the standalone runtime.
+  if (args.length === 0 || (args.length === 1 && args[0] === 'app')) {
+    return openSquadDesktop(ctx.config, {
+      env: deps.env,
+      fetchImpl: deps.fetchImpl,
+      homeDir: deps.homeDir,
+      onProgress: ctx.onProgress,
+      ...deps.desktop,
+    });
   }
   const parsed = parseSquadCommand(args);
   const env = deps.env ?? process.env;

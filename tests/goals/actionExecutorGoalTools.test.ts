@@ -162,6 +162,7 @@ describe('goal tools', () => {
         workspaceRoot,
         config: {
           configPath: path.join(workspaceRoot, 'config.json'),
+          features: { slashGoal: false },
         },
         options: {},
       } as AgentRuntime,

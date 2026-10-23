@@ -27,15 +27,19 @@ import { openPlanFile } from '../../modes/planMode/openPlanFile.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
+import { NO_DAEMON_MESSAGE } from '../../runtime/noDaemon.js';
 import { buildCommandUseData } from '../../telemetry/commandUsage.js';
 import type { CommandUseSurface } from '../../telemetry/types.js';
 import type { ThreadLease } from '../agents/SessionThreadBudget.js';
+import { withProgramStatusWait } from './AgentProgramStatus.js';
+import type { AgentProgramStatus } from './AgentProgramStatus.js';
 
 export interface AgentCommandRuntimeHost {
   [key: string]: any;
 }
 
 export interface CancellableCommandHost {
+  programStatus?: Pick<AgentProgramStatus, 'cancel'>;
   activeAbortController: AbortController | null;
   currentInkAbortController: AbortController | null;
   currentInkOnCancel: (() => void) | null;
@@ -61,14 +65,18 @@ export async function runCancellableAgentCommand<T>(
   ]);
   signal.throwIfAborted();
   const cancel = () => controller.abort();
+  const forwardAbort = () => controller.abort(signal.reason);
   let cleanup = () => {};
   host.activeAbortController = controller;
   host.currentInkAbortController = controller;
   host.currentInkOnCancel = cancel;
   try {
+    signal.addEventListener('abort', forwardAbort, { once: true });
     if (!host.inkRenderer?.isRunning()) cleanup = host.setupEscListener(controller, cancel, true);
     return await operation(signal);
   } finally {
+    signal.removeEventListener('abort', forwardAbort);
+    if (signal.aborted) host.programStatus?.cancel();
     cleanup();
     if (host.activeAbortController === controller) host.activeAbortController = previous.active;
     if (host.currentInkAbortController === controller) host.currentInkAbortController = previous.ink;
@@ -96,11 +104,17 @@ const INTERACTIVE_SLASH_COMMANDS = new Set([
   '/agents-new', '/agents new', '/resume', '/theme', '/language',
   '/model', '/skills', '/skills install', '/skills-install',
   '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
-  '/squad', '/peers', '/whatityped',
+  '/squad', '/peers', '/whatityped', '/sync',
+  '/cloud', '/handoff', '/handoff cloud', '/open',
 ]);
 
 /** Operational command results that belong with the fixed composer controls. */
 const FIXED_COMPOSER_RESULT_COMMANDS = new Set(['/tasks', '/team', '/teams', '/squad']);
+const MARKDOWN_REPORT_COMMANDS = new Set(['/pr-review', '/deslop', '/tester']);
+
+export function shouldPreserveComposerDraftAfterCommand(command: string): boolean {
+  return command === '/whatityped' || command === '/peers' || command === '/feedback' || command === '/sync';
+}
 
 export function shouldRenderSlashCommandResultInComposer(command: string): boolean {
   return FIXED_COMPOSER_RESULT_COMMANDS.has(command);
@@ -121,7 +135,8 @@ export function renderAgentSlashCommandResult(
   if (shouldRenderSlashCommandResultInComposer(command)) {
     host.inkRenderer.setCommandResult?.(command, result);
   } else {
-    host.inkRenderer.addAssistantMessage?.(result, false);
+    const renderMarkdown = MARKDOWN_REPORT_COMMANDS.has(command) && !result.startsWith('Usage:');
+    host.inkRenderer.addAssistantMessage?.(result, renderMarkdown);
   }
   return true;
 }
@@ -199,6 +214,7 @@ export function applyAgentAcpConfigOption(host: AgentCommandRuntimeHost, configI
   }
 
 export async function connectAgentAcpMcpServers(host: AgentCommandRuntimeHost, configs: McpServerConfig[]): Promise<void> {
+    if (configs.length > 0 && host.runtime.options.daemon === false) throw new Error(NO_DAEMON_MESSAGE);
     if (configs.length === 0) {
       return;
     }
@@ -228,6 +244,9 @@ export async function runAgentSlashCommandWithInput(host: AgentCommandRuntimeHos
     }
 
     try {
+      if (command === '/clear') {
+        return await runCancellableAgentCommand(host as CancellableCommandHost, () => host.handleSlashCommand(command, args));
+      }
       const result = await host.handleSlashCommand(command, args);
       return result;
     } finally {
@@ -253,7 +272,7 @@ export async function runAgentSlashCommandWithInput(host: AgentCommandRuntimeHos
         host.persistentInputActiveTurn = false;
       }
       cleanupConsoleBridge();
-      if (isInteractive && command !== '/whatityped' && command !== '/peers' && command !== '/feedback' && host.inkRenderer?.isRunning()) {
+      if (isInteractive && !shouldPreserveComposerDraftAfterCommand(command) && host.inkRenderer?.isRunning()) {
         host.inkRenderer.clearInput();
       }
     }
@@ -265,6 +284,20 @@ export async function handleAgentSlashCommand(
   args: string[] = [],
   surface: CommandUseSurface = 'interactive',
 ): Promise<string | null> {
+    const execute = () => handleStableAgentSlashCommand(host, command, args, surface);
+    return host.extensionReloadController
+      ? host.extensionReloadController.withStableExtensions(execute) : execute();
+}
+
+async function handleStableAgentSlashCommand(
+  host: AgentCommandRuntimeHost,
+  command: string,
+  args: string[],
+  surface: CommandUseSurface,
+): Promise<string | null> {
+    if (host.runtime.options.daemon === false && ['/browser', '/chrome', '/mcp', '/mcp install', '/mcp-install', '/squad', '/traces', '/hooks', '/repeat'].includes(command)) {
+      return NO_DAEMON_MESSAGE;
+    }
     if (host.runtime.options.bare) {
       return BARE_SLASH_COMMANDS_DISABLED_MESSAGE;
     }
@@ -307,7 +340,7 @@ export function parseAgentSlashCommand(_host: AgentCommandRuntimeHost, input: st
     const parts = trimmed.split(/\s+/);
 
     // Check for two-word commands like "/skills install", "/mcp install"
-    const twoWordCommands = ['/skills install', '/skills new', '/skills use', '/agents new', '/mcp install', '/handoff session', '/handoff web'];
+    const twoWordCommands = ['/skills install', '/skills new', '/skills use', '/agents new', '/mcp install', '/handoff session', '/handoff web', '/handoff cloud'];
     const potentialTwoWord = parts.slice(0, 2).join(' ');
 
     if (twoWordCommands.includes(potentialTwoWord)) {
@@ -347,23 +380,23 @@ export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost,
 
     // Use confirmation callback if set (e.g., RPC mode)
     if (host.confirmationCallback) {
-      decision = normalizePermissionPromptResponse(await host.confirmationCallback(message, context));
+      decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => host.confirmationCallback(message, context)));
     } else if (isExternalCallbackEnabled()) {
-      decision = normalizePermissionPromptResponse(await unifiedConfirm(message, promptContext));
+      decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => unifiedConfirm(message, promptContext)));
     } else {
       host.notificationService.notify(
         { body: message, reason: 'confirmation' },
         host.getNotificationGuards()
       ).catch(() => {});
 
-      decision = await host.withModalPause(async () => {
+      decision = await withProgramStatusWait('permission', message, () => host.withModalPause(async () => {
         // Reset stdin to cooked mode for Modal prompts
         const wasRaw = process.stdin.isTTY && (process.stdin as any).isRaw;
         if (wasRaw) {
           safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
         }
         return unifiedConfirm(message, promptContext);
-      });
+      }));
     }
 
     if (context?.tool) {
@@ -401,15 +434,15 @@ export async function requestAgentDirectoryAccess(host: AgentCommandRuntimeHost,
 
     // Use callback if set (e.g., RPC mode)
     if (host.directoryAccessCallback) {
-      return host.directoryAccessCallback(dirPath, reason);
+      return withProgramStatusWait('permission', reason ?? 'Directory access requested', () => host.directoryAccessCallback(dirPath, reason));
     }
 
     // Interactive mode - show modal prompt via Ink
     if (host.useInkRenderer && host.inkRenderer) {
-      return host.withModalPause(async () => {
+      return withProgramStatusWait('permission', reason ?? 'Directory access requested', () => host.withModalPause(async () => {
         const result = await showDirectoryAccessModal({ path: dirPath, reason });
         return result ? dirPath : undefined;
-      });
+      }));
     }
 
     // Fallback - no callback and no Ink renderer
@@ -433,7 +466,7 @@ export async function executeAgentAskFollowupQuestion(host: AgentCommandRuntimeH
 
     if (host.followupQuestionCallback) {
       try {
-        const mobileAnswer = await host.followupQuestionCallback(question, suggestedAnswers);
+        const mobileAnswer = await withProgramStatusWait('question', question, () => host.followupQuestionCallback(question, suggestedAnswers));
         if (typeof mobileAnswer === 'string' && mobileAnswer.trim()) {
           host.consecutiveCancellations = 0;
           console.log(chalk.green(`\n✓ Answer: ${mobileAnswer}\n`));
@@ -449,7 +482,7 @@ export async function executeAgentAskFollowupQuestion(host: AgentCommandRuntimeH
       host.getNotificationGuards()
     ).catch(() => {});
 
-    return host.withModalPause(async () => {
+    return withProgramStatusWait('question', question, () => host.withModalPause(async () => {
       const answer = await showQuestionModal({
         question,
         suggestedAnswers
@@ -464,7 +497,7 @@ export async function executeAgentAskFollowupQuestion(host: AgentCommandRuntimeH
       host.consecutiveCancellations = 0;
       console.log(chalk.green(`\n✓ Answer: ${answer}\n`));
       return `<answer>${answer}</answer>`;
-    });
+    }));
   }
 
 /** Shows a plan the way its author wrote it: goal, steps, detail and risks, not a flattened list. */
@@ -567,7 +600,7 @@ export async function handleAgentExitPlanMode(
     const acceptOptions = planManager.getAcceptOptions();
     const filePath = path.join(new PlanFileStorage().getPlansDirectory(), `${plan.id}.md`);
 
-    return host.withModalPause(async () => {
+    return withProgramStatusWait('permission', 'Review and approve the plan', () => host.withModalPause(async () => {
       const result = await showPlanAcceptModal({
         planFilePath: filePath,
         options: acceptOptions.map(opt => ({
@@ -647,7 +680,7 @@ export async function handleAgentExitPlanMode(
         success: true,
         output: `Plan accepted. Starting execution with manual edit approval.\n\n${describeAcceptedPlan(accepted.plan, accepted.edited)}`,
       } satisfies ToolActionOutcome;
-    });
+    }));
   }
 
 export function resolveAgentWorkspacePath(host: AgentCommandRuntimeHost, relativePath: string): string {

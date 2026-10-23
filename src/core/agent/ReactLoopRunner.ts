@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import type { GoalMutationResult } from '../../goals/types.js';
+import { formatToolObservation } from './AgentToolOutputRuntime.js';
 import type { PermissionManager } from '../../permissions/PermissionManager.js';
 import { getProviderConfig } from '../../config.js';
 import { isSearchConfigured } from '../../actions/web.js';
@@ -173,6 +175,7 @@ export interface ReactLoopInkRenderer {
   setTokens(tokens: string): void;
   setContextTokens?(contextTokens: { used: number; total: number } | undefined): void;
   setWorking(isWorking: boolean): void;
+  addAssistantMessage?(message: string, renderMarkdown?: boolean): void;
   setFinalResponse(response: string): void;
   setStreamingResponse?(response: string | null): void;
 }
@@ -245,6 +248,7 @@ export interface AgentReactLoopHost {
   isPromptCachingEnabled?(): boolean;
   /** Keeps Autohand AI cloud tool lists stable for the session; see PromptCacheToolSet. */
   promptCacheToolSet?: PromptCacheToolSet;
+  saveUserMessage(content: string): Promise<void>;
   saveAssistantMessage(content: string, toolCalls?: ToolCallRequest[]): Promise<void>;
   saveToolMessage(name: AgentAction['type'], content: string, toolCallId?: string): Promise<void>;
   setComposerFinalResponse(response: string): void;
@@ -269,7 +273,7 @@ export interface ReactLoopControl {
 
 export type ReactLoopResult =
   | { status: 'completed' }
-  | { status: 'incomplete'; reason: 'iteration_limit' | 'pending_todos' | 'advisor_review' }
+  | { status: 'incomplete'; reason: 'iteration_limit' | 'pending_todos' | 'advisor_review' | 'goal_completion' }
   | { status: 'stopped'; stepNumber: number }
   | { status: 'aborted' };
 
@@ -630,6 +634,7 @@ export async function runAgentReactLoop(
       if (previousOrchestrationNote?.content !== note) host.conversation.addSystemNote(note);
     }
     let hadToolWork = false;
+    let pendingGoalCompletion: { commit: () => Promise<GoalMutationResult> } | undefined;
     let advisorRejections = 0;
     const consultAdvisor = async (checkpoint: AdvisorCheckpoint, evidence: string): Promise<AdvisorReview> => {
       host.setSpinnerStatus(`Moa reviewing ${checkpoint.replaceAll('_', ' ')}... (esc to interrupt)`);
@@ -675,6 +680,21 @@ export async function runAgentReactLoop(
     // The relay of the most recent model request; the final events it already
     // streamed to output listeners are flagged so protocol hosts do not repeat them.
     let streamedOutput: StreamedOutputRelay | undefined;
+
+    let visibleDraft: string | undefined;
+    const renderProvisionalResponse = async (response: string, reason: string): Promise<void> => {
+      const notice = `Turn update: ${reason}`;
+      const content = visibleDraft === response ? notice : `Draft — completion is not confirmed\n\n${response}\n\n${notice}`;
+      visibleDraft = response;
+      host.emitOutput({ type: 'message', content });
+      if (host.inkRenderer) {
+        host.inkRenderer.setStreamingResponse?.(null);
+        host.inkRenderer.addAssistantMessage?.(content);
+      } else if (!host.runtime.commandOutputCaptured) {
+        console.log(content);
+      }
+      await host.saveAssistantMessage(notice, undefined);
+    };
 
     const renderFinalResponse = (
       response: string,
@@ -741,9 +761,10 @@ export async function runAgentReactLoop(
     // Steered messages join the conversation only between iterations, once
     // every tool result of the previous assistant turn is in place; a user
     // message between a tool call and its result is a shape providers reject.
-    const drainSteering = (): boolean => {
+    const drainSteering = async (): Promise<boolean> => {
       const steered = host.steering?.drain() ?? [];
       for (const content of steered) {
+        await host.saveUserMessage(content);
         host.conversation.addMessage({ role: 'user', content });
         host.inkRenderer?.setStatus?.('Applying your steering message...');
       }
@@ -756,7 +777,7 @@ export async function runAgentReactLoop(
         if (debugMode) host.writeDebugLine('[AGENT DEBUG] Abort detected at loop start, breaking');
         break;
       }
-      drainSteering();
+      await drainSteering();
 
       // Filter tools by relevance to reduce token overhead
       await host.peerCommunicationRuntime?.safeBoundary();
@@ -1046,6 +1067,7 @@ export async function runAgentReactLoop(
           if (toolsWithheldByLoopGuard) {
             invalidLoopGuardFinalCount += 1;
             if (invalidLoopGuardFinalCount >= 2) {
+              renderFinalResponse('The repeated-tool loop stopped without a complete answer. The task remains incomplete; the available tool results are preserved in the session.');
               throw new LoopAbortedError('The model could not provide a complete answer after the repeated-tool loop guard');
             }
             host.conversation.addSystemNote(
@@ -1494,6 +1516,12 @@ export async function runAgentReactLoop(
               }
             }, {
               signal: abortController.signal,
+              deferGoalCompletion: (prepared, commit) => {
+                if (pendingGoalCompletion) return { ...prepared, ok: false, completionPending: false,
+                  message: 'Goal completion is already prepared for this turn. Deliver the final response before completing another goal.' };
+                pendingGoalCompletion = { commit };
+                return prepared;
+              },
               registerToolImages: host.registerToolImages,
               ...(host.peerRuntime?.automatic ? { peerAutomatic: true } : {}),
             });
@@ -1545,9 +1573,7 @@ export async function runAgentReactLoop(
           // Add tool messages to conversation after ALL tools complete (needs full ordered results)
           for (let i = 0; i < results.length; i++) {
             const result = results[i];
-            const content = result.success
-              ? result.output ?? '(no output)'
-              : result.error ?? result.output ?? 'Tool failed without error message';
+            const content = formatToolObservation(result);
             const toolMessage: LLMMessage = {
               role: 'tool',
               name: result.tool,
@@ -1767,10 +1793,14 @@ export async function runAgentReactLoop(
       }
       // A steer that arrived while the model was answering deserves a reply
       // of its own instead of being read only by the next turn.
-      if (drainSteering()) {
+      if (await drainSteering()) {
+        await renderProvisionalResponse(turnOutcome.response, 'new user instructions arrived while this reply was being prepared.');
         continue;
       }
-      if ((await host.peerCommunicationRuntime?.finishTurn())?.continueTurn) continue;
+      if ((await host.peerCommunicationRuntime?.finishTurn())?.continueTurn) {
+        await renderProvisionalResponse(turnOutcome.response, 'new peer messages need to be handled before this turn finishes.');
+        continue;
+      }
       if (host.hasIncompleteTodoActivity?.()) {
         if (!pendingTodoReminderSent && !toolsWithheldByLoopGuard) {
           pendingTodoReminderSent = true;
@@ -1778,23 +1808,44 @@ export async function runAgentReactLoop(
             '[Completion Check] The current turn still has unfinished todo items. '
             + 'Continue the work and update the todo list explicitly before providing a final answer.'
           );
+          await renderProvisionalResponse(turnOutcome.response, 'the current turn still has unfinished todo items.');
           continue;
         }
         renderFinalResponse(turnOutcome.response, { thought: payload.thought });
         return { status: 'incomplete', reason: 'pending_todos' };
       }
       if (advisor && hadToolWork) {
-        const review = await consultAdvisor('completion', turnOutcome.response);
+        await renderProvisionalResponse(turnOutcome.response, 'completion review is pending.');
+        let review: AdvisorReview;
+        try {
+          review = await consultAdvisor('completion', turnOutcome.response);
+        } catch (error) {
+          if (abortController.signal.aborted) {
+            await renderProvisionalResponse(turnOutcome.response, 'completion review was interrupted; this draft has not been approved.');
+          }
+          throw error;
+        }
         if (review.verdict !== 'approved') {
           advisorRejections += 1;
           if (review.verdict === 'unavailable' || advisorRejections >= 3) {
-            renderFinalResponse(`Work remains pending Moa review: ${review.feedback}`);
+            const label = review.verdict === 'unavailable' ? 'Unreviewed draft' : 'Unapproved draft';
+            renderFinalResponse(`${label}\n\n${turnOutcome.response}\n\nWork remains pending Moa review: ${review.feedback}\nResolve the review feedback and ask to continue before treating this work as complete.`);
             return { status: 'incomplete', reason: 'advisor_review' };
           }
+          await renderProvisionalResponse(turnOutcome.response, `completion review requested changes. ${review.feedback}`);
           continue;
         }
       }
+      if (abortController.signal.aborted) return { status: 'aborted' };
       renderFinalResponse(turnOutcome.response, { thought: payload.thought });
+      if (pendingGoalCompletion) {
+        const completed = await pendingGoalCompletion.commit();
+        if (!completed.ok) {
+          renderFinalResponse(`${turnOutcome.response}\n\nGoal completion remains pending: ${completed.message}`);
+          return { status: 'incomplete', reason: 'goal_completion' };
+        }
+        host.conversation.addSystemNote(`[Goal completion after delivery] ${completed.message}`);
+      }
       return { status: 'completed' };
     }
     if (abortController.signal.aborted) {

@@ -470,3 +470,52 @@ describe('InkRenderer pause/resume cycle', () => {
   });
 
 });
+
+describe('full-screen renderer lifecycle', () => {
+  it.each(['normal', 'mount failure', 'clear failure'])('restores screen ownership on %s', async (scenario) => {
+    const inputDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const outputDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    const term = process.env.TERM;
+    const writes: string[] = [];
+    const before = process.listenerCount('exit');
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => { writes.push(String(chunk)); return true; }) as typeof process.stdout.write);
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    process.env.TERM = 'xterm-256color';
+    const fakeTimers = scenario === 'mount failure';
+    if (fakeTimers) vi.useFakeTimers();
+    const timerBaseline = fakeTimers ? vi.getTimerCount() : undefined;
+    const renderer = new InkRenderer({ fullScreenMode: true, onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+    try {
+      if (scenario === 'mount failure') {
+        vi.mocked(renderInk).mockImplementationOnce(() => { throw new Error('mount failed'); });
+        expect(() => renderer.start()).toThrow('mount failed');
+        await renderer.stop();
+      } else {
+        renderer.start();
+        const { prepareModalRender, cleanupModalRender } = await import('../../../src/ui/ink/components/Modal.js');
+        renderer.pause(); prepareModalRender(); cleanupModalRender(); await renderer.resume();
+        expect(writes.filter(text => text.includes('?1049h'))).toHaveLength(1);
+        expect(writes.some(text => text.includes('?1049l'))).toBe(false);
+        if (scenario === 'clear failure') {
+          const instance = vi.mocked(renderInk).mock.results.at(-1)?.value as { clear: ReturnType<typeof vi.fn> };
+          instance.clear.mockImplementationOnce(() => { throw new Error('clear failed'); });
+          await expect(renderer.stop()).rejects.toThrow('clear failed');
+        } else await renderer.stop();
+      }
+      expect(writes.filter(text => text.includes('?1049l'))).toHaveLength(1);
+      expect(writes.filter(text => text === '\x1b[>1u')).toHaveLength(1);
+      expect(writes.filter(text => text === '\x1b[<u')).toHaveLength(1);
+      if (timerBaseline !== undefined) expect(vi.getTimerCount()).toBe(timerBaseline);
+      expect(process.listenerCount('exit')).toBe(before);
+    } finally {
+      await renderer.stop(); write.mockRestore();
+      if (fakeTimers) vi.useRealTimers();
+      for (const [stream, descriptor] of [[process.stdin, inputDescriptor], [process.stdout, outputDescriptor]] as const) {
+        if (descriptor) Object.defineProperty(stream, 'isTTY', descriptor);
+        else Reflect.deleteProperty(stream, 'isTTY');
+      }
+      if (term === undefined) delete process.env.TERM; else process.env.TERM = term;
+    }
+  });
+});

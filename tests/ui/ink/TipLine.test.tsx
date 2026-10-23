@@ -53,16 +53,8 @@ describe('idle tip width', () => {
     expect(idleTipWidth(80)).toBe(79);
   });
 
-  it('leaves a two-column gap after the completion summary', () => {
-    expect(idleTipWidth(80, 'x'.repeat(30))).toBe(47);
-  });
-
-  it('measures the summary by display width', () => {
-    expect(idleTipWidth(80, '完成')).toBe(73);
-  });
-
   it('never goes below zero on a narrow terminal', () => {
-    expect(idleTipWidth(20, 'x'.repeat(40))).toBe(0);
+    expect(idleTipWidth(0)).toBeGreaterThanOrEqual(0);
   });
 
   it('accepts only whole tips, prefix included, with at least the minimum width', () => {
@@ -73,7 +65,7 @@ describe('idle tip width', () => {
 });
 
 describe('IdleTipRow', () => {
-  it('renders the rotating tip dim and italic so it stays quiet beside the composer', () => {
+  it('renders the rotating tip dim and italic so it stays quiet above the composer', () => {
     const level = chalk.level;
     chalk.level = 3;
     try {
@@ -90,37 +82,59 @@ describe('IdleTipRow', () => {
     }
   });
 
-  it('right-aligns a lone tip to the composer edge', () => {
+  it('left-aligns a lone tip with the composer', () => {
     const tip = 'Tip: Type / to browse commands';
     expect(frameOf(<IdleTipRow tip="Type / to browse commands" columns={60} />))
-      .toBe(`${' '.repeat(59 - tip.length)}${tip}`);
+      .toBe(tip);
   });
 
-  it('puts the tip on the right of the completion summary, on the same row', () => {
+  it.each([80, 120, 200])('puts the tip below the completion summary at %i columns', (columns) => {
     const lines = frameOf(
-      <IdleTipRow summary="Completed in 0m 4s · ↑1.2k ↓40" tip="Type @ to attach a file" columns={80} />,
+      <IdleTipRow summary="Completed in 0m 4s · ↑1.2k ↓40" tip="Type @ to attach a file" columns={columns} />,
     ).split('\n');
     expect(lines[0]?.trim()).toBe('');
-    const row = lines[1] ?? '';
-    expect(row.startsWith('Completed in 0m 4s · ↑1.2k ↓40')).toBe(true);
-    expect(row.endsWith('Tip: Type @ to attach a file')).toBe(true);
-    expect(stringWidth(row)).toBe(79);
+    expect(lines[1]).toBe('Completed in 0m 4s · ↑1.2k ↓40');
+    expect(lines[2]).toBe('Tip: Type @ to attach a file');
+    expect(lines).toHaveLength(3);
   });
 
-  it('keeps the summary and drops the tip when the terminal is too narrow', () => {
-    const frame = frameOf(<IdleTipRow summary={'x'.repeat(30)} tip="Type ? for shortcuts" columns={40} />);
-    expect(frame).toContain('x'.repeat(30));
+  it('uses the full tip row even when the summary fills the terminal', () => {
+    const lines = frameOf(<IdleTipRow summary={'x'.repeat(39)} tip="Type ? for shortcuts" columns={40} />).split('\n');
+    expect(lines.slice(-2)).toMatchInlineSnapshot(`
+      [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "Tip: Type ? for shortcuts",
+      ]
+    `);
+  });
+
+  it('keeps tips below a wrapping summary', () => {
+    const lines = frameOf(<IdleTipRow summary={'x'.repeat(70)} tip="Type ? for shortcuts" columns={40} />).split('\n');
+    expect(lines.at(-1)).toBe('Tip: Type ? for shortcuts');
+    expect(lines.every((line) => stringWidth(line) <= 39)).toBe(true);
+  });
+
+  it('keeps the summary when the terminal is too narrow for a tip', () => {
+    const frame = frameOf(<IdleTipRow summary="Completed" tip="Type ? for shortcuts" columns={20} />);
+    expect(frame).toContain('Completed');
     expect(frame).not.toContain('Tip:');
   });
 
   it('truncates a tip that stopped fitting after a resize', () => {
-    const lines = frameOf(<IdleTipRow summary={'x'.repeat(20)} tip={'y'.repeat(50)} columns={60} />).split('\n');
-    const row = lines.find((line) => line.includes('xxxx')) ?? '';
+    const lines = frameOf(<IdleTipRow summary={'x'.repeat(20)} tip={'y'.repeat(70)} columns={60} />).split('\n');
+    const row = lines.find((line) => line.includes('Tip:')) ?? '';
     expect(row.endsWith('…')).toBe(true);
     expect(stringWidth(row)).toBeLessThanOrEqual(59);
   });
 
   it('renders nothing with neither a summary nor a tip', () => {
     expect(frameOf(<IdleTipRow columns={80} />)).toBe('');
+  });
+
+  it('keeps display-width truncation on its own row after resizing', () => {
+    const lines = frameOf(<IdleTipRow summary="Completed" tip={'界'.repeat(40)} columns={40} />).split('\n');
+    expect(lines[1]).toBe('Completed');
+    expect(lines[2]).toMatch(/^Tip: 界+…$/u);
+    expect(stringWidth(lines[2])).toBeLessThanOrEqual(39);
   });
 });

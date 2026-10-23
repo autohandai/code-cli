@@ -13,6 +13,8 @@ import { existsSync } from 'fs';
 import { spawn } from 'child_process';
 import { getCommandCoordination, signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
 import { hasBrowserBridgeOutput } from '../browser/browserToolBridge.js';
+import type { AutohandConfig, SearchProvider } from '../types.js';
+import { ManagedWebSearch, managedSearchIdentity } from '../search/managedWebSearch.js';
 
 export interface WebSearchResult {
   title: string;
@@ -24,7 +26,7 @@ export interface WebSearchOptions {
   maxResults?: number;
   searchType?: 'general' | 'packages' | 'docs' | 'changelog';
   /** Override the default search provider */
-  provider?: 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa';
+  provider?: SearchProvider;
   /** Connected Chromium bridge used before launching a separate browser process. */
   browserToolInvoker?: BrowserToolInvoker;
   signal?: AbortSignal;
@@ -67,7 +69,7 @@ function rethrowAbort(error: unknown): void {
 
 /** Search provider configuration */
 export interface SearchConfig {
-  provider: 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa';
+  provider: SearchProvider;
   braveApiKey?: string;
   parallelApiKey?: string;
   exaApiKey?: string;
@@ -77,6 +79,8 @@ export interface SearchConfig {
 let globalSearchConfig: SearchConfig = {
   provider: 'browser-profile'
 };
+let managedSearch: ManagedWebSearch | undefined;
+let searchConfigurationRevision = 0;
 
 /**
  * Configure the global search provider settings
@@ -89,12 +93,30 @@ export function configureSearchFromSettings(
   settings: Partial<SearchConfig> = {},
   providerOverride?: SearchConfig['provider'],
 ): void {
+  managedSearch = undefined;
+  searchConfigurationRevision += 1;
   configureSearch({
     provider: providerOverride ?? settings.provider ?? 'browser-profile',
     braveApiKey: settings.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
     parallelApiKey: settings.parallelApiKey ?? process.env.PARALLEL_API_KEY,
     exaApiKey: settings.exaApiKey ?? process.env.EXA_API_KEY,
   });
+}
+
+export async function configureSearchFromAccount(
+  config: Pick<AutohandConfig, 'search' | 'auth' | 'autohandai' | 'api'>,
+  providerOverride?: SearchProvider,
+  signal?: AbortSignal,
+): Promise<void> {
+  configureSearchFromSettings(config.search, providerOverride);
+  const revision = searchConfigurationRevision;
+  const identity = managedSearchIdentity(config);
+  const client = identity ? new ManagedWebSearch(identity) : undefined;
+  const included = !providerOverride && !config.search?.provider && client ? await client.available(signal) : false;
+  if (revision !== searchConfigurationRevision) return;
+  signal?.throwIfAborted();
+  if (included) configureSearch({ provider: 'autohand' });
+  managedSearch = client;
 }
 
 /**
@@ -125,6 +147,8 @@ export function isSearchConfigured(): boolean {
   const exaKey = config.exaApiKey ?? process.env.EXA_API_KEY;
 
   switch (config.provider) {
+    case 'autohand':
+      return !!managedSearch;
     case 'browser-profile':
       return hasBrowserBridgeOutput() || !!findChromePath();
     case 'exa':
@@ -574,24 +598,17 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
   }
 
   // Use provider from options or fall back to global config
-  let provider = options.provider ?? globalSearchConfig.provider;
+  const provider = options.provider ?? globalSearchConfig.provider;
 
   // Get API keys from config or environment
   const braveApiKey = globalSearchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY;
   const parallelApiKey = globalSearchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY;
   const exaApiKey = globalSearchConfig.exaApiKey ?? process.env.EXA_API_KEY;
 
-  // Auto-fallback: if browser-profile selected but Chrome not available, use google
-  if (
-    provider === 'browser-profile'
-    && !options.browserToolInvoker
-    && !hasBrowserBridgeOutput()
-    && !findChromePath()
-  ) {
-    provider = 'google';
-  }
-
   switch (provider) {
+    case 'autohand':
+      if (!managedSearch) throw new Error('Sign in to Autohand for included web search (Lite and above), or configure your own provider with /search.');
+      return managedSearch.search(enhancedQuery, maxResults, options.signal);
     case 'browser-profile':
       return browserProfileSearch(
         enhancedQuery,
@@ -660,7 +677,7 @@ async function googleSearch(query: string, maxResults: number, signal?: AbortSig
       if (html.includes('unusual traffic') || html.includes('captcha') || html.includes('g-recaptcha')) {
         throw new Error(
           'Google blocked this search with a CAPTCHA. Your IP may be rate-limited. ' +
-          'Configure Brave Search (free 2K queries/month) with /search command: https://brave.com/search/api/'
+          'Use /search to connect a browser profile or configure Exa, Brave, or Parallel; Lite and above include Autohand Web Search.'
         );
       }
     } catch (error) {
@@ -691,7 +708,7 @@ async function googleSearch(query: string, maxResults: number, signal?: AbortSig
     if (html.includes('unusual traffic') || html.includes('captcha') || html.includes('sorry/index')) {
       throw new Error(
         'Google blocked this search request. ' +
-        'Configure Brave Search (free 2K queries/month) with /search command: https://brave.com/search/api/'
+        'Use /search to connect a browser profile or configure Exa, Brave, or Parallel; Lite and above include Autohand Web Search.'
       );
     }
 
@@ -712,7 +729,7 @@ async function googleSearch(query: string, maxResults: number, signal?: AbortSig
   const hasChrome = !!chromePath;
   throw new Error(
     `Google search failed: Could not retrieve results${hasChrome ? '' : ' (Chrome not installed)'}. ` +
-    'Configure Brave Search for reliable results: /search → Brave (free 2K queries/month at https://brave.com/search/api/)'
+    'Use /search to connect a browser profile or configure Exa, Brave, or Parallel; Lite and above include Autohand Web Search.'
   );
 }
 
@@ -980,8 +997,7 @@ async function browserProfileSearch(
   const profile = await findBrowserProfile();
   throwIfAborted(signal);
   if (!profile) {
-    // Fall back to headless search without profile
-    return googleSearch(query, maxResults, signal);
+    throw new Error('Browser Profile search needs a browser profile. Connect Chromium or choose a provider with /search.');
   }
 
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${maxResults}&hl=en`;
@@ -1007,11 +1023,12 @@ async function browserProfileSearch(
       stdout.includes('captcha') ||
       stdout.includes('g-recaptcha');
     if (!wasBlocked && results.length > 0) return results;
+    throw new Error(wasBlocked ? 'Google blocked the browser profile with a CAPTCHA.' : 'The browser returned no readable search results.');
   } catch (error) {
     rethrowAbort(error);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Browser Profile search failed: ${message} Connect Chromium to an open browser or configure another provider with /search.`);
   }
-
-  return googleSearch(query, maxResults, signal);
 }
 
 async function localBrowserProfileSearch(

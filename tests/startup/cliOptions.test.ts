@@ -14,6 +14,15 @@ import {
 } from '../../src/startup/cliOptions.js';
 
 describe('CLI option normalization', () => {
+  it('turns off automatic browser and settings sync for --no-daemon', () => {
+    const options: RootCliOptions = { daemon: false, browser: true, syncSettings: true };
+    normalizeInitialCliOptions(options, {});
+    expect(options.browser).toBe(false);
+    expect(options.syncSettings).toBe(false);
+    expect(options.bare).toBeUndefined();
+    expect(normalizeTmuxWorktreeOption({ daemon: false, tmux: true })).toBe('--tmux cannot be used with --no-daemon');
+  });
+
   it('uses an optional --json value as the prompt when it is not an output mode', () => {
     const options: RootCliOptions = { json: 'list todos' };
     normalizeInitialCliOptions(options, {});
@@ -168,7 +177,7 @@ describe('CLI option normalization', () => {
     Reflect.set(options, 'searchEngine', 'unknown');
 
     expect(normalizeSearchEngineOption(options)).toBe(
-      'Invalid search engine: unknown. Valid options: browser-profile, exa, google, brave, duckduckgo, parallel',
+      'Invalid search engine: unknown. Valid options: autohand, browser-profile, exa, google, brave, duckduckgo, parallel',
     );
     expect(options).toMatchObject({
       path: '../workspace',

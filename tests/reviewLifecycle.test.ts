@@ -5,8 +5,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { executeReviewWithLifecycle } from '../src/review/reviewLifecycle.js';
-import type { ReviewRequest } from '../src/review/reviewRequest.js';
 import { PermissionManager } from '../src/permissions/PermissionManager.js';
+import type { ReviewRequest } from '../src/review/reviewRequest.js';
 
 const request: ReviewRequest = {
   kind: 'security',
@@ -186,6 +186,33 @@ describe('review lifecycle', () => {
       'review:completed',
       'review:end',
     ]);
+  });
+
+  it('allows inspection during review without allowing writes or overriding existing denials', async () => {
+    const manager = new PermissionManager({ mode: 'unrestricted', denyList: ['read_file:private/**'], allowPatterns: [{ kind: 'write_file' }] });
+    await executeReviewWithLifecycle({ request, surface: 'acp', permissionManager: manager, execute: async () => {
+      expect(manager.checkPermission({ tool: 'read_file', path: 'README.md' }).allowed).toBe(true);
+      expect(manager.checkPermission({ tool: 'run_command', requestedTool: 'git_diff', command: 'git', args: ['diff'] }).allowed).toBe(true);
+      expect(manager.checkPermission({ tool: 'read_file', path: 'private/notes.md' }).allowed).toBe(false);
+      expect(manager.checkPermission({ tool: 'write_file', path: 'README.md' }).allowed).toBe(false);
+      expect(manager.checkPermission({ tool: 'run_command', command: 'touch', args: ['file'] }).allowed).toBe(false);
+      expect(manager.filterAdvertisedTools([{ name: 'read_file' }, { name: 'write_file' }, { name: 'run_command' }])).toEqual([{ name: 'read_file' }]);
+      expect(manager.getMode()).toBe('unrestricted');
+      return true;
+    } });
+    expect(manager.getMode()).toBe('unrestricted');
+    expect(manager.checkPermission({ tool: 'write_file', path: 'README.md' }).allowed).toBe(true);
+  });
+
+  it('releases the review scope after failure and preserves a prior restricted mode', async () => {
+    const manager = new PermissionManager({ mode: 'restricted' });
+    await expect(executeReviewWithLifecycle({ request, surface: 'acp', permissionManager: manager, execute: async () => {
+      expect(manager.checkPermission({ tool: 'read_file', path: 'README.md' }).allowed).toBe(true);
+      throw new Error('Review failed');
+    } })).rejects.toThrow('Review failed');
+    expect(manager.getRunToolScope()).toBeUndefined();
+    expect(manager.getMode()).toBe('restricted');
+    expect(manager.checkPermission({ tool: 'read_file', path: 'README.md' }).allowed).toBe(false);
   });
 
   it('enforces restricted permissions for the review and restores the session mode', async () => {

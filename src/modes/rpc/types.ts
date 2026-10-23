@@ -317,6 +317,7 @@ export const RPC_NOTIFICATIONS = {
   CHANGES_BATCH_UPDATE: 'autohand.changesBatchUpdate',
   CHANGES_BATCH_END: 'autohand.changesBatchEnd',
   // Hook lifecycle notifications
+  HOOK_PROGRAM_STATUS: 'autohand.hook.programStatus',
   HOOK_PRE_TOOL: 'autohand.hook.preTool',
   HOOK_POST_TOOL: 'autohand.hook.postTool',
   HOOK_FILE_MODIFIED: 'autohand.hook.fileModified',

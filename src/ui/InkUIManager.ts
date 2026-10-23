@@ -20,6 +20,7 @@ import type { InteractionMode } from '../core/agent/InteractionModeController.js
 import type { TaskListPosition } from '../types.js';
 
 export interface InkUIManagerOptions {
+  fullScreenMode?: boolean;
   onSteer?: (text: string) => void;
   onSteerQueuedMessage?: InkRendererOptions['onSteerQueuedMessage'];
   onWorkingSpinnerFrame?: (frame: number) => void;

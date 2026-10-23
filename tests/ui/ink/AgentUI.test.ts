@@ -2645,8 +2645,8 @@ describe('AgentUI keybinding profiles', () => {
     instance.stdin.write('?');
     await tick();
     const frame = stripAnsi(instance.lastFrame() ?? '');
-    expect(frame).toContain('ctrl + j inserts newline');
-    expect(frame).toContain('ctrl + d exits');
+    expect(frame).toMatch(/ctrl \+ j\s+New line/);
+    expect(frame).toMatch(/ctrl \+ d\s+Exit/);
   });
 
   it('handles Ctrl+J in the text buffer bridge only when the profile binds it', () => {

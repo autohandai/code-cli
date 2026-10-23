@@ -27,6 +27,7 @@ import { collectToolPatternOption } from './permissions/cliPolicyMutation.js';
 import { configureRunConfigOverlay } from './runConfigOverlay.js';
 import { loadOutputSchema } from './modes/outputSchema.js';
 import { startupTimeline } from './startup/startupTimeline.js';
+import { countStartupWorkspacePeers, getStartupGitLabel, getStartupLogoRows, StartupBranding } from './startup/startupBranding.js';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import chalk from 'chalk';
 import fs from 'fs-extra';
@@ -49,7 +50,7 @@ import type { AuthUser, LoadedConfig, SkillInstallScope } from './types.js';
 import { validateAuthOnStartup } from './auth/startupAuth.js';
 import { installProcessErrorHandlers } from './reporting/processErrorReporting.js';
 import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
-import { initI18n, detectLocale } from './i18n/index.js';
+import { initI18n, detectLocale, t } from './i18n/index.js';
 import { initPingService, shutdownPingService, startPingService } from './telemetry/index.js';
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
@@ -76,8 +77,9 @@ import { buildTmuxLaunchCommand, createTmuxSessionName, isTmuxEnabled } from './
 import { registerBrowserCommand, registerBrowserOptions } from './browser/cliCommand.js';
 import { registerComputerCommand } from './computer/cliCommand.js';
 import { registerReviewCommand } from './review/reviewCliCommand.js';
-import { registerTransferCommand } from './startup/transferCommand.js';
+import { createTransferRunConfig, registerTransferCommand } from './startup/transferCommand.js';
 import { registerResumeCommand, registerResumeOptions, resolveStartupSession, validateSessionOptions } from './startup/resumeCommand.js';
+import { registerCloudOptions, validateCloudOptions } from './startup/cloudOptions.js';
 import { attachHerdrIntegration, type HerdrIntegration } from './integrations/herdr/index.js';
 import { probeMcpServersWithManager, registerDoctorCommand } from './startup/doctorCommand.js';
 import type { ReviewCliExecution } from './review/reviewCliRuntime.js';
@@ -100,6 +102,7 @@ import {
   resolveStartupInteractionMode,
 } from './startup/modeRouter.js';
 import { prepareBareModeConfig } from './runtime/bareMode.js';
+import { applyNoDaemonConfig, NO_DAEMON_MESSAGE } from './runtime/noDaemon.js';
 import {
   awaitCliLifecycleStep,
   CliRuntimeResourceOwner,
@@ -108,6 +111,7 @@ import { setSyncService as setRuntimeSyncService } from './sync/runtimeSyncServi
 import type { SyncService } from './sync/SyncService.js';
 import { getFeatureState } from './features/featureRegistry.js';
 import { getTerminalColumns, renderAutohandLogo } from './utils/asciiArt.js';
+import { formatGitLabelSegment, formatPullRequestSegment, formatWorkspacePathSegment } from './core/agent/StatusLineSettings.js';
 import {
   formatInstallHint,
   formatPeerSessionsLine,
@@ -115,6 +119,7 @@ import {
   formatUpdateAvailable,
   formatUpdateReady,
   formatWelcomeGreeting,
+  formatWelcomeHint,
   formatWelcomeStatusLine,
   formatWelcomeSuggestion,
   formatWelcomeTitle,
@@ -133,6 +138,18 @@ import {
 
 if (process.argv.includes('--answer-only') || process.argv.includes('--setup-only')) {
   process.env.AUTOHAND_DISABLE_AUTO_REPORT = '1';
+}
+
+const startupBranding = new StartupBranding();
+
+function authenticateForStartup(
+  config: LoadedConfig,
+  options: Parameters<typeof ensureAuthenticated>[1] = {},
+): Promise<LoadedConfig> {
+  return ensureAuthenticated(config, {
+    ...options,
+    onLoginPromptShown: startupBranding.onLoginPromptShown,
+  });
 }
 
 /**
@@ -327,11 +344,12 @@ const collectRepeatable = (value: string, previous: string[] = []): string[] => 
 // --profile and --set apply to every command, including subcommands, and to
 // every config load in this process, before any of them reads the config.
 program.hook('preAction', async (thisCommand, actionCommand) => {
-  const { profile, set, config, bare, tracesOn, tracesOff, mode, acp } = thisCommand.opts<{
+  const { profile, set, config, bare, daemon, tracesOn, tracesOff, mode, acp } = thisCommand.opts<{
     profile?: string;
     set?: string[];
     config?: string;
     bare?: boolean;
+    daemon?: boolean;
     tracesOn?: boolean;
     tracesOff?: boolean;
     mode?: string;
@@ -340,8 +358,12 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
   configureRunConfigOverlay({ profile, sets: set });
 
   const commandPath = commandPathOf(actionCommand);
+  if (daemon === false && (tracesOn || commandPath[0] === 'traces' || commandPath[0] === 'computer' || commandPath[0] === 'squad')) {
+    actionCommand.error(NO_DAEMON_MESSAGE);
+  }
   const traceControlCommand = commandPath[0] === 'traces' || commandPath[0] === 'computer';
   const traceSupervision = !tracesOn
+    && daemon !== false
     && !tracesOff
     && !traceControlCommand
     && shouldReconcileAhTracesAtStartup(bare === true)
@@ -360,7 +382,7 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
   // site in AgentCommandRuntime; top-level commands never reach that runtime,
   // so all of them were invisible. Hooking the program means a command added
   // later is reported without anyone remembering to instrument it.
-  void reportCliCommand({
+  if (daemon !== false) void reportCliCommand({
     commandPath: commandPathOf(actionCommand),
     loadConfig: () => loadConfig(undefined, undefined, { createIfMissing: false, initializeTheme: false }),
     clientVersion: getVersionString(),
@@ -387,6 +409,7 @@ function commandPathOf(command: Command): string[] {
 }
 registerBrowserCommand(program);
 registerBrowserOptions(program);
+registerCloudOptions(program);
 registerComputerCommand(program);
 registerExtensionsCommand(program);
 registerDiscoveryCommand(program);
@@ -402,6 +425,7 @@ program
   .option('--json [mode]', 'Command JSON output: stream (default) or local')
   .option('--output-schema <file>', 'Command mode only: the final answer must be one JSON document valid against this JSON Schema file')
   .option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
+  .option('--no-daemon', 'Disable background services and child processes; keep foreground tools and session commands')
   .option('--offline', 'Disable startup network operations, including model catalog refreshes', false)
   .option('--path <path>', 'Workspace path to operate in')
   .option('--dir <path>', 'Alias for --path')
@@ -470,7 +494,7 @@ program
   .option('--display-language <locale>', 'Set display language (e.g., en, id, zh-cn, fr, de, ja)')
   .option('--cc, --context-compact', 'Enable context compaction (default: on)')
   .option('--no-cc, --no-context-compact', 'Disable context compaction')
-  .option('--search-engine <provider>', 'Set web search provider (browser-profile, exa, google, brave, duckduckgo, parallel)')
+  .option('--search-engine <provider>', 'Set web search provider (autohand, browser-profile, exa, google, brave, duckduckgo, parallel)')
   .option('--sys-prompt <value>', 'Replace entire system prompt (inline string or file path)')
   .option('--system-prompt <value>', 'Replace entire system prompt (inline string or file path)')
   .option('--system-prompt-file <path>', 'Replace entire system prompt with file contents')
@@ -525,6 +549,8 @@ program
     }
     opts.commandOutputFormat = commandOutputResolution.format;
     normalizePromptAndProtocolOptions(positionalPrompt, opts);
+    try { validateCloudOptions(opts); }
+    catch (error) { program.error(error instanceof Error ? error.message : 'Invalid cloud options.'); }
     const sessionOptionError = validateSessionOptions(opts);
     if (sessionOptionError) {
       console.error(chalk.red(sessionOptionError));
@@ -551,7 +577,9 @@ program
     }
 
     const { extensionRuntimeHost } = await import('./extensions/ExtensionRuntimeHost.js');
-    extensionRuntimeHost.setCliOptions(opts as unknown as Record<string, unknown>);
+    extensionRuntimeHost.setCliOptions(opts as unknown as Record<string, unknown>, program.options
+      .map((option) => option.attributeName())
+      .filter((name) => program.getOptionValueSource(name) === 'default'));
 
     // `--agents` accepts inline JSON (Claude Code format) or a directory path.
     // Parse and validate inline JSON up front so users get a clear error before
@@ -768,10 +796,26 @@ program
     // --about, --permissions, --skill-install, and --learn* are exempt above.
     {
       let authConfig = await loadConfig(opts.config, resolveRequestedWorkspaceRoot(opts.path));
-      authConfig = await ensureAuthenticated(authConfig, { bare: opts.bare === true });
+      authConfig = await authenticateForStartup(authConfig, { bare: opts.bare === true });
       // Propagate refreshed auth into the options so downstream code sees
       // the updated token (e.g. runCLI, runRpcMode, runAutoMode).
-      (opts as any)._authConfig = authConfig;
+      opts._authConfig = authConfig;
+    }
+
+    if (opts.cloud) {
+      const { launchCloud } = await import('./cloud/launchCloud.js');
+      const result = await launchCloud({ config: opts._authConfig!, workspaceRoot: resolveWorkspaceRoot(opts._authConfig!, opts.path) }, opts);
+      if (result.kind === 'local') {
+        const { SessionTransferClient } = await import('./session/transfer/transfer-client.js');
+        const { prepareCliTransfer, confirmCliTransfer } = await import('./startup/transferCommand.js');
+        const config = opts._authConfig!;
+        const received = await new SessionTransferClient().download(result.transferId, { token: config.auth!.token!, userId: config.auth?.user?.id ?? 'authenticated', accountId: result.accountId });
+        if (!await confirmCliTransfer(received.snapshot)) return;
+        const imported = await prepareCliTransfer(received, resolveWorkspaceRoot(config, opts.path));
+        const localConfig = await loadConfig(opts.config, imported.workspace);
+        await runCLI({ path: imported.workspace, resumeSessionId: imported.sessionId, model: received.snapshot.model, provider: 'autohandai', plan: result.plan, config: opts.config, _authConfig: createTransferRunConfig({ ...localConfig, auth: config.auth }, { account: result.accountId, model: received.snapshot.model }) });
+      }
+      return;
     }
 
     // Handle --patch flag
@@ -847,7 +891,7 @@ registerReviewCommand(program, {
       resolveWorkspaceRoot,
       validateWorkspacePath,
       checkWorkspaceSafety,
-      authenticate: ensureAuthenticated,
+      authenticate: authenticateForStartup,
       buildInstruction: async (workspaceRoot, request) => {
         const { buildReviewCommandInstruction } = await import('./commands/review.js');
         return buildReviewCommandInstruction(workspaceRoot, request);
@@ -868,9 +912,10 @@ registerReviewCommand(program, {
 });
 
 registerTransferCommand(program, {
-  run: async ({ provider, ...opts }) => {
-    const authConfig = await ensureAuthenticated(await loadConfig(opts.config, opts.path));
-    await runCLI({ ...opts, _authConfig: { ...authConfig, provider, autohandai: { plan: 'cloud', authMode: 'account', accountToken: authConfig.auth?.token, model: opts.model } } });
+  authenticate: authenticateForStartup,
+  run: async ({ provider, account, ...opts }) => {
+    const authConfig = await authenticateForStartup(await loadConfig(opts.config, opts.path));
+    await runCLI({ ...opts, provider, _authConfig: createTransferRunConfig(authConfig, { account, model: opts.model }) });
   },
 });
 
@@ -895,7 +940,7 @@ registerResumeCommand(program, {
   run: async (opts) => {
     // Mandatory auth gate for resume
     let authConfig = await loadConfig(opts.config, resolveRequestedWorkspaceRoot(opts.path));
-    authConfig = await ensureAuthenticated(authConfig);
+    authConfig = await authenticateForStartup(authConfig);
     await runCLI({ ...opts, _authConfig: authConfig });
   },
 });
@@ -922,7 +967,7 @@ program
 
 program
   .command('squad [args...]')
-  .description('Start and manage the standalone Autohand Squad runtime')
+  .description('Open the Autohand Squad app (installs it if missing); subcommands manage the standalone runtime')
   .allowUnknownOption(true)
   .allowExcessArguments(true)
   .action(async (args: string[] = []) => {
@@ -930,7 +975,7 @@ program
     const config = await loadConfig(rootOptions.config, process.cwd());
     const workspaceRoot = resolveWorkspaceRoot(config, rootOptions.path);
     const { runSquadCommand } = await import('./commands/squad.js');
-    const result = await runSquadCommand({ workspaceRoot, config }, args);
+    const result = await runSquadCommand({ workspaceRoot, config, onProgress: (line) => console.log(line) }, args);
     if (result.output) {
       if (result.code === 0) {
         console.log(result.output);
@@ -1556,6 +1601,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     SyncService
   >({
     process,
+    backgroundEnabled: options.daemon !== false,
     stopPing: () => shutdownPingService(),
     setSyncService: setRuntimeSyncService,
     onSignal: (signal) => {
@@ -1578,6 +1624,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     config = options.model
       ? applyCliModelOverride(config, options.model, options.provider)
       : applyCliProviderOverride(config, options.provider);
+    config = applyNoDaemonConfig(config, options);
     if (options.bare) {
       config = await awaitCliLifecycleStep(
         prepareBareModeConfig(config, options),
@@ -1682,7 +1729,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       return;
     }
 
-    const canPromptForTraceConsent = !options.bare
+    const canPromptForTraceConsent = !options.bare && options.daemon !== false
       && (options.mode === undefined || options.mode === 'interactive')
       && options.prompt === undefined
       && !structuredOutput
@@ -1845,22 +1892,22 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       options,
       commandOutputCaptured: captureCommandOutput,
       additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined,
-      ...(sessionZit ? { zitClaims: new ZitClaimGuard(sessionZit) } : {}),
+      ...(sessionZit ? { zitClaims: new ZitClaimGuard(sessionZit), repositorySourceRoot: sessionZit.repoRoot } : {}),
     };
 
-    // Print banner FIRST for immediate visual feedback
-    if (!structuredOutput) {
+    const workspaceNoticeLines: string[] = [];
+    if (!structuredOutput && !process.stdout.isTTY) {
       printBanner();
     }
     if (!structuredOutput && sessionWorktree && process.stdout.isTTY) {
-      console.log(chalk.gray(`Using git worktree: ${sessionWorktree.worktreePath}`));
-      console.log(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
+      workspaceNoticeLines.push(chalk.gray(`Using git worktree: ${sessionWorktree.worktreePath}`));
+      workspaceNoticeLines.push(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
     }
     if (sessionZit) {
       // Prompt mode keeps stdout for the response, so report the workspace on stderr there.
       const zitStatus = `Using zit workspace: ${sessionZit.workspacePath}\n`;
       if (!structuredOutput && process.stdout.isTTY) {
-        console.log(chalk.gray(zitStatus));
+        workspaceNoticeLines.push(chalk.gray(zitStatus));
       } else {
         process.stderr.write(chalk.gray(zitStatus));
       }
@@ -1878,7 +1925,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
 
     // Initialize and start ping service (45-minute intervals for usage tracking)
     // This runs independently of telemetry opt-in for basic usage counting
-    if (!options.bare) {
+    if (!options.bare && options.daemon !== false) {
       runtimeResourceOwner.startPing(() => {
         initPingService({
           cliVersion: runtimeVersion,
@@ -1889,20 +1936,36 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     }
 
     const announcementManager = getAnnouncementManager(config);
-    announcementManager.setNetworkEnabled(!options.bare && !options.offline);
+    announcementManager.setNetworkEnabled(!options.bare && options.daemon !== false && !options.offline);
 
-    // Print welcome immediately with no version/auth info - don't block on network
-    if (!structuredOutput) {
+    // Size the first banner against cached welcome content and local peer metadata before network checks.
+    if (!structuredOutput && process.stdout.isTTY) {
+      const interactive = resolveAgentLaunchMode(options) === 'interactive';
       const peerCount = !options.bare && resolveAgentLaunchMode(options) === 'interactive'
         ? await countWorkspacePeers(workspaceRoot)
         : 0;
-      printWelcome(
+      const welcomeLines = buildWelcomeLines(
         runtime,
         undefined,
         null,
         resolveAgentLaunchMode(options) === 'command' ? undefined : announcementManager,
         peerCount,
       );
+      const columns = getTerminalColumns(process.stdout);
+      const settings = getProviderConfig(config);
+      const branch = sessionWorktree?.branchName ?? getStartupGitLabel(workspaceRoot);
+      const footerText = [
+        `Autohand (${t(`providers.${config.provider ?? 'openrouter'}`)}, ${options.model ?? settings?.model ?? 'unknown'})`,
+        '100% context left', t('ui.commandHint'), formatWorkspacePathSegment(workspaceRoot),
+        formatGitLabelSegment(branch), formatPullRequestSegment(),
+      ].filter(Boolean).join(' · ');
+      printBanner(interactive ? getStartupLogoRows({
+        columns,
+        rows: process.stdout.rows || 24,
+        welcomeLines: [...workspaceNoticeLines, ...welcomeLines],
+        footerText,
+      }) : undefined);
+      for (const line of [...workspaceNoticeLines, ...welcomeLines]) console.log(line);
     }
 
     // Ensure all stdout is flushed before Ink takes over the alternate screen buffer
@@ -1937,7 +2000,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
 
     // Run auth, version check, sync in background (fire-and-forget).
     // These are network-bound and should not block the prompt.
-    if (!options.bare && runtimeResourceOwner) {
+    if (!options.bare && options.daemon !== false && runtimeResourceOwner) {
       runtimeResourceOwner.startBackgroundStartup({
         resolveAuthAndVersion: async () => {
           const versionCheckPromise = config.ui?.checkForUpdates !== false
@@ -2044,12 +2107,11 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     }
 
     // Configure web search provider from CLI flag, config file, or environment
-    const searchConfig = config.search ?? {};
-    const { configureSearchFromSettings } = await awaitCliLifecycleStep(
+    const { configureSearchFromAccount } = await awaitCliLifecycleStep(
       import('./actions/web.js'),
       commandLifecycleController.signal,
     );
-    configureSearchFromSettings(searchConfig, options.searchEngine);
+    await configureSearchFromAccount(config, options.searchEngine, commandLifecycleController.signal);
 
     // Pipe mode: read stdin once if piped, then compose with prompt text (if any).
     // This must happen before AutohandAgent construction because dependency
@@ -2237,20 +2299,12 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
   }
 }
 
-function printBanner(): void {
-  if (process.env.AUTOHAND_NO_BANNER === '1') {
-    return;
-  }
-  if (process.stdout.isTTY) {
-    // Clear screen and scrollback buffer for Cursor-like behavior
-    // \x1b[3J = clear entire screen including scrollback (not universally supported, but works on most modern terminals)
-    // \x1b[2J = clear entire screen (visible only)
-    // \x1b[H = move cursor to home position (top-left)
-    process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
-    console.log(formatStartupBanner(renderAutohandLogo({ columns: getTerminalColumns(process.stdout) })));
-  } else {
-    console.log('autohand');
-  }
+function printBanner(rows?: number): void {
+  startupBranding.printBanner({
+    output: process.stdout,
+    disabled: process.env.AUTOHAND_NO_BANNER === '1',
+    renderLogo: () => formatStartupBanner(renderAutohandLogo({ columns: getTerminalColumns(process.stdout), rows })),
+  });
 }
 
 interface WelcomeSuggestion {
@@ -2291,16 +2345,15 @@ function buildWelcomeSuggestions(isLoggedIn: boolean, workspaceRoot: string): We
   return suggestions;
 }
 
-function printWelcome(
+function buildWelcomeLines(
   runtime: AgentRuntime,
   authUser?: AuthUser,
   versionCheck?: VersionCheckResult | null,
   announcementManager?: AnnouncementManager,
   peerCount = 0,
-): void {
-  if (!process.stdout.isTTY) {
-    return;
-  }
+): string[] {
+  const lines: string[] = [];
+  const interactive = resolveAgentLaunchMode(runtime.options) === 'interactive';
   const model = (() => {
     try {
       const settings = getProviderConfig(runtime.config);
@@ -2320,24 +2373,25 @@ function printWelcome(
       versionLine += formatUpdateAvailable(versionCheck.latestVersion);
     }
   }
-  console.log(versionLine);
+  lines.push(versionLine);
 
   // Show upgrade hint if update available
   if (versionCheck?.updateAvailable) {
-    console.log(formatInstallHint(getInstallHint(versionCheck.channel)));
+    lines.push(formatInstallHint(getInstallHint(versionCheck.channel)));
   }
 
   // Personalized greeting if logged in
   const isLoggedIn = !!(authUser || runtime.config.auth?.token);
   if (authUser) {
-    console.log(formatWelcomeGreeting(authUser.name || authUser.email));
+    lines.push(formatWelcomeGreeting(authUser.name || authUser.email));
   }
 
   // Show CC status (default: ON unless --no-cc was passed)
   const ccEnabled = runtime.options.contextCompact !== false;
 
-  console.log(formatWelcomeStatusLine(model, ccEnabled, dir));
-  console.log();
+  if (!interactive) {
+    lines.push(formatWelcomeStatusLine(model, ccEnabled, dir), '');
+  }
 
   const topAnnouncement = announcementManager?.getTop() ?? null;
   if (topAnnouncement && announcementManager) {
@@ -2345,35 +2399,33 @@ function printWelcome(
       topAnnouncement,
       announcementManager.getActive().length,
     )) {
-      console.log(line);
+      lines.push(line);
     }
-    console.log();
+    lines.push('');
     void announcementManager.markSeen(topAnnouncement.id);
   }
 
   if (peerCount > 0) {
-    console.log(formatPeerSessionsLine(peerCount));
-    console.log();
+    lines.push(formatPeerSessionsLine(peerCount), '');
   }
 
   // Build contextual suggestions based on auth state and available features
-  const suggestions = buildWelcomeSuggestions(isLoggedIn, dir);
-  console.log(formatWelcomeTitle());
-  for (const s of suggestions) {
-    console.log(formatWelcomeSuggestion(s.command, s.description));
+  if (interactive) {
+    lines.push(formatWelcomeHint());
+  } else {
+    const suggestions = buildWelcomeSuggestions(isLoggedIn, dir);
+    lines.push(formatWelcomeTitle());
+    for (const s of suggestions) {
+      lines.push(formatWelcomeSuggestion(s.command, s.description));
+    }
   }
 
-  console.log();
+  lines.push('');
+  return lines;
 }
 
 async function countWorkspacePeers(workspaceRoot: string): Promise<number> {
-  try {
-    const records = await new ActiveAgentRegistry().listActive();
-    const normalizedWorkspace = path.resolve(workspaceRoot);
-    return records.filter((record) => path.resolve(record.workspaceRoot) === normalizedWorkspace).length;
-  } catch {
-    return 0;
-  }
+  return countStartupWorkspacePeers(workspaceRoot, () => new ActiveAgentRegistry().listActive());
 }
 
 /**
@@ -2720,9 +2772,8 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
   console.error(chalk.cyan('Patch Mode: Changes will be captured without modifying files\n'));
 
   // Configure web search provider
-  const searchConfig = config.search ?? {};
-  const { configureSearchFromSettings } = await import('./actions/web.js');
-  configureSearchFromSettings(searchConfig);
+  const { configureSearchFromAccount } = await import('./actions/web.js');
+  await configureSearchFromAccount(config, opts.searchEngine);
 
   let agent: AutohandAgent | null = null;
   let exitCode = 0;
@@ -2917,9 +2968,8 @@ async function runAutoMode(opts: CLIOptions): Promise<void> {
     };
 
     // Configure web search provider
-    const searchConfig = config.search ?? {};
-    const { configureSearchFromSettings } = await import('./actions/web.js');
-    configureSearchFromSettings(searchConfig);
+    const { configureSearchFromAccount } = await import('./actions/web.js');
+    await configureSearchFromAccount(config, opts.searchEngine);
 
     const { AutohandAgent } = await import('./core/agent.js');
     agent = new AutohandAgent(llmProvider, files, runtime);
@@ -3094,7 +3144,7 @@ function argvOptionValue(argv: string[], option: string): string | undefined {
 }
 
 async function prepareRuntimeExtensionsForCli(command: Command, argv: string[]): Promise<void> {
-  if (argv.includes('--bare') || isDiscoveryInvocation(command, argv)) {
+  if (argv.includes('--bare') || argv.includes('--no-daemon') || isDiscoveryInvocation(command, argv)) {
     return;
   }
   const workspaceRoot = path.resolve(argvOptionValue(argv, '--path') ?? argvOptionValue(argv, '--dir') ?? process.cwd());

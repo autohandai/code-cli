@@ -1,3 +1,6 @@
+import { executeWorkflowGoal, withWorkflowGoalConfig } from './workflowGoal.js';
+import { parseWorkflowExecution } from './workflowExecution.js';
+import { parseWorkflowSkillHooks } from './workflowHooks.js';
 import { getAutohandAIAvailableModelOptions } from "../../providers/AutohandAIProvider.js";
 /**
  * ACP Adapter
@@ -50,7 +53,7 @@ import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/se
 import { ApiError, classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
 import type { SessionMessage } from '../../session/types.js';
 import { isGoalFeatureEnabled } from '../../goals/feature.js';
-import { configureSearchFromSettings } from '../../actions/web.js';
+import { configureSearchFromAccount } from '../../actions/web.js';
 import { resolveReviewCommand } from '../../commands/review.js';
 import {
   executeReviewWithLifecycle,
@@ -198,6 +201,7 @@ function parseAssistantReplayParts(content: string): AssistantReplayParts {
 export class AutohandAcpAdapter implements Agent {
   private sessions = new Map<string, AcpSessionState>();
   private agents = new Map<string, AutohandAgent>();
+  private sessionConfigs = new Map<string, LoadedConfig>();
   private permissionBridges = new Map<string, ReturnType<typeof createPermissionBridge>>();
   private sessionConfigOptions = new Map<string, SessionConfigOption[]>();
   private cancelledSessions = new Set<string>();
@@ -219,7 +223,7 @@ export class AutohandAcpAdapter implements Agent {
           ?? await loadConfig(this.cliOptions.config, process.cwd()),
         this.cliOptions
       );
-      configureSearchFromSettings(this.config.search, this.cliOptions.searchEngine);
+      await configureSearchFromAccount(this.config, this.cliOptions.searchEngine);
       // ACP clients cannot answer a trust prompt; the warning goes to stderr, never the protocol stream.
       if (!this.cliOptions.bare) {
         await resolveWorkspaceTrust(this.config, { interactive: false });
@@ -404,7 +408,8 @@ export class AutohandAcpAdapter implements Agent {
     workspaceRoot: string,
     existingSessionId?: string,
   ): Promise<{ config: LoadedConfig; state: AcpSessionState; agent: AutohandAgent }> {
-    const config = await this.ensureConfig();
+    const baseConfig = await this.ensureConfig();
+    const config = { ...baseConfig, ...structuredClone(baseConfig) };
 
     // Disable Ink renderer for ACP mode
     if (!config.ui) {
@@ -460,6 +465,7 @@ export class AutohandAcpAdapter implements Agent {
     }
     this.sessions.set(managedSessionId, state);
     this.agents.set(managedSessionId, agent);
+    this.sessionConfigs.set(managedSessionId, config);
     this.forwardHookLifecycle(managedSessionId, agent);
     this.sessionConfigOptions.set(managedSessionId, buildConfigOptions(config, await this.availableModelIds(config)));
 
@@ -652,6 +658,8 @@ export class AutohandAcpAdapter implements Agent {
       authMethods: AUTOHAND_ACP_AUTH_METHODS,
       _meta: {
         autohandWorkspaceSetup: 1,
+        autohandWorkflowSkillHooks: 1,
+        autohandWorkflowExecution: 2,
         // Context a host prepends to a prompt (`<autohand_*>`, `<*_context>` blocks) is
         // not read as the user asking for specialists; see userAuthoredInstruction.
         hostContext: { version: 1 },
@@ -723,6 +731,15 @@ export class AutohandAcpAdapter implements Agent {
       throw RequestError.invalidParams({ message: 'Session not found' });
     }
 
+    let workflowExecution;
+    let workflowHooks;
+    try {
+      workflowExecution = parseWorkflowExecution(params._meta?.autohandWorkflowExecution);
+      workflowHooks = parseWorkflowSkillHooks(params._meta?.autohandWorkflowSkillHooks);
+    } catch (error) {
+      throw RequestError.invalidParams({ message: error instanceof Error ? error.message : String(error) });
+    }
+
     // Reset cancellation state
     session.abortController = new AbortController();
     this.cancelledSessions.delete(params.sessionId);
@@ -765,6 +782,7 @@ export class AutohandAcpAdapter implements Agent {
     }
 
     if (!instruction.trim()) {
+      if (workflowExecution || workflowHooks.length) throw RequestError.invalidParams({ message: 'Workflow execution requires prompt context.' });
       return { stopReason: 'end_turn' };
     }
 
@@ -793,14 +811,18 @@ export class AutohandAcpAdapter implements Agent {
 
     // Check if it's a slash command
     // BUT: exclude file paths like /var/folders/... or /Users/...
-    const trimmed = instruction.trim();
+    const workflowContext = workflowExecution ? instruction : undefined;
+    const trimmed = workflowExecution?.type === 'review' ? `/review ${workflowExecution.arguments}`.trim() : instruction.trim();
+    if (workflowExecution?.type === 'review' && !agent.isSlashCommandSupported('/review')) {
+      throw RequestError.invalidParams({ message: 'Native workflow review is unavailable in this CLI.' });
+    }
     let reviewRequest: ReviewRequest | undefined;
-    if (trimmed.startsWith('/') && !isLikelyFilePathSlashInput(trimmed)) {
+    if (workflowExecution?.type !== 'goal' && trimmed.startsWith('/') && !isLikelyFilePathSlashInput(trimmed)) {
       // Use parseSlashCommand to handle two-word commands ("/mcp install", "/skills new")
       // and preserve the "/" prefix required by the handler.
       const { command, args } = agent.parseSlashCommand(trimmed);
 
-      if (agent.isSlashCommand(trimmed)) {
+      if (workflowExecution || agent.isSlashCommand(trimmed)) {
         if (command === '/review' && agent.isSlashCommandSupported(command)) {
           await agent.trackCommandUsage(buildCommandUseData({
             command,
@@ -810,6 +832,7 @@ export class AutohandAcpAdapter implements Agent {
           })).catch(() => {});
           const resolution = await resolveReviewCommand(session.workspaceRoot, args);
           if (resolution.type === 'output') {
+            if (workflowExecution || workflowHooks.length) throw RequestError.invalidParams({ message: resolution.output });
             await this.connection.sessionUpdate({
               sessionId: params.sessionId,
               update: {
@@ -819,9 +842,10 @@ export class AutohandAcpAdapter implements Agent {
             });
             return { stopReason: 'end_turn' };
           }
-          instruction = resolution.instruction;
+          instruction = workflowContext ? `${resolution.instruction}\n\n## Workflow context\n${workflowContext}` : resolution.instruction;
           reviewRequest = resolution.request;
         } else {
+          if (workflowHooks.length) throw RequestError.invalidParams({ message: 'Workflow skill hooks require an executable prompt or review.' });
           try {
             if (agent.isSlashCommandSupported(command)) {
               const result = await agent.handleSlashCommand(command, args, 'acp');
@@ -867,11 +891,21 @@ export class AutohandAcpAdapter implements Agent {
     }
 
     // Regular prompts and /review both run through the LLM.
-    const turnStart = Date.now();
-    this.emitHookPrePrompt(params.sessionId, reviewRequest ? trimmed : instruction, []);
+    let releaseWorkflowHooks: (() => void) | undefined;
     try {
-      const runInstruction = (): Promise<boolean> => agent.runInstruction(instruction, {
-        ...(reviewRequest ? { hookInstruction: trimmed } : {}),
+      if (workflowHooks.length) {
+        const manager = agent.getHookManager?.();
+        if (!manager) throw new Error('Workflow skill hooks require a hook manager.');
+        releaseWorkflowHooks = manager.addScopedRuntimeHooks(workflowHooks);
+      }
+    } catch (error) {
+      throw RequestError.invalidParams({ message: error instanceof Error ? error.message : String(error) });
+    }
+    const turnStart = Date.now();
+    try {
+      this.emitHookPrePrompt(params.sessionId, reviewRequest ? trimmed : instruction, []);
+      const runInstruction = (prompt = instruction): Promise<boolean> => agent.runInstruction(prompt, {
+        ...(reviewRequest ? { hookInstruction: trimmed, specialistPreparation: 'skip' as const, environmentBootstrap: 'skip' as const, qualityPipeline: 'agent-managed' as const } : {}),
         ...(this.clientCapabilities?._meta?.autohandWorkspaceSetup === 'agent-managed'
           ? { environmentBootstrap: 'skip' as const, qualityPipeline: 'agent-managed' as const }
           : {}),
@@ -886,9 +920,26 @@ export class AutohandAcpAdapter implements Agent {
             hookManager: agent.getHookManager?.(),
             permissionManager: agent.getPermissionManager?.(),
             onEvent: (event, context) => this.emitHookReview(event, context),
-            execute: runInstruction,
+            execute: () => runInstruction(),
           })
-        : await runInstruction();
+        : workflowExecution?.type === 'goal'
+          ? await (async () => {
+              const config = this.sessionConfigs.get(params.sessionId);
+              const persistentSessionId = agent.getSessionManager().getCurrentSession()?.metadata.sessionId;
+              if (!config || !persistentSessionId) throw new Error('Workflow goals require a managed persistent session.');
+              await withWorkflowGoalConfig(config, () => executeWorkflowGoal({
+                workspaceRoot: session.workspaceRoot,
+                sessionId: persistentSessionId,
+                executionId: workflowExecution.executionId,
+                instruction,
+                signal: session.abortController.signal,
+                runTurn: async prompt => {
+                  if (!await runInstruction(prompt)) throw new Error('The native workflow goal turn failed.');
+                },
+              }));
+              return true;
+            })()
+          : await runInstruction();
       const turnDuration = Date.now() - turnStart;
       try {
         await agent.getHookManager?.()?.executeHooks('stop', {
@@ -921,7 +972,10 @@ export class AutohandAcpAdapter implements Agent {
           content: { type: 'text', text: `Error (${classified.code}): ${classified.message}` },
         },
       });
+      if (workflowExecution) throw RequestError.internalError(undefined, classified.message);
       return { stopReason: 'end_turn' };
+    } finally {
+      releaseWorkflowHooks?.();
     }
   }
 
@@ -938,6 +992,7 @@ export class AutohandAcpAdapter implements Agent {
     const agents = [...this.agents.values()];
     this.sessions.clear();
     this.agents.clear();
+    this.sessionConfigs.clear();
     this.permissionBridges.clear();
     this.sessionConfigOptions.clear();
     this.cancelledSessions.clear();
@@ -1220,6 +1275,13 @@ export class AutohandAcpAdapter implements Agent {
     this.hookForwarders.get(sessionId)?.();
     const unsubscribe = agent.getHookManager?.()?.subscribeLifecycle?.((context) => {
       switch (context.event) {
+        case 'program-status':
+          if (context.programStatus) {
+            void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_PROGRAM_STATUS, {
+              ...context.programStatus, sessionId, timestamp: new Date().toISOString(),
+            });
+          }
+          break;
         case 'permission-request':
           this.emitHookPermissionRequest(sessionId, context.tool ?? '', context.path, context.command, context.args);
           break;
@@ -1247,13 +1309,16 @@ export class AutohandAcpAdapter implements Agent {
     if (unsubscribe) {
       this.hookForwarders.set(sessionId, unsubscribe);
     }
+    agent.programStatus?.start();
   }
 
   private forgetSession(sessionId: string): void {
+    this.agents.get(sessionId)?.programStatus?.dispose();
     this.hookForwarders.get(sessionId)?.();
     this.hookForwarders.delete(sessionId);
     this.sessions.delete(sessionId);
     this.agents.delete(sessionId);
+    this.sessionConfigs.delete(sessionId);
     this.permissionBridges.delete(sessionId);
     this.sessionConfigOptions.delete(sessionId);
   }

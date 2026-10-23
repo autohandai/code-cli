@@ -13,6 +13,8 @@ import { parsePermissionToolInputs } from './cliPolicyMutation.js';
 import { matchesToolPattern, type ToolPattern } from './toolPatterns.js';
 
 export interface RunToolScope {
+  /** Every composed scope must allow a call; nesting never widens access. */
+  allOf?: readonly RunToolScope[];
   /** When non-empty, only tools named here may be advertised or run. */
   allowed: ToolPattern[];
   /** Tools named here are never advertised (bare) or run (any pattern). */
@@ -40,6 +42,10 @@ export function checkRunToolScopeByName(
   toolName: string,
 ): { allowed: true } | { allowed: false; reason: 'run_scope_denied' | 'run_scope_not_allowed' } {
   if (!scope) return { allowed: true };
+  for (const child of scope.allOf ?? []) {
+    const decision = checkRunToolScopeByName(child, toolName);
+    if (!decision.allowed) return decision;
+  }
   if (scope.denied.some((pattern) => pattern.kind === toolName && !pattern.argument)) return { allowed: false, reason: 'run_scope_denied' };
   if (scope.allowed.length > 0 && !scope.allowed.some((pattern) => pattern.kind === toolName)) {
     return { allowed: false, reason: 'run_scope_not_allowed' };
@@ -57,6 +63,10 @@ export function checkRunToolScope(
   call: { kind: string; target: string },
 ): { allowed: true } | { allowed: false; reason: 'run_scope_denied' | 'run_scope_not_allowed' } {
   if (!scope) return { allowed: true };
+  for (const child of scope.allOf ?? []) {
+    const decision = checkRunToolScope(child, call);
+    if (!decision.allowed) return decision;
+  }
   if (scope.denied.some((pattern) => matchesToolPattern(pattern, call))) return { allowed: false, reason: 'run_scope_denied' };
   if (scope.allowed.length > 0 && !scope.allowed.some((pattern) => matchesToolPattern(pattern, call))) {
     return { allowed: false, reason: 'run_scope_not_allowed' };

@@ -258,6 +258,26 @@ This behavior matches how Claude Code and similar tools handle MCP -- the user i
 | `Request timed out` | Server unresponsive | Check server logs, restart |
 | `SSE transport not yet implemented` | SSE not supported yet | Use stdio transport |
 
+### GitHub server using Docker
+
+Check that `docker info` responds before reconnecting the MCP server. A running
+Docker Desktop window does not prove its daemon is responsive. Restart Docker
+only after accounting for other container work. The official
+`ghcr.io/github/github-mcp-server` image is public. If pulling is denied, check
+registry access and stored GHCR credentials; GitHub documents expired registry
+tokens as one possible cause. Review the effect of `docker logout ghcr.io`
+before using it because it changes stored registry authentication.
+[GitHub server setup](https://github.com/github/github-mcp-server#local-github-mcp-server).
+
+### Figma desktop server
+
+Open a Figma Design file, switch to Dev Mode, and enable the desktop MCP server.
+Configure Streamable HTTP at `http://127.0.0.1:3845/mcp`; `/sse` is not the
+documented desktop HTTP endpoint. The app and server must remain running.
+Autohand reports this guidance on local connection failure and leaves saved
+configuration unchanged.
+[Figma desktop setup](https://developers.figma.com/docs/figma-mcp-server/local-server-installation/).
+
 ### Server logs
 
 MCP server stderr output is captured internally. If a server misbehaves, check if the underlying command works outside Autohand:

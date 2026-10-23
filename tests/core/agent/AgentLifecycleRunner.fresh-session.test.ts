@@ -313,6 +313,25 @@ describe('startFreshAgentSession', () => {
 });
 
 describe('restoreAgentSessionState', () => {
+  it('restores only the latest compaction checkpoint and subsequent messages', async () => {
+    const addSystemNote = vi.fn();
+    const addMessage = vi.fn();
+    const host = {
+      sessionManager: { loadSession: vi.fn(async () => ({ getMessages: () => [
+        { role: 'user', content: 'OLD_RAW_HISTORY' },
+        { role: 'system', content: 'OLDER_HANDOFF', _meta: { contextCompaction: true } },
+        { role: 'assistant', content: 'OLD_RAW_ANSWER' },
+        { role: 'system', content: '[Session Handoff] compact facts', _meta: { contextCompaction: true } },
+        { role: 'user', content: 'Continue after compaction' },
+      ] })) },
+      resetConversationContext: vi.fn(), injectSessionBootstrap: vi.fn(), injectProjectKnowledge: vi.fn(),
+      conversation: { addSystemNote, addMessage, history: () => [] }, updateContextUsage: vi.fn(),
+    };
+    await restoreAgentSessionState(host as unknown as AgentLifecycleHost, 'compacted-session');
+    expect(addSystemNote.mock.calls).toEqual([['[Session Handoff] compact facts']]);
+    expect(addMessage).toHaveBeenCalledOnce();
+    expect(addMessage).toHaveBeenCalledWith(expect.objectContaining({ content: 'Continue after compaction' }));
+  });
   it('refreshes the session-scoped goal snapshot after the active session changes', async () => {
     const goalSnapshot = {
       version: 2 as const,

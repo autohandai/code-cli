@@ -77,7 +77,7 @@ import {
 import { getPlanModeManager } from '../../commands/plan.js';
 import { getRpcErrorMetadata, writeRpcDebugLine } from './logging.js';
 import { shutdownBrowserToolBridge } from '../../browser/browserToolBridge.js';
-import { configureSearchFromSettings } from '../../actions/web.js';
+import { configureSearchFromAccount } from '../../actions/web.js';
 import {
   applyAnswerOnlyRuntimeConfig,
   BlueprintAnswerError,
@@ -528,7 +528,7 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
         ?? await loadConfig(options.config, process.cwd()), options.provider),
       options
     );
-    configureSearchFromSettings(config.search, options.searchEngine);
+    await configureSearchFromAccount(config, options.searchEngine);
 
     // RPC clients cannot answer a trust prompt; the warning goes to stderr, never the protocol stream.
     if (!options.bare) {

@@ -5,8 +5,10 @@
  */
 import chalk from 'chalk';
 import { showModal, showPassword, type ModalOption } from '../ui/ink/components/Modal.js';
-import { configureSearch, getSearchConfig } from '../actions/web.js';
+import { configureSearch, configureSearchFromAccount, getSearchConfig } from '../actions/web.js';
 import { saveConfig } from '../config.js';
+import { SEARCH_PROVIDER_OPTIONS } from '../search/providers.js';
+import { ManagedWebSearch, managedSearchIdentity } from '../search/managedWebSearch.js';
 import type { LoadedConfig, SearchProvider } from '../types.js';
 
 interface SearchContext {
@@ -35,38 +37,15 @@ export async function search(ctx: SearchContext): Promise<string | null> {
   console.log();
 
   // Provider selection
-  const providerOptions: ModalOption[] = [
-    {
-      label: `Browser Profile ${chalk.gray('(uses your Chrome/Brave cookies - no API key)')}`,
-      value: 'browser-profile'
-    },
-    {
-      label: `Exa.ai ${chalk.gray('(requires API key)')} ${exaKeySet ? chalk.green('✓') : ''}`,
-      value: 'exa'
-    },
-    {
-      label: `Google ${chalk.gray('(no API key required)')}`,
-      value: 'google'
-    },
-    {
-      label: `DuckDuckGo ${chalk.gray('(no API key required, may be blocked by CAPTCHA)')}`,
-      value: 'duckduckgo'
-    },
-    {
-      label: `Brave Search ${chalk.gray('(requires API key)')} ${braveKeySet ? chalk.green('✓') : ''}`,
-      value: 'brave'
-    },
-    {
-      label: `Parallel.ai ${chalk.gray('(requires API key)')} ${parallelKeySet ? chalk.green('✓') : ''}`,
-      value: 'parallel'
-    }
-  ];
+  const identity = config ? managedSearchIdentity(config) : undefined;
+  const included = identity ? await new ManagedWebSearch(identity).available() : false;
+  const providerOptions: ModalOption[] = SEARCH_PROVIDER_OPTIONS.filter(option => option.value !== 'autohand' || included).map(option => ({ ...option }));
 
   try {
     const result = await showModal({
       title: 'Select search provider:',
       options: providerOptions,
-      initialIndex: providerOptions.findIndex(c => c.value === currentConfig.provider)
+      initialIndex: Math.max(0, providerOptions.findIndex(c => c.value === currentConfig.provider))
     });
 
     if (!result) {
@@ -97,7 +76,7 @@ export async function search(ctx: SearchContext): Promise<string | null> {
     }
 
     if (provider === 'brave' && !braveKeySet) {
-      console.log(chalk.gray('\nGet your free Brave Search API key at: https://brave.com/search/api/\n'));
+      console.log(chalk.gray('\nGet your Brave Search API key at: https://brave.com/search/api/\n'));
 
       const apiKey = await showPassword({
         title: 'Enter Brave Search API key:'
@@ -143,6 +122,7 @@ export async function search(ctx: SearchContext): Promise<string | null> {
         exaApiKey,
       };
       await saveConfig(config);
+      await configureSearchFromAccount(config, provider);
       console.log(chalk.green(`\n✓ Search provider set to ${provider} and saved to config`));
     } else {
       console.log(chalk.green(`\n✓ Search provider set to ${provider} (session only)`));
@@ -150,6 +130,9 @@ export async function search(ctx: SearchContext): Promise<string | null> {
 
     // Show provider-specific info
     switch (provider) {
+      case 'autohand':
+        console.log(chalk.gray('Autohand Web Search is now active using your signed-in account.'));
+        break;
       case 'browser-profile':
         console.log(chalk.gray('Browser Profile Search is now active. Uses your Chrome/Brave cookies for better results.'));
         break;
@@ -163,7 +146,7 @@ export async function search(ctx: SearchContext): Promise<string | null> {
         console.log(chalk.gray('Note: DuckDuckGo may block automated requests with a CAPTCHA.'));
         break;
       case 'brave':
-        console.log(chalk.gray('Brave Search is now active. Free tier allows 2,000 queries/month.'));
+        console.log(chalk.gray('Brave Search is now active. Usage follows your Brave account limits.'));
         break;
       case 'parallel':
         console.log(chalk.gray('Parallel.ai Search is now active with deep research capabilities.'));
@@ -179,6 +162,6 @@ export async function search(ctx: SearchContext): Promise<string | null> {
 
 export const metadata = {
   command: '/search',
-  description: 'configure web search provider (browser-profile, exa, google, brave, duckduckgo, parallel)',
+  description: 'configure web search provider (autohand, browser-profile, exa, google, brave, duckduckgo, parallel)',
   implemented: true,
 };

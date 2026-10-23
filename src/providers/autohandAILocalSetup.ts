@@ -572,6 +572,14 @@ export async function ensureAutohandAILocalRuntime(
   const port = options.port ?? DEFAULT_LOCAL_PORT;
   const baseUrl = options.baseUrl ?? `http://127.0.0.1:${port}`;
 
+  if (process.argv.includes('--no-daemon')) {
+    if (await serverHasModel(baseUrl, options.model.id)) {
+      onProgress?.({ phase: 'ready', label: 'Autohand AI Local server is ready', progress: 1 });
+      return { ok: true, model: options.model, baseUrl, port };
+    }
+    return { ok: false, model: options.model, baseUrl, port, error: 'Automatic local model server startup is disabled by --no-daemon. Connect to an existing server or run the server in a separate terminal.' };
+  }
+
   const dependencies = await ensureAutohandAILocalDependencies(options.cwd, onProgress, port);
   if (!dependencies.ok) {
     return { ok: false, model: options.model, baseUrl, port, error: dependencies.error };

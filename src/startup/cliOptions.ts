@@ -3,20 +3,14 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import type { CLIOptions, SearchProvider } from '../types.js';
+import type { CLIOptions, LoadedConfig, SearchProvider } from '../types.js';
 import { isTmuxEnabled } from '../utils/tmux.js';
 import type { DeprecatedBrowserOption } from '../browser/compatibility.js';
 
-const SEARCH_PROVIDERS = [
-  'browser-profile',
-  'exa',
-  'google',
-  'brave',
-  'duckduckgo',
-  'parallel',
-] as const satisfies readonly SearchProvider[];
+import { SEARCH_PROVIDERS } from '../search/providers.js';
 
 export interface RootCliOptions extends CLIOptions {
+  _authConfig?: LoadedConfig;
   dir?: string;
   mode?: string;
   acp?: boolean;
@@ -96,6 +90,10 @@ export function normalizeInitialCliOptions(
     options.contextCompact = false;
     options.browser = false;
   }
+  if (options.daemon === false) {
+    options.syncSettings = false;
+    options.browser = false;
+  }
   return result;
 }
 
@@ -115,6 +113,7 @@ export function normalizeTmuxWorktreeOption(options: RootCliOptions): string | n
   if (!isTmuxEnabled(options.tmux)) {
     return null;
   }
+  if (options.daemon === false) return '--tmux cannot be used with --no-daemon';
   if (options.worktree === false) {
     return '--tmux cannot be used with --no-worktree';
   }

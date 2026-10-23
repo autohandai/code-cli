@@ -127,7 +127,8 @@ export class FFFSearchProvider {
     this.backend = backend;
   }
 
-  static async create(workspaceRoot: string): Promise<FFFSearchProvider> {
+  static async create(workspaceRoot: string, options: { background?: boolean } = {}): Promise<FFFSearchProvider> {
+    if (options.background === false) return new FFFSearchProvider(new RipgrepSearchBackend(workspaceRoot));
     const backend =
       await createNativeClassBackend(workspaceRoot)
       ?? await createLowLevelFfiBackend(workspaceRoot)

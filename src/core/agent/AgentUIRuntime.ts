@@ -255,6 +255,7 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
     if (host.useInkRenderer && isTTY) {
       // Create Ink UIManager
       const inkUIManager = createInkUIManager({
+        fullScreenMode: host.runtime?.config?.features?.fullScreenMode !== false,
         onInstruction: (text, metadata) => { void handleAgentInkSubmittedInstruction(host, text, metadata); },
         onSteer: (text: string) => { void steerAgentActiveInstruction(host, text); },
         onSteerQueuedMessage: (text: string) => trySteerAgentActiveInstruction(host, text),

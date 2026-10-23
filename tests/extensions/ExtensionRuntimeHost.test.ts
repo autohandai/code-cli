@@ -162,6 +162,7 @@ describe('ExtensionRuntimeHost', () => {
     expect(host.getKeybindings()).toEqual([
       expect.objectContaining({ key: 'ctrl+h', command: '/hello' }),
     ]);
+    expect(host.getCliOption('helloName')).toBe('world');
     expect(host.getCliFlags()).toEqual([
       expect.objectContaining({ flags: '--hello-name <name>', defaultValue: 'world' }),
     ]);
@@ -264,6 +265,23 @@ describe('ExtensionRuntimeHost', () => {
     hosts.push(host);
     await host.sync(await new ExtensionRegistry({ userRoot: fixture.userRoot }).load());
     expect(host.getHooks().map(hook => hook.event)).toEqual(events);
+  });
+
+  it('registers program status hooks and delivers the structured report to trusted extensions', async () => {
+    const fixture = await makeRuntimePackage({ source: `export function activate(api) {
+      api.hooks.on('program-status', context => ({ additionalContext: JSON.stringify(context.programStatus) }));
+    }` });
+    const service = new ExtensionService({ userRoot: fixture.userRoot });
+    await service.install(fixture.packageRoot, { trust: true });
+    const host = new ExtensionRuntimeHost();
+    hosts.push(host);
+    expect(await host.sync(await service.list())).toEqual([]);
+    const manager = new HookManager({ settings: { enabled: true, hooks: [] }, workspaceRoot: fixture.packageRoot });
+    manager.setExtensionHooks(host.getHooks());
+    const report = { state: 'blocked', kind: 'permission', id: 'autohand-fixture', app: 'autohand' } as const;
+    expect(await manager.executeHooks('program-status', { programStatus: report })).toEqual([
+      expect.objectContaining({ success: true, response: { additionalContext: JSON.stringify(report) } }),
+    ]);
   });
 
   it('creates and configures extension providers through the normal provider factory', async () => {
@@ -385,4 +403,140 @@ describe('ExtensionRuntimeHost', () => {
 
     await expect(handler.handle('/explode')).resolves.toMatch(/command exploded/);
   });
+  it('reloads edited imports without requiring an entrypoint timestamp or version change', async () => {
+    const fixture = await makeRuntimePackage({ source: `
+      import { value } from './value.mjs';
+      const ready = await Promise.resolve(value);
+      export function activate(api) {
+        api.commands.register({ command: '/reload-value', description: 'Read current helper', execute: () => ready });
+      }
+    ` });
+    const helper = path.join(fixture.packageRoot, 'dist', 'value.mjs');
+    await fs.writeFile(helper, 'export const value = "first";');
+    const service = new ExtensionService({ userRoot: fixture.userRoot });
+    await service.install(fixture.packageRoot, { link: true, trust: true });
+    const host = new ExtensionRuntimeHost(); hosts.push(host);
+    await host.sync(await service.list());
+    const context = { args: [], workspaceRoot: fixture.packageRoot, isNonInteractive: true, cli: { getOption: () => undefined }, ui: { open: (viewId: string) => host.createViewRequest(viewId) } };
+    expect(await host.getCommand('/reload-value')?.execute(context)).toBe('first');
+    await fs.writeFile(helper, 'export const value = "second";');
+    await host.sync(await service.list());
+    expect(await host.getCommand('/reload-value')?.execute(context)).toBe('second');
+  });
+
+  it('keeps the last working runtime when a replacement fails activation and recovers after repair', async () => {
+    const fixture = await makeRuntimePackage({ source: `export function activate(api) {
+      api.commands.register({ command: '/reload-safe', description: 'Stable command', execute: () => 'last good' });
+    }` });
+    const service = new ExtensionService({ userRoot: fixture.userRoot });
+    await service.install(fixture.packageRoot, { link: true, trust: true });
+    const host = new ExtensionRuntimeHost(); hosts.push(host);
+    await host.sync(await service.list());
+    const original = host.getCommand('/reload-safe');
+    await fs.writeFile(path.join(fixture.packageRoot, 'dist', 'extension.mjs'), 'export function activate() { throw new Error("unfinished edit"); }');
+    expect(await host.sync(await service.list())).toEqual([expect.objectContaining({ code: 'runtime_activation_failed' })]);
+    expect(host.getCommand('/reload-safe')).toBe(original);
+    await fs.writeFile(path.join(fixture.packageRoot, 'dist', 'extension.mjs'), `export function activate(api) {
+      api.commands.register({ command: '/reload-safe', description: 'Repaired command', execute: () => 'repaired' });
+    }`);
+    expect(await host.sync(await service.list())).toEqual([]);
+    expect(host.getCommand('/reload-safe')?.description).toBe('Repaired command');
+  });
+
+  it('preserves unaffected activations when another package changes', async () => {
+    const first = await makeRuntimePackage({ id: 'autohand.reload-first', source: `export function activate(api) {
+      api.commands.register({ command: '/reload-first', description: 'First command', execute() {} });
+    }` });
+    const second = await makeRuntimePackage({ id: 'autohand.reload-second', source: `export function activate(api) {
+      api.commands.register({ command: '/reload-second', description: 'Second command', execute() {} });
+    }` });
+    const service = new ExtensionService({ userRoot: first.userRoot });
+    await service.install(first.packageRoot, { link: true, trust: true });
+    await service.install(second.packageRoot, { link: true, trust: true });
+    const host = new ExtensionRuntimeHost(); hosts.push(host);
+    await host.sync(await service.list());
+    const unaffected = host.getCommand('/reload-second');
+    await fs.writeFile(path.join(first.packageRoot, 'dist', 'extension.mjs'), `export function activate(api) {
+      api.commands.register({ command: '/reload-first', description: 'Changed command', execute() {} });
+    }`);
+    await host.sync(await service.list());
+    expect(host.getCommand('/reload-second')).toBe(unaffected);
+    expect(host.getCommand('/reload-first')?.description).toBe('Changed command');
+  });
+
+  it('releases replaced generation timers and immediately unloads a disabled or untrusted package', async () => {
+    const fixture = await makeRuntimePackage({source: `export function activate(api) {
+      const timer = setInterval(() => {}, 1000);
+      api.commands.register({command:'/timed',description:'First',execute:()=> 'first'});
+      return () => clearInterval(timer);
+    }`});
+    const service = new ExtensionService({userRoot: fixture.userRoot});
+    await service.install(fixture.packageRoot, {link:true,trust:true});
+    const host = new ExtensionRuntimeHost();
+    hosts.push(host);
+    vi.useFakeTimers();
+    const baseline = vi.getTimerCount();
+    try {
+      await host.sync(await service.list());
+      expect(vi.getTimerCount()).toBe(baseline + 1);
+      await fs.writeFile(path.join(fixture.packageRoot,'dist/extension.mjs'), `export function activate(api) {
+        const timer = setInterval(() => {}, 1000);
+        api.commands.register({command:'/timed',description:'Second',execute:()=> 'second'});
+        return () => clearInterval(timer);
+      }`);
+      await host.sync(await service.list());
+      expect(host.getCommand('/timed')?.description).toBe('Second');
+      expect(vi.getTimerCount()).toBe(baseline + 1);
+      await fs.writeJson(path.join(fixture.userRoot,'.state/autohand.runtime-fixture.json'), {trusted:false,linked:true});
+      await host.sync(await service.list());
+      expect(host.getCommand('/timed')).toBeUndefined();
+      expect(vi.getTimerCount()).toBe(baseline);
+      await host.deactivateAll();
+      expect(vi.getTimerCount()).toBe(baseline);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('loads CommonJS, static JSON, asset URLs, and host React without extension-local framework copies', async () => {
+    const fixture = await makeRuntimePackage({source: `
+      import React from 'react';
+      import {jsx} from 'react/jsx-runtime';
+      import {Text} from 'ink';
+      import {readFile} from 'node:fs/promises';
+      import value from './value.cjs';
+      import data from './data.json' with {type:'json'};
+      const asset = await readFile(new URL('./asset.txt', import.meta.url), 'utf8');
+      export default {activate(api) {
+        if (React !== api.ui.React || Text !== api.ui.Ink.Text || jsx(Text, {children:'host'}).type !== Text) throw new Error('Duplicate framework');
+        api.commands.register({command:'/formats',description:value+data.value+asset,execute:()=> 'loaded'});
+      }};
+    `});
+    await fs.writeFile(path.join(fixture.packageRoot,'dist/value.cjs'), 'module.exports = "CommonJS ";');
+    await fs.writeJson(path.join(fixture.packageRoot,'dist/data.json'), {value:'JSON '});
+    await fs.writeFile(path.join(fixture.packageRoot,'dist/asset.txt'), 'asset');
+    const service = new ExtensionService({userRoot:fixture.userRoot});
+    await service.install(fixture.packageRoot,{link:true,trust:true});
+    const host = new ExtensionRuntimeHost();
+    hosts.push(host);
+    expect(await host.sync(await service.list())).toEqual([]);
+    expect(host.getCommand('/formats')?.description).toBe('CommonJS JSON asset');
+  });
+
+  it('refreshes flag defaults while preserving values explicitly supplied on the command line', async () => {
+    const fixture = await makeRuntimePackage();
+    const service = new ExtensionService({userRoot:fixture.userRoot});
+    await service.install(fixture.packageRoot,{link:true,trust:true});
+    const host = new ExtensionRuntimeHost();
+    hosts.push(host);
+    await host.sync(await service.list());
+    host.setCliOptions({helloName:'world'}, ['helloName']);
+    await fs.writeFile(path.join(fixture.packageRoot,'dist/extension.mjs'), RUNTIME_SOURCE.replace("defaultValue: 'world'", "defaultValue: 'universe'"));
+    await host.sync(await service.list());
+    expect(host.getCliOption('helloName')).toBe('universe');
+    host.setCliOptions({helloName:'Ada'});
+    await host.sync(await service.list(), {force:true});
+    expect(host.getCliOption('helloName')).toBe('Ada');
+  });
+
 });

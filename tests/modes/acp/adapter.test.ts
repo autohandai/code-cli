@@ -13,6 +13,12 @@ import type {
 } from "@agentclientprotocol/sdk";
 import type { LoadedConfig } from "../../../src/types.js";
 
+const goalExecution = vi.hoisted(() => ({ run: vi.fn() }));
+vi.mock('../../../src/modes/acp/workflowGoal.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../../../src/modes/acp/workflowGoal.js')>(),
+  executeWorkflowGoal: goalExecution.run,
+}));
+
 const {
   mockAgent,
   mockSessionManager,
@@ -356,6 +362,8 @@ describe("AutohandAcpAdapter", () => {
       }));
       expect(withPeers._meta).toEqual({
         autohandWorkspaceSetup: 1,
+        autohandWorkflowSkillHooks: 1,
+        autohandWorkflowExecution: 2,
         hostContext: { version: 1 },
         peerCommunication: { version: 1 },
       });
@@ -552,6 +560,14 @@ describe("AutohandAcpAdapter", () => {
         expect.objectContaining({ subagentName: "helper", success: true }),
       );
     });
+
+    it("forwards program status with the ACP session identity and no terminal escapes", () => {
+      lifecycleListener!({ event: 'program-status', programStatus: {
+        state: 'blocked', kind: 'question', app: 'autohand', id: 'autohand-1', message: 'Choose an answer',
+      } });
+      expect(connection.extNotification).toHaveBeenCalledWith('autohand.hook.programStatus',
+        expect.objectContaining({ sessionId: expect.any(String), state: 'blocked', kind: 'question', message: 'Choose an answer' }));
+    });
   });
 
   describe("dispose()", () => {
@@ -635,7 +651,7 @@ describe("AutohandAcpAdapter", () => {
         name: string;
         description: string;
       }>;
-      expect(commands).toHaveLength(36);
+      expect(commands).toHaveLength(37);
 
       const cmdNames = commands.map((c) => c.name);
       expect(cmdNames).toContain("help");
@@ -646,7 +662,7 @@ describe("AutohandAcpAdapter", () => {
       expect(cmdNames).toContain("logout");
       expect(cmdNames).toContain("learn");
       expect(cmdNames).toContain("autoresearch");
-      expect(cmdNames).not.toContain("goal");
+      expect(cmdNames).toContain("goal");
     });
 
     it("publishes commands through the standard ACP session update", async () => {
@@ -800,6 +816,19 @@ describe("AutohandAcpAdapter", () => {
       sessionId = session.sessionId;
     });
 
+    it.each([true, false])("releases workflow skill hooks after a turn with success=%s", async (success) => {
+      const release = vi.fn();
+      const attach = vi.fn().mockReturnValue(release);
+      mockAgent.getHookManager.mockReturnValue({ addScopedRuntimeHooks: attach, executeHooks: vi.fn().mockResolvedValue([]) });
+      mockAgent.runInstruction.mockResolvedValueOnce(success);
+      const result = adapter.prompt({ sessionId, prompt: [{ type: "text", text: "Review" }], _meta: { autohandWorkflowSkillHooks: [{ event: "file-modified", skill: "testing", context: "Run tests." }] } });
+      if (success) await expect(result).resolves.toMatchObject({ stopReason: "end_turn" });
+      else await expect(result).rejects.toThrow();
+      expect(attach).toHaveBeenCalledTimes(1);
+      expect(attach.mock.calls[0]?.[0]?.[0]?.event).toBe("file-modified");
+      expect(release).toHaveBeenCalledTimes(1);
+    });
+
     it("handles empty instruction (returns end_turn)", async () => {
       const result = await adapter.prompt({
         sessionId,
@@ -836,6 +865,64 @@ describe("AutohandAcpAdapter", () => {
       expect(connection.sessionUpdate).toHaveBeenCalled();
     });
 
+    it("executes native workflow goals through the durable runner with preserved context", async () => {
+      goalExecution.run.mockImplementationOnce(async options => {
+        await options.runTurn("Durable goal continuation: " + options.instruction);
+      });
+      const result = await adapter.prompt({ sessionId,
+        prompt: [{ type: "text", text: "Previous step: preserved" }],
+        _meta: { autohandWorkflowExecution: { type: "goal", executionId: "run:node" } },
+      });
+      expect(result.stopReason).toBe("end_turn");
+      expect(goalExecution.run).toHaveBeenCalledWith(expect.objectContaining({
+        executionId: "run:node", instruction: "Previous step: preserved", sessionId,
+      }));
+      expect(mockAgent.runInstruction).toHaveBeenCalledWith("Durable goal continuation: Previous step: preserved", expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    });
+
+    it("runs explicit workflow review with host context and scoped hooks", async () => {
+      const release = vi.fn();
+      const hookManager = { executeHooks: vi.fn().mockResolvedValue([]), addScopedRuntimeHooks: vi.fn().mockReturnValue(release) };
+      mockAgent.getHookManager.mockReturnValue(hookManager);
+      mockAgent.isSlashCommand.mockReturnValue(true);
+      mockAgent.isSlashCommandSupported.mockReturnValue(true);
+      const result = await adapter.prompt({ sessionId,
+        prompt: [{ type: "text", text: "Host context and preceding findings: KEEP_CONTEXT_42" }],
+        _meta: {
+          autohandWorkflowExecution: { type: "review", arguments: "changes --focus cancellation" },
+          autohandWorkflowSkillHooks: [{ event: "pre-prompt", skill: "testing", context: "Read existing tests." }],
+        },
+      });
+      expect(result.stopReason).toBe("end_turn");
+      expect(mockAgent.runInstruction.mock.calls[0]?.[0]).toContain("# Autohand Review invocation");
+      expect(mockAgent.runInstruction.mock.calls[0]?.[0]).toContain("KEEP_CONTEXT_42");
+      expect(hookManager.executeHooks.mock.calls.map(([event]) => event)).toContain("review:completed");
+      expect(hookManager.addScopedRuntimeHooks).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects failed native reviews instead of returning a successful stop reason", async () => {
+      mockAgent.isSlashCommand.mockReturnValue(true);
+      mockAgent.isSlashCommandSupported.mockReturnValue(true);
+      mockAgent.runInstruction.mockRejectedValueOnce(new Error("Review engine failed"));
+      await expect(adapter.prompt({ sessionId, prompt: [{ type: "text", text: "Workflow context" }], _meta: { autohandWorkflowExecution: { type: "review", arguments: "changes" } } })).rejects.toThrow();
+    });
+
+    it("does not report review help as a completed workflow step", async () => {
+      mockAgent.isSlashCommand.mockReturnValue(true);
+      mockAgent.isSlashCommandSupported.mockReturnValue(true);
+      await expect(adapter.prompt({ sessionId, prompt: [{ type: "text", text: "Workflow context" }], _meta: { autohandWorkflowExecution: { type: "review", arguments: "--help" } } })).rejects.toThrow();
+      expect(mockAgent.runInstruction).not.toHaveBeenCalled();
+    });
+
+    it.each(["   ", "/help"])("rejects invalid workflow metadata before handling %s", async text => {
+      mockAgent.isSlashCommand.mockReturnValue(true);
+      mockAgent.isSlashCommandSupported.mockReturnValue(true);
+      await expect(adapter.prompt({ sessionId, prompt: [{ type: "text", text }], _meta: { autohandWorkflowExecution: { type: "unknown" } } })).rejects.toThrow();
+      expect(mockAgent.runInstruction).not.toHaveBeenCalled();
+      expect(mockAgent.handleSlashCommand).not.toHaveBeenCalled();
+    });
+
     it("executes /review through the model and review lifecycle", async () => {
       const hookManager = {
         executeHooks: vi.fn().mockResolvedValue([]),
@@ -861,7 +948,7 @@ describe("AutohandAcpAdapter", () => {
       });
       expect(mockAgent.runInstruction).toHaveBeenCalledWith(
         expect.stringContaining("# Autohand Review invocation"),
-        { signal: expect.any(AbortSignal), hookInstruction: '/review architecture packages/api --audience technical' },
+        { signal: expect.any(AbortSignal), hookInstruction: '/review architecture packages/api --audience technical', specialistPreparation: 'skip', environmentBootstrap: 'skip', qualityPipeline: 'agent-managed' },
       );
       expect(mockAgent.runInstruction.mock.calls[0]?.[0]).toContain(
         '"kind": "architecture"',

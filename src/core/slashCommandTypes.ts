@@ -47,7 +47,10 @@ export interface SlashCommandContext {
     promptModelSelection: () => Promise<void>;
     promptApprovalMode?: () => Promise<void>;
     createAgentsFile: () => Promise<void>;
-    resetConversation: () => void | Promise<void>;
+    resetConversation: (summary?: string) => void | Promise<void>;
+    startNewSession?: () => Promise<unknown>;
+    commandSignal?: AbortSignal;
+    backgroundServicesEnabled?: boolean;
     setComposerInput?: (text: string) => void;
     sessionManager: SessionManager;
     currentSession?: Session;
@@ -100,7 +103,7 @@ export interface SlashCommandContext {
     /** Declarative extension lifecycle service for /extensions commands. */
     extensionService?: ExtensionService;
     /** Refresh extension-owned tools and agents after a lifecycle mutation. */
-    refreshDynamicExtensions?: () => Promise<void>;
+    refreshDynamicExtensions?: (options?: { force?: boolean }) => Promise<void>;
     /** Auto-mode manager for /automode commands */
     automodeManager?: AutomodeManager;
     /** Interactive auto-mode toggle state for /automode commands */
@@ -136,6 +139,7 @@ export interface SlashCommandContext {
     requestFeedbackSurvey?: () => boolean;
     /** Tells the user something after the command has returned, e.g. when background work finishes. */
     notifyUser?: (message: string) => void;
+    repositoryReadiness?: import('./agent/RepositoryReadiness.js').RepositoryReadiness | null;
     /** Called with the top recommended skill slug from /learn for install hint */
     onTopRecommendation?: (slug: string) => void;
     /** Team manager for /team and /tasks commands */

@@ -111,11 +111,11 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     await session.type('?');
     const helpScreen = await session.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes('? shortcuts'),
+      waitFor: (text) => text.includes('Keyboard shortcuts'),
       trimEnd: true,
     });
-    expect(helpScreen).toContain('ctrl + j inserts newline');
-    expect(helpScreen).toContain('ctrl + d exits');
+    expect(helpScreen).toMatch(/ctrl \+ j\s+New line/);
+    expect(helpScreen).toMatch(/ctrl \+ d\s+Exit/);
     await session.press('escape');
 
     await session.press(['ctrl', 'd']);
@@ -171,14 +171,20 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
 
 
 
-  it('rotates a tip beside the idle composer, hides it during a turn, and brings it back on the completion row', async () => {
+  it.each([
+    { cols: 80, fullScreenMode: false },
+    { cols: 180, fullScreenMode: true },
+  ])('keeps rotating tips below working status and completion summaries at $cols columns (full screen: $fullScreenMode)', async ({ cols, fullScreenMode }) => {
     const openRouterServer = await createMockOpenRouterServer('Tip check completed.', 4_000);
     mockServers.push(openRouterServer);
     const session = await launchInteractive({
+      cols,
+      rows: 40,
       config: {
         openrouter: { baseUrl: openRouterServer.baseUrl },
         agent: { sessionRetryLimit: 0 },
         ui: { showTips: true },
+        features: { fullScreenMode },
       },
     });
     await waitForComposer(session);
@@ -187,47 +193,68 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     const firstTip = idleTipOf(startup);
     const rotated = await session.text({
       timeout: TIP_ROTATION_MS + 10_000,
-      waitFor: (text) => {
-        const tip = idleTipOf(text);
-        return tip !== undefined && tip !== firstTip;
-      },
+      waitFor: (text) => idleTipOf(text) !== undefined && idleTipOf(text) !== firstTip,
     });
-    expect(idleTipOf(rotated)).not.toBe(firstTip);
-
+    const currentTip = idleTipOf(rotated);
     await session.type('Run a delayed response so I can read the tip.');
     await session.press('enter');
     const working = stripAnsi(await session.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes('esc to cancel'),
+      waitFor: (text) => text.includes('esc to') && text.includes('cancel'),
     }));
-    expect(working).not.toContain('Tip: ');
-
+    expect(idleTipOf(working)).toBe(currentTip);
+    expect(rowAboveComposer(working)).toBe(`Tip: ${currentTip}`);
+    const workingLines = working.split('\n');
+    const workingTipIndex = workingLines.findIndex(line => line.startsWith('Tip:'));
+    expect(workingLines[workingTipIndex - 1]).toContain('cancel');
+    if (fullScreenMode) {
+      expect(working.split('\n').slice(0, 3).join('\n')).not.toContain('esc to cancel');
+    }
     const finished = await waitForTerminalScreen(session, {
       timeout: 15_000,
       waitFor: (text) => text.includes('Tip check completed.')
         && !text.includes('esc to cancel')
-        && /^Completed in .+ {2,}Tip: /u.test(rowAboveComposer(text)),
+        && /Completed in [^\n]*\nTip: /u.test(stripAnsi(text)),
     });
-    expect(rowAboveComposer(finished)).toMatch(/^Completed in .+ {2,}Tip: /u);
+    expect(rowAboveComposer(finished)).toMatch(/^Tip: /u);
+    expect(idleTipOf(finished)).toBe(currentTip);
+    expect(stripAnsi(finished)).toMatch(/Completed in [^\n]*\nTip: /u);
 
     // The first summary moves into the transcript when the next turn starts, and
-    // the second turn keeps its own summary on the row above the composer.
+    // the second turn keeps its own summary above the tip.
     await session.type('Run it once more so the second summary lands.');
     await session.press('enter');
-    await session.text({ timeout: 10_000, waitFor: (text) => text.includes('esc to cancel') });
+    const secondWorking = await session.text({ timeout: 10_000, waitFor: (text) => text.includes('esc to') && text.includes('cancel') });
+    expect(idleTipOf(secondWorking)).toBe(idleTipOf(finished));
+    const secondWorkingLines = stripAnsi(secondWorking).split('\n');
+    const secondWorkingTipIndex = secondWorkingLines.findIndex(line => line.startsWith('Tip:'));
+    expect(secondWorkingLines[secondWorkingTipIndex - 1]).toContain('cancel');
     const secondFinish = await waitForTerminalScreen(session, {
       timeout: 20_000,
       waitFor: (text) => {
         const screen = stripAnsi(text);
         return !screen.includes('esc to cancel')
           && (screen.match(/Completed in /gu)?.length ?? 0) >= 2
-          && /^Completed in .+ {2,}Tip: /u.test(rowAboveComposer(screen));
+          && /Completed in [^\n]*\nTip: /u.test(screen);
       },
     });
     // The first summary stays in the transcript, the second keeps the live row.
     const summaryLines = stripAnsi(secondFinish).split('\n').filter((line) => line.includes('Completed in '));
     expect(summaryLines.length).toBeGreaterThanOrEqual(2);
-    expect(rowAboveComposer(secondFinish)).toMatch(/^Completed in .+ {2,}Tip: /u);
+    expect(rowAboveComposer(secondFinish)).toMatch(/^Tip: /u);
+    expect(stripAnsi(secondFinish)).toMatch(/Completed in [^\n]*\nTip: /u);
+
+    session.resize({ cols: 60, rows: 40 });
+    const resized = await waitForTerminalScreen(session, {
+      timeout: 10_000,
+      waitFor: (screen) => screen.includes('Completed in ') && idleTipOf(screen) !== undefined,
+    });
+    const resizedLines = stripAnsi(resized).split('\n');
+    const tipIndex = resizedLines.findLastIndex((line) => line.startsWith('Tip:'));
+    const summaryIndex = resizedLines.findLastIndex((line) => line.startsWith('Completed in '));
+    expect(summaryIndex).toBeGreaterThanOrEqual(0);
+    expect(tipIndex).toBeGreaterThan(summaryIndex);
+    expect(resizedLines[tipIndex].length).toBeLessThanOrEqual(59);
 
     await exitInteractive(session);
   }, 150_000);
@@ -417,7 +444,7 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     const screen = await session.text({ trimEnd: true });
 
     expect(screen).toContain('Autohand');
-    expect(screen).toContain('model:');
+    expect(screen).toContain('Autohand (OpenRouter, openai/gpt-4o-mini)');
 
     await exitInteractive(session);
   });
@@ -736,6 +763,7 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
         autohandHome: state.autohandHome,
         cwd: state.workspaceRoot,
         env: {
+          AUTOHAND_NO_BANNER: undefined,
           AUTOHAND_API_URL: authServer.baseUrl,
           AUTOHAND_AUTH_URL: authServer.baseUrl,
           AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/v1/auth`,
@@ -746,6 +774,10 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     );
 
     await session.waitForText('Sign in to continue.', { timeout: 10_000 });
+    const loginScreen = await session.text({ immediate: true, trimEnd: true });
+    expect(loginScreen.match(/(?:^|\n)\s*autohand\s*(?=\n|$)/gu)).toHaveLength(1);
+    expect(loginScreen).toContain('Login');
+    expect(loginScreen).toContain('Exit');
     await session.press('enter');
     await session.waitForText('TEST-CAFE', { timeout: 10_000 });
     await session.waitForText('Waiting for authorization', { timeout: 10_000 });
@@ -782,6 +814,7 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
         autohandHome: state.autohandHome,
         cwd: state.workspaceRoot,
         env: {
+          AUTOHAND_NO_BANNER: undefined,
           AUTOHAND_API_URL: authServer.baseUrl,
           AUTOHAND_AUTH_URL: authServer.baseUrl,
           AUTOHAND_AUTH_API_URL: `${authServer.baseUrl}/v1/auth`,
@@ -796,12 +829,21 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     );
 
     await session.waitForText('Sign in to continue.', { timeout: 10_000 });
+    const firstLogoRow = (await session.text({ immediate: true })).split('\n')
+      .find((line) => /^[ "'(),./08:=OPY\\^_bdopq|~\u2800-\u28ff·•●-]+$/u.test(line) && line.trim());
+    expect(firstLogoRow).toBeDefined();
+    const authGateOutputLength = session.getRawOutput().length;
     await session.press('enter');
-    await session.waitForText('Successfully logged in as Authorized Tuistory User', { timeout: 10_000 });
     await session.text({
-      timeout: 5_000,
+      timeout: 10_000,
       waitFor: (text) => text.includes('❯'),
     });
+    expect(stripAnsi(session.getRawOutput())).toContain('Successfully logged in as Authorized Tuistory User');
+    const rawOutput = session.getRawOutput();
+    const authenticatedOutput = rawOutput.slice(rawOutput.indexOf('Successfully logged in as Authorized Tuistory User'));
+    expect(rawOutput.slice(authGateOutputLength)).not.toContain('\x1b[3J');
+    expect(stripAnsi(authenticatedOutput).split('\n').map((line) => line.trim()))
+      .not.toContain(firstLogoRow?.trim());
 
     const prompt = 'post login input';
     await typeLikeUser(session, prompt);
@@ -813,6 +855,7 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
 
     expect(screen).toContain('❯');
     expect(screen).toContain(prompt);
+    expect(screen.match(/(?:^|\n)\s*autohand\s*(?=\n|$)/gu)).toHaveLength(1);
 
     await exitInteractive(session);
   });

@@ -61,7 +61,7 @@ describe('AgentUI completion summary row', () => {
     expect(rowAboveComposer(lines)).toContain('Completed in 0m 4s · 54 tokens');
   });
 
-  it('keeps the tip beside that summary', () => {
+  it('keeps the tip below the newest summary', () => {
     const lines = renderLines({
       ...idle,
       chatMessages: [{ role: 'completion', content: 'Completed in 0m 3s · turn one' }],
@@ -69,9 +69,9 @@ describe('AgentUI completion summary row', () => {
       tip: { kind: 'tip', text: 'Type /goals to watch the live goals queue' },
     });
 
-    const row = rowAboveComposer(lines);
-    expect(row).toContain('Completed in 0m 9s · turn two');
-    expect(row.trimEnd().endsWith('Tip: Type /goals to watch the live goals queue')).toBe(true);
+    const tipIndex = lines.findIndex((line) => line.startsWith('Tip:'));
+    expect(lines[tipIndex - 1]).toBe('Completed in 0m 9s · turn two');
+    expect(rowAboveComposer(lines)).toBe('Tip: Type /goals to watch the live goals queue');
   });
 
   it('labels a failed turn as Failed', () => {

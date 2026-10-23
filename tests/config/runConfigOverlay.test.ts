@@ -97,6 +97,13 @@ describe('loadConfig run overlay control', () => {
 });
 
 describe('restoreRunConfigOverlay', () => {
+  it('does not mutate live run settings when restoring a shallow serialization copy', () => {
+    const { config, snapshot } = applyRunConfigOverlay(base(), { sets: ['ui.promptSuggestions=false'] });
+    const data = { ...config } as unknown as Record<string, unknown>;
+    restoreRunConfigOverlay(data, snapshot!);
+    expect(config.ui?.promptSuggestions).toBe(false);
+    expect(data.ui).not.toHaveProperty('promptSuggestions');
+  });
   it('restores the file values for untouched paths and keeps values the user changed during the run', () => {
     const { config, snapshot } = applyRunConfigOverlay(base(), { profile: 'review', sets: ['ui.theme=aurora'] });
     const data = structuredClone(config) as unknown as Record<string, unknown>;
@@ -154,5 +161,37 @@ describe('loadConfig with a profile', () => {
     configureRunConfigOverlay({ profile: 'c' });
     const { loadConfig } = await import('../../src/config.js');
     await expect(loadConfig(configPath)).rejects.toThrow('Available profiles: a, b');
+  });
+});
+
+
+describe('run-only additive workflow hooks', () => {
+  it('appends hooks without replacing configured hooks or saving run hooks', () => {
+    const existing = { event: 'pre-prompt', command: 'user-check', enabled: true };
+    const workflow = { event: 'context:compact', command: 'workflow-context', enabled: true };
+    const original = { ...base(), hooks: { enabled: true, hooks: [existing] } } as AutohandConfig;
+    const { config, snapshot } = applyRunConfigOverlay(original, {
+      sets: [`hooks.hooks+=${JSON.stringify([workflow])}`],
+    });
+    expect(config.hooks?.hooks).toEqual([existing, workflow]);
+    expect(original.hooks?.hooks).toEqual([existing]);
+    const persisted = structuredClone(config) as unknown as Record<string, unknown>;
+    restoreRunConfigOverlay(persisted, snapshot!);
+    expect(persisted.hooks).toEqual(original.hooks);
+    expect(config.hooks?.hooks).toEqual([existing, workflow]);
+  });
+
+  it('supports absent arrays and ordered additions while rejecting incompatible values', () => {
+    const hook = { event: 'pre-prompt', command: 'workflow-context' };
+    const { config, snapshot } = applyRunConfigOverlay(base(), {
+      sets: [`hooks.hooks+=${JSON.stringify([hook])}`, `hooks.hooks+=${JSON.stringify([hook])}`],
+    });
+    expect(config.hooks?.hooks).toEqual([hook, hook]);
+    const persisted = structuredClone(config) as unknown as Record<string, unknown>;
+    restoreRunConfigOverlay(persisted, snapshot!);
+    expect(persisted.hooks).not.toHaveProperty('hooks');
+    expect(() => applyRunConfigOverlay(base(), { sets: ['ui.theme+=["dark"]'] })).toThrow('array');
+    expect(() => applyRunConfigOverlay(base(), { sets: ['hooks.hooks+="invalid"'] })).toThrow('array');
+    expect(() => parseRunConfigSet('auth.tokens+=[]')).toThrow('cannot change');
   });
 });

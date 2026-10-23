@@ -767,3 +767,31 @@ describe('permission mode observation', () => {
     expect(manager.getMode()).toBe('unrestricted');
   });
 });
+
+
+describe('temporary run scopes', () => {
+  it('intersects scopes, keeps argument restrictions, and releases only its own scope', () => {
+    const manager = new PermissionManager({ mode: 'unrestricted' });
+    manager.setRunToolScope({ allowed: [{ kind: 'read_file', argument: 'src/**' }, { kind: 'write_file' }], denied: [] });
+    const outer = manager.addRunToolScope({ allowed: [{ kind: 'read_file' }], denied: [] });
+    const inner = manager.addRunToolScope({ allowed: [], denied: [{ kind: 'read_file', argument: 'src/private/**' }] });
+    expect(manager.checkPermission({ tool: 'read_file', path: 'src/index.ts' }).allowed).toBe(true);
+    expect(manager.checkPermission({ tool: 'read_file', path: 'README.md' }).allowed).toBe(false);
+    expect(manager.checkPermission({ tool: 'read_file', path: 'src/private/key.ts' }).allowed).toBe(false);
+    expect(manager.checkPermission({ tool: 'write_file', path: 'src/index.ts' }).allowed).toBe(false);
+    outer(); outer();
+    expect(manager.checkPermission({ tool: 'write_file', path: 'src/index.ts' }).allowed).toBe(true);
+    expect(manager.checkPermission({ tool: 'read_file', path: 'src/private/key.ts' }).allowed).toBe(false);
+    inner();
+    expect(manager.checkPermission({ tool: 'read_file', path: 'src/private/key.ts' }).allowed).toBe(true);
+    expect(manager.checkPermission({ tool: 'read_file', path: 'README.md' }).allowed).toBe(false);
+  });
+  it('snapshots added scopes and never bypasses credential protection', () => {
+    const manager = new PermissionManager({ mode: 'unrestricted' });
+    const scope = { allowed: [{ kind: 'read_file' }], denied: [] };
+    manager.addRunToolScope(scope);
+    scope.allowed.push({ kind: 'write_file' });
+    expect(manager.checkPermission({ tool: 'write_file', path: 'a.ts' }).allowed).toBe(false);
+    expect(manager.checkPermission({ tool: 'read_file', path: '.env' }).allowed).toBe(false);
+  });
+});

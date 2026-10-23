@@ -272,6 +272,7 @@ function buildHelpRows(bindings: Record<KeybindingAction, Chord[]>): KeybindingH
     ...describe('newline', bindings.newline),
     'enter submits prompt',
     'while working: enter queues; select a queued message, then enter steers it',
+    'ctrl + enter steers queued input',
     'ctrl + c clears input / exits',
     ...describe('exit', bindings.exit),
     '↑ / ↓ recalls typed messages',

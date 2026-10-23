@@ -83,6 +83,7 @@ describe('RPC goal handlers', () => {
       workspaceRoot,
       {
         configPath: path.join(workspaceRoot, 'config.json'),
+        features: { slashGoal: false },
       } as any,
     );
 

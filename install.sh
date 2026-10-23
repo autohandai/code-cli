@@ -14,6 +14,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+DIM='\033[2m'
 
 info() {
     printf "${BLUE}%s${NC}\n" "$1"
@@ -146,6 +147,18 @@ LAUNCHER
     info "Run autohand-alpha to test this installation. Earlier profiles are retained."
 }
 
+# Older releases accept unknown command names before --help and print root help.
+# Require the command in that root help rather than trusting its exit status.
+computer_control_supported() {
+    local _help
+    _help=$("$1" --help < /dev/null 2>/dev/null) || return 1
+    printf '%s\n' "$_help" | grep -Eq '^[[:space:]]+computer([[:space:]]|$)'
+}
+
+dim() {
+    printf "${DIM}%s${NC}\n" "$1"
+}
+
 install_computer_control() {
     local _binary="$1"
     local _computer_use_app="${2:-}"
@@ -157,6 +170,11 @@ install_computer_control() {
 
     if [ "${AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL:-0}" = "1" ]; then
         warn "Skipping Computer control because AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL=1."
+        return 0
+    fi
+
+    if ! computer_control_supported "$_binary"; then
+        dim "Computer control arrives in the next release"
         return 0
     fi
 
@@ -175,9 +193,9 @@ install_computer_control() {
     if [ "$_computer_status" -eq 0 ]; then
         success "Autohand Computer Use is ready."
     else
-        warn "Installation is incomplete: Computer control could not be installed."
+        warn "Warning: Optional Computer control could not be installed. Autohand CLI is ready."
         warn "Retry with: autohand computer install"
-        return 1
+        return 0
     fi
 }
 
@@ -208,6 +226,9 @@ EOF
                 ;;
             --fresh)
                 AUTOHAND_INSTALL_FRESH=1
+                ;;
+            --no-zit)
+                AUTOHAND_SKIP_ZIT_INSTALL=1
                 ;;
         esac
     done
@@ -356,6 +377,7 @@ EOF
     install_symlink "$BINARY_NAME" "$_dir/$AGENT_ALIAS_NAME"
     install_symlink "$BINARY_NAME" "$_dir/$SHORT_ALIAS_NAME"
     claim_agent_alias_path_wide "$_dir/$BINARY_NAME" "$_dir"
+    install_zit "$_dir"
 
     if ! install_computer_control "$_dir/$BINARY_NAME" "${_tmp_dir}/Autohand Computer Use.app"; then
         rm -rf "$_tmp_dir"
@@ -391,7 +413,9 @@ EOF
     echo "  autohand              # Start interactive mode"
     echo "  autohand --help       # Show all options"
     echo "  autohand login        # Sign in to your account"
-    echo "  autohand computer doctor # Verify native app control permissions"
+    if computer_control_supported "$_dir/$BINARY_NAME"; then
+        echo "  autohand computer doctor # Verify native app control permissions"
+    fi
     if [ "$_has_traces" = true ]; then
         echo ""
         echo "Agent traces stay off until you choose during onboarding."
@@ -414,6 +438,51 @@ EOF
     echo ""
     offer_first_run "$_launch_binary"
 }
+
+install_zit() (
+    local _dir="$1" _target _name _url _expected _actual _zit_tmp
+    if [ "${AUTOHAND_SKIP_ZIT_INSTALL:-0}" = "1" ]; then
+        info "Skipping Zit installation (--no-zit)."
+        return 0
+    fi
+    if command -v zit >/dev/null 2>&1; then
+        info "Keeping existing Zit installation. Use autohand --zit for isolated work."
+        return 0
+    fi
+    case "$(uname -s):$(uname -m)" in
+        Darwin:arm64|Darwin:aarch64) _target="aarch64-apple-darwin" ;;
+        Darwin:x86_64) _target="x86_64-apple-darwin" ;;
+        Linux:arm64|Linux:aarch64) _target="aarch64-unknown-linux-gnu" ;;
+        Linux:x86_64|Linux:amd64) _target="x86_64-unknown-linux-gnu" ;;
+        *) warn "Zit has no official binary for this platform. See https://getzit.org; Autohand installation continues."; return 0 ;;
+    esac
+    _name="zit-v0.1.2-${_target}"
+    _url="https://github.com/autohandai/getzit/releases/download/v0.1.2/${_name}.tar.gz"
+    _zit_tmp=$(mktemp -d) || { warn "Could not prepare Zit download. See https://getzit.org"; return 0; }
+    trap 'rm -rf "$_zit_tmp"' 0
+    info "Installing Zit for autohand --zit (opt out with --no-zit)."
+    if ! curl --connect-timeout 10 --max-time 60 -fsSL "$_url" -o "$_zit_tmp/archive.tar.gz" \
+        || ! curl --connect-timeout 10 --max-time 30 -fsSL "${_url}.sha256" -o "$_zit_tmp/checksum"; then
+        warn "Zit download unavailable. See https://getzit.org; Autohand installation continues."
+        return 0
+    fi
+    _expected=$(awk 'NR == 1 {print $1}' "$_zit_tmp/checksum")
+    if ! _actual=$(compute_sha256 "$_zit_tmp/archive.tar.gz") || [ "${#_expected}" != "64" ] || [ "$_expected" != "$_actual" ]; then
+        warn "Zit checksum verification failed; no Zit binaries installed. See https://getzit.org"
+        return 0
+    fi
+    if ! tar -xzf "$_zit_tmp/archive.tar.gz" -C "$_zit_tmp" "$_name/zit" "$_name/git-zit" \
+        || [ ! -f "$_zit_tmp/$_name/zit" ] || [ -L "$_zit_tmp/$_name/zit" ] \
+        || [ ! -f "$_zit_tmp/$_name/git-zit" ] || [ -L "$_zit_tmp/$_name/git-zit" ]; then
+        warn "Zit archive was invalid. See https://getzit.org; Autohand installation continues."
+        return 0
+    fi
+    if ! install_file "$_zit_tmp/$_name/zit" "$_dir/zit" || ! install_file "$_zit_tmp/$_name/git-zit" "$_dir/git-zit"; then
+        warn "Could not install Zit. See https://getzit.org; Autohand installation continues."
+        return 0
+    fi
+    success "Installed Zit. Try autohand --zit (requires Git 2.38 or newer)."
+)
 
 compute_sha256() {
     local _file="$1"

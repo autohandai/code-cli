@@ -67,11 +67,13 @@ function deletePath(root: Record<string, unknown>, path: readonly string[]): voi
   if (current) delete current[path[path.length - 1]!];
 }
 
-/** `key.path=value`; the value is JSON when it parses, otherwise the literal text. */
-export function parseRunConfigSet(input: string): { path: string[]; value: unknown } {
+/** `key.path=value` replaces a value; `key.path+=[]` appends a run-only array. */
+export function parseRunConfigSet(input: string): { path: string[]; value: unknown; append?: true } {
   const separator = input.indexOf('=');
   if (separator <= 0) throw new Error(`--set expects key=value, got "${input}".`);
-  const key = input.slice(0, separator).trim();
+  const rawKey = input.slice(0, separator).trim();
+  const append = rawKey.endsWith('+');
+  const key = append ? rawKey.slice(0, -1).trim() : rawKey;
   const raw = input.slice(separator + 1).trim();
   const path = key.split('.').map((segment) => segment.trim());
   if (path.some((segment) => !segment || !/^[A-Za-z0-9_-]+$/.test(segment))) {
@@ -84,7 +86,8 @@ export function parseRunConfigSet(input: string): { path: string[]; value: unkno
   if (raw !== '') {
     try { value = JSON.parse(raw); } catch { value = raw; }
   }
-  return { path, value };
+  if (append && !Array.isArray(value)) throw new Error(`--set ${key}+= expects a JSON array.`);
+  return { path, value, ...(append ? { append: true as const } : {}) };
 }
 
 /** Leaves of a profile object as dotted paths; arrays and scalars are leaves. */
@@ -131,7 +134,15 @@ export function applyRunConfigOverlay(
   }
   for (const entry of active.sets ?? []) {
     const parsed = parseRunConfigSet(entry);
-    apply(parsed.path, parsed.value);
+    if (parsed.append) {
+      const current = readPath(layered, parsed.path);
+      if (current.present && !Array.isArray(current.value)) {
+        throw new Error(`--set ${parsed.path.join('.')}+= cannot append to a non-array setting.`);
+      }
+      apply(parsed.path, [...(Array.isArray(current.value) ? current.value : []), ...(parsed.value as unknown[])]);
+    } else {
+      apply(parsed.path, parsed.value);
+    }
   }
   return { config: layered as unknown as AutohandConfig, snapshot: { ...(active.profile ? { profile: active.profile } : {}), entries } };
 }
@@ -141,9 +152,15 @@ export function applyRunConfigOverlay(
  * during the run (for example with /model) keeps the user's value.
  */
 export function restoreRunConfigOverlay(data: Record<string, unknown>, snapshot: RunConfigOverlaySnapshot): void {
+  const copiedSections = new Set<string>();
   for (const entry of [...snapshot.entries].reverse()) {
     const current = readPath(data, entry.path);
     if (!current.present || !sameValue(current.value, entry.applied)) continue;
+    const section = entry.path[0]!;
+    if (entry.path.length > 1 && !copiedSections.has(section)) {
+      data[section] = structuredClone(data[section]);
+      copiedSections.add(section);
+    }
     if (entry.hadBase) writePath(data, entry.path, structuredClone(entry.base));
     else deletePath(data, entry.path);
   }

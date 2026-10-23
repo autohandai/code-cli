@@ -29,6 +29,7 @@ export interface TerminalCellPosition {
 }
 
 export interface ComposerOutputLayout {
+  firstVisibleRow?: number;
   cursorX: number;
   cursorY: number;
   height: number;

@@ -1,7 +1,7 @@
 import { createServer, type ServerResponse } from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { runOrchestrationScenario } from '../../src/testing/scenarios/autohandOrchestrationScenario.js';
 import { createTempAutohandHome, exitInteractive, launchBuiltAutohand } from './helpers/autohandTuistory.js';
 
@@ -71,7 +71,8 @@ describe('default Autohand AI orchestration', () => {
     });
     try {
       expect(await runOrchestrationScenario(session)).toContain('ORCHESTRATION_VERIFIED');
-      expect(audited).toBe(true);
+      // The scenario can see the provisional answer before its completion audit.
+      await vi.waitFor(() => expect(audited).toBe(true), { timeout: 10_000 });
       expect(waitingWorkers).toHaveLength(3);
       const workers = requests.filter(request => request.model === 'fantail');
       expect(workers).toHaveLength(6);
@@ -97,12 +98,15 @@ describe('default Autohand AI orchestration', () => {
         const instructions = requests.at(-1)!.messages.filter(message => message.role === 'system' && message.content.startsWith('[Autohand AI orchestration]'));
         expect(instructions.at(-1)?.content).toContain(`orchestration is ${mode === 'on' ? 'enabled' : 'disabled'}`);
       }
-      await exitInteractive(session);
     } finally {
-      session.close();
-      server.closeAllConnections();
-      await new Promise<void>(resolve => server.close(() => resolve()));
-      await state.cleanup();
+      try {
+        await exitInteractive(session);
+      } finally {
+        session.close();
+        server.closeAllConnections();
+        await new Promise<void>(resolve => server.close(() => resolve()));
+        await state.cleanup();
+      }
     }
   });
 });

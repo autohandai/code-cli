@@ -27,11 +27,11 @@ beforeEach(() => {
   destroy.mockReset();
 });
 
-function makeExecutor(): ActionExecutor {
+function makeExecutor(daemon = true): ActionExecutor {
   const runtime = {
     workspaceRoot: '/workspace',
     config: {},
-    options: {},
+    options: { daemon },
   } as AgentRuntime;
 
   return new ActionExecutor({
@@ -43,6 +43,18 @@ function makeExecutor(): ActionExecutor {
 }
 
 describe('ActionExecutor FFF search reuse', () => {
+  it('uses foreground search and releases it immediately without an idle timer', async () => {
+    vi.useFakeTimers();
+    try {
+      const baseline = vi.getTimerCount();
+      createProvider.mockResolvedValue({ grep, fileSearch, destroy });
+      grep.mockResolvedValue('result');
+      await makeExecutor(false).execute({ type: 'find_grep', query: 'needle' });
+      expect(createProvider).toHaveBeenCalledWith('/workspace', { background: false });
+      expect(destroy).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(baseline);
+    } finally { vi.useRealTimers(); }
+  });
   it('reuses a scanned FFF provider across sequential fff searches', async () => {
     createProvider.mockResolvedValue({ grep, fileSearch, destroy });
     grep.mockResolvedValue('grep result');

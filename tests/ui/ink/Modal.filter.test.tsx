@@ -276,12 +276,17 @@ class FakeStdin extends EventEmitter {
   // ink-testing-library's own fake exactly.
   write(data: string): void {
     this.data = data;
-    this.emit('readable');
-    this.emit('data', data);
+    if (this.listenerCount('readable') > 0) {
+      this.emit('readable');
+    } else {
+      this.data = null;
+      this.emit('data', data);
+    }
   }
   read(): string | null {
     const { data } = this;
     this.data = null;
+    if (data !== null) this.emit('data', data);
     return data;
   }
 }
@@ -300,6 +305,78 @@ class FakeStderr extends EventEmitter {
     return true;
   }
 }
+
+async function withFakeModalTerminal(run: (stdin: FakeStdin) => Promise<void>): Promise<void> {
+  const originalStdin = Object.getOwnPropertyDescriptor(process, 'stdin')!;
+  const originalStdout = Object.getOwnPropertyDescriptor(process, 'stdout')!;
+  const originalStderr = Object.getOwnPropertyDescriptor(process, 'stderr')!;
+  const originalConsoleCtor = (console as unknown as { Console?: unknown }).Console;
+  (console as unknown as { Console: unknown }).Console = Console;
+  const stdin = new FakeStdin();
+  Object.defineProperty(process, 'stdin', { value: stdin, configurable: true });
+  Object.defineProperty(process, 'stdout', { value: new FakeStdout(), configurable: true });
+  Object.defineProperty(process, 'stderr', { value: new FakeStderr(), configurable: true });
+  try {
+    await run(stdin);
+  } finally {
+    Object.defineProperty(process, 'stdin', originalStdin);
+    Object.defineProperty(process, 'stdout', originalStdout);
+    Object.defineProperty(process, 'stderr', originalStderr);
+    (console as unknown as { Console: unknown }).Console = originalConsoleCtor;
+  }
+}
+
+describe('showModal startup input ownership', () => {
+  it.each([
+    { name: 'SS3 Down', chunks: ['\x1bOB', '\r'], selection: 'exit' },
+    { name: 'SS3 Down then Up', chunks: ['\x1bOB', '\x1bOA', '\r'], selection: 'login' },
+    { name: 'batched CSI Down and Enter', chunks: ['\x1b[B\r'], selection: 'exit' },
+    { name: 'batched SS3 Down and Enter', chunks: ['\x1bOB\r'], selection: 'exit' },
+    { name: 'batched Down Up and Enter', chunks: ['\x1bOB\x1bOA\r'], selection: 'login' },
+    { name: 'Ctrl+C', chunks: ['\x03'], selection: null },
+  ])('selects the visible option for $name and releases input listeners', async ({ chunks, selection }) => {
+    await withFakeModalTerminal(async (stdin) => {
+      const baseline = stdin.listenerCount('data');
+      const resultPromise = showModal({
+        title: 'Sign in to continue.',
+        skipAltScreen: true,
+        options: [{ label: 'Login', value: 'login' }, { label: 'Exit', value: 'exit' }],
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
+      for (const chunk of chunks) {
+        stdin.write(chunk);
+        await new Promise<void>((resolve) => setTimeout(resolve, 30));
+      }
+      expect((await resultPromise)?.value ?? null).toBe(selection);
+      expect(stdin.listenerCount('data')).toBe(baseline);
+      expect(stdin.listenerCount('readable')).toBe(0);
+    });
+  });
+
+  it('retains an early Enter before Ink attaches its input effects', async () => {
+    await withFakeModalTerminal(async (stdin) => {
+      const registerListener = stdin.on.bind(stdin);
+      const registration = vi.spyOn(stdin, 'on').mockImplementation((event, listener) => {
+        const registered = registerListener(event, listener);
+        if (event === 'data') stdin.write('\r');
+        return registered;
+      });
+      try {
+        const result = await showModal({
+          title: 'Sign in to continue.',
+          skipAltScreen: true,
+          initialIndex: 1,
+          options: [{ label: 'Login', value: 'login' }, { label: 'Exit', value: 'exit' }],
+        });
+        expect(result?.value).toBe('exit');
+        expect(stdin.listenerCount('data')).toBe(0);
+        expect(stdin.listenerCount('readable')).toBe(0);
+      } finally {
+        registration.mockRestore();
+      }
+    });
+  });
+});
 
 describe('Modal filtering through showModal', () => {
   it('threads filterable from the public showModal() entry point to a working query', async () => {

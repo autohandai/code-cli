@@ -3,7 +3,7 @@
  * TDD: Tests written first, implementation follows
  */
 import { EventEmitter } from 'node:events';
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   validateMcpServerConfig,
   convertMcpToolToAutohand,
@@ -39,6 +39,22 @@ describe('captureHandshakeStderr', () => {
 
     expect(connection.listenerCount('stderr')).toBe(0);
     expect(capture.tail()).toBe('before detach');
+  });
+});
+
+describe('local Figma MCP startup diagnostics', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+  it.each(['/sse', '/mcp'])('explains the required desktop server and HTTP endpoint after %s fails', async endpoint => {
+    vi.useFakeTimers();
+    const baseline = vi.getTimerCount();
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
+    const manager = new McpClientManager();
+    const config: McpServerConfig = { name: 'figma', transport: 'http', url: `http://127.0.0.1:3845${endpoint}` };
+    try {
+      await expect(manager.connect(config)).rejects.toThrow('Enable the desktop MCP server in Figma');
+      expect(config.url).toBe(`http://127.0.0.1:3845${endpoint}`);
+      expect(vi.getTimerCount()).toBe(baseline);
+    } finally { await manager.disconnectAll(); }
   });
 });
 

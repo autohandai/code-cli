@@ -20,16 +20,40 @@ afterEach(async () => {
 });
 
 describe('computer control installation integration', () => {
-  it.runIf(process.platform !== 'win32')('fails the Unix installer when the required component fails', async () => {
+  async function runComputerInstall(binaryLines: string[]) {
     const script = await readFile('install.sh', 'utf8');
-    const functionSource = script.slice(script.indexOf('install_computer_control() {'), script.indexOf('\nmain() {'));
-    const result = spawnSync('/bin/sh', ['-c', [
+    const functionSource = script.slice(script.indexOf('computer_control_supported() {'), script.indexOf('\nmain() {'));
+    const directory = await mkdtemp(path.join(tmpdir(), 'autohand-computer-install-'));
+    temporaryDirectories.push(directory);
+    const binary = path.join(directory, 'autohand');
+    await writeFile(binary, ['#!/bin/sh', ...binaryLines].join('\n'), { mode: 0o755 });
+    return spawnSync('/bin/sh', ['-c', [
       'info() { echo "$*"; }', 'warn() { echo "$*"; }', 'success() { echo "$*"; }',
-      functionSource, 'install_computer_control /usr/bin/false',
+      functionSource, `install_computer_control '${binary}'`,
     ].join('\n')], { encoding: 'utf8', env: { ...process.env, AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '0' } });
-    expect(result.status).toBe(1);
+  }
+
+  it.runIf(process.platform !== 'win32')('keeps the Unix installer going when the optional component fails', async () => {
+    const result = await runComputerInstall([
+      '[ "${1:-}" = "--help" ] && { printf "Commands:\\n  computer [options]  Install Computer control\\n"; exit 0; }',
+      'exit 7',
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Optional Computer control could not be installed');
     expect(result.stdout).toContain('autohand computer install');
-    expect(result.stdout).not.toContain('still ready');
+    expect(result.stdout).not.toContain('Autohand Computer Use is ready');
+  });
+
+  it.runIf(process.platform !== 'win32')('skips computer control when the stable release does not have the command yet', async () => {
+    const result = await runComputerInstall([
+      '[ "${1:-}" = "--help" ] && { printf "Commands:\\n  login    Sign in\\n  update   Check for updates\\n"; exit 0; }',
+      "echo \"error: unknown option '--non-interactive'\" >&2",
+      'exit 1',
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Computer control arrives in the next release');
+    expect(result.stdout).not.toContain('could not be installed');
+    expect(result.stderr).not.toContain('--non-interactive');
   });
 
   it('allows an explicit headless opt-out before npm postinstall', async () => {

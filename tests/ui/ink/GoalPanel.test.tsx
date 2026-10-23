@@ -9,6 +9,7 @@ import { cleanup, render } from 'ink-testing-library';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GoalSessionSnapshot } from '../../../src/goals/types.js';
 import { GoalPanel } from '../../../src/ui/ink/GoalPanel.js';
+import { FullScreenTranscript } from '../../../src/ui/ink/fullScreenTranscript.js';
 import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
@@ -118,6 +119,26 @@ function wrap(element: React.ReactElement): React.ReactElement {
 }
 
 describe('live goal panel', () => {
+  it('keeps queued and peer goals visible beside the full-screen product header', async () => {
+    const goals = createLongGoalsSnapshot();
+    const goalActivity: GoalSessionSnapshot = {
+      ...goals, goal: null,
+      queue: [{ queueId: 'first', objective: goals.goal!.objective, source: 'command', createdAt: 1 }, ...goals.queue],
+      peers: goals.peers.map(peer => ({ ...peer, status: 'paused' })),
+    };
+    const ui = render(wrap(<AgentUI fullScreenTranscript={new FullScreenTranscript()}
+      state={{ ...createInitialUIState(), goalPanelVisible: true, goalActivity }}
+      lineExtensions={{ help: { replaceDefault: true, segments: [{ id: 'status', text: 'Status row one\nStatus row two\nStatus row three' }] } }}
+      onInstruction={vi.fn()} onEscape={vi.fn()} onCtrlC={vi.fn()} />));
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain('Goals · 3 total'));
+    const screen = stripAnsi(ui.lastFrame() ?? '');
+    expect(screen).toContain('Autohand Code');
+    expect(screen).toContain('Review the terminal layout… queued');
+    expect(screen).toContain('Ship the documentation… paused');
+    expect(screen).toContain('enter edit · click edit');
+    expect(screen).toContain('Status row three');
+    expect(screen.split('\n').length).toBeLessThanOrEqual(24);
+  });
   it('shows ownership, budgets, stop details, checkpoints, and offline peers inline', async () => {
     const ui = render(wrap(<GoalPanel selectedIndex={null} snapshot={snapshot({
       goal: {
@@ -218,10 +239,12 @@ describe('live goal panel', () => {
     }));
   });
 
-  it('preserves an edit draft during refresh and never submits a removed goal as an agent instruction', async () => {
+  it.each([false, true])('preserves a removed-goal edit and its warning with fullScreen=%s', async fullScreen => {
+    const fullScreenTranscript = fullScreen ? new FullScreenTranscript() : undefined;
     const onInstruction = vi.fn();
     const onEditGoalObjective = vi.fn();
     const view = (goalActivity: GoalSessionSnapshot) => wrap(<AgentUI
+      fullScreenTranscript={fullScreenTranscript}
       state={{ ...createInitialUIState(), goalPanelVisible: true, goalActivity }}
       onInstruction={onInstruction} onEscape={vi.fn()} onCtrlC={vi.fn()} onEditGoalObjective={onEditGoalObjective}
     />);

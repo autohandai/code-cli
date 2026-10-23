@@ -219,16 +219,16 @@
         "renderMarkdownDesc": "Show assistant headings, lists, code, and tables formatted instead of raw markdown",
         "defaultInteractionMode": "Startup mode",
         "defaultInteractionModeDesc": "Mode an interactive session starts in: default (ask before risky actions), plan, automode, or yolo",
-        "showTips": "Idle tips",
-        "showTipsDesc": "Rotate tips about slash commands, @ $ ! : triggers, and shortcuts beside the idle composer",
+        "showTips": "Capability tips",
+        "showTipsDesc": "Rotate built-in capability tips below the working status or completion summary, above the composer",
         "terminalBell": "Terminal bell",
         "terminalBellDesc": "Ring bell when task completes",
         "checkForUpdates": "Check for updates",
         "checkForUpdatesDesc": "Check for CLI updates on startup",
         "showCompletionNotification": "Completion notifications",
         "showCompletionNotificationDesc": "Show OS notification when work completes",
-        "completionReportEnabled": "Completion reports",
-        "completionReportEnabledDesc": "Ask the model to summarize completed action turns",
+        "completionReportEnabled": "Final answer recap",
+        "completionReportEnabledDesc": "Include a short recap of results, lessons, and confirmed memories in final answers",
         "promptSuggestions": "Prompt suggestions",
         "promptSuggestionsDesc": "Show LLM-generated next-step suggestions",
         "mouseComposerCursor": "Mouse composer cursor",
@@ -324,7 +324,9 @@
         "braveApiKey": "Brave API key",
         "braveApiKeyDesc": "API key for Brave Search",
         "parallelApiKey": "Parallel API key",
-        "parallelApiKeyDesc": "API key for Parallel.ai"
+        "parallelApiKeyDesc": "API key for Parallel.ai",
+        "exaApiKey": "Exa API key",
+        "exaApiKeyDesc": "API key for Exa.ai"
       }
     },
     "setup": {
@@ -947,8 +949,9 @@
       "verificationFailedStatus": "Provider verification failed with HTTP {{status}}.",
       "verificationFailedHint": "Check the base URL, API key, and that the endpoint implements the OpenAI-compatible /models API.",
       "verificationNetworkError": "Provider verification failed because Autohand could not reach the endpoint.",
-      "modelNotFound": "Provider verification failed because model {{model}} was not returned by /models.",
-      "modelNotFoundHint": "Available models include: {{models}}"
+      "modelNotFound": "Model {{model}} was not returned by /models. Some providers, such as routers and gateways, accept model names they don't list.",
+      "modelNotFoundHint": "Available models include: {{models}}",
+      "saveAnyway": "Save this provider with model {{model}} anyway?"
     },
     "wizard": {
       "openrouter": {

@@ -11,8 +11,9 @@ const terminal = new PtyDriver();
 afterEach(() => terminal.close());
 
 describe('composer history in node-pty', () => {
-  it('submits recalled edits, restores a draft, and exits with Ctrl+C', async () => {
+  it('keeps tips below the summary while recalling edits, restoring a draft and exiting with Ctrl+C', async () => {
     terminal.launch(process.execPath, ['--import', 'tsx', 'src/testing/scenarios/typedMessageHistoryPtyScenario.tsx']);
+    await terminal.waitFor(/Completed in 0m 02s[^\r\n]*\r?\nTip: Type \/review security/u);
     await runTypedMessageHistoryPtyScenario(terminal);
     expect(terminal.snapshot()).toContain('SUBMITTED 4: unfinished restored');
   });

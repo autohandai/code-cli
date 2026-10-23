@@ -99,6 +99,7 @@ import {
   type ToolParameter,
 } from './toolManager.js';
 import type { FFFSearchProvider } from '../search/fffSearchProvider.js';
+import { NO_DAEMON_MESSAGE } from '../runtime/noDaemon.js';
 import { ToolsRegistry, createToolsRegistry, type MetaToolDefinition } from './toolsRegistry.js';
 import { MetaToolService } from './metaTools/MetaToolService.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
@@ -472,12 +473,21 @@ export class ActionExecutor {
 
     const { FFFSearchProvider } = await import('../search/fffSearchProvider.js');
     this.fffSearchWorkspaceRoot = workspaceRoot;
-    this.fffSearchProviderPromise = FFFSearchProvider.create(workspaceRoot);
+    this.fffSearchProviderPromise = this.runtime.options.daemon === false
+      ? FFFSearchProvider.create(workspaceRoot, { background: false })
+      : FFFSearchProvider.create(workspaceRoot);
     return this.fffSearchProviderPromise;
   }
 
   private scheduleFFFSearchProviderCleanup(): void {
     if (!this.fffSearchProviderPromise) {
+      return;
+    }
+    if (this.runtime.options.daemon === false) {
+      const provider = this.fffSearchProviderPromise;
+      this.fffSearchProviderPromise = null;
+      this.fffSearchWorkspaceRoot = null;
+      void provider.then(value => value.destroy()).catch(() => {});
       return;
     }
 
@@ -1105,6 +1115,10 @@ export class ActionExecutor {
     context?: ToolExecutionContext,
     capture?: ToolOutcomeCapture,
   ): Promise<string | undefined> {
+    if (this.runtime.options.daemon === false && (
+      ((action.type === 'run_command' || action.type === 'shell') && action.background === true)
+      || action.type === 'add_teammate' || action.type === 'compose_team'
+    )) return this.recordToolFailure(capture, 'authorization', NO_DAEMON_MESSAGE, NO_DAEMON_MESSAGE);
     const command = this.commandForPeerGuard(action);
     const executionState: ActionExecutionState = { started: false };
     try {
@@ -1664,7 +1678,7 @@ export class ActionExecutor {
       }
       case 'update_goal': {
         const manager = this.createGoalManager();
-        const updated = await manager.updateGoal({
+        const input = {
           objective: action.objective,
           status: parseGoalStatus(action.status),
           completionEvidence: action.completion_evidence,
@@ -1675,7 +1689,19 @@ export class ActionExecutor {
           timeBudgetSeconds: action.time_budget_seconds,
           minTokensBeforeWrapUp: action.min_tokens_before_wrap_up,
           minTimeSecondsBeforeWrapUp: action.min_time_seconds_before_wrap_up,
-        });
+        };
+        if (input.status === 'complete' && context?.deferGoalCompletion) {
+          const prepared = await manager.prepareGoalCompletion(input);
+          if (!prepared.ok || !prepared.goal) return formatGoalToolResult(prepared);
+          const expectedGoalId = prepared.goal.goalId;
+          return formatGoalToolResult(context.deferGoalCompletion(prepared, async () => {
+            context.signal?.throwIfAborted();
+            const completed = await manager.updateGoal({ ...input, expectedGoalId });
+            if (completed.started) await this.activateGoal(completed);
+            return completed;
+          }));
+        }
+        const updated = await manager.updateGoal(input);
         if (action.status === 'active' || updated.started) await this.activateGoal(updated);
         return formatGoalToolResult(updated);
       }
@@ -4733,6 +4759,7 @@ export class ActionExecutor {
 
 function formatGoalToolResult(result: {
   ok: boolean;
+  completionPending?: boolean;
   storageWarning?: string;
   message?: string;
   goal: unknown;
@@ -4749,6 +4776,7 @@ function formatGoalToolResult(result: {
 }): string {
   return JSON.stringify({
     ok: result.ok,
+    completionPending: result.completionPending,
     storageWarning: result.storageWarning,
     message: result.message,
     goal: result.goal,

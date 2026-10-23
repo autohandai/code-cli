@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
-import type { LLMMessage, LLMUsage, ToolCallRequest, ToolExecutionResult } from '../../types.js';
+import type { LLMMessage, LLMResponse, LLMUsage, ToolCallRequest, ToolExecutionResult } from '../../types.js';
+import { ApiError } from '../../providers/errors.js';
 import type { RunBudgetGate } from './RunBudget.js';
 import { RunBudgetExceededError } from './RunBudget.js';
+
+const REVIEW_REQUEST_TIMEOUT_MS = 300_000;
 
 export type AdvisorCheckpoint = 'plan' | 'repeated_failure' | 'commit' | 'completion';
 export interface AdvisorReview {
@@ -29,6 +32,13 @@ export function checkpointForCalls(calls: ToolCallRequest[]): AdvisorCheckpoint 
 
 function shellCommand(call: ToolCallRequest): string {
   return [call.args?.command, ...(Array.isArray(call.args?.args) ? call.args.args : [])].join(' ');
+}
+
+function unavailableReview(message: string, stage: string, response?: LLMResponse): AdvisorReview {
+  const metadata = response
+    ? `; contentChars=${response.content.length}; finishReason=${response.finishReason ?? 'unknown'}; responseId=${/^[\w.:-]{1,128}$/.test(response.id ?? '') ? response.id : 'unavailable'}`
+    : '';
+  return { verdict: 'unavailable', feedback: `${message} [stage=${stage}${metadata}]` };
 }
 
 export class CheckpointAdvisor implements TurnAdvisor {
@@ -61,11 +71,12 @@ export class CheckpointAdvisor implements TurnAdvisor {
 
   async review(checkpoint: AdvisorCheckpoint, context: AdvisorContext): Promise<AdvisorReview> {
     context.signal.throwIfAborted();
-    const signal = AbortSignal.any([context.signal, AbortSignal.timeout(90_000)]);
+    let signal = context.signal;
     try {
       for (const maxTokens of [8000, 16000]) {
-        signal.throwIfAborted();
+        context.signal.throwIfAborted();
         this.options.budget?.assertRequestAllowed();
+        signal = AbortSignal.any([context.signal, AbortSignal.timeout(REVIEW_REQUEST_TIMEOUT_MS)]);
         this.options.budget?.recordRequest();
         const response = await this.options.provider.complete({
           model: 'moa',
@@ -83,33 +94,40 @@ export class CheckpointAdvisor implements TurnAdvisor {
         });
         this.options.budget?.recordUsage(response.usage);
         this.options.recordUsage(response.usage);
-        context.signal.throwIfAborted();
+        signal.throwIfAborted();
         const content = response.content.trim().replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
         if (response.finishReason === 'length' || !content) {
           if (maxTokens < 16000) continue;
-          return { verdict: 'unavailable', feedback: response.finishReason === 'length'
+          return unavailableReview(response.finishReason === 'length'
             ? 'Moa exhausted its output budget before returning a complete checkpoint verdict.'
-            : 'Moa returned no checkpoint verdict after a recovery attempt.' };
+            : 'Moa returned no checkpoint verdict after a recovery attempt.', 'content-budget', response);
         }
         if (response.finishReason === 'content_filter' || response.toolCalls?.length) {
-          return { verdict: 'unavailable', feedback: 'Moa did not return a usable checkpoint verdict.' };
+          return unavailableReview('Moa did not return a usable checkpoint verdict.', 'content-policy', response);
         }
         let parsed: unknown;
         try { parsed = JSON.parse(content); } catch {
-          return { verdict: 'unavailable', feedback: 'Moa returned malformed checkpoint JSON.' };
+          return unavailableReview('Moa returned malformed checkpoint JSON.', 'content-json', response);
         }
         if (parsed && typeof parsed === 'object' && 'verdict' in parsed && 'feedback' in parsed
           && (parsed.verdict === 'approved' || parsed.verdict === 'changes_requested')
           && typeof parsed.feedback === 'string' && parsed.feedback.trim()) {
           return { verdict: parsed.verdict, feedback: parsed.feedback.slice(0, 16_000) };
         }
-        return { verdict: 'unavailable', feedback: 'Moa returned an invalid checkpoint review.' };
+        return unavailableReview('Moa returned an invalid checkpoint review.', 'content-schema', response);
       }
       return { verdict: 'unavailable', feedback: 'Moa returned no checkpoint verdict.' };
     } catch (error) {
       context.signal.throwIfAborted();
       if (error instanceof RunBudgetExceededError) throw error;
-      return { verdict: 'unavailable', feedback: `Moa review unavailable: ${error instanceof Error ? error.message : String(error)}` };
+      if (signal.aborted) {
+        return unavailableReview(`Moa review timed out after ${REVIEW_REQUEST_TIMEOUT_MS / 1000} seconds.`, 'deadline');
+      }
+      const kind = error instanceof SyntaxError ? 'SyntaxError'
+        : error instanceof ApiError ? `ApiError; code=${error.code}; httpStatus=${error.httpStatus}`
+        : 'Provider request failed';
+      const requestId = error instanceof ApiError ? /Request ID: ([\w-]{1,128})/.exec(error.message)?.[1] : undefined;
+      return unavailableReview(`Moa review unavailable: ${kind}${requestId ? `; requestId=${requestId}` : ''}.`, 'provider');
     }
   }
 }

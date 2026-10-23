@@ -118,7 +118,7 @@ describe('/squad command', () => {
     const fetchImpl = vi.fn();
     const result = await runSquadCommand(
       { workspaceRoot: '/repo', config: {} as any },
-      [],
+      ['open'],
       { env: { AUTOHAND_SQUAD_HOME: squadHome }, fetchImpl: fetchImpl as unknown as typeof fetch, homeDir: tempRoot },
     );
 
@@ -132,7 +132,7 @@ describe('/squad command', () => {
 
     const result = await runSquadCommand(
       { workspaceRoot: '/repo', config: { auth: { token: 'token' } } as any },
-      [],
+      ['open'],
       { env: { AUTOHAND_SQUAD_HOME: squadHome }, fetchImpl: fetchImpl as unknown as typeof fetch, homeDir: tempRoot },
     );
 
@@ -208,7 +208,7 @@ describe('/squad command', () => {
 
     const result = await runSquadCommand(
       { workspaceRoot: '/Users/test/repo one', config: { auth: { token: 'token' } } as any },
-      [],
+      ['open'],
       {
         env: { AUTOHAND_SQUAD_HOME: squadHome },
         fetchImpl: fetchImpl as unknown as typeof fetch,
@@ -309,7 +309,7 @@ describe('/squad command', () => {
 
     const result = await runSquadCommand(
       { workspaceRoot: '/repo', config: { auth: { token: 'token' } } as any },
-      [],
+      ['open'],
       {
         env: { AUTOHAND_SQUAD_HOME: squadHome },
         fetchImpl: fetchImpl as unknown as typeof fetch,
@@ -348,6 +348,23 @@ describe('/squad command', () => {
       expect.arrayContaining(['status', '--api-base-url', 'https://api.autohand.ai', '--update-channel', 'stable']),
       expect.any(Object),
     );
+  });
+
+  it('opens the desktop app for plain autohand squad without entitlement checks', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({}, false));
+    const result = await runSquadCommand(
+      { workspaceRoot: '/repo', config: { auth: { token: 'token' } } as any },
+      [],
+      {
+        env: { AUTOHAND_SQUAD_HOME: squadHome },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        homeDir: tempRoot,
+        desktop: { platform: 'linux', arch: 'arm64' },
+      },
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(result.output).toContain('no desktop build for linux/arm64');
   });
 
   it('maps /squad --no-open to squad start without leaking the alias-only flag', async () => {

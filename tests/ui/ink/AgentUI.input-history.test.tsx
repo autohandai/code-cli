@@ -36,8 +36,8 @@ describe('composer typed-message history', () => {
   it('shows history navigation and the picker in shortcut help', async () => {
     const ui = await composer();
     await ui.key('?');
-    expect(ui.lastFrame()).toContain('↑ / ↓ recalls typed messages');
-    expect(ui.lastFrame()).toContain('/whatityped opens history');
+    expect(ui.lastFrame()).toMatch(/↑ \/ ↓\s+Recall prompt/);
+    expect(ui.lastFrame()).toMatch(/\/whatityped\s+Typed history/);
   });
   it('leaves empty history alone and gives autocomplete arrow keys priority', async () => {
     const ui = await composer({ slashCommands: [

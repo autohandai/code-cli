@@ -10,6 +10,7 @@ import fse from 'fs-extra';
 import type { Session } from 'tuistory';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
 import { PROJECT_DIR_NAME } from '../../constants.js';
+import { outputViewport } from './compactOutputScenario.js';
 
 /**
  * Startup reads the workspace goal state between mounting Ink and marking the
@@ -101,4 +102,26 @@ export async function runToolGoalContinuationScenario(session: Session): Promise
   await session.press('enter');
   await session.waitForText('TOOL_GOAL_FIRST_TURN', { timeout: 15_000 });
   await session.waitForText('TOOL_GOAL_CONTINUED', { timeout: 5_000 });
+}
+
+
+export async function beginFirstGoalDraft(session: Session): Promise<string> {
+  await session.press('down');
+  await session.waitForText('› 1. Repair failing goal tests');
+  await session.press('enter');
+  await session.waitForText('FULL_FAILURE_TRANSCRIPT_MUST_NOT_RENDER');
+  await session.type(' preserved draft');
+  await session.waitForText('preserved draft');
+  return outputViewport(session);
+}
+
+export async function cancelUnavailableGoalDraft(session: Session): Promise<{ warning: string; draft: string }> {
+  await session.waitForText('Goal is unavailable. Draft kept; Esc cancels.', { timeout: 5000 });
+  const warning = outputViewport(session);
+  await session.press('enter');
+  await session.waitIdle();
+  const draft = outputViewport(session);
+  await session.press('esc');
+  await session.text({ waitFor: text => !text.includes('Goal is unavailable. Draft kept; Esc cancels.') });
+  return { warning, draft };
 }

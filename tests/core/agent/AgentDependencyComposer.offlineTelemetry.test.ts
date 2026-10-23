@@ -57,6 +57,7 @@ describe('AgentDependencyComposer offline telemetry wiring', () => {
   it.each([
     { label: '--offline', options: { offline: true } },
     { label: '--bare', options: { bare: true } },
+    { label: '--no-daemon', options: { daemon: false } },
   ])('keeps session sync off the network for $label runs', async ({ options }) => {
     await createAgent(options);
     expect(telemetryManagerConstructor).toHaveBeenCalledWith(expect.objectContaining({ offline: true }));

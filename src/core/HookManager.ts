@@ -14,6 +14,7 @@ import type { ExtensionRuntimeHook } from '../extensions/ExtensionRuntimeHost.js
 
 /** Context passed to hooks via environment variables and JSON stdin */
 export interface HookContext {
+  programStatus?: import('./agent/AgentProgramStatus.js').ProgramStatusReport;
   /** Event that triggered the hook */
   event: HookEvent;
   previousMode?: string;
@@ -276,6 +277,7 @@ export class HookManager {
   private lifecycleListeners = new Set<HookLifecycleListener>();
   private initialized = false;
   private extensionHooks: ExtensionRuntimeHook[] = [];
+  private scopedRuntimeHooks: readonly ExtensionRuntimeHook[] | null = null;
 
   constructor(options: HookManagerOptions) {
     this.settings = normalizeHooksSettings(options.settings) ?? { enabled: true, hooks: [] };
@@ -447,6 +449,16 @@ export class HookManager {
 
   getExtensionHooks(): ExtensionRuntimeHook[] {
     return [...this.extensionHooks];
+  }
+
+  addScopedRuntimeHooks(hooks: readonly ExtensionRuntimeHook[]): () => void {
+    if (this.scopedRuntimeHooks !== null) throw new Error('A runtime hook scope is already active.');
+    if (hooks.length > 100) throw new Error('A runtime hook scope supports at most 100 hooks.');
+    const scope = hooks.map(hook => ({ ...hook }));
+    this.scopedRuntimeHooks = scope;
+    return () => {
+      if (this.scopedRuntimeHooks === scope) this.scopedRuntimeHooks = null;
+    };
   }
 
   /**
@@ -836,6 +848,7 @@ export class HookManager {
       env.HOOK_ADDITIONAL_WORKSPACES = JSON.stringify(context.additionalWorkspaces);
     }
 
+    if (context.programStatus) env.HOOK_PROGRAM_STATUS = JSON.stringify(context.programStatus);
     return env as Record<string, string>;
   }
 
@@ -857,6 +870,7 @@ export class HookManager {
       session_id: context.sessionId,
       cwd: context.workspace,
       hook_event_name: context.event,
+      program_status: context.programStatus,
       // Tool context
       tool_name: context.tool,
       tool_input: context.args,
@@ -1243,13 +1257,16 @@ export class HookManager {
       hookEvent === event
       || (event === 'stop' && hookEvent === 'post-response')
       || (event === 'post-response' && hookEvent === 'stop');
-    const hooks = this.extensionHooks.filter((hook) => matchesEvent(hook.event));
+    const scope = this.scopedRuntimeHooks;
+    const hooks = [...this.extensionHooks, ...(scope ?? [])].filter((hook) => matchesEvent(hook.event));
     const results: HookExecutionResult[] = [];
 
     for (const hook of hooks) {
       if (options.signal?.aborted) {
         break;
       }
+      const belongsToScope = scope?.includes(hook) ?? false;
+      if (belongsToScope && this.scopedRuntimeHooks !== scope) continue;
       const startedAt = Date.now();
       const definition: HookDefinition = {
         event: hook.event,
@@ -1273,6 +1290,7 @@ export class HookManager {
           error: error instanceof Error ? error.message : String(error),
         };
       }
+      if (belongsToScope && this.scopedRuntimeHooks !== scope) continue;
       results.push(result);
       this.onHookOutput?.(result);
       if (result.response?.continue === false) {

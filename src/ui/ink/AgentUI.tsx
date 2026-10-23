@@ -3,6 +3,8 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { FullScreenFrame } from './FullScreenFrame.js';
+import type { FullScreenMessage, FullScreenTranscript } from './fullScreenTranscript.js';
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
 import { Box, Static, Text, useInput, usePaste, useStdout, type Key as InkKey } from 'ink';
 import {
@@ -13,7 +15,7 @@ import {
   type LineExtension,
   type LineSegment,
 } from './StatusLine.js';
-import { ExpandedToolOutput, LiveCommandBlock, ToolOutputStatic, ToolOutputBatchStatic, ThemedDiffOutput, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
+import { ExpandedToolOutput, LiveCommandBlock, getLiveCommandViews, ToolOutputStatic, ToolOutputBatchStatic, ThemedDiffOutput, type LiveCommandEntry, type ToolOutputEntry, type ToolOutputBatchEntry, type ToolOutputItem } from './ToolOutput.js';
 import { InputLine } from './InputLine.js';
 import { ThinkingOutput } from './ThinkingOutput.js';
 import { FileMentionDropdown, parseFileSuggestions, matchFileMention, type FileMentionSuggestion } from './FileMentionDropdown.js';
@@ -23,6 +25,7 @@ import { MessageTargetDropdown } from './MessageTargetDropdown.js';
 import { buildTargetSuggestions, matchTargetMention, type MessageTarget, type MessageTargetSuggestion } from '../messageTargets.js';
 import { canSteerComposerInput } from '../composerSteering.js';
 import { usePeerComposer } from './usePeerComposer.js';
+import { useTerminalWindowSize } from './useTerminalWindowSize.js';
 import { PeerMentionDropdown } from './PeerMentionDropdown.js';
 import type { PeerDescriptor, PeerReceipt, PeerScope } from '../../session/peers/PeerProtocol.js';
 import type { PeerComposerDraft, PeerInstructionMetadata } from '../peerMention.js';
@@ -257,6 +260,7 @@ export interface AgentUILineExtensions {
 }
 
 export interface AgentUIProps {
+  fullScreenTranscript?: FullScreenTranscript;
   state: AgentUIState;
   typedMessageHistory?: TypedMessageHistory;
   /** Optional direct steering shortcut for explicit legacy configurations. */
@@ -340,7 +344,7 @@ interface TextBufferKeyInfo {
 }
 
 /** Chords no extension may take, whichever profile is active. */
-const FIXED_RESERVED_KEYBINDINGS = ['ctrl+c', 'ctrl+d', 'ctrl+x', 'escape', 'enter', 'return'];
+const FIXED_RESERVED_KEYBINDINGS = ['ctrl+c', 'ctrl+d', 'ctrl+x', 'ctrl+enter', 'escape', 'enter', 'return'];
 
 /** Normalises an Ink keypress into the shape the keybinding matcher reads. */
 export function toInkKeyEvent(input: string, key: InkKey): KeyEvent {
@@ -564,32 +568,6 @@ function mapInkKeyToTextBufferKey(input: string, key: InkKey): TextBufferKeyInfo
     shift: key.shift,
     sequence: input,
   };
-}
-
-function useTerminalWindowSize(): { columns: number | undefined; rows: number | undefined } {
-  const { stdout } = useStdout();
-  const [windowSize, setWindowSize] = useState(() => ({
-    columns: stdout.columns,
-    rows: stdout.rows,
-  }));
-
-  useEffect(() => {
-    const updateWindowSize = () => {
-      setWindowSize({
-        columns: stdout.columns,
-        rows: stdout.rows,
-      });
-    };
-
-    updateWindowSize();
-    stdout.on('resize', updateWindowSize);
-
-    return () => {
-      stdout.off('resize', updateWindowSize);
-    };
-  }, [stdout]);
-
-  return windowSize;
 }
 
 export function getTextBufferCursorOffset(buffer: TextBuffer): number {
@@ -882,11 +860,15 @@ export function AgentUI({
   onRemoveQueuedInstruction,
   getInteractionMode,
   onCycleInteractionMode,
+  fullScreenTranscript,
   mouseComposerCursor = false,
   keybindings = DEFAULT_KEYBINDINGS,
   taskListPosition = 'above-composer',
 }: AgentUIProps) {
   const { stdout } = useStdout();
+  const [, redrawFullScreen] = useState(0);
+  const fullScreenKeys = useRef(false);
+  fullScreenKeys.current = Boolean(fullScreenTranscript) && !state.agentRunsPanelVisible;
   const { colors } = useTheme();
   const { t } = useTranslation();
   const slashCommands = state.runtimeSlashCommands ?? slashCommandProps;
@@ -1693,7 +1675,12 @@ export function AgentUI({
   // Stable input handler that reads mutable values from refs.
   // Empty dependency array means useInput never re-registers, eliminating
   // a major source of flicker during rapid keystrokes.
-  const handleInput = useCallback((char: string, key: InkKey) => {
+  const handleInput = useCallback((char: string, rawKey: InkKey) => {
+    // Ink leaves xterm modifyOtherKeys Enter as an unparsed escape fragment.
+    const key = /^(?:\x1b)?\[27;5;13~$/.test(char)
+      ? { ...rawKey, return: true, ctrl: true, shift: false, meta: false, escape: false }
+      : rawKey;
+    if (fullScreenKeys.current && (!key.escape || fullScreenTranscript?.searchQuery != null) && fullScreenTranscript?.handleKey(char, key)) { redrawFullScreen(value => value + 1); return; }
     syncBufferViewport();
     const keyEvent = toInkKeyEvent(char, key);
     const activeKeybindings = keybindingsRef.current;
@@ -1702,6 +1689,11 @@ export function AgentUI({
       const mouseInput = parseSgrMouseInput(char);
       if (mouseInput) {
         if (mouseInput.action === 'wheel') {
+          if (fullScreenTranscript) {
+            fullScreenTranscript.scroll(mouseInput.button === 'wheel-up' ? -3 : 3);
+            redrawFullScreen(value => value + 1);
+            return;
+          }
           // Mouse reporting redirects the wheel away from native scrollback.
           // Yield it until keyboard input resumes; background goal updates must
           // not recapture the wheel or move the composer cursor while reading.
@@ -1782,7 +1774,7 @@ export function AgentUI({
         const cursor = resolveComposerCursorPosition(
           inputRef.current,
           layout.width,
-          clickedCell.visualRow,
+          clickedCell.visualRow + (layout.firstVisibleRow ?? 0),
           clickedCell.visualColumn,
         );
         if (!cursor) {
@@ -1807,6 +1799,24 @@ export function AgentUI({
     if (pasteResult.handled) {
       if (pasteResult.completedText !== undefined) {
         insertPastedText(pasteResult.completedText);
+      }
+      return;
+    }
+
+    if (key.return && key.ctrl && !key.shift && !key.meta && !key.super && !key.hyper
+      && (key.eventType === 'release' || key.eventType === 'repeat')) return;
+
+    if (key.return && key.ctrl && !key.shift && !key.meta && !key.super && !key.hyper
+      && isWorkingRef.current && enableQueueInputRef.current
+      && editingQueueIndexRef.current === null && editingGoalRef.current === null
+      && queuedInstructionsRef.current.length > 0 && onSteerQueuedInstructionRef.current) {
+      const index = queueSelectionIndexRef.current ?? 0;
+      const text = queuedInstructionsRef.current[index];
+      if (text !== undefined && canSteerComposerInput(text)
+        && onSteerQueuedInstructionRef.current(index, queuedInstructionSequencesRef.current?.[index], text, text)) {
+        queueSelectionIndexRef.current = null;
+        setQueueSelectionIndex(null);
+        setCtrlCCount(0);
       }
       return;
     }
@@ -1893,6 +1903,10 @@ export function AgentUI({
       }
       if (showShortcutsRef.current) {
         setShowShortcuts(false);
+        return;
+      }
+      if (fullScreenKeys.current && fullScreenTranscript?.handleKey(char, key)) {
+        redrawFullScreen(value => value + 1);
         return;
       }
       onEscapeRef.current();
@@ -2649,7 +2663,7 @@ export function AgentUI({
   // are batched atomically, so the old 100ms debounce is no longer needed
   // and was actually causing a layout lag during drag-resize.
   const windowSize = useTerminalWindowSize();
-  const inputWidth = getPromptBlockWidth(windowSize.columns);
+  const inputWidth = fullScreenTranscript ? Math.max(1, (windowSize.columns ?? 80) - 1) : getPromptBlockWidth(windowSize.columns);
   const composerNextPromptSuggestion = useMemo(() => {
     if (
       state.isWorking ||
@@ -2707,9 +2721,7 @@ export function AgentUI({
       ? state.chatMessages
       : state.userMessages.map((content): ChatLogMessage => ({ role: 'user', content }));
 
-    return sourceMessages
-      .filter((message) => message.role !== 'notification')
-      .map((message, index) => ({
+    return sourceMessages.map((message, index) => ({
         index,
         key: `${state.chatHistoryEpoch}:${index}`,
         message,
@@ -2751,48 +2763,31 @@ export function AgentUI({
   const effectiveConfiguredLineExtensions = state.configuredLineExtensions;
   const effectiveRuntimeLineExtensions = state.extensionLineExtensions;
 
-  return (
-    <Box flexDirection="column">
-      {liveCommandItems.map((item) => (
-        <LiveCommandBlock
-          key={item.id}
-          entry={item}
-          onLayoutChange={(layout) => handleLiveCommandLayoutChange(item.id, layout)}
-        />
-      ))}
+  const fullScreenMessages = useMemo(() => {
+    if (!fullScreenTranscript) return [];
+    const messages: FullScreenMessage[] = chatHistoryItems.map(item => item.message);
+    if (!chatIncludesToolOutput) for (const item of toolOutputItems) {
+      messages.push(item.type === 'batch'
+        ? { role: 'tool_batch', content: '', groups: item.groups, success: item.allSuccess }
+        : { role: 'tool', tool: item.tool, content: item.output, success: item.success });
+    }
+    for (const item of liveCommandItems) {
+      const { stdoutView, stderrView } = getLiveCommandViews(item);
+      const output = [...stdoutView.lines, ...(stderrView.lines.length > 0 ? ['stderr', ...stderrView.lines] : [])];
+      const hint = item.isExpanded ? 'Ctrl+O collapse' : 'Ctrl+O expand';
+      messages.push({ role: 'tool_call', tool: `Running ${item.command}`, detailsId: item.id,
+        content: [hint, ...(output.length > 0 ? output : ['No output yet'])].join('\n') });
+    }
+    if (state.thinking) messages.push({ role: 'thinking', content: state.thinking });
+    if (state.isWorking && state.streamingResponse) messages.push({ role: 'assistant', content: state.streamingResponse });
+    if (!chatIncludesFinalResponse && !state.isWorking && state.finalResponse) messages.push({ role: 'assistant', content: state.finalResponse });
+    if (state.computerUseSteps?.length) messages.push({ role: 'tool', tool: 'computer_use', content: JSON.stringify(state.computerUseSteps) });
+    for (const notification of state.notifications) messages.push({ role: 'notification', content: notification });
+    if (expandedToolOutput) messages.push({ role: 'tool', tool: expandedToolOutput.tool, success: expandedToolOutput.success, detailsId: expandedToolOutput.id, content: `Ctrl+O collapse\n${expandedToolOutput.expandedOutput}` });
+    return messages;
+  }, [fullScreenTranscript, chatHistoryItems, chatIncludesToolOutput, toolOutputItems, liveCommandItems, state.thinking, state.isWorking, state.streamingResponse, chatIncludesFinalResponse, state.finalResponse, state.computerUseSteps, state.notifications, expandedToolOutput]);
 
-      <Static key={`chat-history-${state.chatHistoryEpoch}`} items={staticChatHistoryItems}>
-        {({ message, index, key }) => (
-          <ChatHistoryMessage key={`chat-${key}`} message={message} index={index} />
-        )}
-      </Static>
-
-      {/* Tool outputs - rendered dynamically so Ink manages them during resize.
-          Components are memoized so React skips execution when data is unchanged. */}
-      {!chatIncludesToolOutput && toolOutputItems.map((item: ToolOutputItem) => (
-        item.type === 'batch'
-          ? <ToolOutputBatchStatic key={item.id} entry={item as ToolOutputBatchEntry} />
-          : <ToolOutputStatic key={item.id} entry={item as ToolOutputEntry} />
-      ))}
-
-      {expandedToolOutput ? <ExpandedToolOutput key={expandedToolOutput.id} entry={expandedToolOutput} terminalRows={windowSize.rows} terminalColumns={windowSize.columns} /> : null}
-
-      <ComputerUseProgress steps={state.computerUseSteps ?? []} />
-
-      {/* Dynamic content section */}
-      <DynamicContent
-        thinking={state.thinking}
-        streamingResponse={state.streamingResponse}
-        finalResponse={chatIncludesFinalResponse ? null : state.finalResponse}
-        isWorking={state.isWorking}
-      />
-
-      <NotificationStack notifications={state.notifications} />
-
-      {editedGoalUnavailable ? <Text color={colors.warning}>Goal is unavailable. Draft kept; Esc cancels.</Text> : null}
-
-      {/* Fixed bottom section - always renders for layout stability */}
-      {state.agentRunsPanelVisible ? (
+  const bottom = state.agentRunsPanelVisible ? (
         <AgentRunsPanel
           snapshot={state.agentRuns ?? { runs: [], updatedAt: 0 }}
           source={state.agentRunsSource}
@@ -2807,6 +2802,8 @@ export function AgentUI({
         axo={state.axo}
         lastTurnOutcome={state.lastTurnOutcome}
         onAxoGone={onAxoGone}
+        fullScreen={Boolean(fullScreenTranscript)}
+        goalEditUnavailable={editedGoalUnavailable}
         onWorkingSpinnerFrame={onWorkingSpinnerFrame}
         announcement={state.announcement}
         feedbackSurvey={state.feedbackSurvey}
@@ -2818,6 +2815,7 @@ export function AgentUI({
         elapsed={state.elapsed}
         tokens={state.tokens}
         queuedInstructions={state.queuedInstructions}
+        queueSteeringEnabled={enableQueueInput && Boolean(onSteerQueuedInstruction)}
         selectedQueueIndex={queueSelectionIndex}
         completionStats={
           // The renderer archives a summary into the transcript and clears this
@@ -2879,7 +2877,7 @@ export function AgentUI({
         inlineGhostSuffix={composerInlineGhostSuffix}
         mouseComposerCursor={mouseComposerCursor}
         keybindings={keybindings}
-        isReadingHistory={isReadingHistory}
+        isReadingHistory={isReadingHistory || fullScreenTranscript?.searchQuery != null}
         enableMouseTargetControls={mouseComposerCursor && (
           liveCommandItems.length > 0
           || hasExpandableToolOutput
@@ -2890,7 +2888,55 @@ export function AgentUI({
         interactionMode={interactionMode}
         showModeLabel={state.showModeLabel ?? true}
         taskListPosition={taskListPosition}
-      />}
+      />;
+
+  if (fullScreenTranscript) return state.agentRunsPanelVisible ? <Box height={Math.max(1, (windowSize.rows ?? 24) - 1)} overflow="hidden">{bottom}</Box> : <FullScreenFrame
+    model={fullScreenTranscript} messages={fullScreenMessages} detailsId={liveCommandItems.slice().reverse().find(entry => entry.isExpanded)?.id ?? expandedToolOutput?.id}
+    rows={windowSize.rows ?? 24} columns={windowSize.columns ?? 80}
+    footer={bottom}
+    workspaceRoot={workspaceRoot}
+  />;
+
+  return (
+    <Box flexDirection="column">
+      {liveCommandItems.map((item) => (
+        <LiveCommandBlock
+          key={item.id}
+          entry={item}
+          onLayoutChange={(layout) => handleLiveCommandLayoutChange(item.id, layout)}
+        />
+      ))}
+
+      <Static key={`chat-history-${state.chatHistoryEpoch}`} items={staticChatHistoryItems}>
+        {({ message, index, key }) => (
+          <ChatHistoryMessage key={`chat-${key}`} message={message} index={index} />
+        )}
+      </Static>
+
+      {/* Tool outputs - rendered dynamically so Ink manages them during resize.
+          Components are memoized so React skips execution when data is unchanged. */}
+      {!chatIncludesToolOutput && toolOutputItems.map((item: ToolOutputItem) => (
+        item.type === 'batch'
+          ? <ToolOutputBatchStatic key={item.id} entry={item as ToolOutputBatchEntry} />
+          : <ToolOutputStatic key={item.id} entry={item as ToolOutputEntry} />
+      ))}
+
+      {expandedToolOutput ? <ExpandedToolOutput key={expandedToolOutput.id} entry={expandedToolOutput} terminalRows={windowSize.rows} terminalColumns={windowSize.columns} /> : null}
+
+      <ComputerUseProgress steps={state.computerUseSteps ?? []} />
+
+      {/* Dynamic content section */}
+      <DynamicContent
+        thinking={state.thinking}
+        streamingResponse={state.streamingResponse}
+        finalResponse={chatIncludesFinalResponse ? null : state.finalResponse}
+        isWorking={state.isWorking}
+      />
+
+      <NotificationStack notifications={state.notifications} />
+
+      {/* Fixed bottom section - always renders for layout stability */}
+      {bottom}
     </Box>
   );
 }
@@ -3154,6 +3200,7 @@ const CompletionHistoryMessage = memo(function CompletionHistoryMessage({
  * Memoized to prevent re-renders when only input changes
  */
 interface StatusSectionProps {
+  fullScreen?: boolean;
   terminalRows?: number;
   onWorkingSpinnerFrame?: (frame: number) => void;
   isWorking: boolean;
@@ -3161,6 +3208,7 @@ interface StatusSectionProps {
   elapsed: string;
   tokens: string;
   queuedInstructions: string[];
+  queueSteeringEnabled?: boolean;
   selectedQueueIndex: number | null;
   completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
   activityItems?: ActivityItem[];
@@ -3183,7 +3231,9 @@ interface StatusSectionProps {
 
 interface QueuedInstructionsPanelProps {
   queuedInstructions: string[];
+  queueSteeringEnabled?: boolean;
   selectedQueueIndex: number | null;
+  maxRows: number;
 }
 
 function formatQueuedInstructionRow(instruction: string, width: number): string {
@@ -3197,19 +3247,25 @@ function formatQueuedInstructionRow(instruction: string, width: number): string 
 
 const QueuedInstructionsPanel = memo(function QueuedInstructionsPanel({
   queuedInstructions,
+  queueSteeringEnabled,
   selectedQueueIndex,
+  maxRows,
 }: QueuedInstructionsPanelProps) {
   const { colors } = useTheme();
   const windowSize = useTerminalWindowSize();
   const width = getPromptBlockWidth(windowSize.columns);
   const focused = selectedQueueIndex !== null;
+  const start = Math.max(0, Math.min((selectedQueueIndex ?? 0) - maxRows + 1, queuedInstructions.length - maxRows));
+  const visibleInstructions = queuedInstructions.slice(start, start + maxRows);
 
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text color={colors.muted} bold>
         Queue · {queuedInstructions.length} pending
+        {queueSteeringEnabled ? <Text bold={false}> · ctrl+enter steer {focused ? 'selected' : 'next'}</Text> : null}
       </Text>
-      {queuedInstructions.map((instruction, idx) => {
+      {visibleInstructions.map((instruction, visibleIndex) => {
+        const idx = start + visibleIndex;
         const selected = selectedQueueIndex === idx;
         const prefix = selected ? '›' : ' ';
         return (
@@ -3220,6 +3276,7 @@ const QueuedInstructionsPanel = memo(function QueuedInstructionsPanel({
           </Box>
         );
       })}
+      {queuedInstructions.length > visibleInstructions.length && <Text color={colors.muted} wrap="truncate">{queuedInstructions.length - visibleInstructions.length} more · ↑↓ to select</Text>}
       {focused && (
         <Text color={colors.muted}>
           enter edit, then steer · shift+enter save · delete remove · esc clear selection
@@ -3229,7 +3286,9 @@ const QueuedInstructionsPanel = memo(function QueuedInstructionsPanel({
   );
 }, (prev, next) => (
   prev.queuedInstructions === next.queuedInstructions &&
-  prev.selectedQueueIndex === next.selectedQueueIndex
+  prev.queueSteeringEnabled === next.queueSteeringEnabled &&
+  prev.selectedQueueIndex === next.selectedQueueIndex &&
+  prev.maxRows === next.maxRows
 ));
 
 const CommandResultPanel = memo(function CommandResultPanel({
@@ -3251,6 +3310,7 @@ const CommandResultPanel = memo(function CommandResultPanel({
 ));
 
 const StatusSection = memo(function StatusSection({
+  fullScreen = false,
   terminalRows,
   onWorkingSpinnerFrame,
   isWorking,
@@ -3258,6 +3318,7 @@ const StatusSection = memo(function StatusSection({
   elapsed,
   tokens,
   queuedInstructions,
+  queueSteeringEnabled,
   selectedQueueIndex,
   completionStats,
   activityItems = [],
@@ -3317,6 +3378,7 @@ const StatusSection = memo(function StatusSection({
       )}
       {goalPanelVisible && goalActivity ? (
         <GoalPanel
+          compact={fullScreen}
           snapshot={goalActivity}
           selectedIndex={selectedGoalIndex}
           onRowLayoutChange={onGoalRowLayoutChange}
@@ -3326,20 +3388,23 @@ const StatusSection = memo(function StatusSection({
       {/* Info section - either queue or completion stats, stable position */}
       {showQueue && (
         <QueuedInstructionsPanel
+          maxRows={Math.max(1, Math.min(5, Math.floor((terminalRows ?? 24) / 4)))}
           queuedInstructions={queuedInstructions}
+          queueSteeringEnabled={queueSteeringEnabled}
           selectedQueueIndex={selectedQueueIndex}
         />
       )}
       <IdleTipRow
         summary={showCompletionStats ? formatCompletionSummary(showCompletionStats) : undefined}
-        tip={!isWorking && tip?.kind === 'tip' ? tip.text : undefined}
+        tip={tip?.kind === 'tip' ? tip.text : undefined}
         columns={columns}
       />
     </>
   );
 }, (prev, next) => {
   // Only re-render if status-related props change
-  return prev.isWorking === next.isWorking &&
+  return prev.fullScreen === next.fullScreen &&
+         prev.isWorking === next.isWorking &&
          prev.terminalRows === next.terminalRows &&
          prev.status === next.status &&
          prev.elapsed === next.elapsed &&
@@ -3348,6 +3413,7 @@ const StatusSection = memo(function StatusSection({
          prev.contextTokens?.used === next.contextTokens?.used &&
          prev.contextTokens?.total === next.contextTokens?.total &&
          prev.queuedInstructions === next.queuedInstructions &&
+         prev.queueSteeringEnabled === next.queueSteeringEnabled &&
          prev.selectedQueueIndex === next.selectedQueueIndex &&
          prev.completionStats?.elapsed === next.completionStats?.elapsed &&
          prev.completionStats?.tokens === next.completionStats?.tokens &&
@@ -3371,6 +3437,7 @@ const StatusSection = memo(function StatusSection({
 
 /** Keep passive composers memoized while refreshing cursor intent during active editing. */
 interface InputLineWrapperProps {
+  maxRows?: number;
   enableQueueInput: boolean;
   input: string;
   cursorOffset: number;
@@ -3388,6 +3455,7 @@ interface InputLineWrapperProps {
 }
 
 const InputLineWrapper = memo(function InputLineWrapper({
+  maxRows,
   enableQueueInput,
   input,
   cursorOffset,
@@ -3406,6 +3474,7 @@ const InputLineWrapper = memo(function InputLineWrapper({
 
   return (
     <InputLine
+      maxRows={maxRows}
       value={input}
       cursorOffset={cursorOffset}
       isActive={true}
@@ -3424,7 +3493,8 @@ const InputLineWrapper = memo(function InputLineWrapper({
     return false;
   }
 
-  return previous.enableQueueInput === next.enableQueueInput
+  return previous.maxRows === next.maxRows
+    && previous.enableQueueInput === next.enableQueueInput
     && previous.input === next.input
     && previous.cursorOffset === next.cursorOffset
     && previous.inputWidth === next.inputWidth
@@ -3496,7 +3566,7 @@ const HelpLineSection = memo(function HelpLineSection({
   const rightSegments = segments.filter((segment) => segment.id === 'hints');
 
   return (
-    <Box width={width} justifyContent={rightSegments.length > 0 ? 'space-between' : undefined}>
+    <Box width={width} flexShrink={0} justifyContent={rightSegments.length > 0 ? 'space-between' : undefined}>
       <Box flexShrink={1}>
         {glyphColor ? (
           <Box flexShrink={0}>
@@ -3632,9 +3702,11 @@ const MessageTargetWrapper = memo(function MessageTargetWrapper({
  * Split into StatusSection and InputSection for better memoization
  */
 interface FixedBottomProps {
+  goalEditUnavailable?: boolean;
   axo?: AxoUIState;
   lastTurnOutcome?: TurnCompletionStatus;
   onAxoGone?: () => void;
+  fullScreen?: boolean;
   onWorkingSpinnerFrame?: (frame: number) => void;
   announcement?: AnnouncementLineState;
   feedbackSurvey?: FeedbackSurveyState;
@@ -3645,6 +3717,7 @@ interface FixedBottomProps {
   elapsed: string;
   tokens: string;
   queuedInstructions: string[];
+  queueSteeringEnabled?: boolean;
   selectedQueueIndex: number | null;
   completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
   activityItems?: ActivityItem[];
@@ -3748,9 +3821,11 @@ function useUserDrivenComposerCursor(
 }
 
 const FixedBottom = memo(function FixedBottom({
+  goalEditUnavailable = false,
   axo,
   lastTurnOutcome,
   onAxoGone,
+  fullScreen = false,
   onWorkingSpinnerFrame,
   announcement,
   feedbackSurvey,
@@ -3761,6 +3836,7 @@ const FixedBottom = memo(function FixedBottom({
   elapsed,
   tokens,
   queuedInstructions,
+  queueSteeringEnabled,
   selectedQueueIndex,
   completionStats,
   activityItems = [],
@@ -3804,64 +3880,80 @@ const FixedBottom = memo(function FixedBottom({
   showModeLabel,
   taskListPosition,
 }: FixedBottomProps) {
+  const { colors } = useTheme();
   const composerCursorIntent = useUserDrivenComposerCursor(isWorking, input, cursorOffset);
+  const menus = <>
+    <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
+    {peerMentionDropdown}
+    <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
+    <SkillMentionWrapper skillMentionDropdown={skillMentionDropdown} />
+    <MessageTargetWrapper messageTargetDropdown={messageTargetDropdown} />
+  </>;
 
   return (
     <>
-      {announcement ? (
-        <AnnouncementLine
-          text={announcement.text}
-          hint={announcement.hint}
-          visible={announcement.visible}
-          columns={terminalColumns}
-        />
-      ) : null}
-      {feedbackSurvey ? (
-        <FeedbackSurveyLine survey={feedbackSurvey} columns={terminalColumns} />
-      ) : null}
-      <StatusSection
-        terminalRows={terminalRows}
-        onWorkingSpinnerFrame={onWorkingSpinnerFrame}
-        isWorking={isWorking}
-        status={status}
-        elapsed={elapsed}
-        tokens={tokens}
-        queuedInstructions={queuedInstructions}
-        selectedQueueIndex={selectedQueueIndex}
-        completionStats={completionStats}
-        activityItems={activityItems}
-        teamActivity={teamActivity}
-        teamPanelVisible={teamPanelVisible}
-        goalActivity={goalActivity}
-        goalPanelVisible={goalPanelVisible}
-        selectedGoalIndex={selectedGoalIndex}
-        onGoalRowLayoutChange={onGoalRowLayoutChange}
-        commandResult={commandResult}
-        tip={tip}
-        columns={terminalColumns}
-        contextPercent={contextPercent}
-        contextTokens={contextTokens}
-        provider={provider}
-        model={model}
-        taskListPosition={taskListPosition}
-        lineExtension={mergeLineExtensions(
-          configuredLineExtensions?.status,
-          lineExtensions?.status,
-          runtimeLineExtensions?.status,
-        )}
-      />
-      {axo && onAxoGone && shouldShowAxo(axo.enabled, terminalColumns, terminalRows) ? (
-        <AxoBuddy
-          axo={axo}
+      <Box flexDirection="column" flexShrink={fullScreen ? 1 : 0} overflow={fullScreen ? 'hidden' : 'visible'}>
+        {announcement ? (
+          <AnnouncementLine
+            text={announcement.text}
+            hint={announcement.hint}
+            visible={announcement.visible}
+            columns={terminalColumns}
+          />
+        ) : null}
+        {feedbackSurvey ? (
+          <FeedbackSurveyLine survey={feedbackSurvey} columns={terminalColumns} />
+        ) : null}
+        <StatusSection
+          fullScreen={fullScreen}
+          terminalRows={terminalRows}
+          onWorkingSpinnerFrame={onWorkingSpinnerFrame}
           isWorking={isWorking}
-          turnStatus={lastTurnOutcome}
-          input={input}
+          status={status}
+          elapsed={elapsed}
+          tokens={tokens}
+          queuedInstructions={queuedInstructions}
+          queueSteeringEnabled={queueSteeringEnabled}
+          selectedQueueIndex={selectedQueueIndex}
+          completionStats={completionStats}
+          activityItems={activityItems}
+          teamActivity={teamActivity}
+          teamPanelVisible={teamPanelVisible}
+          goalActivity={goalActivity}
+          goalPanelVisible={goalPanelVisible}
+          selectedGoalIndex={selectedGoalIndex}
+          onGoalRowLayoutChange={onGoalRowLayoutChange}
+          commandResult={commandResult}
+          tip={tip}
           columns={terminalColumns}
-          rows={terminalRows}
-          onGone={onAxoGone}
+          contextPercent={contextPercent}
+          contextTokens={contextTokens}
+          provider={provider}
+          model={model}
+          taskListPosition={taskListPosition}
+          lineExtension={mergeLineExtensions(
+            configuredLineExtensions?.status,
+            lineExtensions?.status,
+            runtimeLineExtensions?.status,
+          )}
         />
-      ) : null}
+        {axo && onAxoGone && shouldShowAxo(axo.enabled, terminalColumns, terminalRows) ? (
+          <AxoBuddy
+            axo={axo}
+            isWorking={isWorking}
+            turnStatus={lastTurnOutcome}
+            input={input}
+            columns={terminalColumns}
+            rows={terminalRows}
+            onGone={onAxoGone}
+          />
+        ) : null}
+        {fullScreen && menus}
+        <ShortcutsHelpPanel visible={showShortcuts && !isWorking} keybindings={keybindings} columns={terminalColumns} fullScreen={fullScreen} />
+        {goalEditUnavailable ? <Text color={colors.warning}>Goal is unavailable. Draft kept; Esc cancels.</Text> : null}
+      </Box>
       <InputLineWrapper
+        maxRows={fullScreen ? Math.max(1, Math.min(4, Math.floor((terminalRows ?? 24) / 4))) : undefined}
         enableQueueInput={enableQueueInput}
         input={input}
         cursorOffset={cursorOffset}
@@ -3891,14 +3983,9 @@ const FixedBottom = memo(function FixedBottom({
           runtimeLineExtensions?.help,
         )}
       />
-      <FileMentionWrapper fileMentionDropdown={fileMentionDropdown} />
-      {peerMentionDropdown}
-      <SlashCommandWrapper slashCommandDropdown={slashCommandDropdown} />
-      <SkillMentionWrapper skillMentionDropdown={skillMentionDropdown} />
-      <MessageTargetWrapper messageTargetDropdown={messageTargetDropdown} />
-      <ShortcutsHelpPanel visible={showShortcuts && !isWorking} keybindings={keybindings} />
+      {!fullScreen && menus}
       <CtrlCWarning ctrlCCount={ctrlCCount} />
-      <FooterClearance />
+      {!fullScreen && <FooterClearance />}
     </>
   );
 });

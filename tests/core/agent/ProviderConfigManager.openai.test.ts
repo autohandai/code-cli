@@ -970,7 +970,7 @@ describe("ProviderConfigManager openai auth mode", () => {
     expect(mockSaveConfig).toHaveBeenCalledOnce();
   });
 
-  it("does not save a custom provider when verification rejects the model", async () => {
+  it("does not save a custom provider when the model is not listed and the user declines", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue({
@@ -986,14 +986,72 @@ describe("ProviderConfigManager openai auth mode", () => {
       .mockResolvedValueOnce("256000");
     mockShowConfirm
       .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(true);
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
     mockShowPassword.mockResolvedValueOnce("acme-key-long-enough");
     mockShowModal.mockResolvedValueOnce({ value: "high" });
 
     await (manager as any).configureCustomProvider();
 
+    expect(mockShowConfirm).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: "providers.custom.saveAnyway", defaultValue: false }),
+    );
     expect(runtime.config.customProviders).toBeUndefined();
     expect(runtime.config.provider).toBe("openrouter");
+    expect(mockSaveConfig).not.toHaveBeenCalled();
+  });
+
+  it("saves a custom provider whose model is not listed by /models when the user confirms", async () => {
+    // Routers such as Routes accept policy names like router-balanced that
+    // their /models endpoint does not list.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: [{ id: "qwen3-coder" }, { id: "gpt-5-mini" }],
+      }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    mockShowInput
+      .mockResolvedValueOnce("Routes")
+      .mockResolvedValueOnce("http://127.0.0.1:8080/v1")
+      .mockResolvedValueOnce("router-balanced")
+      .mockResolvedValueOnce("");
+    mockShowConfirm
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    mockShowPassword.mockResolvedValueOnce("routes-key-long-enough");
+
+    await (manager as any).configureCustomProvider();
+
+    expect(mockShowConfirm).toHaveBeenCalledTimes(3);
+    expect(runtime.config.provider).toBe("custom:routes");
+    expect(runtime.config.customProviders.routes).toEqual(
+      expect.objectContaining({
+        baseUrl: "http://127.0.0.1:8080/v1",
+        model: "router-balanced",
+      }),
+    );
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("still refuses a custom provider whose /models request fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    mockShowInput
+      .mockResolvedValueOnce("Acme AI")
+      .mockResolvedValueOnce("https://api.acme.example/v1")
+      .mockResolvedValueOnce("acme-code-1")
+      .mockResolvedValueOnce("");
+    mockShowConfirm.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    mockShowPassword.mockResolvedValueOnce("acme-key-long-enough");
+
+    await (manager as any).configureCustomProvider();
+
+    expect(mockShowConfirm).toHaveBeenCalledTimes(2);
+    expect(runtime.config.customProviders).toBeUndefined();
     expect(mockSaveConfig).not.toHaveBeenCalled();
   });
 

@@ -110,4 +110,12 @@ describe('session titles', () => {
     syncAgentTerminalTitleName(h);
     expect(h.terminalTitle.setName).toHaveBeenLastCalledWith('Named');
   });
+
+  it('syncs renamed session labels into program status without changing runtime state', async () => {
+    const h = await host();
+    const programStatus = { setTitle: vi.fn() };
+    await h.sessionManager.renameCurrentSession('Named session', { source: 'user' });
+    syncAgentTerminalTitleName({ ...h, programStatus });
+    expect(programStatus.setTitle).toHaveBeenLastCalledWith('Named session');
+  });
 });

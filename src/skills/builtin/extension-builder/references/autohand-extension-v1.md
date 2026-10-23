@@ -75,3 +75,9 @@ autohand extensions doctor
 ```
 
 Use Tuistory for any command, TUI, startup flag, keybinding, menu, modal, or screen transition.
+
+## Live editing and CLI upgrades
+
+Use a linked install during development and rebuild the declared JavaScript entrypoint after each source change. The running REPL reloads user/project installs and linked sources after the turn and open modals finish. Verify the new behavior in that session; `/extensions reload` retries explicitly and `/extensions doctor` reports failures. Failed replacements retain the working generation until repair; disable/removal/trust revocation unload it. Clean up every timer/listener/child resource in the activation disposer or `deactivate`.
+
+Keep `extensionApi: 1` independent of the CLI version, depend only on the public API, and store packages outside the CLI installation. CLI upgrades preserve package and trust state; verify discovery in a new process. Bundle or statically import runtime dependencies for live reload. Computed imports/native modules retain runtime caching. New flag defaults work in-session, while argv values are parsed on the next invocation.

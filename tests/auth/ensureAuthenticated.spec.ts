@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import stringWidth from 'string-width';
+import { isValidElement } from 'react';
+import { AutohandBrand, type AutohandBrandProps } from '../../src/ui/ink/components/AutohandBrand.js';
 
 vi.mock('../../src/ui/ink/components/Modal.js', () => ({
   showModal: vi.fn(),
@@ -174,6 +175,34 @@ describe('ensureAuthenticated', () => {
     expect(AuthClient).not.toHaveBeenCalled();
   });
 
+  it('notifies the launch owner only when the branded login menu was displayed', async () => {
+    const onLoginPromptShown = vi.fn();
+    const config: LoadedConfig = { configPath: '/tmp/config.json' };
+    mockLoadConfig.mockResolvedValue({ ...config, auth: { token: 'new-token' } });
+
+    await ensureAuthenticated(config, { onLoginPromptShown });
+
+    expect(onLoginPromptShown).toHaveBeenCalledOnce();
+    expect(mockShowModal).toHaveBeenCalledOnce();
+    expect(mockLogin.mock.invocationCallOrder[0])
+      .toBeGreaterThan(onLoginPromptShown.mock.invocationCallOrder[0]);
+  });
+
+  it('keeps startup branding available for an existing token and bare mode, and redirected output exits without a prompt', async () => {
+    const onLoginPromptShown = vi.fn();
+    const config: LoadedConfig = { configPath: '/tmp/config.json' };
+    await ensureAuthenticated({ ...config, auth: { token: 'valid-token' } }, { onLoginPromptShown });
+    process.env.AUTOHAND_API_KEY = 'bare-env-token';
+    await ensureAuthenticated(config, { bare: true, onLoginPromptShown });
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, writable: true });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(ensureAuthenticated(config, { onLoginPromptShown })).rejects.toThrow('PROCESS_EXIT');
+    error.mockRestore();
+
+    expect(onLoginPromptShown).not.toHaveBeenCalled();
+    expect(mockShowModal).not.toHaveBeenCalled();
+  });
+
   it('bare mode fails closed instead of launching OAuth when no API key source exists', async () => {
     delete process.env.AUTOHAND_API_KEY;
     const mockConfig: LoadedConfig = {
@@ -313,7 +342,7 @@ describe('ensureAuthenticated', () => {
     expect(mockLoadConfig).toHaveBeenCalledWith('/tmp/config.json', '/work/repo');
   });
 
-  it('passes terminal-width-aware logo art to the login modal', async () => {
+  it('composes the responsive animated brand into the login modal', async () => {
     const mockConfig: LoadedConfig = {
       configPath: '/tmp/config.json',
     };
@@ -324,10 +353,15 @@ describe('ensureAuthenticated', () => {
 
     await expect(ensureAuthenticated(mockConfig)).rejects.toThrow('PROCESS_EXIT');
 
-    const [{ logo }] = mockShowModal.mock.calls[0];
-    const logoLines = String(logo).split('\n').filter((line) => line.trim().length > 0);
-    expect(logoLines.some((line) => line.includes('()'))).toBe(true);
-    expect(logoLines.every((line) => stringWidth(line) <= 40)).toBe(true);
+    const [{ logo, header }] = mockShowModal.mock.calls[0];
+    expect(logo).toBeUndefined();
+    expect(typeof header).toBe('function');
+    const brand = header({ availableRows: 10 });
+    expect(isValidElement<AutohandBrandProps>(brand)).toBe(true);
+    if (!isValidElement<AutohandBrandProps>(brand)) throw new Error('Expected a brand header');
+    expect(brand.type).toBe(AutohandBrand);
+    expect(brand.props.version).toMatch(/^v/);
+    expect(brand.props.availableRows).toBe(10);
   });
 
   it('shows upgrade only when the latest release is newer', async () => {

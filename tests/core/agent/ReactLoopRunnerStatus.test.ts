@@ -592,7 +592,7 @@ describe('ReactLoopRunner composer status', () => {
       expect(host.toolManager.execute).toHaveBeenCalledWith(
         [expect.objectContaining({ tool: 'read_file' })],
         expect.any(Function),
-        { signal: controller.signal },
+        expect.objectContaining({ signal: controller.signal }),
       );
       expect(llmComplete).toHaveBeenCalledTimes(1);
       expect(host.conversation.addSystemNote).not.toHaveBeenCalledWith(
@@ -885,6 +885,7 @@ describe('ReactLoopRunner composer status', () => {
         workspaceRoot: process.cwd(),
         spinner: { stop: vi.fn() },
       },
+      saveUserMessage: vi.fn(async () => {}),
       saveAssistantMessage: vi.fn(async () => {}),
       saveToolMessage: vi.fn(async () => {}),
       searchQueries: [],
@@ -1009,6 +1010,7 @@ describe('ReactLoopRunner composer status', () => {
         workspaceRoot: process.cwd(),
         spinner: { stop: vi.fn() },
       },
+      saveUserMessage: vi.fn(async () => {}),
       saveAssistantMessage,
       saveToolMessage: vi.fn(async () => {}),
       searchQueries: [],
@@ -1135,6 +1137,7 @@ describe('ReactLoopRunner composer status', () => {
         workspaceRoot: process.cwd(),
         spinner: { stop: vi.fn() },
       },
+      saveUserMessage: vi.fn(async () => {}),
       saveAssistantMessage,
       saveToolMessage: vi.fn(async () => {}),
       searchQueries: [],
@@ -1883,6 +1886,116 @@ describe('ReactLoopRunner parallel tool grouping', () => {
   });
 });
 
+describe('failed tool observations', () => {
+  it('retains successful sibling findings alongside a failed delegation error', async () => {
+    const complete = vi.fn()
+      .mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [{ tool: 'delegate_parallel', args: { tasks: [
+        { agent_name: 'reader', task: 'Inspect code' }, { agent_name: 'writer', task: 'Inspect docs' },
+      ] } }] }) })
+      .mockResolvedValueOnce({ content: 'Repository evidence reviewed.' });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    host.toolManager.execute = vi.fn(async () => [{ tool: 'delegate_parallel', success: false,
+      error: '[reader] Failed to complete task within 10 iterations.',
+      output: '[reader] Failed: iteration limit\n[writer] Result: DOCUMENTATION_FINDINGS',
+    }]);
+
+    await runAgentReactLoop(host, new AbortController());
+
+    const observation = vi.mocked(host.saveToolMessage).mock.calls[0]?.[1];
+    expect(observation).toContain('DOCUMENTATION_FINDINGS');
+    expect(observation).toContain('Failed to complete task within 10 iterations');
+  });
+});
+
+describe('goal completion delivery', () => {
+  it.each(['unavailable', 'changes_requested', 'approved', 'disabled', 'delivery_failure', 'cancelled', 'concurrent_goal_change', 'duplicate_completion'] as const)(
+    'preserves the original goal until successful delivery: %s', async (mode) => {
+      const fs = (await import('fs-extra')).default;
+      const { tmpdir } = await import('node:os');
+      const path = await import('node:path');
+      const { GoalManager } = await import('../../../src/goals/GoalManager.js');
+      const { ActionExecutor } = await import('../../../src/core/actionExecutor.js');
+      const { FileActionManager } = await import('../../../src/actions/filesystem.js');
+      const { ToolManager, GOAL_TOOL_DEFINITIONS } = await import('../../../src/core/toolManager.js');
+      const root = await fs.mkdtemp(path.join(tmpdir(), 'goal-delivery-'));
+      try {
+        const manager = new GoalManager(root);
+        await manager.createGoal({ objective: 'Deliver changelog' });
+        await manager.enqueueGoal({ objective: 'Repair installer', source: 'tool' });
+        const controller = new AbortController();
+        const calls = [
+          { tool: 'update_goal', args: { status: 'complete' } },
+        ];
+        if (mode === 'duplicate_completion') calls.push({ tool: 'update_goal', args: { status: 'complete' } });
+        const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: calls }) })
+          .mockResolvedValue({ content: 'DELIVERED_CHANGELOG' });
+        const host = createReactLoopTestHost(complete, new ReactionParser());
+        host.runtime.workspaceRoot = root;
+        host.runtime.config.features = { slashGoal: true };
+        host.runtime.commandOutputCaptured = true;
+        const executor = new ActionExecutor({ runtime: host.runtime, files: new FileActionManager(root),
+          resolveWorkspacePath: (relative) => path.resolve(root, relative),
+          confirmDangerousAction: async () => true });
+        host.toolManager = new ToolManager({ definitions: GOAL_TOOL_DEFINITIONS, executor: async (action, context) => {
+          const result = await executor.executeForTool(action, context);
+          expect(result).toMatchObject({ success: true });
+          return result;
+        },
+          confirmApproval: async () => true });
+        const assertPending = async () => {
+          const state = await manager.getSessionSnapshot();
+          expect(state.goal?.objective).toBe('Deliver changelog');
+          expect(state.completed).toHaveLength(0);
+          expect(state.queue).toHaveLength(1);
+        };
+        if (mode !== 'disabled' && mode !== 'delivery_failure') {
+          host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review: async () => {
+            await assertPending();
+            if (mode === 'cancelled') controller.abort();
+            if (mode === 'concurrent_goal_change') await manager.updateGoal({ status: 'complete' });
+            return { verdict: mode === 'cancelled' || mode === 'concurrent_goal_change' || mode === 'duplicate_completion' ? 'approved' : mode, feedback: 'Fixture review' };
+          } });
+          host.captureAdvisorDiff = async () => 'No changes';
+        }
+        let delivered = false;
+        host.emitOutput = vi.fn((event) => {
+          if (event.type !== 'message' || event.content !== 'DELIVERED_CHANGELOG') return;
+          if (mode === 'delivery_failure') throw new Error('Output unavailable');
+          delivered = true;
+        });
+        if (mode === 'delivery_failure') {
+          await expect(runAgentReactLoop(host, controller)).rejects.toThrow('Output unavailable');
+        } else {
+          const result = await runAgentReactLoop(host, controller);
+          expect(result.status).toBe(mode === 'approved' || mode === 'disabled' || mode === 'duplicate_completion' ? 'completed'
+            : mode === 'cancelled' ? 'aborted' : 'incomplete');
+        }
+        expect(host.saveToolMessage).toHaveBeenCalledWith('update_goal', expect.stringContaining('"ok": true'), expect.any(String));
+        const state = await manager.getSessionSnapshot();
+        if (mode === 'unavailable' || mode === 'changes_requested') {
+          expect(host.emitOutput).toHaveBeenCalledWith(expect.objectContaining({ type: 'message',
+            content: expect.stringContaining(mode === 'unavailable' ? 'Unreviewed draft' : 'Unapproved draft') }));
+          expect(vi.mocked(host.emitOutput).mock.calls.some(([event]) => event.type === 'message'
+            && event.content?.includes('DELIVERED_CHANGELOG') && event.content.includes('Work remains pending Moa review'))).toBe(true);
+        }
+        if (mode === 'duplicate_completion') {
+          expect(host.saveToolMessage).toHaveBeenCalledWith('update_goal', expect.stringContaining('already prepared'), expect.any(String));
+        }
+        if (mode === 'concurrent_goal_change') {
+          expect(state.completed).toHaveLength(1);
+          expect(state.goal).toMatchObject({ objective: 'Repair installer', status: 'active' });
+          expect(host.emitOutput).toHaveBeenCalledWith(expect.objectContaining({ type: 'message', content: expect.stringContaining('Goal completion remains pending') }));
+        } else if (mode === 'approved' || mode === 'disabled' || mode === 'duplicate_completion') {
+          expect(delivered).toBe(true);
+          expect(state.completed).toHaveLength(1);
+          expect(state.goal?.objective).toBe('Repair installer');
+        } else await assertPending();
+      } finally { await fs.remove(root); }
+    },
+  );
+});
+
 function createReactLoopTestHost(
   llmComplete: ReturnType<typeof vi.fn>,
   parser: ReactionParser,
@@ -1941,6 +2054,7 @@ function createReactLoopTestHost(
       workspaceRoot: process.cwd(),
       spinner: { stop: vi.fn() },
     },
+    saveUserMessage: vi.fn(async () => {}),
     saveAssistantMessage: vi.fn(async () => {}),
     saveToolMessage: vi.fn(async () => {}),
     searchQueries: [],
@@ -2076,7 +2190,8 @@ describe('steering messages during a turn', () => {
         return { id: 'step', created: 1, content: '{"toolCalls":[{"tool":"read_file","args":{"path":"src/index.ts"}}]}', raw: {} };
       })
       .mockResolvedValueOnce({ id: 'answer', created: 2, content: '{"finalResponse":"Done."}', raw: {} });
-    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    const saveUserMessage = vi.fn(async () => {});
+    const host = Object.assign(createReactLoopTestHost(llmComplete, new ReactionParser()), { saveUserMessage });
     host.inkRenderer = inkStub();
     host.steering = steering;
     host.toolManager.execute = vi.fn(async (_calls, onResult) => {
@@ -2089,6 +2204,9 @@ describe('steering messages during a turn', () => {
 
     const addMessage = host.conversation.addMessage as ReturnType<typeof vi.fn>;
     const steerCall = addMessage.mock.calls.findIndex(([message]) => message.role === 'user' && message.content === 'Only touch the tests.');
+    expect(saveUserMessage).toHaveBeenCalledWith('Only touch the tests.');
+    expect(saveUserMessage).toHaveBeenCalledTimes(1);
+    expect(saveUserMessage.mock.invocationCallOrder[0]).toBeLessThan(llmComplete.mock.invocationCallOrder[1]);
     expect(steerCall).toBeGreaterThanOrEqual(0);
     expect(addMessage.mock.invocationCallOrder[steerCall]).toBeLessThan(llmComplete.mock.invocationCallOrder[1]);
     const toolResultCall = addMessage.mock.calls.findIndex(([message]) => message.role === 'tool');
@@ -2114,5 +2232,16 @@ describe('steering messages during a turn', () => {
     expect(host.inkRenderer.setFinalResponse).toHaveBeenCalledTimes(1);
     expect(host.inkRenderer.setFinalResponse).toHaveBeenCalledWith('Second answer with changelog.');
     expect(host.conversation.addMessage).toHaveBeenCalledWith({ role: 'user', content: 'Also update the changelog.' });
+  });
+
+  it('does not send unpersisted steering to the model when storage fails', async () => {
+    const { SteeringQueue } = await import('../../../src/core/agent/SteeringQueue.js');
+    const steering = new SteeringQueue();
+    steering.push('Keep this correction durable.');
+    const llmComplete = vi.fn().mockResolvedValue({ id: 'answer', content: '{"finalResponse":"Done."}' });
+    const saveUserMessage = vi.fn(async () => { throw new Error('Storage unavailable'); });
+    const host = Object.assign(createReactLoopTestHost(llmComplete, new ReactionParser()), { saveUserMessage, steering });
+    await expect(runAgentReactLoop(host, new AbortController())).rejects.toThrow('Storage unavailable');
+    expect(llmComplete).not.toHaveBeenCalled();
   });
 });

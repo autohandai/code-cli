@@ -147,6 +147,7 @@ export interface GoalTemplateMetadata {
 
 export interface GoalMutationResult {
   ok: boolean;
+  completionPending?: boolean;
   storageWarning?: string;
   recovery?: { backupPath: string; preservedPath?: string };
   goal: GoalState | null;
@@ -181,6 +182,9 @@ export interface GoalTurnUsageInput {
 }
 
 export interface GoalUpdateInput {
+  expectedGoalId?: string;
+  /** Internal compare-and-set guard for workflow cleanup. */
+  expectedStatus?: GoalStatus;
   objective?: string;
   completionEvidence?: GoalCompletionEvidence;
   stopReason?: string;

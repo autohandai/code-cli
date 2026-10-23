@@ -311,7 +311,7 @@ export async function waitForComposer(session: Session): Promise<void> {
 /** The nearest line above the composer prompt that is more than its border. */
 export function rowAboveComposer(screen: string): string {
   const lines = stripAnsi(screen).split('\n');
-  const composerIndex = lines.findIndex((line) => line.includes('❯'));
+  const composerIndex = lines.findLastIndex((line) => line.includes('❯'));
   if (composerIndex <= 0) return '';
   return lines
     .slice(0, composerIndex)
@@ -320,7 +320,7 @@ export function rowAboveComposer(screen: string): string {
 }
 
 export function idleTipOf(screen: string): string | undefined {
-  return rowAboveComposer(screen).match(/ Tip: (.+?)\s*$/u)?.[1];
+  return rowAboveComposer(screen).match(/^Tip: (.+?)\s*$/u)?.[1];
 }
 
 export const cachedAnnouncements = [

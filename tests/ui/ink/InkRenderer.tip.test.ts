@@ -74,34 +74,51 @@ describe('InkRenderer tips', () => {
     expect(renderer.getState().tip?.text).toBe('first');
   });
 
-  it('clears the tip and stops rotating while a turn runs, then resumes when it ends', () => {
-    const provider = cyclingProvider(['first', 'second']);
+  it('preserves the tip and rotation cadence across working and completed turns', () => {
+    const provider = cyclingProvider(['first', 'second', 'third']);
     const renderer = track(makeRenderer(provider));
     renderer.setWorking(false);
+    vi.advanceTimersByTime(TIP_ROTATION_MS - 2_000);
     renderer.setWorking(true, 'Grokking...');
-    expect(renderer.getState().tip).toBeUndefined();
-
-    vi.advanceTimersByTime(TIP_ROTATION_MS * 3);
+    expect(renderer.getState().tip).toEqual({ kind: 'tip', text: 'first' });
     expect(provider).toHaveBeenCalledTimes(1);
-    expect(renderer.getState().tip).toBeUndefined();
+
+    vi.advanceTimersByTime(2_000);
+    expect(renderer.getState().tip).toEqual({ kind: 'tip', text: 'second' });
 
     renderer.setWorking(false);
     expect(renderer.getState().tip).toEqual({ kind: 'tip', text: 'second' });
+    expect(provider).toHaveBeenCalledTimes(2);
+    renderer.setWorking(true, 'Piping...');
+    expect(renderer.getState().tip?.text).toBe('second');
+    vi.advanceTimersByTime(TIP_ROTATION_MS);
+    expect(renderer.getState().tip?.text).toBe('third');
+    renderer.setWorking(false);
+    expect(provider).toHaveBeenCalledTimes(3);
+    expect(renderer.getState().tip?.text).toBe('third');
   });
 
-  it('picks a tip that fits beside the completion summary', () => {
+  it('starts tip rotation even when the renderer first enters a working turn', () => {
+    const renderer = track(makeRenderer(cyclingProvider(['first', 'second'])));
+    renderer.setWorking(true, 'Piping...');
+    expect(renderer.getState().tip?.text).toBe('first');
+    vi.advanceTimersByTime(TIP_ROTATION_MS);
+    expect(renderer.getState().tip?.text).toBe('second');
+  });
+
+  it('uses the full tip row regardless of the completion summary width', () => {
     setColumns(60);
     const long = 'Type /review to review your changes before shipping';
-    const renderer = track(makeRenderer(cyclingProvider([long, 'Type ? for shortcuts'])));
+    const renderer = track(makeRenderer(cyclingProvider([long])));
     renderer.setWorking(false);
     expect(renderer.getState().tip?.text).toBe(long);
 
     renderer.setWorking(true, 'Grokking...');
     renderer.setElapsed('0m 4s');
-    renderer.setTokens('↑1.2k ↓40');
+    renderer.setTokens('↑42.8k ↓12 · context: 16.3% (42.8k/262.1k)');
     renderer.setWorking(false);
     expect(renderer.getState().completionStats).not.toBeNull();
-    expect(renderer.getState().tip?.text).toBe('Type ? for shortcuts');
+    expect(renderer.getState().tip?.text).toBe(long);
   });
 
   it('shows nothing when no tip fits the room left', () => {
@@ -122,7 +139,7 @@ describe('InkRenderer tips', () => {
     expect(renderer.getState().tip).toEqual({ kind: 'upgrade', text: 'Run /upgrade' });
 
     renderer.setWorking(true, 'Grokking...');
-    expect(renderer.getState().tip).toBeUndefined();
+    expect(renderer.getState().tip?.kind).toBe('tip');
     renderer.setWorking(false);
     expect(renderer.getState().tip?.kind).toBe('tip');
   });
@@ -166,10 +183,12 @@ describe('InkRenderer tips', () => {
   });
 
   it('stops rotating once the renderer stops', () => {
+    const timersBefore = vi.getTimerCount();
     const provider = cyclingProvider(['first', 'second']);
     const renderer = makeRenderer(provider);
     renderer.setWorking(false);
     renderer.stop();
+    expect(vi.getTimerCount()).toBe(timersBefore);
     vi.advanceTimersByTime(TIP_ROTATION_MS * 3);
     expect(provider).toHaveBeenCalledTimes(1);
   });

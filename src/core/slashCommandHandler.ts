@@ -43,8 +43,7 @@ export class SlashCommandHandler {
   async handle(command: string, args: string[] = []): Promise<string | null> {
     if (command === LEGACY_BROWSER_SLASH_COMMAND) {
       if (!this.commandMap.has(BROWSER_SLASH_COMMAND)) {
-        this.printUnsupported(command);
-        return null;
+        return this.formatUnsupported(command);
       }
       const result = await this.handle(BROWSER_SLASH_COMMAND, args);
       return result
@@ -59,12 +58,10 @@ export class SlashCommandHandler {
       implemented: true,
     } : undefined);
     if (!meta) {
-      this.printUnsupported(command);
-      return null;
+      return this.formatUnsupported(command);
     }
     if (meta && !meta.implemented) {
-      this.printUnimplemented(meta);
-      return null;
+      return this.formatUnimplemented(meta);
     }
 
     let usageOutcome: 'succeeded' | 'failed' = 'succeeded';
@@ -112,7 +109,7 @@ export class SlashCommandHandler {
       '/model', '/cc', '/search', '/theme', '/language', '/feedback', '/skills new', '/skills-new',
       '/squad', '/statusline', '/statusbar',
       '/publish-research', '/ps', '/stop',
-      '/whatsnew', '/whatityped',
+      '/whatsnew', '/whatityped', '/cloud', '/handoff cloud', '/open',
     ]);
     if (this.ctx.isNonInteractive && INTERACTIVE_ONLY.has(command)) {
       usageOutcome = 'failed';
@@ -132,7 +129,12 @@ export class SlashCommandHandler {
         }
         case '/search': {
           const { search } = await import('../commands/search.js');
-          return search(this.ctx);
+          await this.ctx.onBeforeModal?.();
+          try {
+            return await search(this.ctx);
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
         }
         case '/init': {
           const { init } = await import('../commands/init.js');
@@ -149,12 +151,7 @@ export class SlashCommandHandler {
         case '/help':
         case '/?': {
           const { help } = await import('../commands/help.js');
-          await this.ctx.onBeforeModal?.();
-          try {
-            return help();
-          } finally {
-            await this.ctx.onAfterModal?.();
-          }
+          return help();
         }
         case '/about': {
           const { about } = await import('../commands/about.js');
@@ -255,6 +252,7 @@ export class SlashCommandHandler {
           const { newConversation } = await import('../commands/new.js');
           return newConversation({
             resetConversation: this.ctx.resetConversation,
+            startNewSession: this.ctx.startNewSession,
             sessionManager: this.ctx.sessionManager,
             memoryManager: this.ctx.memoryManager,
             llm: this.ctx.llm,
@@ -268,6 +266,8 @@ export class SlashCommandHandler {
           const { clearConversation } = await import('../commands/clear.js');
           return clearConversation({
             resetConversation: this.ctx.resetConversation,
+            compactionSettings: this.ctx.provider === 'autohandai' ? this.ctx.config?.autohandai : undefined,
+            signal: this.ctx.commandSignal,
             sessionManager: this.ctx.sessionManager,
             memoryManager: this.ctx.memoryManager,
             llm: this.ctx.llm,
@@ -288,7 +288,7 @@ export class SlashCommandHandler {
           if (args.length > 0 && !opensPositionPicker) {
             return await settings({
               config: this.ctx.config,
-              onSettingChanged: (change) => applyTraceSettingChange(this.ctx.config!, change),
+              onSettingChanged: (change) => this.ctx.backgroundServicesEnabled === false ? undefined : applyTraceSettingChange(this.ctx.config!, change),
             }, args);
           }
           // Pause the InkRenderer for the entire /settings session.
@@ -299,7 +299,7 @@ export class SlashCommandHandler {
           try {
             return await settings({
               config: this.ctx.config,
-              onSettingChanged: (change) => applyTraceSettingChange(this.ctx.config!, change),
+              onSettingChanged: (change) => this.ctx.backgroundServicesEnabled === false ? undefined : applyTraceSettingChange(this.ctx.config!, change),
             }, args);
           } finally {
             await this.ctx.onAfterModal?.();
@@ -401,15 +401,22 @@ export class SlashCommandHandler {
         }
         case '/handoff': {
           const surface = args[0]?.toLowerCase();
+          if (surface === '--help' || surface === 'help') {
+            return ['/handoff [task] — continue in Cloud', ...['/handoff cloud', '/handoff web', '/handoff session'].map(name => `  ${name.padEnd(18)}${this.commandMap.get(name)?.description ?? ''}`.trimEnd())].join('\n');
+          }
           if (surface === 'web' || surface === 'session') {
             return this.handle(`/handoff ${surface}`, args.slice(1));
           }
-          const lines = ['Hand this session to another Autohand surface:'];
-          for (const name of ['/handoff web', '/handoff session']) {
-            const description = this.commandMap.get(name)?.description ?? '';
-            lines.push(`  ${name.padEnd(18)}${description}`.trimEnd());
-          }
-          return lines.join('\n');
+          return this.handle('/handoff cloud', surface === 'cloud' ? args.slice(1) : args);
+        }
+        case '/cloud':
+        case '/handoff cloud': {
+          const { cloudCommand } = await import('../commands/cloud.js');
+          return cloudCommand(this.ctx, args, {}, command === '/handoff cloud');
+        }
+        case '/open': {
+          const { openCloudSession } = await import('../commands/cloud.js');
+          return openCloudSession(this.ctx, args);
         }
         case '/handoff web': {
           const { handoffWeb } = await import('../commands/handoff-web.js');
@@ -473,6 +480,10 @@ export class SlashCommandHandler {
         case '/pr-review': {
           const { prReview } = await import('../commands/pr-review.js');
           return prReview(this.ctx, args);
+        }
+        case '/readiness': {
+          const { readiness } = await import('../commands/readiness.js');
+          return readiness(this.ctx, args);
         }
         case '/deslop': {
           const { deslop } = await import('../commands/deslop.js');
@@ -601,7 +612,12 @@ export class SlashCommandHandler {
         }
         case '/sync': {
           const { sync } = await import('../commands/sync.js');
-          return sync(this.ctx);
+          await this.ctx.onBeforeModal?.();
+          try {
+            return await sync(this.ctx);
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
         }
         case '/add-dir': {
           const { addDir } = await import('../commands/add-dir.js');
@@ -829,8 +845,7 @@ export class SlashCommandHandler {
         }
         default:
           usageOutcome = 'failed';
-          this.printUnsupported(command);
-          return null;
+          return this.formatUnsupported(command);
       }
     } catch (error) {
       usageOutcome = 'failed';
@@ -852,17 +867,15 @@ export class SlashCommandHandler {
     }
   }
 
-  private printUnsupported(command: string): void {
+  private formatUnsupported(command: string): string {
     const docLink = terminalLink('docs.autohand.ai', 'https://docs.autohand.ai');
-    console.log(
-      chalk.yellow(`Command ${command} is not supported. Please visit ${docLink} for supported actions or type -help.`)
-    );
+    return chalk.yellow(`Command ${command} is not supported. Please visit ${docLink} for supported actions or type -help.`);
   }
 
-  private printUnimplemented(command: SlashCommand): void {
-    console.log(chalk.yellow(`Command ${command.command} is not implemented yet.`));
-    if (command.prd) {
-      console.log(chalk.gray(`PRD: ${command.prd}`));
-    }
+  private formatUnimplemented(command: SlashCommand): string {
+    return [
+      chalk.yellow(`Command ${command.command} is not implemented yet.`),
+      ...(command.prd ? [chalk.gray(`PRD: ${command.prd}`)] : []),
+    ].join("\n");
   }
 }

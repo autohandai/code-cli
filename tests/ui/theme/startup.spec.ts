@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import stripAnsi from 'strip-ansi';
 import { Theme, setTheme } from '../../../src/ui/theme/Theme.js';
 import { COLOR_TOKENS, type ResolvedColors } from '../../../src/ui/theme/types.js';
 import {
@@ -12,6 +13,7 @@ import {
   formatPeerSessionsLine,
   formatWelcomeStatusLine,
   formatWelcomeSuggestion,
+  formatWelcomeHint,
 } from '../../../src/ui/theme/startup.js';
 
 function createColors(overrides: Partial<ResolvedColors> = {}): ResolvedColors {
@@ -22,15 +24,24 @@ function createColors(overrides: Partial<ResolvedColors> = {}): ResolvedColors {
 describe('startup theme formatting', () => {
   afterEach(() => {
     setTheme(null as unknown as Theme);
+    vi.unstubAllEnvs();
   });
 
-  it('uses theme accent colors for the startup banner', () => {
-    setTheme(new Theme('startup-test', createColors({ accent: '#123456', borderAccent: '#abcdef' }), 'truecolor'));
-
-    const banner = formatStartupBanner('one\ntwo');
-
-    expect(banner).toContain('\x1b[38;2;18;52;86mone\x1b[39m');
-    expect(banner).toContain('\x1b[38;2;171;205;239mtwo\x1b[39m');
+  it('keeps the startup mark monochrome with an inherited foreground', () => {
+    const originalIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    vi.stubEnv('FORCE_COLOR', '3');
+    vi.stubEnv('NO_COLOR', undefined);
+    vi.stubEnv('TERM', 'xterm-256color');
+    try {
+      const art = ' .##.\n# @ #';
+      const banner = formatStartupBanner(art);
+      expect(banner).toBe(art);
+      vi.stubEnv('NO_COLOR', '1');
+      expect(formatStartupBanner(art)).toBe(art);
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true, writable: true });
+    }
   });
 
   it('uses semantic theme colors for the welcome status line and command suggestions', () => {
@@ -55,5 +66,11 @@ describe('startup theme formatting', () => {
   it('formats active peers for the TTY welcome block', () => {
     expect(formatPeerSessionsLine(1)).toContain('1 other session');
     expect(formatPeerSessionsLine(3)).toContain('3 other sessions');
+  });
+
+  it('gives the interactive welcome one concise task and command hint', () => {
+    const hint = stripAnsi(formatWelcomeHint());
+    expect(hint).toBe('Describe a task, or use /help to see commands.');
+    expect(hint.split('\n')).toHaveLength(1);
   });
 });

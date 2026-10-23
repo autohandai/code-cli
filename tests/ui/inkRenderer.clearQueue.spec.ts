@@ -49,6 +49,16 @@ describe('InkRenderer clearQueue', () => {
     expect(renderer.getQueueCount()).toBe(0);
   });
 
+  it('gives Static a new history identity on every conversation reset', () => {
+    const before = renderer.getState().chatHistoryEpoch;
+    renderer.addAssistantMessage('Previous final answer');
+    renderer.resetAndClearScreen();
+    expect(renderer.getState().chatHistoryEpoch).toBe(before + 1);
+    renderer.addAssistantMessage('Context compacted');
+    renderer.resetAndClearScreen();
+    expect(renderer.getState().chatHistoryEpoch).toBe(before + 2);
+  });
+
   it('should clear queue after dequeuing some items', () => {
     renderer.addQueuedInstruction('instruction 1');
     renderer.addQueuedInstruction('instruction 2');

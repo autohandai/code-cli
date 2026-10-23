@@ -9,7 +9,7 @@ import { runExtensionsCommand } from '../extensions/cli.js';
 
 export interface ExtensionsCommandContext {
   extensionService?: ExtensionService;
-  refreshDynamicExtensions?: () => Promise<void>;
+  refreshDynamicExtensions?: (options?: { force?: boolean }) => Promise<void>;
   isNonInteractive?: boolean;
 }
 
@@ -20,12 +20,21 @@ export async function extensions(
   if (!context.extensionService) {
     return 'Extensions service not available.';
   }
+  if (args[0] === 'reload') {
+    if (args.length !== 1) return 'Usage: /extensions reload';
+    if (!context.refreshDynamicExtensions) return 'Extension reload is unavailable in this session.';
+    await context.refreshDynamicExtensions({ force: true });
+    return 'Extensions refreshed. Use /extensions doctor to inspect activation diagnostics.';
+  }
   const result = await runExtensionsCommand({
     service: context.extensionService,
     stdinIsTTY: context.isNonInteractive !== true,
   }, args);
   if (result.mutated) {
     await context.refreshDynamicExtensions?.();
+  }
+  if (args.length === 0 || args[0] === 'help' || args[0] === '--help') {
+    return `${result.output}\n  /extensions reload  Reload extensions in this running session`;
   }
   return result.output;
 }
@@ -42,6 +51,7 @@ export const metadata: SlashCommand = {
     { name: 'enable', description: 'Enable an installed extension' },
     { name: 'disable', description: 'Disable an installed extension' },
     { name: 'remove', description: 'Remove an installed extension' },
+    { name: 'reload', description: 'Reload extensions in this running session' },
     { name: 'doctor', description: 'Diagnose extension packages' },
   ],
 };
