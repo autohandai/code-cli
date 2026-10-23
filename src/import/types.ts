@@ -64,6 +64,29 @@ export interface ImportResult {
   readonly imported: Map<ImportCategory, ImportCategoryResult>;
   readonly errors: ImportError[];
   readonly duration: number;
+  readonly permissions?: PermissionImportReport;
+}
+
+export type PermissionImportMapping = {
+  readonly source: string;
+  readonly destination: string;
+  readonly workspaceRoot?: string;
+  readonly disposition: 'allow' | 'deny';
+  readonly rule: string;
+} & (
+  | { readonly status: 'translated'; readonly patterns: readonly string[] }
+  | { readonly status: 'skipped' | 'failed'; readonly reason: string }
+);
+
+export interface PermissionImportReport {
+  readonly allow: number;
+  readonly deny: number;
+  readonly repositories: number;
+  readonly skipped: number;
+  readonly mappings: readonly PermissionImportMapping[];
+  readonly errors?: readonly ImportError[];
+  readonly legacySettingsScrubbed: boolean;
+  readonly legacySettingsToScrub: readonly string[];
 }
 
 /**
@@ -119,6 +142,8 @@ export interface Importer {
 
   /** Import selected categories, reporting progress via callback. */
   import(categories: ImportCategory[], onProgress?: ProgressCallback): Promise<ImportResult>;
+  /** Read-only permission preview; never creates configuration or lock files. */
+  previewSettings?(): Promise<PermissionImportReport>;
 }
 
 /**

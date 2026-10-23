@@ -52,8 +52,12 @@ describe('OSC7501 built terminal lifecycle', () => {
     ]);
     await submitProgramStatusPrompt(session, 'Write the proof file');
     await vi.waitFor(() => expect(programStatusReports(session)).toContainEqual(expect.objectContaining({ state: 'blocked', kind: 'permission' })), { timeout: 15_000 });
+    // The blocked report precedes the modal mounting its keyboard listener.
+    await session.text({ waitFor: text => /▸\s+1\. Yes/u.test(text) });
     await session.press('down');
+    await session.text({ waitFor: text => /▸\s+2\. No/u.test(text) });
     await session.press('up');
+    await session.text({ waitFor: text => /▸\s+1\. Yes/u.test(text) });
     await session.press('enter');
     await session.waitForText('PERMISSION_STATUS_COMPLETE');
     await vi.waitFor(() => expect(programStatusReports(session).at(-1)?.state).toBe('done'));
