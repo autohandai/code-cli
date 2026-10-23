@@ -32,6 +32,7 @@ vi.mock('../../../src/startup/checks.js', () => ({
 vi.mock('../../../src/utils/sessionWorktree.js', () => ({
   isSessionWorktreeEnabled: vi.fn().mockReturnValue(false),
   prepareSessionWorktree: vi.fn(),
+  cleanupSessionWorktree: vi.fn().mockResolvedValue('Removed worktree fixture'),
 }));
 vi.mock('../../../src/providers/ProviderFactory.js', () => ({
   ProviderFactory: { create: vi.fn().mockReturnValue({}) },
@@ -113,5 +114,16 @@ describe('runRpcMode debug logging', () => {
     expect(diagnostics).toContain('[RPC DEBUG] handleLine inputLength=');
     expect(diagnostics).not.toContain('RAW_JSON_SENTINEL');
     expect(rpcMocks.writeErrorResponse).toHaveBeenCalledWith(null, -32600, 'Invalid request');
+  });
+
+  it('safely cleans up a --worktree session when the RPC input closes', async () => {
+    const { isSessionWorktreeEnabled, prepareSessionWorktree, cleanupSessionWorktree } = await import('../../../src/utils/sessionWorktree.js');
+    const info = { repoRoot: '/fixture', worktreePath: '/fixture-session', branchName: 'session', createdBranch: true, baseRef: 'refs/heads/main' };
+    vi.mocked(isSessionWorktreeEnabled).mockReturnValueOnce(true);
+    vi.mocked(prepareSessionWorktree).mockReturnValueOnce(info);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await expect(runRpcMode({ worktree: true } as never)).resolves.toBe(0);
+    expect(cleanupSessionWorktree).toHaveBeenCalledWith(info);
+    expect(stderr.mock.calls.map(([value]) => String(value)).join('')).toContain('Removed worktree fixture');
   });
 });

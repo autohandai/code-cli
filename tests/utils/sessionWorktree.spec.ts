@@ -30,6 +30,7 @@ describe('prepareSessionWorktree', () => {
   it('creates a new worktree and branch for auto-named sessions', () => {
     mockSpawnSync
       .mockReturnValueOnce({ status: 0, stdout: '/tmp/repo\n', stderr: '' })
+      .mockReturnValueOnce({ status: 0, stdout: 'refs/heads/main\n', stderr: '' })
       .mockReturnValueOnce({ status: 1, stdout: '', stderr: '' })
       .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' });
 
@@ -42,9 +43,9 @@ describe('prepareSessionWorktree', () => {
     expect(result.repoRoot).toBe('/tmp/repo');
     expect(result.createdBranch).toBe(true);
     expect(result.branchName).toMatch(/^autohand-cli-/);
-    expect(mockSpawnSync).toHaveBeenCalledTimes(3);
+    expect(mockSpawnSync).toHaveBeenCalledTimes(4);
 
-    const addArgs = mockSpawnSync.mock.calls[2]?.[1] as string[];
+    const addArgs = mockSpawnSync.mock.calls[3]?.[1] as string[];
     expect(addArgs[0]).toBe('worktree');
     expect(addArgs[1]).toBe('add');
     expect(addArgs[2]).toBe('-b');
@@ -55,6 +56,7 @@ describe('prepareSessionWorktree', () => {
   it('uses an existing branch when the requested branch already exists', () => {
     mockSpawnSync
       .mockReturnValueOnce({ status: 0, stdout: '/workspace/proj\n', stderr: '' })
+      .mockReturnValueOnce({ status: 0, stdout: 'refs/heads/main\n', stderr: '' })
       .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' })
       .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' });
 
@@ -67,7 +69,7 @@ describe('prepareSessionWorktree', () => {
     expect(result.branchName).toBe('feature-fix-42');
     expect(result.createdBranch).toBe(false);
 
-    const addArgs = mockSpawnSync.mock.calls[2]?.[1] as string[];
+    const addArgs = mockSpawnSync.mock.calls[3]?.[1] as string[];
     expect(addArgs).toEqual([
       'worktree',
       'add',
@@ -81,6 +83,7 @@ describe('prepareSessionWorktree', () => {
 
     mockSpawnSync
       .mockReturnValueOnce({ status: 0, stdout: '/tmp/repo\n', stderr: '' })
+      .mockReturnValueOnce({ status: 0, stdout: 'refs/heads/main\n', stderr: '' })
       .mockReturnValueOnce({ status: 1, stdout: '', stderr: '' })
       .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' });
 
@@ -92,7 +95,7 @@ describe('prepareSessionWorktree', () => {
 
     expect(result.worktreePath).toBe('/tmp/repo-feature-2');
 
-    const addArgs = mockSpawnSync.mock.calls[2]?.[1] as string[];
+    const addArgs = mockSpawnSync.mock.calls[3]?.[1] as string[];
     expect(addArgs).toEqual([
       'worktree',
       'add',
@@ -120,6 +123,7 @@ describe('prepareSessionWorktree', () => {
   it('normalizes invalid custom names to a safe default branch', () => {
     mockSpawnSync
       .mockReturnValueOnce({ status: 0, stdout: '/tmp/repo\n', stderr: '' })
+      .mockReturnValueOnce({ status: 0, stdout: 'refs/heads/main\n', stderr: '' })
       .mockReturnValueOnce({ status: 1, stdout: '', stderr: '' })
       .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' });
 
@@ -131,7 +135,7 @@ describe('prepareSessionWorktree', () => {
 
     expect(result.branchName).toBe('autohand-worktree');
 
-    const addArgs = mockSpawnSync.mock.calls[2]?.[1] as string[];
+    const addArgs = mockSpawnSync.mock.calls[3]?.[1] as string[];
     expect(addArgs).toEqual([
       'worktree',
       'add',
@@ -144,6 +148,7 @@ describe('prepareSessionWorktree', () => {
   it('throws when git worktree add fails', () => {
     mockSpawnSync
       .mockReturnValueOnce({ status: 0, stdout: '/tmp/repo\n', stderr: '' })
+      .mockReturnValueOnce({ status: 0, stdout: 'refs/heads/main\n', stderr: '' })
       .mockReturnValueOnce({ status: 1, stdout: '', stderr: '' })
       .mockReturnValueOnce({ status: 1, stdout: '', stderr: 'fatal: add failed' });
 

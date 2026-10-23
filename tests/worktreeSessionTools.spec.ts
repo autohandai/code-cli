@@ -18,6 +18,8 @@ describe('Worktree session tools', () => {
     const def = DEFAULT_TOOL_DEFINITIONS.find((item) => item.name === 'exit_worktree');
     expect(def).toBeDefined();
     expect(def!.parameters?.properties).toHaveProperty('keep');
+    expect(def!.parameters?.properties).toHaveProperty('discard_changes');
+    expect(def!.requiresApproval).toBe(true);
   });
 
   it('categorizes enter_worktree as meta', () => {

@@ -26,6 +26,10 @@ export function writeRpcDebugLine(message: string): void {
   writeAutohandDebugLine(`[RPC DEBUG] ${message}`);
 }
 
+export function writeRpcSessionNotice(message: string): void {
+  process.stderr.write(`${message}\n`);
+}
+
 /**
  * Describe an error without exposing its message, stack, or attached payloads.
  */
