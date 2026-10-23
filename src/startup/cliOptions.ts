@@ -38,6 +38,20 @@ export interface RootCliOptions extends CLIOptions {
 
 export interface InitialCliOptionsNormalization {
   deprecatedBrowserOption?: DeprecatedBrowserOption;
+  invalidOption?: string;
+}
+
+const TRUE_WORDS = new Set(['true', '1', 'yes', 'on']);
+const FALSE_WORDS = new Set(['false', '0', 'no', 'off']);
+
+/** Commander hands `--flag [bool]` values through as strings; map the usual spellings. */
+export function parseBooleanOption(value: unknown): boolean | undefined | 'invalid' {
+  if (value === undefined || typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return 'invalid';
+  const word = value.trim().toLowerCase();
+  if (TRUE_WORDS.has(word)) return true;
+  if (FALSE_WORDS.has(word)) return false;
+  return 'invalid';
 }
 
 export function normalizeInitialCliOptions(
@@ -77,6 +91,13 @@ export function normalizeInitialCliOptions(
   const goal: unknown = options.goal;
   if (goal === true) {
     options.goal = '';
+  }
+  const syncSettings = parseBooleanOption(options.syncSettings);
+  if (syncSettings === 'invalid') {
+    result.invalidOption = `--sync-settings expects true or false, got ${JSON.stringify(options.syncSettings)}`;
+    options.syncSettings = undefined;
+  } else {
+    options.syncSettings = syncSettings;
   }
   if (options.systemPrompt) {
     options.sysPrompt = options.systemPrompt;

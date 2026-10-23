@@ -2,19 +2,22 @@
  * Workspace trust for repository-supplied code.
  *
  * Hooks and MCP servers declared in `<workspace>/.autohand/` run commands as
- * soon as a session starts. A cloned repository can ship those files, so they
- * only apply after the user trusts the workspace for their exact content. Any
- * change to the declared hooks or servers produces a new fingerprint and asks
- * again.
+ * soon as a session starts, and tool files under `<workspace>/.autohand/tools/`
+ * run commands when the model calls them. A cloned repository can ship those
+ * files, so they only apply after the user trusts the workspace for their
+ * exact content. Any change to the declared hooks, servers, or tool files
+ * produces a new fingerprint and asks again.
  *
  * @license Apache-2.0
  */
 import crypto from 'node:crypto';
 import fs from 'fs-extra';
 import path from 'node:path';
-import { AUTOHAND_FILES } from '../constants.js';
-import type { HookDefinition, McpServerConfigEntry } from '../types.js';
+import { AUTOHAND_FILES, PROJECT_DIR_NAME } from '../constants.js';
+import type { HookDefinition, McpServerConfigEntry, WorkspaceTrustToolEntry } from '../types.js';
 import { atomicWriteFile, withFileLock } from '../utils/atomicFile.js';
+
+export type { WorkspaceTrustToolEntry } from '../types.js';
 
 const STORE_VERSION = 1;
 
@@ -22,6 +25,28 @@ const STORE_VERSION = 1;
 export interface WorkspaceTrustEntries {
   hooks: HookDefinition[];
   mcpServers: McpServerConfigEntry[];
+  tools: WorkspaceTrustToolEntry[];
+}
+
+/**
+ * Hash every `<workspace>/.autohand/tools/*.json` file, sorted by name, so the
+ * trust fingerprint changes whenever a tool file is added, removed, or edited.
+ */
+export async function collectProjectToolEntries(workspaceRoot: string): Promise<WorkspaceTrustToolEntry[]> {
+  const dir = path.join(workspaceRoot, PROJECT_DIR_NAME, 'tools');
+  if (!(await fs.pathExists(dir))) return [];
+  const files = (await fs.readdir(dir))
+    .filter((file) => file.endsWith('.json'))
+    .sort((a, b) => a.localeCompare(b));
+  const entries: WorkspaceTrustToolEntry[] = [];
+  for (const file of files) {
+    const bytes = await fs.readFile(path.join(dir, file));
+    entries.push({
+      file: path.posix.join(PROJECT_DIR_NAME, 'tools', file),
+      sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    });
+  }
+  return entries;
 }
 
 interface TrustedWorkspaceRecord {
@@ -54,7 +79,7 @@ export function canonicalJson(value: unknown): string {
 export function computeWorkspaceTrustFingerprint(entries: WorkspaceTrustEntries): string {
   return crypto
     .createHash('sha256')
-    .update(canonicalJson({ hooks: entries.hooks, mcpServers: entries.mcpServers }))
+    .update(canonicalJson({ hooks: entries.hooks, mcpServers: entries.mcpServers, tools: entries.tools ?? [] }))
     .digest('hex');
 }
 

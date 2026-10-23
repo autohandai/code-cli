@@ -9,6 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isWorkspaceTrusted } from '../../src/permissions/workspaceTrust.js';
 import {
+  describeWorkspaceTrustEntries,
   formatWorkspaceTrustSummary,
   resolveWorkspaceTrust,
 } from '../../src/startup/workspaceTrustPrompt.js';
@@ -42,6 +43,7 @@ function untrustedConfig(): LoadedConfig {
       { name: 'project-tools', transport: 'stdio', command: 'npx', args: ['project-tools-mcp', '--stdio'] },
       { name: 'project-docs', transport: 'http', url: 'https://docs.example.test/mcp' },
     ],
+    tools: [],
   };
   return {
     configPath: path.join(tempDir, 'home', 'config.json'),
@@ -142,5 +144,25 @@ describe('formatWorkspaceTrustSummary', () => {
     expect(summary).toMatch(/pre-prompt\s+node scripts\/check-prompt\.cjs/);
     expect(summary).toMatch(/project-tools\s+npx project-tools-mcp --stdio/);
     expect(summary).toMatch(/project-docs\s+https:\/\/docs\.example\.test\/mcp/);
+    expect(summary).not.toContain('Project tools');
+  });
+
+  it('lists project tool files so a tools-only workspace has something to review', () => {
+    const trust: WorkspaceTrustState = {
+      ...untrustedConfig().workspaceTrust!,
+      hooks: [],
+      mcpServers: [],
+      tools: [
+        { file: '.autohand/tools/deploy.json', sha256: 'c'.repeat(64) },
+        { file: '.autohand/tools/lint.json', sha256: 'd'.repeat(64) },
+      ],
+    };
+
+    const summary = formatWorkspaceTrustSummary(trust);
+
+    expect(summary).toContain('Project tools: 2 file(s)');
+    expect(summary).toContain('.autohand/tools/deploy.json');
+    expect(summary).toContain('.autohand/tools/lint.json');
+    expect(describeWorkspaceTrustEntries(trust)).toBe('2 project tool files');
   });
 });

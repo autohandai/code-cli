@@ -340,7 +340,9 @@ export async function extensionServiceFor(program: Command): Promise<ExtensionSe
   const workspaceRoot = path.resolve(rootOptions.path ?? process.cwd());
   const config = await loadConfig(rootOptions.config, workspaceRoot);
   const pluginDir = (config as typeof config & { pluginDir?: string }).pluginDir;
-  const toolsRegistry = createToolsRegistry(workspaceRoot, pluginDir ?? AUTOHAND_PATHS.tools);
+  const toolsRegistry = createToolsRegistry(workspaceRoot, pluginDir ?? AUTOHAND_PATHS.tools, {
+    projectToolsTrusted: config.workspaceTrust?.trusted === true,
+  });
   await toolsRegistry.initialize();
   const agentRegistry = AgentRegistry.getInstance();
   agentRegistry.configureExternalAgents(config.externalAgents);

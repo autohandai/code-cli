@@ -19,6 +19,7 @@ const trust: WorkspaceTrustState = {
   trusted: false,
   hooks: [{ event: 'session-start', command: 'node scripts/record.cjs start' }],
   mcpServers: [{ name: 'project-tools', transport: 'stdio', command: 'npx', args: ['project-tools-mcp'] }],
+  tools: [],
 };
 
 function renderPrompt() {
