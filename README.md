@@ -101,7 +101,8 @@ bun add -g .
 
 ### Requirements
 
-- Bun ≥1.0 (`curl -fsSL https://bun.sh/install | bash`)
+- Node.js 22 or later (to run Autohand)
+- Bun 1.0 or later, only to build from source (`curl -fsSL https://bun.sh/install | bash`)
 - Git (for version control features)
 - ripgrep (optional, for faster search)
 
@@ -594,6 +595,13 @@ Create `~/.autohand/config.json` or use `config.toml`, `config.yaml`, or `config
 | llama.cpp   | `llamacpp`    | Local inference                                      |
 | MLX         | `mlx`         | Apple Silicon optimized                              |
 | Z.ai        | `zai`         | High-performance inference                           |
+| Anthropic   | `anthropic`   | Claude models with your own API key                  |
+| Azure OpenAI | `azure`       | Azure deployments via API key, Entra ID or managed identity |
+| Vertex AI   | `vertexai`    | Google models on Vertex AI                           |
+| xAI         | `xai`         | Grok models via API key or OAuth                     |
+| Cerebras    | `cerebras`    | Hosted fast inference                                |
+| NVIDIA      | `nvidia`      | NVIDIA-hosted models                                 |
+| Sakana AI   | `sakana`      | Sakana AI models                                     |
 
 ## Session Management
 
@@ -791,7 +799,7 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 
 ### Common Issues
 
-**Installation fails**: Make sure you have Bun installed and up to date.
+**Installation fails**: Make sure Node.js 22 or later is installed. Building from source also needs Bun.
 
 **Permission denied**: Check your file permissions and try running with appropriate privileges.
 
