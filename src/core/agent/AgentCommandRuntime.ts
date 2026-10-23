@@ -873,7 +873,7 @@ export async function executeAgentSleepTool(host: AgentCommandRuntimeHost, secon
       : `Slept for ${seconds} ${units}.`;
   }
 
-export async function exitAgentSessionWorktree(host: AgentCommandRuntimeHost, keep = false): Promise<string> {
+export async function exitAgentSessionWorktree(host: AgentCommandRuntimeHost, keep = false, discardChanges = false): Promise<string> {
     const state = host.sessionWorktreeState;
     if (!state) {
       return 'No active session worktree.';
@@ -881,10 +881,12 @@ export async function exitAgentSessionWorktree(host: AgentCommandRuntimeHost, ke
 
     const workspaceChange: ThreadLease | undefined = host.sessionThreadBudget?.beginWorkspaceChange();
     try {
+      let removal: string | undefined;
       if (!keep) {
         const manager = new WorktreeManager(state.repoRoot);
-        await manager.remove(state.worktreePath, {
-          force: true,
+        removal = await manager.remove(state.worktreePath, {
+          baseRef: state.baseRef,
+          discardChanges,
           deleteBranch: state.createdBranch,
         });
       }
@@ -894,7 +896,7 @@ export async function exitAgentSessionWorktree(host: AgentCommandRuntimeHost, ke
 
       return keep
         ? `Exited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}. Worktree kept on disk.`
-        : `Exited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}.`;
+        : `${removal}\nExited worktree ${state.worktreePath} and returned to ${state.originalWorkspaceRoot}.`;
     } finally {
       await workspaceChange?.release();
     }

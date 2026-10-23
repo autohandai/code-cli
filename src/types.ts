@@ -1912,7 +1912,7 @@ export type AgentAction =
   | { type: 'skill'; command: 'list' | 'info' | 'activate' | 'deactivate'; name?: string }
   | { type: 'sleep'; seconds: number; reason?: string }
   | { type: 'enter_worktree'; name?: string }
-  | { type: 'exit_worktree'; keep?: boolean }
+  | { type: 'exit_worktree'; keep?: boolean; discard_changes?: boolean }
   // Web Search Operations
   | {
       type: 'capture_test_evidence';

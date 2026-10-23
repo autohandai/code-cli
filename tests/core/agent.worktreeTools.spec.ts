@@ -246,7 +246,8 @@ describe('AutohandAgent worktree tools', () => {
     const result = await agent.exitSessionWorktree();
 
     expect(mockWorktreeRemove).toHaveBeenCalledWith('/repo-feature', {
-      force: true,
+      baseRef: undefined,
+      discardChanges: false,
       deleteBranch: true,
     });
     expect(agent.runtime.workspaceRoot).toBe('/repo');

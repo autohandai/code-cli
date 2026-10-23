@@ -924,7 +924,13 @@ export function initializeAgentDependencies(
 
     const toolAuthorization = {
       permissionManager: host.permissionManager,
-      resolvePermissionContext: (action) => host.actionExecutor.getPermissionContext(action),
+      resolvePermissionContext: (action) => {
+        const context = host.actionExecutor.getPermissionContext(action);
+        return action.type === 'exit_worktree' && action.discard_changes === true && action.keep !== true
+          && host.sessionWorktreeState
+          ? { ...context, path: host.sessionWorktreeState.worktreePath }
+          : context;
+      },
       runPreToolHooks: (context) => {
         const hookContext = {
           tool: context.tool,
@@ -1680,7 +1686,7 @@ export function initializeAgentDependencies(
           } else if (action.type === 'enter_worktree') {
             result = await host.enterSessionWorktree(action.name);
           } else if (action.type === 'exit_worktree') {
-            result = await host.exitSessionWorktree(action.keep);
+            result = await host.exitSessionWorktree(action.keep, action.discard_changes);
           } else if (action.type === 'cron_create') {
             const cron = intervalToCron(action.interval);
             const expiresInMs = action.expires_in ? shorthandToMs(action.expires_in) : undefined;
