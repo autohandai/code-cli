@@ -56,6 +56,39 @@ describe('/goal command', () => {
       .toBe('create a reliable CLI goal');
   });
 
+  it('creates an interactive goal without an opt-in flag', async () => {
+    const config = { configPath: path.join(workspaceRoot, 'config.json') };
+
+    const result = await goal({ ...ctx, config }, ['default interactive objective']);
+
+    expect(result).toContain('Goal created.');
+    expect((await new GoalManager(workspaceRoot, { sessionId: 'session-current' }).getSessionSnapshot()).goal?.objective)
+      .toBe('default interactive objective');
+  });
+
+  it('creates a CLI goal without an opt-in flag', async () => {
+    const config = { configPath: path.join(workspaceRoot, 'config.json') };
+
+    expect(await runGoalCli(workspaceRoot, 'default CLI objective', config)).toContain('Goal created.');
+    expect((await new GoalManager(workspaceRoot).getSessionSnapshot()).goal?.objective)
+      .toBe('default CLI objective');
+  });
+
+  it('keeps explicitly disabled goals off across slash and CLI commands', async () => {
+    const config = { ...ctx.config, features: { slashGoal: false } };
+
+    for (const result of [
+      await goal({ ...ctx, config }, ['must remain disabled']),
+      await runGoalCli(workspaceRoot, 'must remain disabled', config),
+    ]) {
+      expect(result).toContain('/experiments enable slash_goal');
+      expect(result).not.toMatch(/experimental|behind/i);
+    }
+    expect(config.features.slashGoal).toBe(false);
+    expect(await fs.pathExists(path.join(workspaceRoot, '.autohand', 'goals.local.json'))).toBe(false);
+    expect(queued).toEqual([]);
+  });
+
   it('preserves JSON completion evidence through the non-interactive command parser', async () => {
     const manager = new GoalManager(workspaceRoot);
     await manager.createGoal({ objective: 'CLI evidence', acceptanceCriteria: ['Tests pass'] });

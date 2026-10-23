@@ -20,10 +20,9 @@ afterEach(async () => {
 });
 
 describe('goals summary Tuistory', () => {
-  it('opens /goals view without flooding the terminal and edits the full queued objective', async () => {
+  it('opens /goals view by default without flooding the terminal and edits the full queued objective', async () => {
     const state = await createTempAutohandHome({
       config: {
-        features: { slashGoal: true },
         agent: { autoMemory: false, goalAutoMode: false },
         ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
       },

@@ -1184,6 +1184,11 @@ Set `idleTimeoutMs` to a positive duration in milliseconds to change the idle pe
 
 ### Goals and auto mode
 
+From 0.9.9, persistent goals are enabled by default. A stored
+`features.slashGoal: false` keeps them disabled. Use
+`/experiments disable slash_goal` to opt out, or
+`/experiments enable slash_goal` to enable them again.
+
 A goal is a standing instruction to keep working, so starting one switches the
 session into auto mode: the agent drives its own turns and stops asking for tool
 approval until the goal is complete. Setting a new goal while one is active

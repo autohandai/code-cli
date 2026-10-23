@@ -115,7 +115,7 @@ describe('SystemPromptBuilder', () => {
   });
 
   it('only includes persistent goal guidance when slash_goal is enabled', async () => {
-    const disabledPrompt = await createBuilder().build();
+    const disabledPrompt = await createBuilder({ runtime: { options: {}, workspaceRoot: process.cwd(), config: { features: { slashGoal: false } } } }).build();
     const enabledPrompt = await createBuilder({
       runtime: {
         options: {},
@@ -128,6 +128,7 @@ describe('SystemPromptBuilder', () => {
     }).build();
 
     expect(disabledPrompt).not.toContain('### Persistent Goals');
+    expect(await createBuilder().build()).toContain('### Persistent Goals');
     expect(enabledPrompt).toContain('### Persistent Goals');
     expect(enabledPrompt).toContain('create_goal');
     expect(enabledPrompt).toContain('Persistent goal execution is session-scoped');

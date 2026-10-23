@@ -48,7 +48,7 @@ describe('feature registry', () => {
     expect(getFeatureState(config, 'mcp')?.enabled).toBe(true);
     expect(getFeatureState(config, 'chrome_integration')?.enabled).toBe(false);
     expect(getFeatureState(config, 'cli_usage_v2')?.enabled).toBe(true);
-    expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(false);
+    expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(true);
     expect(getFeatureState(config, 'automatic_specialists')?.enabled).toBe(true);
     expect(getFeatureState(config, 'experimental_fork')?.enabled).toBe(false);
     expect(getFeatureState(config, 'experimental_clone')?.enabled).toBe(false);
@@ -61,6 +61,20 @@ describe('feature registry', () => {
     });
 
     expect(getFeatureState(config, 'automatic_specialists')?.enabled).toBe(false);
+  });
+
+  it.each([true, false])('preserves an explicit slash_goal value of %s', (slashGoal) => {
+    const config = makeConfig({ features: { slashGoal } });
+
+    expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(slashGoal);
+    expect(config.features?.slashGoal).toBe(slashGoal);
+  });
+
+  it('presents persistent goals as a stable feature', () => {
+    const feature = getFeatureState(makeConfig(), 'slash_goal');
+
+    expect(feature?.stage).toBe('stable');
+    expect(feature?.description).not.toMatch(/experimental/i);
   });
 
   it('keeps prompt caching experimental and disabled until explicitly enabled', () => {
@@ -284,8 +298,8 @@ describe('feature registry', () => {
     expect(getFeatureState(config, 'slash_goal')?.enabled).toBe(true);
   });
 
-  it('resolves slash_goals to the local goal experiment and omits the duplicate remote row', () => {
-    const config = makeConfig();
+  it('resolves slash_goals to the local goal feature and omits the duplicate remote row', () => {
+    const config = makeConfig({ features: { slashGoal: false } });
     const remoteSnapshot = {
       success: true as const,
       environment: 'production',

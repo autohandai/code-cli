@@ -37,8 +37,8 @@ Each command is a separate TypeScript file that exports:
 | `/tester` | `tester.ts` | Verify acceptance criteria, run declared project tests, and capture browser evidence |
 | `/tools` | `tools.ts` | Manage persisted meta-tools |
 | `/experiments` | `features.ts` | List and toggle experiments |
-| `/goal` | `goal.ts` | Manage session-attached persistent goals, budgets, templates, and queued work; bare `/goal` recovers a stranded queue only when no live peer owns it. Requires `slash_goal`. |
-| `/goals` | `goal.ts` | Open the live goal queue with keyboard and mouse editing. Accepts `/goal` subcommands and returns the queue as text without an interactive panel. Shares `slash_goal`; `/experiments enable slash_goals` enables the same local experiment. |
+| `/goal` | `goal.ts` | Manage session-attached persistent goals, budgets, templates, and queued work; bare `/goal` recovers a stranded queue only when no live peer owns it. Enabled by default from 0.9.9; explicit `slash_goal` settings are preserved. |
+| `/goals` | `goal.ts` | Open the live goal queue with keyboard and mouse editing. Accepts `/goal` subcommands and returns the queue as text without an interactive panel. Shares `slash_goal`; `/experiments enable slash_goals` enables the same local feature. |
 | `/squad` | `squad.ts` | Open/manage the standalone Autohand Squad runtime. |
 | `/squad view` | `squad.ts` | Inspect recorded independent Squad sessions for the current workspace |
 | `/usage` | `usage.ts` | Show Autohand plan limits and project token activity |

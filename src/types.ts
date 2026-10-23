@@ -499,7 +499,7 @@ export interface FeatureFlagSettings {
   usageV2?: boolean;
   /** Enable AWS Bedrock provider support. */
   awsBedrockProvider?: boolean;
-  /** Enable the experimental persistent /goal surface across CLI, tools, RPC, and ACP. */
+  /** Enable persistent goals across CLI, tools, RPC, and ACP. Defaults to true. */
   slashGoal?: boolean;
   /** Expose `run_tool_script`: one sandboxed script that calls tools and returns only its result (default: false). */
   codeMode?: boolean;

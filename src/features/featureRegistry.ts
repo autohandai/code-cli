@@ -161,10 +161,10 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
   {
     id: 'slash_goal',
     label: 'Slash goal',
-    description: 'Enable experimental persistent goals across /goal, /goals, --goal, tools, RPC, and ACP.',
-    stage: 'experimental',
+    description: 'Manage persistent goals across /goal, /goals, --goal, tools, RPC, and ACP.',
+    stage: 'stable',
     configPath: 'features.slashGoal',
-    defaultEnabled: false,
+    defaultEnabled: true,
   },
   {
     id: 'code_mode',
