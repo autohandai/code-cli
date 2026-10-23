@@ -2302,6 +2302,21 @@ export class AutohandAgent {
     this.syncInteractiveAutomodePermissions();
   }
 
+  private activateComputerUseAutoMode(): boolean {
+    return this.instructionRunner.activateComputerUseAutoMode();
+  }
+
+  private beginComputerUseAutoMode(): () => void {
+    const restore = this.interactionModeController.enterTemporaryMode('automode');
+    this.inkRenderer?.setInteractionMode?.(this.getInteractionMode());
+    this.persistentInput?.setStatusLine(this.formatStatusLine());
+    return () => {
+      restore();
+      this.inkRenderer?.setInteractionMode?.(this.getInteractionMode());
+      this.persistentInput?.setStatusLine(this.formatStatusLine());
+    };
+  }
+
   private getInteractionMode(): InteractionMode {
     return this.interactionModeController.getMode();
   }

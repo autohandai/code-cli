@@ -130,6 +130,7 @@ export interface ToolDefinition {
 }
 
 export interface ToolManagerOptions {
+  onToolRequested?: (toolName: string) => boolean;
   getActiveProvider?: () => string;
   executor: (action: AgentAction, context?: ToolExecutionContext) => Promise<ToolActionOutcome>;
   confirmApproval: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
@@ -2509,6 +2510,7 @@ export const EXIT_PLAN_MODE_TOOL_DEFINITION: ToolDefinition = {
 };
 
 export class ToolManager {
+  private readonly onToolRequested?: ToolManagerOptions['onToolRequested'];
   private readonly getActiveProvider?: () => string;
   private readonly definitions = new Map<AgentAction['type'], ToolDefinition>();
   private readonly runtimeMetaToolNames = new Set<AgentAction['type']>();
@@ -2523,6 +2525,7 @@ export class ToolManager {
   private readonly onAdditionalContext?: ToolAuthorizationOptions['onAdditionalContext'];
 
   constructor(options: ToolManagerOptions) {
+    this.onToolRequested = options.onToolRequested;
     this.getActiveProvider = options.getActiveProvider;
     this.executor = options.executor;
     this.confirmApproval = options.confirmApproval;
@@ -2741,8 +2744,7 @@ export class ToolManager {
 
     // Get plan mode manager to check read-only enforcement
     const planModeManager = getPlanModeManager();
-    const isInPlanningPhase = planModeManager.isEnabled() && planModeManager.getPhase() === 'planning';
-    const readOnlyTools = isInPlanningPhase ? new Set(planModeManager.getReadOnlyTools()) : null;
+    const readOnlyTools = new Set(planModeManager.getReadOnlyTools());
 
     // Phase 1: Pre-flight + Approval (sequential)
     // Categorize each call as rejected, denied, or ready-to-execute
@@ -2786,12 +2788,6 @@ export class ToolManager {
         continue;
       }
 
-      // Check plan mode restrictions - only read-only tools allowed during planning phase
-      if (readOnlyTools && !readOnlyTools.has(call.tool)) {
-        reject(`Tool '${call.tool}' is not available in plan mode. Only read-only tools are allowed during planning. Use 'plan' tool to create a plan, then accept it to execute write operations.`, 'authorization');
-        continue;
-      }
-
       const definition = this.definitions.get(call.tool);
       if (!definition) {
         reject(`Tool '${call.tool}' is not available. Use tool_search or tools_registry to find an available tool.`, 'validation');
@@ -2830,6 +2826,21 @@ export class ToolManager {
         let policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
         if (policyEvaluation.denied) {
           reject(`Tool '${call.tool}' was denied by the permission policy.`);
+          continue;
+        }
+        if (this.onToolRequested?.(call.tool)) {
+          policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
+          if (policyEvaluation.denied) {
+            reject(`Tool '${call.tool}' was denied by the permission policy.`);
+            continue;
+          }
+        }
+
+        // An admitted computer task may have entered auto mode. Read current
+        // state for every call so later manual mode changes still take effect.
+        if (planModeManager.isEnabled() && planModeManager.getPhase() === 'planning'
+          && !readOnlyTools.has(call.tool)) {
+          reject(`Tool '${call.tool}' is not available in plan mode. Only read-only tools are allowed during planning. Use 'plan' tool to create a plan, then accept it to execute write operations.`, 'authorization');
           continue;
         }
 
