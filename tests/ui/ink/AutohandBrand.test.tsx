@@ -132,11 +132,12 @@ describe('Autohand branding inside Ink', () => {
     output.columns = 32;
     output.rows = 12;
     output.emit('resize');
-    await settle();
-    const frame = stripAnsi(screen.lastFrame() ?? '');
-    expect(frame.match(/autohand/g)).toHaveLength(1);
-    expect(vi.getTimerCount()).toBe(baseline);
-    expect(frame.split('\n').length).toBeLessThanOrEqual(5);
+    await vi.waitFor(() => {
+      const frame = stripAnsi(screen?.lastFrame() ?? '');
+      expect(frame.match(/autohand/g)).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(baseline);
+      expect(frame.split('\n').length).toBeLessThanOrEqual(5);
+    });
   });
 
   it('respects the space left by a wrapping menu', async () => {

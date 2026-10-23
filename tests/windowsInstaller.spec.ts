@@ -669,17 +669,21 @@ Write-Output (Start-FirstRun -BinaryPath '${fixture}' -Answer $null)
   });
 });
 
-describe('required computer use installation', () => {
-  powerShellTest('propagates a companion installation failure', () => {
+describe('optional computer use installation', () => {
+  powerShellTest('warns and continues after a supported companion installation fails', () => {
     const result = runPowerShellProbe([
       installerWithoutEntrypoint,
-      'function Invoke-FailedComputerInstall { $global:LASTEXITCODE = 7 }',
+      'function Test-ComputerControlSupport { return $true }',
+      'function Invoke-FailedComputerInstall { Write-Output "COMPANION_INSTALL_ATTEMPTED"; $global:LASTEXITCODE = 7 }',
       '$env:AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL = "0"',
       'Install-ComputerControl -BinaryPath "Invoke-FailedComputerInstall"',
+      'Write-Output "INSTALLER_CONTINUED"',
     ].join('\n'));
-    expect(result.status).not.toBe(0);
-    expect(result.stdout).toContain('autohand computer install');
-    expect(result.stdout).not.toContain('still ready');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('COMPANION_INSTALL_ATTEMPTED');
+    expect(result.stdout).toContain('Warning: Optional Computer control could not be installed. Autohand CLI is ready.');
+    expect(result.stdout).toContain('Retry with: autohand computer install');
+    expect(result.stdout).toContain('INSTALLER_CONTINUED');
   });
 });
 
