@@ -24,5 +24,10 @@ export async function runExportPrivacyScenario(session: Session, format: 'md' | 
   await session.waitForText('Save as:', { timeout: 5_000 });
   await session.press('enter');
   await session.waitForText('Secrets redacted:', { timeout: 10_000 });
+  // Export output is printed before the modal has restored the composer.
+  // Prove input is live again before the caller sends Ctrl+C for teardown.
+  await session.waitForText('Plan, search, build anything', { timeout: 10_000 });
+  await session.type('export input restored');
+  await session.waitForText('❯ export input restored', { timeout: 10_000 });
   return session.readAll();
 }
