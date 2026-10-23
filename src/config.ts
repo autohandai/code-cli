@@ -784,9 +784,14 @@ function mergeWorkspaceSettings(
 
   // Merge permissions settings
   if (workspaceSettings.permissions) {
+    // PermissionManager keeps lists in their original scopes. Flattening these
+    // arrays or their import metadata could drop user denies or narrow them.
+    const { allowList, denyList, whitelist, blacklist, importedClaudeRules, ...projectOptions } = workspaceSettings.permissions;
+    void allowList; void denyList; void whitelist; void blacklist; void importedClaudeRules;
     merged.permissions = {
       ...merged.permissions,
-      ...workspaceSettings.permissions,
+      ...projectOptions,
+      workspaceScopes: [...(merged.permissions?.workspaceScopes ?? []), workspaceSettings.permissions],
     };
   }
 
@@ -1321,6 +1326,13 @@ function normalizeConfig(
       `Config file produced an invalid value (got ${config === null ? "null" : typeof config}). ` +
         `Delete the config file and run 'autohand --setup' to recreate it.`,
     );
+  }
+
+  // Runtime permission scopes are never accepted from any saved config shape.
+  if (isPlainRecord(config.permissions)) {
+    const permissions = { ...config.permissions };
+    delete permissions.workspaceScopes;
+    config = { ...config, permissions };
   }
 
   if (isModernConfig(config)) {
@@ -2128,6 +2140,11 @@ export async function saveConfig(
         delete (data as Partial<AutohandConfig>).auth;
       }
     }
+  }
+
+  if (data.permissions) {
+    data.permissions = { ...data.permissions };
+    delete data.permissions.workspaceScopes;
   }
 
   await fs.ensureDir(path.dirname(configPath));

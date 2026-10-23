@@ -534,6 +534,10 @@ export interface PermissionRule {
 }
 
 export interface PermissionSettings {
+  /** Runtime workspace layer. Kept separate so source-rule semantics cannot shadow user denies. */
+  workspaceScopes?: PermissionSettings[];
+  /** Source semantics for rules added by the Claude permission importer. */
+  importedClaudeRules?: import('./permissions/importedClaudeRules.js').ImportedClaudeRule[];
   /** Permission mode: interactive (default), unrestricted (no prompts), restricted (deny all dangerous), external (callback) */
   mode?: PermissionMode;
   /** Commands/tools that never require approval (e.g., "run_command:npm *") */

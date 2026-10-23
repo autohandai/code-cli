@@ -13,6 +13,7 @@ import { showModal } from '../../ui/ink/components/Modal.js';
 import { showCategorySelector, CATEGORY_LABELS } from './CategorySelector.js';
 import { ImportProgressView } from './ImportProgress.js';
 import type { ImporterRegistry } from '../registry.js';
+import { permissionImportLines } from '../ClaudePermissionImport.js';
 import type {
   ImportCategory,
   ImportError,
@@ -68,6 +69,8 @@ export function ImportSummary({ source, result }: ImportSummaryProps) {
     <Box flexDirection="column" paddingX={1}>
       <Text color="green">{'\u2713'} Import complete from {source}</Text>
       <Text>{''}</Text>
+
+      {result.permissions && permissionImportLines(result.permissions).map((line, index) => <Text key={index}>{line}</Text>)}
 
       {entries.map(([cat, stats]) => {
         const label = (CATEGORY_LABELS[cat] ?? cat).padEnd(12);
@@ -274,6 +277,8 @@ export async function showImportWizard(
       const label = CATEGORY_LABELS[cat] ?? cat;
       console.log(`  ${label}: ${info?.description ?? 'unknown'}`);
     }
+    const { printPermissionPreview } = await import('../index.js');
+    await printPermissionPreview(importer, selectedCategories);
     console.log('');
     return;
   }
@@ -325,6 +330,7 @@ export async function showImportWizard(
     summaryInst.unmount();
   } else {
     console.log(`\nImport complete from ${importer.displayName}`);
+    if (result.permissions) for (const line of permissionImportLines(result.permissions)) console.log(line);
     for (const [cat, stats] of result.imported.entries()) {
       const label = CATEGORY_LABELS[cat] ?? cat;
       console.log(`  ${label}: ${stats.success} imported, ${stats.failed} failed`);

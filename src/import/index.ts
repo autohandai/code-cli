@@ -7,7 +7,8 @@
  * interactive (TTY) and non-interactive (CI/pipe) modes.
  */
 import chalk from 'chalk';
-import type { ImportOptions, ImportCategory, ImportResult } from './types.js';
+import type { ImportOptions, ImportCategory, ImportResult, Importer } from './types.js';
+import { permissionImportLines } from './ClaudePermissionImport.js';
 import { IMPORT_SOURCES } from './types.js';
 
 /**
@@ -55,6 +56,7 @@ export async function runImport(options: ImportOptions): Promise<void> {
 
       if (options.dryRun) {
         printDryRun(scanResult.available, cats);
+        await printPermissionPreview(importer, cats);
         continue;
       }
 
@@ -112,6 +114,7 @@ export async function runImport(options: ImportOptions): Promise<void> {
   if (options.dryRun) {
     console.log(chalk.cyan(`Dry run — ${importer.displayName}:`));
     printDryRun(scanResult.available, categories);
+    await printPermissionPreview(importer, categories);
     return;
   }
 
@@ -140,9 +143,15 @@ function printDryRun(
   }
 }
 
+export async function printPermissionPreview(importer: Importer, categories: ImportCategory[]): Promise<void> {
+  if (!categories.includes('settings') || !importer.previewSettings) return;
+  for (const line of permissionImportLines(await importer.previewSettings(), true)) console.log(line);
+}
+
 function printSummary(result: ImportResult): void {
   console.log();
   console.log(chalk.bold(`Import complete from ${result.source}:`));
+  if (result.permissions) for (const line of permissionImportLines(result.permissions)) console.log(line);
 
   for (const [cat, stats] of result.imported) {
     const icon = stats.failed > 0 ? chalk.yellow('⚠') : chalk.green('✓');

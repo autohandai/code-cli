@@ -1502,7 +1502,7 @@ program
       source: source as any,
       categories: opts.categories as any,
       all: opts.all,
-      dryRun: opts.dryRun,
+      dryRun: opts.dryRun === true || program.opts<{ dryRun?: boolean }>().dryRun === true,
       retryFailed: opts.retryFailed,
     });
     process.exit(0);

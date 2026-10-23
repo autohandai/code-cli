@@ -2,6 +2,8 @@
  * Permission Manager - Handles tool/command approval with allow/deny lists
  * @license Apache-2.0
  */
+import { matchesImportedClaudeRule, type ImportedClaudeRule } from './importedClaudeRules.js';
+import { isSimplePermissionCommand } from './commandParts.js';
 import { getCommandPrefix } from './types.js';
 import type {
   PermissionSettings,
@@ -194,6 +196,7 @@ export class PermissionManager {
 
   private settings: PermissionSettings;
   private localSettings: PermissionSettings | undefined;
+  private workspaceSettings: PermissionSettings[] = [];
   private sessionProjectSettings: SessionProjectPermissions | undefined;
   private sessionCache: Map<string, boolean> = new Map();
   private mode: PermissionMode;
@@ -216,6 +219,7 @@ export class PermissionManager {
   private normalizeSettings(settings: PermissionSettings | undefined): PermissionSettings {
     return {
       mode: settings?.mode ?? 'interactive',
+      importedClaudeRules: [...(settings?.importedClaudeRules ?? [])],
       allowList: [...(settings?.allowList ?? settings?.whitelist ?? [])],
       denyList: [...(settings?.denyList ?? settings?.blacklist ?? [])],
       rules: [...(settings?.rules ?? [])],
@@ -237,6 +241,7 @@ export class PermissionManager {
     this.workspaceRoot = isOptions ? (options as PermissionManagerOptions).workspaceRoot : undefined;
 
     this.settings = this.normalizeSettings(settings);
+    this.workspaceSettings = (settings.workspaceScopes ?? []).map(scope => this.normalizeSettings(scope));
     this.mode = this.settings.mode || 'interactive';
   }
 
@@ -322,7 +327,7 @@ export class PermissionManager {
   private getMergedSettings(): PermissionSettings {
     return this.extensionPolicies.reduce(
       (settings, policy) => mergePermissions(settings, policy.settings),
-      mergePermissions(this.settings, this.localSettings),
+      mergePermissions(this.workspaceSettings.reduce((merged, scope) => mergePermissions(merged, scope), this.settings), this.localSettings),
     );
   }
 
@@ -376,6 +381,23 @@ export class PermissionManager {
     if (this.readOnlyReview && (!READ_ONLY_REVIEW_TOOLS.has(context.tool)
       || (context.requestedTool !== undefined && !READ_ONLY_REVIEW_TOOLS.has(context.requestedTool)))) {
       return { allowed: false, reason: 'mode_restricted' };
+    }
+
+    if ((context.tool === 'run_command' || context.tool === 'shell') && context.command
+      && !isSimplePermissionCommand(this.getFullCommand(context))
+      && this.getMergedSettings().importedClaudeRules?.some(rule => rule.pattern.startsWith(context.tool + ':'))) {
+      const merged = this.getMergedSettings();
+      const relevant = (pattern: string) => !pattern.includes(':') || pattern.startsWith(context.tool + ':') || pattern.startsWith('*:');
+      const allows = [...(merged.allowList ?? []), ...(this.sessionProjectSettings?.allowList ?? [])];
+      const denies = [...(merged.denyList ?? []), ...(this.sessionProjectSettings?.denyList ?? [])];
+      if (allows.some(relevant) || denies.some(relevant)) {
+        // Unsupported shell syntax cannot soften hard restrictions into a prompt.
+        const hard = this.checkPatterns(context);
+        if (hard && !hard.allowed) return hard;
+        if (this.mode === 'restricted') return { allowed: false, reason: 'mode_restricted' };
+        if (denies.some(relevant)) return { allowed: false, reason: 'deny_list' };
+        return { allowed: false, reason: 'default' };
+      }
     }
 
     // Pattern-based checks (AFTER security blacklist, BEFORE session cache)
@@ -446,17 +468,24 @@ export class PermissionManager {
       context,
       this.localSettings?.allowList,
       this.localSettings?.denyList,
-      'project'
+      'project',
+      this.localSettings?.importedClaudeRules
     );
     if (projectDecision) {
       return projectDecision;
+    }
+
+    for (const scope of [...this.workspaceSettings].reverse()) {
+      const decision = this.checkScopedLists(context, scope.allowList, scope.denyList, 'project', scope.importedClaudeRules);
+      if (decision) return decision;
     }
 
     const userDecision = this.checkScopedLists(
       context,
       this.settings.allowList,
       this.settings.denyList,
-      'user'
+      'user',
+      this.settings.importedClaudeRules
     );
     if (userDecision) {
       return userDecision;
@@ -729,11 +758,13 @@ export class PermissionManager {
       }
     }
 
+    // Imported and existing deny lists must also beat broad allowPatterns and path grants.
+    const scopedDenial = this.checkScopedDenials(context) ?? this.checkDenyRules(context);
     // 4. allowPatterns – explicitly allowed
     if (settings.allowPatterns?.length) {
       for (const p of settings.allowPatterns) {
         if (matchesToolPattern(p, call)) {
-          return { allowed: true, reason: 'pattern_allowed' };
+          return scopedDenial ?? { allowed: true, reason: 'pattern_allowed' };
         }
       }
     }
@@ -741,12 +772,12 @@ export class PermissionManager {
     // 5. allPathsAllowed – allow any file-path tool
     const fileTools = new Set(['read_file', 'write_file', 'list_dir', 'delete_path', 'move_path', 'copy_path']);
     if (settings.allPathsAllowed && fileTools.has(context.tool)) {
-      return { allowed: true, reason: 'all_paths_allowed' };
+      return scopedDenial ?? { allowed: true, reason: 'all_paths_allowed' };
     }
 
     // 6. allUrlsAllowed – allow url tool
     if (settings.allUrlsAllowed && context.tool === 'url') {
-      return { allowed: true, reason: 'all_urls_allowed' };
+      return scopedDenial ?? { allowed: true, reason: 'all_urls_allowed' };
     }
 
     return null;
@@ -763,23 +794,29 @@ export class PermissionManager {
   /**
    * Check scoped allow/deny lists, returning a source-specific decision if matched.
    */
+  private matchesScopedPattern(context: PermissionContext, pattern: string, action: 'allow' | 'deny', importedRules?: ImportedClaudeRule[]): boolean {
+    const imported = importedRules?.find(rule => rule.pattern === pattern && rule.action === action);
+    return imported ? matchesImportedClaudeRule(context, imported, this.workspaceRoot) : this.matchesPattern(context, pattern);
+  }
+
   private checkScopedLists(
     context: PermissionContext,
     allowList: string[] | undefined,
     denyList: string[] | undefined,
-    scope: 'session' | 'project' | 'user'
+    scope: 'session' | 'project' | 'user',
+    importedRules?: ImportedClaudeRule[]
   ): PermissionDecision | null {
     const normalizedAllowList = allowList ?? [];
     const normalizedDenyList = denyList ?? [];
 
-    if (normalizedDenyList.some(pattern => this.matchesPattern(context, pattern))) {
+    if (normalizedDenyList.some(pattern => this.matchesScopedPattern(context, pattern, 'deny', importedRules))) {
       return {
         allowed: false,
         reason: scope === 'user' ? 'deny_list' : `${scope}_deny_list` as PermissionDecision['reason'],
       };
     }
 
-    if (normalizedAllowList.some(pattern => this.matchesPattern(context, pattern))) {
+    if (normalizedAllowList.some(pattern => this.matchesScopedPattern(context, pattern, 'allow', importedRules))) {
       return {
         allowed: true,
         reason: scope === 'user' ? 'allow_list' : `${scope}_allow_list` as PermissionDecision['reason'],
@@ -797,16 +834,23 @@ export class PermissionManager {
       },
       {
         denyList: this.localSettings?.denyList,
+        importedRules: this.localSettings?.importedClaudeRules,
         reason: 'project_deny_list' as const,
       },
+      ...[...this.workspaceSettings].reverse().map(scope => ({
+        denyList: scope.denyList,
+        importedRules: scope.importedClaudeRules,
+        reason: 'project_deny_list' as const,
+      })),
       {
         denyList: this.settings.denyList,
+        importedRules: this.settings.importedClaudeRules,
         reason: 'deny_list' as const,
       },
     ];
 
     for (const scope of scopes) {
-      if (scope.denyList?.some((pattern) => this.matchesPattern(context, pattern))) {
+      if (scope.denyList?.some((pattern) => this.matchesScopedPattern(context, pattern, 'deny', scope.importedRules))) {
         return { allowed: false, reason: scope.reason };
       }
     }
@@ -1012,6 +1056,7 @@ export class PermissionManager {
     const index = this.settings.allowList.indexOf(pattern);
     if (index !== -1) {
       this.settings.allowList.splice(index, 1);
+      this.settings.importedClaudeRules = this.settings.importedClaudeRules?.filter(rule => rule.pattern !== pattern || rule.action !== 'allow');
       if (this.onPersist) {
         await this.onPersist(this.settings);
       }
@@ -1028,6 +1073,7 @@ export class PermissionManager {
     const index = this.settings.denyList.indexOf(pattern);
     if (index !== -1) {
       this.settings.denyList.splice(index, 1);
+      this.settings.importedClaudeRules = this.settings.importedClaudeRules?.filter(rule => rule.pattern !== pattern || rule.action !== 'deny');
       if (this.onPersist) {
         await this.onPersist(this.settings);
       }
