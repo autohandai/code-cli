@@ -647,6 +647,8 @@ export interface McpServerConfigEntry {
   headers?: Record<string, string>;
   /** Whether to auto-connect on startup (default: true) */
   autoConnect?: boolean;
+  /** Keep this server on this device; do not publish it to the account control plane. */
+  localOnly?: boolean;
   /** JSON-RPC framing for stdio servers (default: Content-Length with compatibility fallback) */
   stdioFraming?: 'content-length' | 'newline';
   /** Account-scoped connector ID assigned by the Autohand Console control plane. */

@@ -382,8 +382,10 @@ export function applyManagedConnectors(
 ): { changed: boolean; servers: McpServerConfigEntry[] } {
   const validated = validateConnectorSnapshot(revision, connectors);
   const currentServers = config.mcp?.servers || [];
-  const unmanaged = currentServers.filter((server) => !server.managedConnectorId && !validated.some((connector) =>
-    connector.name === server.name && connectorTarget(connector) === connectorTarget(server),
+  const unmanaged = currentServers.filter((server) => server.localOnly || (
+    !server.managedConnectorId && !validated.some((connector) =>
+      connector.name === server.name && connectorTarget(connector) === connectorTarget(server),
+    )
   ));
   const names = new Set(unmanaged.map(({ name }) => name));
   const managed = validated.map<McpServerConfigEntry>((connector) => {
@@ -450,7 +452,7 @@ export async function syncCodingAgentControlPlane(
   if (options.publishLocalConnectors) {
     let published = false;
     for (const server of config.mcp?.servers || []) {
-      if (server.managedConnectorId || (server.transport !== 'http' && server.transport !== 'stdio')) continue;
+      if (server.localOnly || server.managedConnectorId || (server.transport !== 'http' && server.transport !== 'stdio')) continue;
       if (initialState.connectors.some(({ name }) => name.toLowerCase() === server.name.toLowerCase())) continue;
       await client.createConnector(authToken, server, options.signal);
       published = true;
