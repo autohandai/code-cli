@@ -5,6 +5,7 @@
  */
 
 import type { LLMProvider } from './LLMProvider.js';
+import { selectedAccountId } from '../auth/accountSelection.js';
 import type { LLMRequest, LLMResponse } from '../types.js';
 import { OllamaProvider } from './OllamaProvider.js';
 import { OpenAIProvider } from './OpenAIProvider.js';
@@ -121,6 +122,7 @@ export class ProviderFactory {
                 return new AutohandAIProvider({
                     ...config.autohandai,
                     accountToken: config.auth?.token ?? config.autohandai.accountToken,
+                    accountId: selectedAccountId(config),
                 }, config.network);
 
             case 'ollama':

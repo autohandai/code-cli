@@ -119,7 +119,7 @@ import { MentionResolver } from './MentionResolver.js';
 import { AutoReportManager } from '../../reporting/AutoReportManager.js';
 import { RemoteFeatureFlagManager } from '../../features/RemoteFeatureFlagManager.js';
 import { getAnnouncementManager } from '../../announcements/AnnouncementManager.js';
-import { getAuthClient } from '../../auth/index.js';
+import { getAuthClient, selectedAccountId } from '../../auth/index.js';
 import { syncAgentAnnouncementLine } from './AgentUIRuntime.js';
 import { activityItemsFromTodos, formatSubAgentActivityLabel } from '../../ui/ink/TaskActivityPanel.js';
 import { getFeatureState } from '../../features/featureRegistry.js';
@@ -2205,7 +2205,13 @@ export function initializeAgentDependencies(
         const token = runtime.config.auth?.token
           ?? autohand?.accountToken
           ?? (autohand?.authMode === 'api-key' ? autohand.apiKey : undefined);
-        return token ? getAuthClient().fetchEntitlement(token) : Promise.resolve(null);
+        return token ? getAuthClient().fetchEntitlement(token, selectedAccountId(runtime.config)) : Promise.resolve(null);
+      },
+      applyAccountChange: async () => {
+        if (host.activeProvider === 'autohandai' && runtime.options.model) {
+          await host.providerConfigManager.applyModelChangeRemote('autohandai', runtime.options.model);
+        }
+        await host.refreshAccountPlan();
       },
       isFeatureEnabled: isRuntimeFeatureEnabled,
       trackFeatureActivation: (key: string, metadata?: Record<string, unknown>) => {

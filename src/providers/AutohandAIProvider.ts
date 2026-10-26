@@ -186,6 +186,7 @@ export class AutohandAIProvider implements LLMProvider {
     const authToken = this.resolveCloudToken(config);
     const effectiveConfig: LLMGatewaySettings = {
       apiKey: authToken,
+      ...(config.accountId ? { accountId: config.accountId } : {}),
       baseUrl: resolveAutohandAICloudBaseUrl(config.baseUrl),
       model: this.model,
       contextWindow: config.contextWindow ?? getAutohandAICloudModelContextWindow(this.model),

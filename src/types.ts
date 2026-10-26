@@ -119,6 +119,8 @@ export interface AutohandAISettings extends ProviderSettings {
   apiKey?: string;
   /** Autohand account token for CLI-authenticated Cloud usage. SDKs must use apiKey. */
   accountToken?: string;
+  /** Chosen with `autohand account`; set at provider construction, never saved here. */
+  accountId?: string;
   localModelPath?: string;
   serverCommand?: string;
 }
@@ -133,6 +135,8 @@ export interface AnthropicSettings extends ProviderSettings {
 
 export interface LLMGatewaySettings extends ProviderSettings {
   apiKey: string;
+  /** Autohand account the requests bill to; omitted, the API chooses. */
+  accountId?: string;
   /**
    * Preserve OpenAI `image_url` content parts rather than flattening them to
    * text. This is a transport capability, not a user-configurable setting.

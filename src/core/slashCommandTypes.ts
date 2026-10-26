@@ -94,6 +94,8 @@ export interface SlashCommandContext {
     refreshFeatureGatedTools?: () => void;
     /** Refresh the active composer status/help line after display settings change. */
     refreshStatusLine?: () => void;
+    /** After `/account` changes the chosen account: re-read the plan and rebuild the hosted provider. */
+    applyAccountChange?: () => Promise<void>;
     /** Process-scoped CLI announcement state and actions. */
     announcementManager?: AnnouncementManagerContract;
     /** Skills registry for /skills commands */

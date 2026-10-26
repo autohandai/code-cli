@@ -382,6 +382,18 @@ function parsePollResponse(
   return null;
 }
 
+export interface AccountSummary {
+  id: string;
+  name: string;
+  type: 'personal' | 'team';
+  role?: string;
+}
+
+export interface AccountListing {
+  activeAccountId: string | null;
+  accounts: AccountSummary[];
+}
+
 export interface AuthClientConfig {
   baseUrl?: string;
   timeout?: number;
@@ -604,7 +616,7 @@ export class AuthClient {
    * at a rate-limit failure on another provider, whether Autohand would actually have room before
    * offering a switch. Returns null on any failure — callers treat "unknown" as "don't offer".
    */
-  async fetchEntitlement(token: string): Promise<AccountEntitlement | null> {
+  async fetchEntitlement(token: string, accountId?: string): Promise<AccountEntitlement | null> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -614,6 +626,7 @@ export class AuthClient {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Cookie': `auth_session=${token}`,
+          ...(accountId ? { 'X-Autohand-Account-Id': accountId } : {}),
         },
         signal: controller.signal,
       });
@@ -627,7 +640,7 @@ export class AuthClient {
       if (typeof tier !== 'string') return null;
       const directAccountName = isSafeText(entitlement?.accountName) ? entitlement.accountName.trim() : undefined;
       const accountName = directAccountName
-        ?? (tier === 'team' ? await this.fetchActiveAccountName(token) : undefined);
+        ?? (tier === 'team' ? await this.fetchActiveAccountName(token, accountId) : undefined);
       const paymentAccess = parsePaymentAccess(entitlement?.paymentAccess);
       const freeRemaining = entitlement?.freeRemaining;
       const limits = parseAccountEntitlementLimits(entitlement?.limits);
@@ -651,7 +664,17 @@ export class AuthClient {
     }
   }
 
-  private async fetchActiveAccountName(token: string): Promise<string | undefined> {
+  private async fetchActiveAccountName(token: string, accountId?: string): Promise<string | undefined> {
+    const listing = await this.listAccounts(token, accountId);
+    return listing?.accounts.find((account) => account.id === listing.activeAccountId)?.name;
+  }
+
+  /**
+   * The accounts this person can act for and the one the API serves by default. `accountId`
+   * asks the API to report that account as active, the same header every other request sends.
+   * Returns undefined on any failure.
+   */
+  async listAccounts(token: string, accountId?: string): Promise<AccountListing | undefined> {
     const accountsUrl = this.getAccountsUrl();
     if (!accountsUrl) return undefined;
 
@@ -663,22 +686,30 @@ export class AuthClient {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Cookie': `auth_session=${token}`,
+          ...(accountId ? { 'X-Autohand-Account-Id': accountId } : {}),
         },
         signal: controller.signal,
       });
       if (!response.ok) return undefined;
 
       const payload: unknown = await response.json();
-      if (!isRecord(payload) || !isSafeText(payload.activeAccountId) || !Array.isArray(payload.accounts)) {
-        return undefined;
-      }
+      if (!isRecord(payload) || !Array.isArray(payload.accounts)) return undefined;
 
+      const accounts: AccountSummary[] = [];
       for (const candidate of payload.accounts) {
         if (!isRecord(candidate) || !isRecord(candidate.account)) continue;
-        if (candidate.account.id !== payload.activeAccountId) continue;
-        return isSafeText(candidate.account.name) ? candidate.account.name.trim() : undefined;
+        const { id, name, type } = candidate.account;
+        if (!isSafeText(id) || !isSafeText(name)) continue;
+        // Enterprise accounts bill differently and are not selectable here; a missing type is personal.
+        if (typeof type === 'string' && type !== 'personal' && type !== 'team') continue;
+        accounts.push({
+          id,
+          name: name.trim(),
+          type: type === 'team' ? 'team' : 'personal',
+          ...(isSafeText(candidate.role) ? { role: candidate.role } : {}),
+        });
       }
-      return undefined;
+      return { activeAccountId: isSafeText(payload.activeAccountId) ? payload.activeAccountId : null, accounts };
     } catch {
       return undefined;
     } finally {

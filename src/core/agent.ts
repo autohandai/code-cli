@@ -24,7 +24,7 @@ import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig, saveConfig } from '../config.js';
 import { resolveAutohandAIModelForTier } from './agent/AutohandAIModelTierPolicy.js';
-import { getAuthClient } from '../auth/index.js';
+import { getAuthClient, selectedAccountId } from '../auth/index.js';
 import {
   formatComposerPlanLabel,
   formatUpgradeHint,
@@ -381,7 +381,7 @@ interface TurnMemoryReflectionRequest {
 
 export class AutohandAgent {
   private static readonly INTERACTIVE_SLASH_COMMANDS = new Set([
-    '/browser', '/chrome', '/hooks', '/feedback', '/permissions', '/login', '/logout',
+    '/browser', '/chrome', '/hooks', '/feedback', '/permissions', '/login', '/logout', '/account',
     '/agents-new', '/agents new', '/resume', '/theme', '/language',
     '/model', '/skills', '/skills install', '/skills-install',
     '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
@@ -1684,7 +1684,7 @@ export class AutohandAgent {
    * Prompt admission does not wait for this: the turn starts on the last known
    * plan and picks up the fresh one afterwards.
    */
-  private refreshAccountPlan(): Promise<void> {
+  refreshAccountPlan(): Promise<void> {
     if (this.accountPlanRefresh) return this.accountPlanRefresh;
     const pending = this.readAccountPlan().finally(() => { this.accountPlanRefresh = undefined; });
     this.accountPlanRefresh = pending;
@@ -1704,7 +1704,7 @@ export class AutohandAgent {
     }
 
     try {
-      const entitlement = await getAuthClient().fetchEntitlement(token);
+      const entitlement = await getAuthClient().fetchEntitlement(token, selectedAccountId(this.runtime.config));
       if (!entitlement || token !== currentToken()) return;
       const next = planSummaryFromEntitlement(entitlement);
       const payment = entitlement.paymentAccess;
@@ -2095,7 +2095,7 @@ export class AutohandAgent {
       activeProvider: this.activeProvider,
       providerLabel: this.activeProvider ?? 'current provider',
       isInteractive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-      fetchEntitlement: (token) => getAuthClient().fetchEntitlement(token),
+      fetchEntitlement: (token) => getAuthClient().fetchEntitlement(token, selectedAccountId(this.runtime.config)),
       confirm: async (message) => {
         const result = await safePrompt<{ switch: boolean }>({
           type: 'confirm',

@@ -261,6 +261,7 @@ function trustedAutohandUpgradeUrl(value: string | undefined): string | undefine
 
 export class LLMGatewayClient {
   private readonly apiKey: string;
+  private readonly accountId?: string;
   private readonly baseUrl: string;
   private defaultModel: string;
   private readonly maxRetries: number;
@@ -277,6 +278,7 @@ export class LLMGatewayClient {
     errorLabels: LLMGatewayCompatibleErrorLabels = DEFAULT_ERROR_LABELS,
   ) {
     this.apiKey = settings.apiKey ?? "";
+    this.accountId = settings.accountId;
     this.baseUrl = settings.baseUrl ?? DEFAULT_BASE_URL;
     this.defaultModel = settings.model;
     this.reasoningEffort = settings.reasoningEffort;
@@ -332,6 +334,9 @@ export class LLMGatewayClient {
     };
     if (this.apiKey) {
       headers.Authorization = `Bearer ${this.apiKey}`;
+    }
+    if (this.accountId) {
+      headers["X-Autohand-Account-Id"] = this.accountId;
     }
     if (this.errorLabels.serviceName === "Autohand AI") {
       headers["x-autohand-client-request-id"] = crypto.randomUUID();

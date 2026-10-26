@@ -956,6 +956,17 @@ program
   });
 
 program
+  .command('account [action] [target]')
+  .description('List the Autohand accounts you belong to, or switch the one this CLI uses (use <team>, clear)')
+  .action(async (action?: string, target?: string) => {
+    const { account } = await import('./commands/account.js');
+    const config = await loadConfig();
+    const output = await account({ config, args: [action, target].filter((value): value is string => Boolean(value)) });
+    if (output) console.log(output);
+    process.exit(0);
+  });
+
+program
   .command('logout')
   .description('Sign out of your Autohand account')
   .action(async () => {

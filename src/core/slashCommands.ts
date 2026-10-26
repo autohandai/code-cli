@@ -31,6 +31,7 @@ import * as status from '../commands/status.js';
 import * as usage from '../commands/usage.js';
 import * as upgrade from '../commands/upgrade.js';
 import * as login from '../commands/login.js';
+import * as account from '../commands/account.js';
 import * as logout from '../commands/logout.js';
 import * as permissions from '../commands/permissions.js';
 import * as hooks from '../commands/hooks.js';
@@ -116,6 +117,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   usage.metadata,
   upgrade.metadata,
   login.metadata,
+  account.metadata,
   logout.metadata,
   permissions.metadata,
   hooks.metadata,

@@ -45,7 +45,7 @@ describe('live payment access refresh', () => {
     const host = agent();
     host.runtime.config.autohandai.apiKey = 'ahk_team_fixture';
     await host.refreshAccountPlan();
-    expect(fetch).toHaveBeenCalledWith('ahk_team_fixture');
+    expect(fetch).toHaveBeenCalledWith('ahk_team_fixture', undefined);
     expect(host.accountPlan.tier).toBe('free');
   });
 });

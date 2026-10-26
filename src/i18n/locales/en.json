@@ -433,6 +433,20 @@
         "scopeCancel": "Cancel"
       }
     },
+    "account": {
+      "description": "list your Autohand accounts or switch the one this CLI uses",
+      "signedOut": "Sign in with /login before choosing an account.",
+      "unavailable": "Your accounts could not be loaded. Try again.",
+      "usage": "Usage: /account, /account use <team name or id>, /account clear",
+      "notFound": "No account matches \"{{target}}\". Run /account to see the list.",
+      "choose": "Which account should this CLI use?",
+      "useDefault": "Let Autohand choose (your team when it pays for a seat, otherwise personal)",
+      "switched": "Now using {{name}}. New requests bill that account.",
+      "cleared": "Account choice cleared. Autohand picks the account again.",
+      "team": "team",
+      "personal": "personal",
+      "hint": "Switch with /account use <name>, or /account clear to let Autohand choose."
+    },
     "login": {
       "description": "sign in to your Autohand account",
       "prompt": "Enter your login code:",
