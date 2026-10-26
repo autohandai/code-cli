@@ -53,7 +53,7 @@ export function resolveAgentLaunchMode(options: CLIOptions): AgentLaunchMode {
   return 'interactive';
 }
 
-export const DEFAULT_STARTUP_INTERACTION_MODE: InteractionMode = 'default';
+export const DEFAULT_STARTUP_INTERACTION_MODE: InteractionMode = 'automode';
 
 export interface StartupInteractionModeInput {
   options: Pick<
@@ -71,13 +71,10 @@ export interface StartupInteractionModeInput {
   configuredMode?: InteractionMode;
   /** `permissions.mode` from the loaded config. */
   permissionMode?: PermissionMode;
+  fullScreenMode?: boolean;
   isInteractiveTerminal: boolean;
 }
 
-/**
- * Starts with normal approvals unless an explicit flag or user preference
- * selects another mode. Non-interactive and locked-down launches stay scoped.
- */
 export function resolveStartupInteractionMode(input: StartupInteractionModeInput): InteractionMode {
   const { options } = input;
   if (options.interactiveAutoMode) return 'automode';
@@ -87,7 +84,7 @@ export function resolveStartupInteractionMode(input: StartupInteractionModeInput
   if (options.prompt || resolveProtocolLaunchMode(options) !== 'standard') return 'default';
   if (resolveInternalLaunchMode(options) !== 'standard' || !input.isInteractiveTerminal) return 'default';
   if (input.permissionMode === 'restricted' || input.permissionMode === 'external') return 'default';
-  return input.configuredMode ?? DEFAULT_STARTUP_INTERACTION_MODE;
+  return input.configuredMode ?? (input.fullScreenMode === false ? 'default' : DEFAULT_STARTUP_INTERACTION_MODE);
 }
 
 export function applyStartupInteractionMode(options: CLIOptions, mode: InteractionMode): void {

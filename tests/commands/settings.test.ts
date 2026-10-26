@@ -15,6 +15,7 @@ import {
   getSettingsForCategory,
   formatSettingValue,
   resolveSettingEnumValues,
+  resolveSettingFallback,
   type SettingCategory,
 } from '../../src/commands/settings.js';
 import stripAnsi from 'strip-ansi';
@@ -77,6 +78,13 @@ describe('setNestedValue', () => {
 });
 
 describe('SETTINGS_REGISTRY', () => {
+  it('shows the startup mode that applies to the configured screen', () => {
+    const setting = SETTINGS_REGISTRY.find(setting => setting.key === 'ui.defaultInteractionMode')!;
+    const config: LoadedConfig = { provider: 'openrouter', configPath: '/tmp/config.json' };
+    expect(resolveSettingFallback(setting, config)).toBe('automode');
+    expect(resolveSettingFallback(setting, { ...config, features: { fullScreenMode: false } })).toBe('default');
+  });
+
   it('keeps the numbered shortcut of the first UI settings stable and appends new ones', () => {
     const uiKeys = SETTINGS_REGISTRY.filter((setting) => setting.category === 'ui').map((setting) => setting.key);
 

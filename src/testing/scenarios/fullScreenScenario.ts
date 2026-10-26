@@ -6,6 +6,27 @@ import { Session } from '../../session/SessionManager.js';
 import type { PtyDriver } from '../drivers/pty-driver.js';
 import { outputViewport } from './compactOutputScenario.js';
 
+export async function cycleFullScreenStartupModes(session: TerminalSession): Promise<string[]> {
+  await session.waitForText('❯', { timeout: 15_000 });
+  await session.waitIdle();
+  const status = () => outputViewport(session).split('\n').find(line => line.includes('context left'))?.split(' · ')[0] ?? '';
+  const modes = [status()];
+  for (const label of ['● YOLO', null, '● PLAN', '● AUTO']) {
+    await session.press(['shift', 'tab']);
+    if (label) await session.waitForText(label, { timeout: 15_000 });
+    await session.waitIdle();
+    modes.push(status());
+  }
+  return modes;
+}
+
+export async function requestFullScreenStartupWrite(session: TerminalSession): Promise<void> {
+  await session.waitForText('● AUTO', { timeout: 15_000 });
+  await session.type('Create the requested startup-check file.');
+  await session.press('enter');
+  await session.waitForText('AUTO_STARTUP_COMPLETE', { timeout: 20_000 });
+}
+
 export async function startFullScreenHeaderProbe(session: TerminalSession): Promise<void> {
   await session.type('Say hello');
   await session.waitForText('❯ Say hello');

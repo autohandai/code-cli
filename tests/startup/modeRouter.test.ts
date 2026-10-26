@@ -76,8 +76,13 @@ describe('CLI mode routing', () => {
 describe('startup interaction mode', () => {
   const interactive = { options: {}, isInteractiveTerminal: true } as const;
 
-  it('starts interactive terminal sessions with normal approvals by default', () => {
-    expect(resolveStartupInteractionMode(interactive)).toBe('default');
+  it('starts full-screen terminal sessions in auto mode by default', () => {
+    expect(resolveStartupInteractionMode(interactive)).toBe('automode');
+    expect(resolveStartupInteractionMode({ ...interactive, fullScreenMode: true })).toBe('automode');
+  });
+
+  it('keeps normal approvals when full-screen mode is disabled', () => {
+    expect(resolveStartupInteractionMode({ ...interactive, fullScreenMode: false })).toBe('default');
   });
 
   it('keeps an explicit --auto-mode request in auto mode even when the config opts out', () => {
@@ -97,6 +102,7 @@ describe('startup interaction mode', () => {
     [{ yes: true }, 'default'],
   ] as const)('lets the explicit flag %j decide the mode (%s)', (options, expected) => {
     expect(resolveStartupInteractionMode({ ...interactive, options })).toBe(expected);
+    expect(resolveStartupInteractionMode({ ...interactive, options, configuredMode: 'automode' })).toBe(expected);
   });
 
   it.each([
@@ -125,8 +131,9 @@ describe('startup interaction mode', () => {
     },
   );
 
-  it('preserves the wizard-written interactive permission mode on startup', () => {
-    expect(resolveStartupInteractionMode({ ...interactive, permissionMode: 'interactive' })).toBe('default');
+  it('uses the full-screen default with the wizard-written interactive permission mode', () => {
+    expect(resolveStartupInteractionMode({ ...interactive, permissionMode: 'interactive' })).toBe('automode');
+    expect(resolveStartupInteractionMode({ ...interactive, fullScreenMode: false, permissionMode: 'interactive' })).toBe('default');
   });
 
   it.each(['default', 'plan', 'automode', 'yolo'] as const)(

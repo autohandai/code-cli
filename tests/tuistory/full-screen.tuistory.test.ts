@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import { isTerminalMouseTrackingEnabled } from '../../src/testing/scenarios/mouseScrollbackScenario.js';
 import { composerCaretLine } from '../../src/testing/assertions/composerCaret.js';
-import { clickFullScreenComposer, findHistoryDuringWork, seedFullScreenHistory, startFullScreenHeaderProbe, typeMultilineDraft, runFullScreenLiveOutputScenario } from '../../src/testing/scenarios/fullScreenScenario.js';
+import { clickFullScreenComposer, cycleFullScreenStartupModes, findHistoryDuringWork, requestFullScreenStartupWrite, seedFullScreenHistory, startFullScreenHeaderProbe, typeMultilineDraft, runFullScreenLiveOutputScenario } from '../../src/testing/scenarios/fullScreenScenario.js';
 import { launchTuistorySession } from '../../src/testing/drivers/tuistory-driver.js';
 import { outputViewport, LONG_OUTPUT_COMMAND, runLongOutputTurn } from '../../src/testing/scenarios/compactOutputScenario.js';
 import { createMockAuthServer, type MockAuthServer, createMockAutohandAINativeSequenceServer, type MockNativeToolServer, createTempAutohandHome, launchBuiltAutohand, exitInteractive, type TuistoryTempState } from './helpers/autohandTuistory.js';
@@ -17,6 +17,70 @@ let session: Session | undefined;
 afterEach(async () => { session?.close(); await server?.close(); await auth?.close(); auth = undefined; server = undefined; await state?.cleanup(); session = undefined; state = undefined; });
 
 describe('full-screen terminal', () => {
+  it.each([undefined, true])('starts in auto mode with fullScreenMode=%s and keeps mode switching available', async fullScreenMode => {
+    state = await createTempAutohandHome({ config: {
+      features: { fullScreenMode },
+      ui: { defaultInteractionMode: undefined, promptSuggestions: false },
+    } });
+    session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 120, rows: 30,
+    });
+    await session.waitForText('❯', { timeout: 15_000 });
+    await session.waitIdle();
+    expect(session.getRawOutput()).toContain('\x1b[?1049h');
+    expect(outputViewport(session)).toContain('● AUTO');
+    const modes = await cycleFullScreenStartupModes(session);
+    await expect(`${modes.join('\n')}\n`).toMatchFileSnapshot(path.resolve(
+      'src/testing/snapshots/full-screen-startup-modes.txt',
+    ));
+    await exitInteractive(session);
+    expect(session.getRawOutput()).toContain('\x1b[?1049l');
+    expect(session.exitInfo?.exitCode).toBe(0);
+  });
+
+  it('executes the first requested write in auto mode without an approval prompt', async () => {
+    server = await createMockAutohandAINativeSequenceServer([
+      { toolCall: { id: 'startup-write', name: 'write_file', args: { path: 'startup-check.txt', contents: 'auto startup verified' } } },
+      { content: 'AUTO_STARTUP_COMPLETE' },
+    ]);
+    state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa', baseUrl: server.baseUrl },
+      features: { fullScreenMode: true, autohand_inference: true },
+      permissions: { mode: 'interactive' },
+      agent: { autoMemory: false, maxIterations: 3, sessionRetryLimit: 0 },
+      network: { maxRetries: 0 },
+      ui: { defaultInteractionMode: undefined, promptSuggestions: false, terminalBell: false, showCompletionNotification: false },
+    } });
+    session = await launchBuiltAutohand(['--config', state.configPath], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 120, rows: 30,
+    });
+    await requestFullScreenStartupWrite(session);
+    expect(await readFile(path.join(state.workspaceRoot, 'startup-check.txt'), 'utf8')).toBe('auto startup verified');
+    expect(outputViewport(session)).toContain('● AUTO');
+    await exitInteractive(session);
+  });
+
+  it.each([
+    { args: ['--plan'], configuredMode: undefined, label: '● PLAN' },
+    { args: [], configuredMode: 'default', label: null },
+    { args: ['--restricted'], configuredMode: undefined, label: null },
+  ] as const)('honours the explicit startup choice $args / $configuredMode in full screen', async ({ args, configuredMode, label }) => {
+    state = await createTempAutohandHome({ config: {
+      features: { fullScreenMode: true },
+      ui: { defaultInteractionMode: configuredMode, promptSuggestions: false },
+    } });
+    session = await launchBuiltAutohand([...args, '--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 120, rows: 30,
+    });
+    await session.waitForText('❯', { timeout: 15_000 });
+    if (label) await session.waitForText(label, { timeout: 15_000 });
+    await session.waitIdle();
+    expect(session.getRawOutput()).toContain('\x1b[?1049h');
+    expect(outputViewport(session)).not.toContain('● AUTO');
+    await exitInteractive(session);
+  });
+
   it('finds history while a provider request is running without submitting the query or cancelling work', async () => {
     server = await createMockAutohandAINativeSequenceServer([{ content: 'FIND_WORK_DONE', delayMs: 15_000 }]);
     state = await createTempAutohandHome({ config: {

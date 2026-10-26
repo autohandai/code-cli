@@ -1,0 +1,5 @@
+● AUTO Autohand (OpenRouter, openai/gpt-4o-mini)
+● YOLO Autohand (OpenRouter, openai/gpt-4o-mini)
+Autohand (OpenRouter, openai/gpt-4o-mini)
+● PLAN Autohand (OpenRouter, openai/gpt-4o-mini)
+● AUTO Autohand (OpenRouter, openai/gpt-4o-mini)

@@ -1673,6 +1673,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       options,
       configuredMode: config.ui?.defaultInteractionMode,
       permissionMode: config.permissions?.mode,
+      fullScreenMode: config.features?.fullScreenMode,
       isInteractiveTerminal: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     }));
 
@@ -1771,7 +1772,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       && process.stdin.isTTY === true && process.stdout.isTTY === true) {
       const { hasLegacyAutomodeState } = await import('./core/AutomodeState.js');
       if (await awaitCliLifecycleStep(hasLegacyAutomodeState(originalWorkspaceRoot), commandLifecycleController.signal)) {
-        console.warn(chalk.gray('Ignored old auto-mode state in .autohand/automode.local.md. Auto mode now starts only when you choose it.'));
+        console.warn(chalk.gray('Ignored old auto-mode state in .autohand/automode.local.md. Startup mode follows your current settings.'));
       }
     }
 

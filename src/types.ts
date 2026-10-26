@@ -397,7 +397,7 @@ export interface UISettings {
    */
   enterWhileWorking?: 'select' | 'steer' | 'queue';
   /**
-   * Interaction mode an interactive terminal session starts in (default: automode).
+   * Interaction mode a terminal session starts in (full-screen default: automode; classic: default).
    * Explicit flags and a restricted permission mode always take precedence.
    */
   defaultInteractionMode?: 'default' | 'plan' | 'automode' | 'yolo';
