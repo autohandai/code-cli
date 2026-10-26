@@ -67,6 +67,7 @@ import { applyFormatter } from '../actions/formatters.js';
 import { applyNotebookEdit } from '../actions/notebook.js';
 import { loadCustomCommand, saveCustomCommand } from './customCommands.js';
 import { webSearch, fetchUrl, getPackageInfo, formatSearchResults, formatPackageInfo } from '../actions/web.js';
+import { ManagedSearchCapError } from '../search/managedWebSearch.js';
 import { webRepo, formatRepoInfo, formatRepoDir } from '../actions/webRepo.js';
 import { projectTracker } from '../actions/projectTracker.js';
 import { installSubAgentFromCatalog, searchSubAgentsCatalog } from '../actions/subAgentsCatalog.js';
@@ -339,6 +340,7 @@ const PEER_DIRECT_WRITE_ACTIONS = new Set<string>([
 export const MAX_SEARCH_CACHE_ENTRIES = 100;
 
 export class ActionExecutor {
+  private searchCapNoticeSession: string | undefined;
   private readonly runtime: AgentExecutorDeps['runtime'];
   private readonly files: AgentExecutorDeps['files'];
   private readonly resolveWorkspacePath: AgentExecutorDeps['resolveWorkspacePath'];
@@ -3067,12 +3069,23 @@ export class ActionExecutor {
         }
         console.log(chalk.cyan(`\n🔍 Searching web: "${action.query}"...`));
         const { hasBrowserBridgeOutput, invokeBrowserTool } = await import('../browser/browserToolBridge.js');
-        const results = await webSearch(action.query, {
-          maxResults: action.max_results,
-          searchType: action.search_type,
-          browserToolInvoker: hasBrowserBridgeOutput() ? invokeBrowserTool : undefined,
-          signal: context?.signal,
-        });
+        let results: Awaited<ReturnType<typeof webSearch>>;
+        try {
+          results = await webSearch(action.query, {
+            maxResults: action.max_results,
+            searchType: action.search_type,
+            browserToolInvoker: hasBrowserBridgeOutput() ? invokeBrowserTool : undefined,
+            signal: context?.signal,
+          });
+        } catch (error) {
+          if (!(error instanceof ManagedSearchCapError)) throw error;
+          const session = this.deps.getCurrentSessionId?.() ?? this.sessionId ?? '';
+          if (this.searchCapNoticeSession !== session) {
+            this.searchCapNoticeSession = session;
+            console.log(chalk.yellow(error.message));
+          }
+          return error.message;
+        }
         const formatted = formatSearchResults(results);
         console.log(chalk.gray(formatted.split('\n').slice(0, 10).join('\n')));
         if (results.length > 3) {

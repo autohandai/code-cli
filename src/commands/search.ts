@@ -38,8 +38,19 @@ export async function search(ctx: SearchContext): Promise<string | null> {
 
   // Provider selection
   const identity = config ? managedSearchIdentity(config) : undefined;
-  const included = identity ? await new ManagedWebSearch(identity).available() : false;
-  const providerOptions: ModalOption[] = SEARCH_PROVIDER_OPTIONS.filter(option => option.value !== 'autohand' || included).map(option => ({ ...option }));
+  const capability = identity ? await new ManagedWebSearch(identity).status() : null;
+  const included = capability?.available ?? false;
+  if (capability?.tier === 'free' && capability.usage) {
+    console.log(chalk.gray(`${capability.usage.remaining} of 10 free searches left today`));
+    console.log(chalk.gray('Resets at 00:00 UTC.'));
+    console.log();
+  }
+  const providerOptions: ModalOption[] = SEARCH_PROVIDER_OPTIONS.filter(option => option.value !== 'autohand' || included).map(option => ({
+    ...option,
+    ...(option.value === 'autohand' && capability?.tier === 'free' && capability.usage ? {
+      description: `${capability.usage.remaining} of 10 free searches left today. Resets at 00:00 UTC.`,
+    } : {}),
+  }));
 
   try {
     const result = await showModal({

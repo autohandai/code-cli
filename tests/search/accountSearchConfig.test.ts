@@ -23,7 +23,8 @@ describe('account-aware search configuration', () => {
     await configureSearchFromAccount({ auth: { token: 'ahc_old' }, search: { provider: 'autohand' } });
     await configureSearchFromAccount({ search: { provider: 'exa', exaApiKey: 'own-key' } }, 'brave');
     expect(getSearchConfig().provider).toBe('brave');
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0][1]).toHaveProperty('method', 'GET');
     await expect(webSearch('docs', { provider: 'autohand' })).rejects.toThrow('Sign in');
   });
   it('keeps Free on local providers and reports missing browser setup without a Google fallback', async () => {
