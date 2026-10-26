@@ -10,6 +10,45 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 40));
 afterEach(cleanup);
 
 describe('full-screen composer integration', () => {
+  it.each([false, true])('finds transcript text while working with queue input enabled=%s', async enableQueueInput => {
+    const model = new FullScreenTranscript();
+    const onInstruction = vi.fn();
+    const onEscape = vi.fn();
+    const onCtrlC = vi.fn();
+    let state = { ...createInitialUIState(), isWorking: true, status: 'Reading sources', currentInput: 'preserved draft',
+      chatMessages: Array.from({ length: 50 }, (_, i) => ({ role: 'assistant' as const, content: `History item ${i}` })),
+      streamingResponse: 'The investigation is still running.',
+    };
+    const frame = () => <I18nProvider><ThemeProvider><AgentUI fullScreenTranscript={model} state={state} enableQueueInput={enableQueueInput} onInstruction={onInstruction} onEscape={onEscape} onCtrlC={onCtrlC} /></ThemeProvider></I18nProvider>;
+    const view = render(frame()); await flush();
+    const screen = () => stripAnsi(view.lastFrame() ?? '');
+    view.stdin.write('\x06'); await flush();
+    view.stdin.write('History item 10'); await flush();
+    expect(model.view(8).following).toBe(false);
+    expect(screen()).toContain('History item 10\n');
+    expect(screen()).not.toContain('No match');
+    state = { ...state, streamingResponse: `${state.streamingResponse}\nMore ongoing work.` };
+    view.rerender(frame()); await flush();
+    expect(screen()).toContain('History item 10\n');
+    view.stdin.write('\x06'); await flush();
+    view.stdin.write('Pending discovery'); await flush();
+    expect(screen()).toContain('No match');
+    state = { ...state, streamingResponse: `${state.streamingResponse}\nPending discovery is now available.` };
+    view.rerender(frame()); await flush();
+    expect(screen()).not.toContain('No match');
+    expect(screen()).toContain('Pending discovery is now available.');
+    view.stdin.write('\r'); await flush();
+    view.stdin.write('\x1b'); await flush();
+    expect(model.searchQuery).toBeNull();
+    if (enableQueueInput) expect(screen()).toContain('preserved draft');
+    expect(onInstruction).not.toHaveBeenCalled();
+    expect(onEscape).not.toHaveBeenCalled();
+    view.stdin.write('\x06'); await flush();
+    view.stdin.write('\x03'); await flush();
+    expect(model.searchQuery).toBeNull();
+    expect(onCtrlC).not.toHaveBeenCalled();
+  });
+
   it('expands a running command with Ctrl+O while reading history and keeps the draft', async () => {
     const model = new FullScreenTranscript();
     let state = createInitialUIState();

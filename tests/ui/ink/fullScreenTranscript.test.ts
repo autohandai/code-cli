@@ -5,6 +5,62 @@ import type { ChatLogMessage } from '../../../src/session/chatLog.js';
 const messages: ChatLogMessage[] = Array.from({ length: 100 }, (_, i) => ({ role: 'assistant', content: `Message ${i} with enough words to wrap on narrow terminals.` }));
 
 describe('full-screen transcript viewport', () => {
+  it('finds a phrase across soft wraps at different terminal widths', () => {
+    const model = new FullScreenTranscript();
+    const content = 'Earlier context: i dont think this is working while the investigation continues.';
+    for (const width of [24, 40, 80]) {
+      model.update([{ role: 'user', content }, ...messages], width);
+      expect(model.search('i dont think this is working', 8)).toBe(true);
+      expect(model.view(8).rows.some(row => row.role === 'user')).toBe(true);
+    }
+  });
+
+  it('keeps a search result anchored while the first streamed message grows', () => {
+    const model = new FullScreenTranscript();
+    const content = ['Search target', ...Array.from({ length: 40 }, (_, i) => `Stream row ${i}`)].join('\n');
+    model.update([{ role: 'assistant', content }], 60);
+    expect(model.search('Search target', 8)).toBe(true);
+    const before = model.view(8).lines;
+    model.update([{ role: 'assistant', content: `${content}\nMore streaming output` }], 60);
+    expect(model.view(8).lines).toEqual(before);
+    expect(model.view(8).following).toBe(false);
+  });
+
+  it('treats punctuation literally and finds Unicode and hard-wrapped words', () => {
+    const model = new FullScreenTranscript();
+    model.update([{ role: 'user', content: '🦉 literal [target].*+? regex averylongidentifierwithoutspaces café' }, ...messages], 12);
+    expect(model.search('[target].*+?', 8)).toBe(true);
+    expect(model.search('averylongidentifierwithoutspaces', 8)).toBe(true);
+    expect(model.search('CAFÉ', 8)).toBe(true);
+    expect(model.search('target.*', 8)).toBe(false);
+  });
+
+  it('does not match a phrase across separate messages', () => {
+    const model = new FullScreenTranscript();
+    model.update([{ role: 'user', content: 'first half' }, { role: 'assistant', content: 'second half' }], 24);
+    expect(model.search('half second', 8)).toBe(false);
+  });
+
+  it('refreshes the selected occurrence through resize and new output without advancing it', () => {
+    const model = new FullScreenTranscript();
+    const key = (flags: object) => flags as Parameters<typeof model.handleKey>[1];
+    model.update(messages, 60);
+    model.view(8);
+    model.handleKey('f', key({ ctrl: true }));
+    model.handleKey('Message', key({}));
+    model.handleKey('', key({ return: true }));
+    model.update([...messages, { role: 'assistant', content: 'Message 100 just arrived' }], 24);
+    expect(model.view(8).lines[0]).toContain('Message 1 ');
+    model.handleKey('missing', key({}));
+    expect(model.searchMatched).toBe(false);
+    for (let index = 0; index < 'missing'.length; index++) model.handleKey('', key({ backspace: true }));
+    expect(model.searchMatched).toBe(true);
+    expect(model.view(8).lines[0]).toContain('Message 0 ');
+    for (let index = 0; index < 'Message'.length; index++) model.handleKey('', key({ backspace: true }));
+    expect(model.searchQuery).toBe('');
+    expect(model.searchMatched).toBe(true);
+  });
+
   it('opens the selected live details even when later messages follow them', () => {
     const model = new FullScreenTranscript();
     const details = { role: 'tool_call' as const, tool: 'live command', detailsId: 'live-output', content: Array.from({ length: 30 }, (_, i) => `live-detail-${i}`).join('\n') };
@@ -44,7 +100,10 @@ describe('full-screen transcript viewport', () => {
     model.view(8);
     model.handleKey('f', key({ ctrl: true }));
     model.handleKey('Message', key({}));
+    expect(model.view(8).lines.join('\n')).toContain('Message 0');
     model.handleKey('', key({ return: true }));
+    expect(model.view(8).lines.join('\n')).toContain('Message 1');
+    model.handleKey('', key({ return: true, shift: true }));
     expect(model.view(8).lines.join('\n')).toContain('Message 0');
     model.handleKey('', key({ return: true, shift: true }));
     expect(model.view(8).lines.join('\n')).toContain('Message 99');

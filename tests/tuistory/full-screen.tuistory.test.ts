@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import { isTerminalMouseTrackingEnabled } from '../../src/testing/scenarios/mouseScrollbackScenario.js';
 import { composerCaretLine } from '../../src/testing/assertions/composerCaret.js';
-import { clickFullScreenComposer, seedFullScreenHistory, startFullScreenHeaderProbe, typeMultilineDraft, runFullScreenLiveOutputScenario } from '../../src/testing/scenarios/fullScreenScenario.js';
+import { clickFullScreenComposer, findHistoryDuringWork, seedFullScreenHistory, startFullScreenHeaderProbe, typeMultilineDraft, runFullScreenLiveOutputScenario } from '../../src/testing/scenarios/fullScreenScenario.js';
 import { launchTuistorySession } from '../../src/testing/drivers/tuistory-driver.js';
 import { outputViewport, LONG_OUTPUT_COMMAND, runLongOutputTurn } from '../../src/testing/scenarios/compactOutputScenario.js';
 import { createMockAuthServer, type MockAuthServer, createMockAutohandAINativeSequenceServer, type MockNativeToolServer, createTempAutohandHome, launchBuiltAutohand, exitInteractive, type TuistoryTempState } from './helpers/autohandTuistory.js';
@@ -17,6 +17,37 @@ let session: Session | undefined;
 afterEach(async () => { session?.close(); await server?.close(); await auth?.close(); auth = undefined; server = undefined; await state?.cleanup(); session = undefined; state = undefined; });
 
 describe('full-screen terminal', () => {
+  it('finds history while a provider request is running without submitting the query or cancelling work', async () => {
+    server = await createMockAutohandAINativeSequenceServer([{ content: 'FIND_WORK_DONE', delayMs: 15_000 }]);
+    state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa', baseUrl: server.baseUrl },
+      features: { fullScreenMode: true, autohand_inference: true },
+      agent: { autoMemory: false, maxIterations: 4, sessionRetryLimit: 0 },
+      network: { maxRetries: 0 },
+      ui: { promptSuggestions: false, terminalBell: false, showCompletionNotification: false },
+    } });
+    await seedFullScreenHistory(state.autohandHome, state.workspaceRoot);
+    session = await launchBuiltAutohand(['resume', 'full-screen-history', '--config', state.configPath, '--yes'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 160, rows: 30,
+    });
+    await session.waitForText('History item 79');
+    const found = await findHistoryDuringWork(session);
+    expect(found).toContain('History item 20 — preserved transcript');
+    expect(found).toContain('esc to cancel');
+    expect(found).toContain('❯ preserved draft');
+    expect(found).not.toContain('No match');
+    expect(outputViewport(session)).toContain('❯ preserved draft');
+    expect(outputViewport(session)).toContain('esc to cancel');
+    await expect.poll(() => server?.requests.length).toBe(1);
+    await session.write('\x1b[1;5F');
+    await session.waitForText('FIND_WORK_DONE', { timeout: 20_000 });
+    expect(outputViewport(session)).toContain('❯ preserved draft');
+    expect(server.requests).toHaveLength(1);
+    await exitInteractive(session);
+    expect(session.getRawOutput()).toContain('\x1b[?1049l');
+  });
+
   it('expands live output from history and retains user-message highlighting through resize', async () => {
     state = await createTempAutohandHome();
     session = await launchTuistorySession({

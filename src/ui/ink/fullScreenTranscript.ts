@@ -15,10 +15,20 @@ export interface TranscriptRow {
   role?: ChatLogMessage['role'];
 }
 
-interface Entry {
-  message: FullScreenMessage;
+interface FormattedMessage {
   lines: string[];
+  searchText: string;
+  rowEnds: number[];
+}
+
+interface Entry extends FormattedMessage {
+  message: FullScreenMessage;
   end: number;
+}
+
+interface SearchMatch {
+  index: number;
+  row: number;
 }
 
 export interface TranscriptView {
@@ -52,7 +62,7 @@ export class FullScreenTranscript {
   searchQuery: string | null = null;
   searchMatched = true;
   private entries: Entry[] = [];
-  private cache = new WeakMap<ChatLogMessage, string[]>();
+  private cache = new WeakMap<ChatLogMessage, FormattedMessage>();
   private width = 0;
   private offset = 0;
   private following = true;
@@ -89,8 +99,13 @@ export class FullScreenTranscript {
     if (this.searchQuery !== null) {
       if (key.escape || (key.ctrl && input === 'c')) this.searchQuery = null;
       else if (key.return) this.searchMatched = this.search(this.searchQuery, this.height, key.shift ? -1 : 1);
-      else if (key.backspace || key.delete) this.searchQuery = Array.from(this.searchQuery).slice(0, -1).join('');
-      else if (!key.ctrl && !key.meta && !/[\x00-\x1f\x7f]/u.test(input)) this.searchQuery = (this.searchQuery + input).slice(0, 128);
+      else if (key.backspace || key.delete) {
+        this.searchQuery = Array.from(this.searchQuery).slice(0, -1).join('');
+        this.refreshSearch(true);
+      } else if (!key.ctrl && !key.meta && !/[\x00-\x1f\x7f]/u.test(input)) {
+        this.searchQuery = (this.searchQuery + input).slice(0, 128);
+        this.refreshSearch(true);
+      }
       return true;
     }
     if (key.ctrl && key.home) {
@@ -124,20 +139,23 @@ export class FullScreenTranscript {
     if (!this.following && (messages.length > this.entries.length ||
       (previousLast && nextLast && previousLast.content !== nextLast.content))) this.newActivity = true;
     const first = this.entries[0]?.message;
-    if (first && (!messages[0] || first.role !== messages[0].role || first.content !== messages[0].content)) this.follow();
+    if (first && (!messages[0] || first.role !== messages[0].role || !messages[0].content.startsWith(first.content))) this.follow();
     if (width !== this.width) {
       this.cache = new WeakMap();
       this.width = width;
     }
     let end = 0;
     this.entries = messages.map(message => {
-      let lines = this.cache.get(message);
-      if (!lines) {
-        lines = formatMessage(message, width);
-        this.cache.set(message, lines);
+      let formatted = this.cache.get(message);
+      if (!formatted) {
+        const lines = formatMessage(message, width);
+        const plainLines = lines.map(line => stripAnsi(line).toLocaleLowerCase());
+        let rowEnd = 0;
+        formatted = { lines, searchText: plainLines.join('\n'), rowEnds: plainLines.map(line => rowEnd += line.length + 1) };
+        this.cache.set(message, formatted);
       }
-      end += lines.length;
-      return { message, lines, end };
+      end += formatted.lines.length;
+      return { message, ...formatted, end };
     });
     if (!this.following && oldIndex >= 0 && this.entries[oldIndex]) {
       let row = 0;
@@ -146,6 +164,13 @@ export class FullScreenTranscript {
       while (row < entry.lines.length - 1 && consumed < characters) consumed += stripAnsi(entry.lines[row++]).length;
       this.offset = (oldIndex > 0 ? this.entries[oldIndex - 1].end : 0) + row;
     }
+    this.refreshSearch();
+  }
+
+  private refreshSearch(reset = false): void {
+    if (this.searchQuery === null) return;
+    if (reset) this.lastMatch = -1;
+    this.searchMatched = !this.searchQuery.trim() || this.search(this.searchQuery, this.height, 1, false);
   }
 
   view(height: number): TranscriptView {
@@ -188,28 +213,35 @@ export class FullScreenTranscript {
     this.lastMatch = -1;
   }
 
-  search(query: string, height = this.height, direction: -1 | 1 = 1): boolean {
+  search(query: string, height = this.height, direction: -1 | 1 = 1, advance = true): boolean {
     if (!query.trim()) return false;
-    const needle = query.toLocaleLowerCase();
+    const needle = query.trim().toLocaleLowerCase();
+    const pattern = new RegExp(needle.split(/\s+/u).map(word => Array.from(word, character =>
+      character.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+    ).join('\n?')).join('\\s+'), 'gu');
     const after = needle === this.lastQuery ? this.lastMatch : -1;
-    let first = -1;
-    let next = -1;
-    let last = -1;
+    let first: SearchMatch | undefined;
+    let next: SearchMatch | undefined;
+    let last: SearchMatch | undefined;
+    let index = 0;
     let row = 0;
-    for (const entry of this.entries) for (const line of entry.lines) {
-      if (stripAnsi(line).toLocaleLowerCase().includes(needle)) {
-        if (first < 0) first = row;
-        last = row;
-        if (direction === 1 ? row > after && next < 0 : row < after) next = row;
+    for (const entry of this.entries) {
+      let localRow = 0;
+      for (const result of entry.searchText.matchAll(pattern)) {
+        while (entry.rowEnds[localRow] <= result.index) localRow++;
+        const match = { index: index++, row: row + localRow };
+        first ??= match;
+        last = match;
+        if (direction === 1 ? (advance ? match.index > after : match.index >= after) && !next : match.index < after) next = match;
       }
-      row++;
+      row += entry.lines.length;
     }
-    const match = next >= 0 ? next : direction === 1 ? first : last;
+    const match = next ?? (direction === 1 ? first : last);
     this.lastQuery = needle;
-    this.lastMatch = match;
-    if (match < 0) return false;
+    this.lastMatch = match?.index ?? -1;
+    if (!match) return false;
     this.following = false;
-    this.offset = Math.min(match, Math.max(0, row - height));
+    this.offset = Math.min(match.row, Math.max(0, row - height));
     return true;
   }
 }

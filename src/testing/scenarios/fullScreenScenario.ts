@@ -13,6 +13,22 @@ export async function startFullScreenHeaderProbe(session: TerminalSession): Prom
   await session.waitForText('esc to cancel', { timeout: 10_000 });
 }
 
+export async function findHistoryDuringWork(session: TerminalSession): Promise<string> {
+  await session.type('Keep investigating the repository');
+  await session.press('enter');
+  await session.waitForText('esc to cancel');
+  await session.type('preserved draft');
+  await session.waitForText('❯ preserved draft');
+  await session.press(['ctrl', 'f']);
+  await session.type('History item 20');
+  await session.text({ timeout: 2_000, waitFor: screen => /^History item 20 /mu.test(screen) });
+  const found = outputViewport(session);
+  await session.press('enter');
+  await session.press('esc');
+  await session.waitForText('Full screen');
+  return found;
+}
+
 export async function seedFullScreenHistory(home: string, project: string): Promise<void> {
   const date = new Date().toISOString();
   const metadata = { sessionId: 'full-screen-history', createdAt: date, lastActiveAt: date, projectPath: project,
@@ -76,6 +92,18 @@ export async function runFullScreenLiveOutputPtyScenario(terminal: PtyDriver): P
   terminal.type('preserved draft');
   await terminal.waitFor('❯ preserved draft');
   let after = terminal.snapshot().length;
+  terminal.type('\x06');
+  await terminal.waitFor('Find:', 10_000, after);
+  after = terminal.snapshot().length;
+  terminal.type('fixture-history-10');
+  await terminal.waitFor(/fixture-history-9 fixture-history-10 fixture-history-11/u, 10_000, after);
+  after = terminal.snapshot().length;
+  terminal.type('\x1b');
+  await terminal.waitFor('Full screen', 10_000, after);
+  after = terminal.snapshot().length;
+  terminal.type('\x1b[1;5F');
+  await terminal.waitFor('live-row-60', 10_000, after);
+  after = terminal.snapshot().length;
   terminal.type('\x1b[5~');
   await terminal.waitFor('Back to bottom', 10_000, after);
   after = terminal.snapshot().length;
