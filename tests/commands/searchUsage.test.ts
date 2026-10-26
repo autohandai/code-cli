@@ -10,8 +10,8 @@ describe('/search Free daily usage', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ available: true, tier: 'free', provider: 'cloudflare', usage: { limit: 10, remaining, resetAt: '2026-10-27T00:00:00.000Z' } })));
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     await search({ config: { configPath: '/fixture', auth: { token: 'ahc_verified_free' } } });
-    expect(log.mock.calls.some(args => String(args[0]).includes(`${remaining} of 10 free searches left today`))).toBe(true);
-    expect(log.mock.calls.some(args => String(args[0]).includes('Resets at 00:00 UTC.'))).toBe(true);
-    expect(showModal).toHaveBeenLastCalledWith(expect.objectContaining({ options: expect.arrayContaining([expect.objectContaining({ value: 'autohand' })]) }));
+    const usage = `${remaining} of 10 free web searches left today. Resets at 00:00 UTC.`;
+    expect(log.mock.calls.some(args => String(args[0]).includes(usage))).toBe(true);
+    expect(showModal).toHaveBeenLastCalledWith(expect.objectContaining({ options: expect.arrayContaining([expect.objectContaining({ value: 'autohand', description: usage })]) }));
   });
 });

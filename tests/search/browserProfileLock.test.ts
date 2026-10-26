@@ -37,7 +37,7 @@ describe('Chrome profile SingletonLock', () => {
   it('does not offer a locked profile without a fallback, including Chromium dangling symlink locks', async () => {
     await symlink('host-12345', path.join(root, 'SingletonLock'));
     expect(isSearchConfigured()).toBe(false);
-    await expect(webSearch('docs')).rejects.toThrow("Chrome is open on your profile, so browser search can't run. Pick a provider with /search.");
+    await expect(webSearch('docs')).rejects.toThrow("Chrome is open on your profile, so browser search can't run. Close Chrome, or pick another provider with /search.");
     expect(fixture.spawn).not.toHaveBeenCalled();
   });
   it('uses included Free search instead of launching the locked profile', async () => {
@@ -58,7 +58,7 @@ describe('Chrome profile SingletonLock', () => {
   });
   it('keeps the hosted tool available at the cap and never launches a locked profile to bypass it', async () => {
     await symlink('host-12345', path.join(root, 'SingletonLock'));
-    const message = "You've used your 10 free web searches today. Upgrade to Pro for more: https://dev.autohand.ai/search/upgrade?source=cli. Resets in 2h 5m.";
+    const message = "You've used your 10 free web searches today. They reset in 2h 5m. For more, upgrade to Pro: https://dev.autohand.ai/search/upgrade?source=cli";
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(Response.json({ available: true, tier: 'free', provider: 'cloudflare', usage: { limit: 10, remaining: 0, resetAt: '2026-10-27T00:00:00.000Z' } }))
       .mockResolvedValueOnce(Response.json({ error: { code: 'web_search_cap_hit', message } }, { status: 429 })));
     await configureSearchFromAccount({ auth: { token: 'ahc_verified_free' }, search: { provider: 'browser-profile' } });

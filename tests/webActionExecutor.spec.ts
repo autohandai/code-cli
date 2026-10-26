@@ -22,7 +22,7 @@ describe('web tool dispatch', () => {
   });
 
   it('returns the cap line to the model every time and prints it once per session', async () => {
-    const message = "You've used your 10 free web searches today. Upgrade to Pro for more: https://dev.autohand.ai/search/upgrade?source=cli. Resets in 2h 5m.";
+    const message = "You've used your 10 free web searches today. They reset in 2h 5m. For more, upgrade to Pro: https://dev.autohand.ai/search/upgrade?source=cli";
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async (_url, init) => init.method === 'GET'
       ? Response.json({ available: true, tier: 'free', provider: 'cloudflare' })
       : Response.json({ error: { code: 'web_search_cap_hit', message } }, { status: 429 })));

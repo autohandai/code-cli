@@ -1000,7 +1000,7 @@ async function browserProfileSearch(
   throwIfAborted(signal);
   if (profile && isBrowserProfileLocked(profile.userDataDir)) {
     if (managedSearchAvailable && managedSearch) return managedSearch.search(query, maxResults, signal);
-    throw new Error("Chrome is open on your profile, so browser search can't run. Pick a provider with /search.");
+    throw new Error("Chrome is open on your profile, so browser search can't run. Close Chrome, or pick another provider with /search.");
   }
   const chromePath = findChromePath();
   if (!chromePath) {
