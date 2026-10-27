@@ -46,7 +46,7 @@ describe('full-screen frame', () => {
     expect(rows.find(row => row.includes('You are welcome.'))).not.toContain('\x1b[48;2;101;67;33m');
   });
 
-  it('shows product identity above history and navigation below the status line', async () => {
+  it('keeps the configured status at the bottom and Find above the anchored composer', async () => {
     const model = new FullScreenTranscript();
     const directory = path.join(os.homedir(), 'Documents', 'autohand', 'cli-3');
     const frame = () => <ThemeProvider><FullScreenFrame model={model} messages={[]} rows={24} columns={100} workspaceRoot={directory}
@@ -55,20 +55,22 @@ describe('full-screen frame', () => {
     const lines = () => stripAnsi(view.lastFrame() ?? '').split('\n');
     expect(lines()[0]).toMatch(/Autohand Code \(v\d+\.\d+\.\d+/);
     expect(lines()[1]).toContain('~/Documents/autohand/cli-3');
-    expect([...lines().slice(0, 2), ...lines().slice(-3)].map(line => line.replace(/\(v[^)]+\)/u, '(vVERSION)'))).toMatchInlineSnapshot(`
+    expect([...lines().slice(0, 2), ...lines().slice(-2)].map(line => line.replace(/\(v[^)]+\)/u, '(vVERSION)'))).toMatchInlineSnapshot(`
       [
         ">_ Autohand Code (vVERSION)",
         "   ~/Documents/autohand/cli-3",
         "❯ draft",
         "STATUS_ROW",
-        "Full screen · Latest · PgUp/PgDn · Ctrl+F find",
       ]
     `);
-    expect(lines().findIndex(line => line.includes('Full screen'))).toBeGreaterThan(lines().findIndex(line => line.includes('STATUS_ROW')));
+    expect(lines().at(-1)).toBe('STATUS_ROW');
+    expect(lines().join('\n')).not.toContain('Full screen');
     const composerRow = lines().findIndex(line => line.includes('❯ draft'));
     model.searchQuery = 'needle';
     view.rerender(frame()); await flush();
-    expect(lines().findIndex(line => line.includes('Find: needle'))).toBeGreaterThan(lines().findIndex(line => line.includes('STATUS_ROW')));
+    expect(lines().join('\n')).toContain('Find: needle');
+    expect(lines().findIndex(line => line.includes('Find: needle'))).toBeLessThan(composerRow);
+    expect(lines().at(-1)).toBe('STATUS_ROW');
     expect(lines().findIndex(line => line.includes('❯ draft'))).toBe(composerRow);
   });
   it('shows unread activity above an anchored composer', async () => {

@@ -10,6 +10,30 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 40));
 afterEach(cleanup);
 
 describe('full-screen composer integration', () => {
+  it.each([false, true])('ends with the selected status items and honors shortcuts enabled=%s', async hintsEnabled => {
+    const model = new FullScreenTranscript();
+    const state = { ...createInitialUIState(), configuredLineExtensions: { help: {
+      replaceDefault: true,
+      segments: [
+        { id: 'project', text: 'selected-project' },
+        ...(hintsEnabled ? [{ id: 'hints', text: '? shortcuts' }] : []),
+      ],
+    } } };
+    const view = render(<I18nProvider><ThemeProvider><AgentUI fullScreenTranscript={model} state={state} onInstruction={() => {}} onEscape={() => {}} onCtrlC={() => {}} /></ThemeProvider></I18nProvider>);
+    await flush();
+    const rows = () => stripAnsi(view.lastFrame() ?? '').split('\n');
+    expect(rows().at(-1)).toContain('selected-project');
+    expect(rows().at(-1)?.includes('? shortcuts')).toBe(hintsEnabled);
+    expect(rows().join('\n')).not.toContain('Full screen');
+    const composerRow = rows().findIndex(line => line.includes('❯'));
+    view.stdin.write('\x06'); await flush();
+    expect(rows().join('\n')).toContain('Find:');
+    expect(rows().findIndex(line => line.includes('Find:'))).toBeLessThan(composerRow);
+    expect(rows().at(-1)).toContain('selected-project');
+    view.stdin.write('\x1b'); await flush();
+    expect(rows().findIndex(line => line.includes('❯'))).toBe(composerRow);
+  });
+
   it.each([false, true])('finds transcript text while working with queue input enabled=%s', async enableQueueInput => {
     const model = new FullScreenTranscript();
     const onInstruction = vi.fn();
@@ -102,7 +126,7 @@ describe('full-screen composer integration', () => {
     expect(rows()[tipRow - 1]).toContain('esc to cancel');
     const composerRow = rows().findIndex(line => line.includes('❯ preserved draft'));
     expect(rows().slice(tipRow + 1, composerRow).every(line => /^[▔▁─\s]*$/u.test(line))).toBe(true);
-    expect(rows().findIndex(line => line.includes('Full screen'))).toBeGreaterThan(rows().findIndex(line => line.includes('context left')));
+    expect(screen()).not.toContain('Full screen');
     state = { ...state, isWorking: false, status: '' };
     view.rerender(frame()); await flush();
     expect(screen()).not.toContain('READING_SOURCES');
@@ -168,7 +192,7 @@ describe('full-screen composer integration', () => {
     expect(stripAnsi(view.lastFrame() ?? '')).toContain('preserved draft');
     expect(stripAnsi(view.lastFrame() ?? '').split('\n').length).toBeLessThanOrEqual(24);
     view.stdin.write('\x1b[5~'); await flush();
-    expect(stripAnsi(view.lastFrame() ?? '')).toContain('Ctrl+End latest');
+    expect(stripAnsi(view.lastFrame() ?? '')).toContain('Back to bottom · Ctrl+End');
     view.stdin.write('\x06'); await flush();
     view.stdin.write('History entry 40'); await flush(); view.stdin.write('\r'); await flush();
     expect(stripAnsi(view.lastFrame() ?? '')).toContain('History entry 40');

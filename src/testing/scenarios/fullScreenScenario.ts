@@ -34,6 +34,25 @@ export async function startFullScreenHeaderProbe(session: TerminalSession): Prom
   await session.waitForText('esc to cancel', { timeout: 10_000 });
 }
 
+export async function inspectFullScreenStatusBar(session: TerminalSession) {
+  await session.waitForText('░░░░░░░░░░');
+  await session.waitIdle();
+  const initial = outputViewport(session);
+  await session.type('?');
+  await session.waitForText('Keyboard shortcuts');
+  await session.press('esc');
+  await session.press(['ctrl', 'f']);
+  await session.type('missing footer probe');
+  await session.waitForText('No match');
+  const finding = outputViewport(session);
+  await session.press('esc');
+  await session.waitIdle();
+  const restored = outputViewport(session);
+  session.resize({ cols: 160, rows: 24 });
+  await session.text();
+  return { initial, finding, restored, resized: outputViewport(session) };
+}
+
 export async function findHistoryDuringWork(session: TerminalSession): Promise<string> {
   await session.type('Keep investigating the repository');
   await session.press('enter');
@@ -46,7 +65,7 @@ export async function findHistoryDuringWork(session: TerminalSession): Promise<s
   const found = outputViewport(session);
   await session.press('enter');
   await session.press('esc');
-  await session.waitForText('Full screen');
+  await session.waitForText('? shortcuts');
   return found;
 }
 
@@ -120,7 +139,7 @@ export async function runFullScreenLiveOutputPtyScenario(terminal: PtyDriver): P
   await terminal.waitFor(/fixture-history-9 fixture-history-10 fixture-history-11/u, 10_000, after);
   after = terminal.snapshot().length;
   terminal.type('\x1b');
-  await terminal.waitFor('Full screen', 10_000, after);
+  await terminal.waitFor('? shortcuts', 10_000, after);
   after = terminal.snapshot().length;
   terminal.type('\x1b[1;5F');
   await terminal.waitFor('live-row-60', 10_000, after);

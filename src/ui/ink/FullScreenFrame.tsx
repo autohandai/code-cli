@@ -28,7 +28,7 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
   const width = Math.max(1, columns - 1);
   const footerLimit = Math.max(1, height - 6);
   const footerHeight = Math.min(footerLimit, metrics.hasMeasured ? metrics.height : 8);
-  const bodyHeight = Math.max(0, height - footerHeight - 5);
+  const bodyHeight = Math.max(0, height - footerHeight - 4);
   const directory = workspaceRoot ?? process.cwd();
   const home = os.homedir();
   const displayDirectory = directory === home ? '~' : directory.startsWith(home + path.sep) ? `~${directory.slice(home.length)}` : directory;
@@ -39,7 +39,7 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
   while (transcriptRows.length < bodyHeight) transcriptRows.push({ text: ' ' });
   const hint = model.searchQuery !== null
     ? `Find: ${model.searchQuery} · Enter next · Shift+Enter previous · Esc close${model.searchMatched ? '' : ' · No match'}`
-    : `Full screen · ${view.following ? 'Latest' : 'Ctrl+End latest'} · PgUp/PgDn · Ctrl+F find`;
+    : view.following ? ' ' : `${view.newActivity ? 'New activity · ' : ''}↓ Back to bottom · Ctrl+End${detailsId ? '' : ' / Esc'}`;
   return <Box flexDirection="column" width={width} height={height} overflow="hidden">
     <Box flexDirection="column" height={3} flexShrink={0} overflow="hidden">
       <Text wrap="truncate"><Text color={colors.accent}>{'>_ '}</Text><Text bold>Autohand Code</Text><Text color={colors.muted}>{` (v${runtimeVersion})`}</Text></Text>
@@ -51,12 +51,11 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
         ? theme.bold(theme.fgBg('userMessageText', 'userMessageBg', row.text + ' '.repeat(Math.max(0, width - stringWidth(row.text)))))
         : row.text || ' '}</Text>)}
     </Box>
-    <Text color={colors.accent} wrap="truncate">{view.following ? ' ' : `${view.newActivity ? 'New activity · ' : ''}↓ Back to bottom · Ctrl+End${detailsId ? '' : ' / Esc'}`}</Text>
+    <Text color={model.searchQuery !== null ? colors.muted : colors.accent} wrap="truncate">{hint}</Text>
     <Box ref={footerRef} flexDirection="column" flexShrink={0} maxHeight={footerLimit} overflow="hidden" justifyContent="flex-end">
       <ComposerOriginContext.Provider value={{ left: metrics.left, top: metrics.top }}>
         {footer}
       </ComposerOriginContext.Provider>
     </Box>
-    <Box height={1} flexShrink={0}><Text color={colors.muted} wrap="truncate">{hint}</Text></Box>
   </Box>;
 }

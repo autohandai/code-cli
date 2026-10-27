@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import { isTerminalMouseTrackingEnabled } from '../../src/testing/scenarios/mouseScrollbackScenario.js';
 import { composerCaretLine } from '../../src/testing/assertions/composerCaret.js';
-import { clickFullScreenComposer, cycleFullScreenStartupModes, findHistoryDuringWork, requestFullScreenStartupWrite, seedFullScreenHistory, startFullScreenHeaderProbe, typeMultilineDraft, runFullScreenLiveOutputScenario } from '../../src/testing/scenarios/fullScreenScenario.js';
+import { clickFullScreenComposer, cycleFullScreenStartupModes, findHistoryDuringWork, inspectFullScreenStatusBar, requestFullScreenStartupWrite, seedFullScreenHistory, startFullScreenHeaderProbe, typeMultilineDraft, runFullScreenLiveOutputScenario } from '../../src/testing/scenarios/fullScreenScenario.js';
 import { launchTuistorySession } from '../../src/testing/drivers/tuistory-driver.js';
 import { outputViewport, LONG_OUTPUT_COMMAND, runLongOutputTurn } from '../../src/testing/scenarios/compactOutputScenario.js';
 import { createMockAuthServer, type MockAuthServer, createMockAutohandAINativeSequenceServer, type MockNativeToolServer, createTempAutohandHome, launchBuiltAutohand, exitInteractive, type TuistoryTempState } from './helpers/autohandTuistory.js';
@@ -17,6 +17,35 @@ let session: Session | undefined;
 afterEach(async () => { session?.close(); await server?.close(); await auth?.close(); auth = undefined; server = undefined; await state?.cleanup(); session = undefined; state = undefined; });
 
 describe('full-screen terminal', () => {
+  it.each([false, true])('keeps selected status items at the bottom with shortcuts enabled=%s', async hintsEnabled => {
+    state = await createTempAutohandHome({ config: {
+      features: { fullScreenMode: true },
+      ui: { promptSuggestions: false, statusBar: { layout: 'classic', sections: [
+        { id: 'model', enabled: true },
+        { id: 'context', enabled: true },
+        { id: 'hints', enabled: hintsEnabled },
+      ] } },
+    } });
+    session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 180, rows: 30,
+    });
+    const screens = await inspectFullScreenStatusBar(session);
+    for (const screen of Object.values(screens)) {
+      const footer = screen.trimEnd().split('\n').at(-1);
+      expect(footer).toContain('openai/gpt-4o-mini');
+      expect(footer).toMatch(/[░█]{10}/u);
+      expect(footer?.includes('? shortcuts')).toBe(hintsEnabled);
+      expect(screen).not.toContain('Full screen');
+    }
+    const findingRows = screens.finding.split('\n');
+    expect(screens.finding).toContain('Find: missing footer probe');
+    expect(findingRows.findIndex(line => line.includes('Find:'))).toBeLessThan(findingRows.findIndex(line => line.includes('❯')));
+    expect(screens.restored).not.toContain('Find:');
+    await exitInteractive(session);
+    expect(session.getRawOutput()).toContain('\x1b[?1049l');
+    expect(session.exitInfo?.exitCode).toBe(0);
+  });
+
   it.each([undefined, true])('starts in auto mode with fullScreenMode=%s and keeps mode switching available', async fullScreenMode => {
     state = await createTempAutohandHome({ config: {
       features: { fullScreenMode },
@@ -135,7 +164,7 @@ describe('full-screen terminal', () => {
     expect(session.getRawOutput()).toContain('FULL_SCREEN_PTY_EXIT');
   });
 
-  it('shows product identity at the top and navigation below the composer status', async () => {
+  it('shows product identity at the top and the configured status below the composer', async () => {
     server = await createMockAutohandAINativeSequenceServer([{ content: 'HEADER_WORK_DONE', delayMs: 1500 }]);
     state = await createTempAutohandHome({ config: {
       provider: 'autohandai',
@@ -154,10 +183,10 @@ describe('full-screen terminal', () => {
     expect(lines[1]).toContain(state.workspaceRoot);
     const composerRow = lines.findLastIndex(line => line.includes('❯'));
     const statusRow = lines.findIndex(line => line.includes('context left'));
-    const navigationRow = lines.findIndex(line => line.includes('Full screen · Latest'));
     expect(statusRow).toBeGreaterThan(composerRow);
-    expect(navigationRow).toBeGreaterThan(statusRow);
-    expect(navigationRow).toBeGreaterThanOrEqual(37);
+    expect(statusRow).toBeGreaterThanOrEqual(37);
+    expect(lines[statusRow]).toContain('? shortcuts');
+    expect(lines.join('\n')).not.toContain('Full screen');
     await startFullScreenHeaderProbe(session);
     const workingLines = outputViewport(session).split('\n');
     expect(workingLines[2]).not.toContain('esc to cancel');
@@ -245,7 +274,7 @@ describe('full-screen terminal', () => {
     await session.type('X');
     await session.waitForText('❯ heXllo');
     await session.scrollUp(3, 5, 3); await session.waitIdle();
-    expect(outputViewport(session)).toContain('Ctrl+End latest');
+    expect(outputViewport(session)).toContain('Back to bottom · Ctrl+End');
     expect(outputViewport(session)).toContain('heXllo');
     expect(isTerminalMouseTrackingEnabled(session)).toBe(true);
     await session.press(['ctrl', 'c']);
@@ -268,7 +297,7 @@ describe('full-screen terminal', () => {
     await session.type('/status'); await session.press('enter');
     await session.waitForText('(tab to cycle)');
     session.writeRaw('\x1b[27u');
-    await session.waitForText('Full screen', { timeout: 2_000 });
+    await session.waitForText('? shortcuts', { timeout: 2_000 });
     await session.waitIdle();
     await session.type('after enhanced escape');
     await session.waitForText('❯ after enhanced escape');
@@ -289,7 +318,7 @@ describe('full-screen terminal', () => {
     await session.type('/status'); await session.press('enter');
     await session.waitForText('(tab to cycle)', { timeout: 15_000 });
     await session.press('tab'); await session.waitForText('Autohand preferences');
-    await session.press('esc'); await session.waitForText('Full screen');
+    await session.press('esc'); await session.waitForText('? shortcuts');
     await session.type('after status'); await session.waitForText('❯ after status');
     await expect.poll(() => composerCaretLine(session)).toBe('❯ after status|');
     await exitInteractive(session);
@@ -307,7 +336,7 @@ describe('full-screen terminal', () => {
     await session.waitForText('Back to bottom');
     await session.press('esc'); await session.waitForText('History item 79');
     expect(outputViewport(session)).toContain('preserved draft');
-    await session.press('pageup'); await session.waitForText('Ctrl+End latest');
+    await session.press('pageup'); await session.waitForText('Back to bottom');
     expect(outputViewport(session)).not.toContain('History item 79');
     await session.press(['ctrl', 'f']); await session.type('History item 20'); await session.press('enter');
     await session.waitForText('History item 20'); await session.press('esc');
@@ -318,7 +347,7 @@ describe('full-screen terminal', () => {
     await session.write('\x1b[1;5F'); await session.waitForText('History item 79');
     for (let i = 0; i < 'preserved draft'.length; i++) await session.press('backspace');
     await session.type('/usage'); await session.press('enter'); await session.waitForText('Activity overview');
-    await session.press('esc'); await session.waitForText('Full screen');
+    await session.press('esc'); await session.waitForText('? shortcuts');
     expect(outputViewport(session)).toContain('History item 79');
     await session.type('draft after modal'); await session.waitForText('❯ draft after modal');
     await exitInteractive(session);
@@ -401,17 +430,17 @@ describe('full-screen terminal', () => {
     state = await createTempAutohandHome({ config: { features: { fullScreenMode: undefined }, ui: { promptSuggestions: false } } });
     session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000, env });
     await session.waitForText('❯');
-    expect(outputViewport(session)).toContain('Full screen');
+    expect(session.getRawOutput()).toContain('\x1b[?1049h');
+    expect(outputViewport(session)).toContain('? shortcuts');
     await session.type('/experiments disable full_screen_mode'); await session.press('enter');
     await session.waitForText('Restart');
     const config = JSON.parse(await readFile(state.configPath, 'utf8'));
     expect(config.features.fullScreenMode).toBe(false);
-    expect(outputViewport(session)).toContain('Full screen ·');
+    expect(outputViewport(session)).toContain('? shortcuts');
     await exitInteractive(session);
     session.close();
     session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, env });
     await session.waitForText('❯');
-    expect(outputViewport(session)).not.toContain('Full screen ·');
     expect(session.getRawOutput()).not.toContain('\x1b[?1049h');
     await session.type('inline opt-out works'); await session.waitForText('❯ inline opt-out works');
     await exitInteractive(session);
