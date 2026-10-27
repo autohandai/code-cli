@@ -31,32 +31,6 @@ afterEach(() => {
 });
 
 describe('interactive terminal shutdown', () => {
-  it('waits for the composer to regain input after a modal prints its result', async () => {
-    vi.useFakeTimers();
-    const baseline = vi.getTimerCount();
-    let exitInfo: Session['exitInfo'] = null;
-    let rawMode = false;
-    const press = vi.fn<Session['press']>(async () => {
-      exitInfo = { exitCode: rawMode ? 0 : 130, signal: 0 };
-    });
-    const session = {
-      get exitInfo() { return exitInfo; },
-      getRawOutput: () => '',
-      text: vi.fn<Session['text']>(async options => {
-        if (options?.immediate) return 'Secrets redacted: 2';
-        await new Promise<void>(resolve => setTimeout(resolve, 100));
-        rawMode = true;
-        return '❯';
-      }),
-      press,
-    };
-    const settled = exitInteractive(session).catch((error: unknown) => error);
-    await vi.advanceTimersByTimeAsync(100);
-    expect(await settled).toBeUndefined();
-    expect(press).toHaveBeenCalledOnce();
-    expect(vi.getTimerCount()).toBe(baseline);
-  });
-
   it('does not send another Ctrl+C when teardown output was cleared from the viewport', async () => {
     vi.useFakeTimers();
     const baseline = vi.getTimerCount();

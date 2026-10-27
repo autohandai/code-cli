@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
-import { runExportPrivacyScenario } from '../../src/testing/scenarios/exportPrivacyScenario.js';
+import { exitAfterExport, runExportPrivacyScenario } from '../../src/testing/scenarios/exportPrivacyScenario.js';
 import {
-  createMockAutohandAINativeSequenceServer, createTempAutohandHome, exitInteractive, launchBuiltAutohand, waitForExit,
+  createMockAutohandAINativeSequenceServer, createTempAutohandHome, expectCleanExit, launchBuiltAutohand, waitForExit,
   type MockNativeToolServer, type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 
@@ -50,7 +50,10 @@ describe('CLI session safety', () => {
     if (format === 'json') expect(() => JSON.parse(content)).not.toThrow();
     expect(output).toMatch(/Secrets redacted: [1-9]/);
     expect((await fs.readdir(state.workspaceRoot)).some(file => file.endsWith('.' + format) && file !== 'package.json')).toBe(false);
-    await exitInteractive(session); sessions.splice(sessions.indexOf(session), 1);
+    await exitAfterExport(session);
+    await waitForExit(session);
+    expectCleanExit(session);
+    sessions.splice(sessions.indexOf(session), 1);
   }, 60_000);
 
   it('--auto-commit commits the agent test while leaving user edits and notes uncommitted', async () => {

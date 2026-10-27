@@ -26,3 +26,17 @@ export async function runExportPrivacyScenario(session: Session, format: 'md' | 
   await session.waitForText('Secrets redacted:', { timeout: 10_000 });
   return session.readAll();
 }
+
+export async function exitAfterExport(session: Session): Promise<void> {
+  if (session.exitInfo) return;
+  try {
+    await session.waitForText('❯', { timeout: 10_000 });
+    if (session.exitInfo) return;
+    await session.type('/exit');
+    await session.text({ timeout: 10_000, waitFor: screen =>
+      screen.split('\n').some(line => line.includes('❯') && line.includes('/exit')) });
+    await session.press('enter');
+  } catch (error) {
+    if (!session.exitInfo) throw error;
+  }
+}

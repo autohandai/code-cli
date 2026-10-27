@@ -63,15 +63,7 @@ export async function exitInteractive(session: Pick<Session, 'exitInfo' | 'text'
       expectCleanExit(session);
       return;
     }
-    const screen = await waitForTerminalScreen(session, {
-      timeout: 10_000,
-      waitFor: text => Boolean(session.exitInfo) || isEnding(text)
-        || text.includes('Press Ctrl+C again to exit') || /^\s*❯(?:\s|$)/mu.test(text),
-    });
-    if (session.exitInfo) {
-      expectCleanExit(session);
-      return;
-    }
+    const screen = await session.text({ immediate: true });
     // Redraws can clear the visible teardown marker after Ink has released raw mode.
     if (isEnding(screen)) {
       await waitForExit(session);
