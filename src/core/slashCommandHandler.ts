@@ -358,11 +358,16 @@ export class SlashCommandHandler {
         }
         case '/export': {
           const { execute } = await import('../commands/export.js');
-          await execute(args.join(' '), {
-            sessionManager: this.ctx.sessionManager,
-            currentSession: this.ctx.currentSession,
-            workspaceRoot: this.ctx.workspaceRoot,
-          });
+          await this.ctx.onBeforeModal?.();
+          try {
+            await execute(args.join(' '), {
+              sessionManager: this.ctx.sessionManager,
+              currentSession: this.ctx.currentSession,
+              workspaceRoot: this.ctx.workspaceRoot,
+            });
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
           return null;
         }
         case '/share': {

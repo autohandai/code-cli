@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import type { Session } from 'tuistory';
+import { exitInteractive } from '../drivers/tuistory-driver.js';
 
 export async function runExportPrivacyScenario(session: Session, format: 'md' | 'json' | 'html'): Promise<string> {
   await session.waitForText('❯', { timeout: 20_000 });
@@ -28,15 +29,9 @@ export async function runExportPrivacyScenario(session: Session, format: 'md' | 
 }
 
 export async function exitAfterExport(session: Session): Promise<void> {
-  if (session.exitInfo) return;
-  try {
-    await session.waitForText('❯', { timeout: 10_000 });
-    if (session.exitInfo) return;
-    await session.type('/exit');
-    await session.text({ timeout: 10_000, waitFor: screen =>
-      screen.split('\n').some(line => line.includes('❯') && line.includes('/exit')) });
-    await session.press('enter');
-  } catch (error) {
-    if (!session.exitInfo) throw error;
-  }
+  await session.waitForText('❯', { timeout: 10_000 });
+  await session.type('composer restored after export');
+  await session.text({ timeout: 10_000, waitFor: screen =>
+    screen.split('\n').some(line => line.includes('❯') && line.includes('composer restored after export')) });
+  await exitInteractive(session);
 }

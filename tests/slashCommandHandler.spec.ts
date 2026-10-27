@@ -36,6 +36,11 @@ vi.mock('../src/commands/sync.js', () => ({
   sync: mockSync,
 }));
 
+const mockExport = vi.fn();
+vi.mock('../src/commands/export.js', () => ({
+  execute: mockExport,
+}));
+
 const mockSettings = vi.fn();
 vi.mock('../src/commands/settings.js', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/commands/settings.js')>(),
@@ -114,6 +119,23 @@ describe('SlashCommandHandler', () => {
     await handler.handle('/sync');
     expect(events).toEqual(['pause', 'sync', 'resume']);
     expect(mockSync).toHaveBeenCalledWith(ctx);
+  });
+
+  it.each([false, true])('gives export dialogs exclusive input and restores the composer after failure: %s', async fails => {
+    const ctx = createContext();
+    const events: string[] = [];
+    ctx.onBeforeModal.mockImplementation(async () => { events.push('pause'); });
+    ctx.onAfterModal.mockImplementation(async () => { events.push('resume'); });
+    mockExport.mockImplementationOnce(async () => {
+      events.push('export');
+      if (fails) throw new Error('Export fixture failed');
+    });
+    const handler = new SlashCommandHandler(ctx, [
+      ...DEFAULT_COMMANDS,
+      { command: '/export', description: 'export session', implemented: true },
+    ]);
+    await handler.handle('/export', ['md']);
+    expect(events).toEqual(['pause', 'export', 'resume']);
   });
 
   it('invokes model selection for /model', async () => {
