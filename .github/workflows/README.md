@@ -35,9 +35,11 @@ resolutions. Weekly Dependabot updates keep the GitHub Actions versions current.
    - Windows x64 (`autohand-windows-x64.exe`)
    - Windows ARM64 (`autohand-windows-arm64.exe`)
 
-5. **Signs macOS binaries and Autohand Computer Use with Developer ID**, submits
-   them to Apple notarization, staples the app ticket, and verifies each transported
-   Actions artifact on a native Apple Silicon or Intel runner before publication
+5. **Signs macOS binaries and Autohand Computer Use**. When all Apple credentials
+   are configured, it uses Developer ID, notarizes the artifacts, and staples the app
+   ticket. While credentials are unavailable, alpha and stable releases use ad-hoc
+   signatures. Both modes verify each transported Actions artifact on a native Apple
+   Silicon or Intel runner before publication.
 
 6. **Generates release notes** from the correct previous release tag
 
@@ -130,7 +132,7 @@ Add these secrets in GitHub Settings → Secrets → Actions:
 2. **`AHTRACES_REPO_TOKEN`** (required for release and CI builds)
    - Fine-grained read-only token for the private `autohandai/ahtraces` repository
 
-3. **macOS signing and notarization secrets** (required for stable releases; optional for alpha)
+3. **macOS signing and notarization secrets** (optional while Apple enrollment is pending)
    - `APPLICATION_CERT_BASE64`: base64-encoded Developer ID Application `.p12`
    - `CERT_PASSWORD`: password for the signing certificate archive
    - `DEVELOPER_NAME`: organization name in the Developer ID certificate
@@ -138,15 +140,17 @@ Add these secrets in GitHub Settings → Secrets → Actions:
    - `APPLE_ID`: Apple account used by `notarytool`
    - `APP_SPECIFIC_PASSWORD`: app-specific password for that Apple account
    - Configure all six secrets to sign with Developer ID and notarize macOS artifacts.
-     Stable releases and partially configured signing fail in the prepare job when
-     credentials are missing, before the test and build jobs run.
-   - Alpha releases with none of these secrets use ad-hoc signing. Signatures are
+     Partially configured signing fails in the prepare job rather than silently
+     downgrading a configured Developer ID release.
+   - Alpha and stable releases with none of these secrets use temporary ad-hoc signing. Signatures are
      verified before upload and again after downloading the artifacts, but Apple
      does not notarize these builds. Downloaded apps may require **Open Anyway** in
      System Settings → Privacy & Security. See [Apple's instructions](https://support.apple.com/en-us/102445).
    - Ad-hoc signing does not preserve the Developer ID permission identity across
      updates. Users may need to grant Accessibility and Screen Recording access
-     to Autohand Computer Use again after installing a new alpha.
+     to Autohand Computer Use again after an update. The CLI asks for explicit trust
+     before first-use permission setup, even with `--yes`, and checks the effective
+     OS grants before allowing desktop requests to proceed.
 
 4. **`MODEL_CATALOG_PR_TOKEN`** (optional for model catalog pull requests)
    - Fine-grained token with repository Contents, Issues, and Pull requests read/write access

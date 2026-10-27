@@ -669,17 +669,47 @@ Write-Output (Start-FirstRun -BinaryPath '${fixture}' -Answer $null)
   });
 });
 
-describe('required computer use installation', () => {
-  powerShellTest('propagates a companion installation failure', () => {
+describe('optional computer use installation', () => {
+  powerShellTest('warns and keeps the CLI usable when a supported companion installation fails', () => {
     const result = runPowerShellProbe([
       installerWithoutEntrypoint,
-      'function Invoke-FailedComputerInstall { $global:LASTEXITCODE = 7 }',
+      'function Invoke-FailedComputerInstall {',
+      '  if ($args[0] -eq "--help") {',
+      '    Write-Output "  computer [options]  Install Computer control"',
+      '    $global:LASTEXITCODE = 0',
+      '    return',
+      '  }',
+      '  Write-Output ($args -join " ")',
+      '  $global:LASTEXITCODE = 7',
+      '}',
       '$env:AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL = "0"',
       'Install-ComputerControl -BinaryPath "Invoke-FailedComputerInstall"',
+      'Write-Output "INSTALLER_CONTINUED"',
     ].join('\n'));
-    expect(result.status).not.toBe(0);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('computer install --non-interactive');
+    expect(result.stdout).toContain('Optional Computer control could not be installed');
     expect(result.stdout).toContain('autohand computer install');
-    expect(result.stdout).not.toContain('still ready');
+    expect(result.stdout).toContain('INSTALLER_CONTINUED');
+    expect(result.stdout).not.toContain('Autohand Computer Use is ready');
+  });
+
+  powerShellTest('skips the companion when the installed CLI does not advertise computer control', () => {
+    const result = runPowerShellProbe([
+      installerWithoutEntrypoint,
+      'function Invoke-LegacyCli {',
+      '  if ($args[0] -ne "--help") { throw "Unsupported computer command was invoked" }',
+      '  Write-Output "  login  Sign in"',
+      '  $global:LASTEXITCODE = 0',
+      '}',
+      '$env:AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL = "0"',
+      'Install-ComputerControl -BinaryPath "Invoke-LegacyCli"',
+      'Write-Output "INSTALLER_CONTINUED"',
+    ].join('\n'));
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('Computer control arrives in the next release');
+    expect(result.stdout).toContain('INSTALLER_CONTINUED');
+    expect(result.stdout).not.toContain('could not be installed');
   });
 });
 

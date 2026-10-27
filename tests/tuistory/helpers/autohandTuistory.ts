@@ -12,6 +12,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Session } from 'tuistory';
 import { launchPipedTuistorySession, launchTuistorySession } from '../../../src/testing/drivers/tuistory-driver.js';
+export { exitInteractive, expectCleanExit, waitForExit } from '../../../src/testing/drivers/tuistory-driver.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -1284,67 +1285,6 @@ export async function launchBuiltAutohand(
     waitForData: options.waitForData,
     waitForDataTimeout: Math.max(options.waitForDataTimeout ?? 30_000, 30_000),
   });
-}
-
-export async function waitForExit(session: Session, timeout = 10_000): Promise<void> {
-  const start = Date.now();
-  while (!session.exitInfo) {
-    if (Date.now() - start > timeout) {
-      throw new Error(`Timed out waiting for process exit. Current screen:\n${await session.text({ immediate: true })}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-}
-
-export function expectCleanExit(session: Session): void {
-  if (!session.exitInfo) {
-    throw new Error('Expected process to have exited, but it is still running.');
-  }
-  if (session.exitInfo.exitCode !== 0) {
-    throw new Error(`Expected clean exit, got exitCode=${session.exitInfo.exitCode} signal=${session.exitInfo.signal}`);
-  }
-}
-
-const SESSION_TEARDOWN_MARKER = 'Ending Autohand session';
-
-export async function exitInteractive(session: Session): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (session.exitInfo) {
-      expectCleanExit(session);
-      return;
-    }
-
-    const screen = await session.text({ immediate: true });
-    if (screen.includes(SESSION_TEARDOWN_MARKER) || screen.includes('Ending Autohand session') || screen.includes('Session saved')) {
-      await waitForExit(session);
-      expectCleanExit(session);
-      return;
-    }
-
-    const confirmingExit = screen.includes('Press Ctrl+C again to exit');
-    await session.press(['ctrl', 'c']);
-    if (confirmingExit) {
-      await waitForExit(session);
-      expectCleanExit(session);
-      return;
-    }
-    try {
-      await waitForExit(session, 1_000);
-    } catch {
-      // The first Ctrl+C may clear composer text or show the exit warning.
-      continue;
-    }
-    if (session.exitInfo) {
-      expectCleanExit(session);
-      return;
-    }
-    // Once teardown has started Ink has released raw mode, so another Ctrl+C
-    // would reach the process as a real SIGINT and turn a clean exit into 130.
-    if ((await session.text({ immediate: true })).includes(SESSION_TEARDOWN_MARKER)) break;
-  }
-
-  await waitForExit(session);
-  expectCleanExit(session);
 }
 
 export async function clearComposerInput(session: Session): Promise<void> {

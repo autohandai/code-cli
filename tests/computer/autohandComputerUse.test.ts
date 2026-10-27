@@ -98,6 +98,29 @@ describe('Autohand Computer Use macOS host', () => {
     expect(permissions).toBe('requested');
   });
 
+  it('cancels permission setup and releases temporary state and timers', async () => {
+    vi.useFakeTimers();
+    const baseline = vi.getTimerCount();
+    const controller = new AbortController();
+    let resultPath = '';
+    const execute = vi.fn(async (plan: { args: string[] }) => {
+      resultPath = plan.args[plan.args.indexOf('--result-path') + 1];
+      await writeFile(resultPath, JSON.stringify({
+        accessibility: true, screenRecording: true, bundleIdentifier: AUTOHAND_COMPUTER_USE_BUNDLE_ID,
+      }));
+      controller.abort();
+    });
+    try {
+      await expect(requestComputerUsePermissions('/fixture/Autohand Computer Use.app', '/fixture/cua-driver', execute, controller.signal))
+        .rejects.toThrow(/abort/i);
+      expect(execute).toHaveBeenCalledOnce();
+      await expect(access(path.dirname(resultPath))).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(vi.getTimerCount()).toBe(baseline);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('bounds a missing permission result and cleans up its temporary state', async () => {
     vi.useFakeTimers();
     const baseline = vi.getTimerCount();
@@ -201,6 +224,58 @@ describe('Autohand Computer Use macOS host', () => {
 describe('managed native permission preflight', () => {
   const app = '/Applications/Autohand Computer Use.app';
   const server = { name: 'autohand-computer-use', transport: 'stdio' as const, command: `${app}/Contents/MacOS/AutohandComputerUse`, env: { CUA_DRIVER_HOST_BUNDLE_ID: AUTOHAND_COMPUTER_USE_BUNDLE_ID } };
+
+  it('asks for trust before setup and stops asking after macOS permissions are granted', async () => {
+    const inspect = vi.fn()
+      .mockResolvedValueOnce({ accessibility: false, screenRecording: false })
+      .mockResolvedValue({ accessibility: true, screenRecording: true });
+    const confirmTrust = vi.fn().mockResolvedValue(true);
+    const requestPermissions = vi.fn().mockResolvedValue('granted');
+    const managed = { ...server, args: ['mcp', '--driver-path', '/fixture/cua-driver'] };
+    const options = { platform: 'darwin' as const, inspect, confirmTrust, requestPermissions };
+
+    expect(await getManagedComputerUsePermissionIssue([managed], options)).toBeUndefined();
+    expect(confirmTrust).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('Open Anyway'));
+    expect(confirmTrust).toHaveBeenCalledWith(expect.stringContaining(app));
+    expect(requestPermissions).toHaveBeenCalledExactlyOnceWith(app, '/fixture/cua-driver', undefined);
+    expect(await getManagedComputerUsePermissionIssue([managed], options)).toBeUndefined();
+    expect(confirmTrust).toHaveBeenCalledTimes(1);
+    expect(requestPermissions).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not request permissions or allow a native action after trust is declined', async () => {
+    const inspect = vi.fn().mockResolvedValue({ accessibility: false, screenRecording: false });
+    const confirmTrust = vi.fn().mockResolvedValue(false);
+    const requestPermissions = vi.fn();
+    const issue = await getManagedComputerUsePermissionIssue(
+      [{ ...server, args: ['mcp', '--driver-path', '/fixture/cua-driver'] }],
+      { platform: 'darwin', inspect, confirmTrust, requestPermissions },
+    );
+    expect(issue).toContain('cancelled');
+    expect(requestPermissions).not.toHaveBeenCalled();
+    expect(inspect).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives manual trust steps when macOS blocks launching the host', async () => {
+    const inspect = vi.fn().mockRejectedValue(new Error('Gatekeeper blocked the app'));
+    const issue = await getManagedComputerUsePermissionIssue([server], { platform: 'darwin', inspect });
+    expect(issue).toContain('Open Anyway');
+    expect(issue).toContain('Privacy & Security');
+    expect(issue).toContain(app);
+  });
+
+  it('does not treat an accepted trust prompt as proof that OS permissions were granted', async () => {
+    const inspect = vi.fn().mockResolvedValue({ accessibility: false, screenRecording: true });
+    const confirmTrust = vi.fn().mockResolvedValue(true);
+    const requestPermissions = vi.fn().mockResolvedValue('requested');
+    const issue = await getManagedComputerUsePermissionIssue(
+      [{ ...server, args: ['mcp', '--driver-path', '/fixture/cua-driver'] }],
+      { platform: 'darwin', inspect, confirmTrust, requestPermissions },
+    );
+    expect(issue).toContain('Accessibility');
+    expect(requestPermissions).toHaveBeenCalledOnce();
+    expect(inspect).toHaveBeenCalledTimes(2);
+  });
 
   it('returns one app-independent recovery message and rechecks a repaired grant', async () => {
     const inspect = vi.fn().mockResolvedValueOnce({ accessibility: false, screenRecording: true }).mockResolvedValueOnce({ accessibility: true, screenRecording: true });

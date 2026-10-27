@@ -167,8 +167,8 @@ describe('release workflow', () => {
     expect(step?.shell).toBe('bash');
   });
 
-  it('allows the automatic alpha release to use ad-hoc signing without Apple credentials', () => {
-    const result = runMacOsSigningPreflight('alpha');
+  it.each(['alpha', 'release'])('allows %s to use ad-hoc signing while Apple credentials are unavailable', channel => {
+    const result = runMacOsSigningPreflight(channel);
     expect(result.status, result.diagnostics).toBe(0);
     expect(result.output).toBe('mode=adhoc\n');
     expect(result.diagnostics).toContain('not notarized');
@@ -182,22 +182,17 @@ describe('release workflow', () => {
     expect(result.diagnostics).not.toContain('secret-');
   });
 
-  it('rejects stable releases without Apple credentials before starting builds', () => {
-    const result = runMacOsSigningPreflight('release');
-    expect(result.status).toBe(1);
-    expect(result.output).toBe('');
-    for (const name of MACOS_SECRETS) expect(result.diagnostics).toContain(name);
-  });
-
-  it.each(MACOS_SECRETS)('does not silently downgrade when %s is missing from configured signing', (missing) => {
-    const credentials = Object.fromEntries(MACOS_SECRETS.map((name) => [name, `secret-${name}`]));
-    delete credentials[missing];
-    const result = runMacOsSigningPreflight('alpha', credentials);
-    expect(result.status).toBe(1);
-    expect(result.output).toBe('');
-    expect(result.diagnostics).toContain(missing);
-    expect(result.diagnostics).not.toContain('secret-');
-  });
+  it.each(['alpha', 'release'].flatMap(channel => MACOS_SECRETS.map(missing => ({ channel, missing }))))(
+    'does not silently downgrade $channel when $missing is missing from configured signing', ({ channel, missing }) => {
+      const credentials = Object.fromEntries(MACOS_SECRETS.map((name) => [name, `secret-${name}`]));
+      delete credentials[missing];
+      const result = runMacOsSigningPreflight(channel, credentials);
+      expect(result.status).toBe(1);
+      expect(result.output).toBe('');
+      expect(result.diagnostics).toContain(missing);
+      expect(result.diagnostics).not.toContain('secret-');
+    },
+  );
 
   it('passes the selected signing mode to mutually exclusive macOS build steps', () => {
     const workflow = loadReleaseWorkflow();
@@ -210,7 +205,7 @@ describe('release workflow', () => {
     }
     expect(workflow.jobs.prepare.outputs?.macos_signing_mode).toBe('${{ steps.macos-signing.outputs.mode }}');
     const steps = workflow.jobs.build.steps;
-    const adhoc = steps.find((step) => step.name === 'Ad-hoc sign macOS alpha artifacts');
+    const adhoc = steps.find((step) => step.name === 'Ad-hoc sign macOS artifacts');
     expect(adhoc?.if).toBe("runner.os == 'macOS' && needs.prepare.outputs.macos_signing_mode == 'adhoc'");
     expect(adhoc?.run).toContain('codesign --force --sign - --timestamp=none');
     expect(adhoc?.run).toContain('codesign --verify --strict --verbose=4');
@@ -237,7 +232,7 @@ describe('release workflow', () => {
 
   it.skipIf(process.platform !== 'darwin')('runs the ad-hoc signing step and verifies archived Bun artifacts on macOS', () => {
     const script = loadReleaseWorkflow().jobs.build.steps.find(
-      (step) => step.name === 'Ad-hoc sign macOS alpha artifacts',
+      (step) => step.name === 'Ad-hoc sign macOS artifacts',
     )?.run;
     expect(script).toBeDefined();
     const directory = mkdtempSync(path.join(tmpdir(), 'autohand-signing-native-'));

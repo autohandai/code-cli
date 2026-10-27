@@ -10,6 +10,7 @@ import sharp from 'sharp';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
+import { answerComputerUseTrust, requestComputerUseTrust } from '../../src/testing/scenarios/computerUseTrustScenario.js';
 import {
   createMockAutohandAINativeSequenceServer,
   createTempAutohandHome,
@@ -61,7 +62,7 @@ async function writeFakeComputerUseHost(state: TuistoryTempState): Promise<strin
   return executable;
 }
 
-async function writePermissionFixture(state: TuistoryTempState): Promise<Record<string, string>> {
+async function writePermissionFixture(state: TuistoryTempState, grantOnSetup = false): Promise<Record<string, string>> {
   const driver = await writeFakeCuaDriver(state);
   const app = path.join(await realpath(state.workspaceRoot), 'Autohand Computer Use.app');
   const executable = path.join(app, 'Contents/MacOS/AutohandComputerUse');
@@ -74,14 +75,16 @@ import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 const spawn = childProcess.spawn;
 const app = ${JSON.stringify(app)};
+const grantPath = ${JSON.stringify(path.join(state.autohandHome, 'computer-use-granted'))};
 childProcess.spawn = function(command, args, options) {
   if (args?.includes(app) && command.endsWith('/lsregister')) {
     return spawn(process.execPath, ['-e', ''], options);
   }
   if (command === '/usr/bin/open' && args?.includes(app) && args.includes('--result-path')) {
     const resultPath = args[args.indexOf('--result-path') + 1];
-    const script = 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({accessibility:false,screenRecording:true,bundleIdentifier:"ai.autohand.computer-use"}))';
-    return spawn(process.execPath, ['-e', script, resultPath], options);
+    const grant = ${JSON.stringify(grantOnSetup)} && args[args.indexOf('permissions') + 1] === 'grant';
+    const script = 'const fs = require("node:fs"); if (process.argv[3] === "true") fs.writeFileSync(process.argv[2], "approved"); fs.writeFileSync(process.argv[1], JSON.stringify({accessibility:fs.existsSync(process.argv[2]),screenRecording:true,bundleIdentifier:"ai.autohand.computer-use"}))';
+    return spawn(process.execPath, ['-e', script, resultPath, grantPath, String(grant)], options);
   }
   return spawn(command, args, options);
 };
@@ -137,17 +140,63 @@ describe('built native computer control', () => {
     });
     sessions.push(session);
     await session.waitForText('❯', { timeout: 20_000 });
-    for (const [index, request] of ['open the Calculator app', 'type hello in the TextEdit window', 'open my browser'].entries()) {
-      await session.type(request);
-      await session.press('enter');
-      await session.text({ timeout: 15_000, waitFor: () =>
-        session.readAll().split('needs Accessibility permission').length > index + 1 });
+    for (const request of ['open the Calculator app', 'type hello in the TextEdit window', 'open my browser']) {
+      await requestComputerUseTrust(session, request);
+      await answerComputerUseTrust(session, true);
+      await session.waitForText('needs Accessibility permission', { timeout: 15_000 });
     }
     expect(provider.requests).toHaveLength(0);
     expect(session.readAll()).toContain('remove the old entry');
     expect(session.readAll()).toContain('autohand computer doctor');
     await exitInteractive(session);
   }, 60_000);
+
+  it.runIf(process.platform === 'darwin')('requires first-use trust even with --yes and reuses verified macOS grants', async () => {
+    const provider = await createMockAutohandAINativeSequenceServer([
+      { content: 'FIRST_TRUSTED_TURN_COMPLETE' },
+      { content: 'SECOND_TRUSTED_TURN_COMPLETE' },
+    ]);
+    servers.push(provider);
+    const state = await createTempAutohandHome({
+      config: {
+        provider: 'autohandai',
+        autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-key', model: 'moa', baseUrl: provider.baseUrl },
+        features: { autohand_inference: true },
+        agent: { autoMemory: false, sessionRetryLimit: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    states.push(state);
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes'], {
+      autohandHome: state.autohandHome,
+      cwd: state.workspaceRoot,
+      env: await writePermissionFixture(state, true),
+      cols: 180,
+      rows: 50,
+      waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+    const screen = await requestComputerUseTrust(session, 'open the Calculator app');
+    const snapshot = await readFile(path.join(repoRoot(), 'src/testing/snapshots/computer-use-trust.txt'), 'utf8');
+    for (const line of snapshot.trimEnd().split('\n')) expect(screen).toContain(line);
+    expect(provider.requests).toHaveLength(0);
+    await answerComputerUseTrust(session, false);
+    await session.waitForText('Computer Use setup cancelled.', { timeout: 10_000 });
+    expect(provider.requests).toHaveLength(0);
+    expect(await readdir(state.autohandHome)).not.toContain('computer-use-granted');
+
+    await requestComputerUseTrust(session, 'open the Calculator app');
+    await answerComputerUseTrust(session, true);
+    await session.waitForText('FIRST_TRUSTED_TURN_COMPLETE', { timeout: 20_000 });
+    expect(await readFile(path.join(state.autohandHome, 'computer-use-granted'), 'utf8')).toBe('approved');
+    const outputOffset = session.getRawOutput().length;
+    await session.type('type hello in the TextEdit window');
+    await session.press('enter');
+    await session.waitForText('SECOND_TRUSTED_TURN_COMPLETE', { timeout: 20_000 });
+    expect(provider.requests).toHaveLength(2);
+    expect(session.getRawOutput().slice(outputOffset)).not.toContain('Trust Autohand Computer Use?');
+    await exitInteractive(session);
+  }, 90_000);
 
   it('exits unsuccessfully when the required postinstall component cannot be written', async () => {
     const state = await createTempAutohandHome({ initializeGit: false });

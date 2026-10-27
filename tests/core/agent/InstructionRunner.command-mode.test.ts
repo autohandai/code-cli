@@ -89,6 +89,7 @@ function createHost(): AgentInstructionHost {
     clearExplorationLog: vi.fn(),
     displayIntentMode: vi.fn(),
     runEnvironmentBootstrap: vi.fn(async () => ({ success: true })),
+    withModalPause: async fn => fn(),
     initializeUI: vi.fn(async () => {}),
     stopStatusUpdates: vi.fn(),
     stopUI: vi.fn(),

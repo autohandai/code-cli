@@ -127,16 +127,27 @@ describe('Autohand branding inside Ink', () => {
 
   it('shows one identity and releases animation when there is no room for the mark', async () => {
     const baseline = vi.getTimerCount();
+    const listenerBaseline = output.listenerCount('resize');
     screen = renderInkScreen(<AutohandBrand version="v0.8.2" reservedRows={7} />);
-    await settle();
+    await vi.waitFor(() => expect(vi.getTimerCount()).toBe(baseline + 1));
     output.columns = 32;
     output.rows = 12;
     output.emit('resize');
-    await settle();
-    const frame = stripAnsi(screen.lastFrame() ?? '');
-    expect(frame.match(/autohand/g)).toHaveLength(1);
-    expect(vi.getTimerCount()).toBe(baseline);
-    expect(frame.split('\n').length).toBeLessThanOrEqual(5);
+    await vi.waitFor(() => {
+      const frame = stripAnsi(screen?.lastFrame() ?? '');
+      expect(frame.match(/autohand/g)).toHaveLength(1);
+      expect(frame.split('\n').length).toBeLessThanOrEqual(5);
+      expect(vi.getTimerCount()).toBe(baseline);
+    });
+    output.columns = 80;
+    output.rows = 32;
+    output.emit('resize');
+    await vi.waitFor(() => expect(vi.getTimerCount()).toBe(baseline + 1));
+    screen.unmount();
+    await vi.waitFor(() => {
+      expect(vi.getTimerCount()).toBe(baseline);
+      expect(output.listenerCount('resize')).toBe(listenerBaseline);
+    });
   });
 
   it('respects the space left by a wrapping menu', async () => {

@@ -9,6 +9,7 @@ import type { HookManager, HookExecutionResult } from '../HookManager.js';
 import type { ComputerUseLifecycle } from '../../computer/ComputerUseLifecycle.js';
 import { ProviderNotConfiguredError } from '../../providers/ProviderFactory.js';
 import { getManagedComputerUsePermissionIssue } from '../../computer/autohandComputerUse.js';
+import { showConfirm } from '../../ui/ink/components/Modal.js';
 import { matchesComputerControlIntent } from '../../skills/computerControlIntent.js';
 import { ApiError } from '../../providers/errors.js';
 import { formatRecoveryWait, resolveSessionRecoveryDelay } from './sessionRecoveryDelay.js';
@@ -135,6 +136,7 @@ export interface AgentInstructionHost {
   clearExplorationLog(): void;
   displayIntentMode(intentResult: IntentResult): void;
   runEnvironmentBootstrap(): Promise<EnvironmentBootstrapResult>;
+  withModalPause<T>(fn: () => Promise<T>): Promise<T>;
   initializeUI(
     abortController?: AbortController,
     onCancel?: () => void,
@@ -355,7 +357,16 @@ export class InstructionRunner {
       }
 
       if (!abortController.signal.aborted && matchesComputerControlIntent(instruction)) {
-        const issue = await getManagedComputerUsePermissionIssue(host.runtimeMcpServers);
+        const interactiveSetup = !host.runtime.isRpcMode && !host.runtime.isCommandMode
+          && !host.runtime.options.prompt && process.stdin.isTTY === true && process.stdout.isTTY === true;
+        const issue = await getManagedComputerUsePermissionIssue(host.runtimeMcpServers, {
+          signal: abortController.signal,
+          ...(interactiveSetup ? {
+            confirmTrust: (title: string) => host.withModalPause(() => showConfirm({
+              title, confirmText: 'Trust and set up', cancelText: 'Cancel', defaultValue: false,
+            })),
+          } : {}),
+        });
         if (!abortController.signal.aborted && issue) {
           host.emitOutput({ type: 'error', content: issue });
           if (!host.runtime.isRpcMode) console.log(chalk.yellow(issue));

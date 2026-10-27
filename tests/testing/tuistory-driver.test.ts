@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
-import { launchTuistorySession, waitForTerminalScreen } from '../../src/testing/drivers/tuistory-driver.js';
+import { exitInteractive, launchTuistorySession, waitForTerminalScreen } from '../../src/testing/drivers/tuistory-driver.js';
 
 const terminal = vi.hoisted(() => ({
   waitForData: vi.fn<() => Promise<void>>(),
@@ -28,6 +28,45 @@ const isCompleted = (screen: string): boolean => screen.startsWith('Completed in
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe('interactive terminal shutdown', () => {
+  it('does not send another Ctrl+C when teardown output was cleared from the viewport', async () => {
+    vi.useFakeTimers();
+    const baseline = vi.getTimerCount();
+    let exitInfo: Session['exitInfo'] = null;
+    let raw = '';
+    const press = vi.fn<Session['press']>(async () => {
+      if (press.mock.calls.length > 1) {
+        exitInfo = { exitCode: 130, signal: 0 };
+        return;
+      }
+      raw += '\nEnding Autohand session.\n';
+      setTimeout(() => { exitInfo = { exitCode: 0, signal: 0 }; }, 1_500);
+    });
+    const session = {
+      get exitInfo() { return exitInfo; },
+      getRawOutput: () => raw,
+      text: vi.fn<Session['text']>(async () => '❯'),
+      press,
+    };
+    const settled = exitInteractive(session).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(await settled).toBeUndefined();
+    expect(press).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(baseline);
+  });
+
+  it('still rejects an actual interrupted exit instead of accepting code 130', async () => {
+    const session = {
+      exitInfo: { exitCode: 130, signal: 0 },
+      getRawOutput: () => '',
+      text: vi.fn<Session['text']>(),
+      press: vi.fn<Session['press']>(),
+    };
+    await expect(exitInteractive(session)).rejects.toThrow('exitCode=130');
+    expect(session.press).not.toHaveBeenCalled();
+  });
 });
 
 describe('launchTuistorySession', () => {

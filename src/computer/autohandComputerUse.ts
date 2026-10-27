@@ -160,21 +160,31 @@ export function buildComputerUseRegistrationPlan(appPath: string): ComputerUsePe
   };
 }
 
-async function runCommand(plan: ComputerUsePermissionPlan, timeoutMs: number): Promise<void> {
+async function runCommand(plan: ComputerUsePermissionPlan, timeoutMs: number, abortSignal?: AbortSignal): Promise<void> {
+  abortSignal?.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
     const child = spawn(plan.command, plan.args, {
       env: process.env,
       stdio: 'inherit',
       windowsHide: true,
     });
+    const abort = () => { child.kill('SIGKILL'); };
+    abortSignal?.addEventListener('abort', abort, { once: true });
+    if (abortSignal?.aborted) abort();
     let timedOut = false;
     killAfter(child, timeoutMs, () => {
       timedOut = true;
       child.kill('SIGKILL');
     });
-    child.once('error', reject);
+    child.once('error', error => {
+      abortSignal?.removeEventListener('abort', abort);
+      reject(error);
+    });
     child.once('close', (code, signal) => {
-      if (timedOut) {
+      abortSignal?.removeEventListener('abort', abort);
+      if (abortSignal?.aborted) {
+        reject(new Error('Computer Use setup aborted.'));
+      } else if (timedOut) {
         reject(new Error(`${AUTOHAND_COMPUTER_USE_APP_NAME} permission setup timed out.`));
       } else if (code === 0) {
         resolve();
@@ -271,9 +281,11 @@ async function readPermissionStatus(resultPath: string): Promise<ComputerUsePerm
 async function waitForPermissionStatus(
   resultPath: string,
   timeoutMs = PERMISSION_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<ComputerUsePermissionStatus> {
   const deadline = Date.now() + timeoutMs;
   while (true) {
+    signal?.throwIfAborted();
     try {
       return await readPermissionStatus(resultPath);
     } catch (error) {
@@ -282,7 +294,7 @@ async function waitForPermissionStatus(
       if (Date.now() >= deadline) {
         throw new Error(`${AUTOHAND_COMPUTER_USE_APP_NAME} permission setup timed out.`);
       }
-      await delay(50);
+      await delay(50, undefined, { signal });
     }
   }
 }
@@ -291,9 +303,11 @@ export async function requestComputerUsePermissions(
   appPath: string,
   driverPath: string,
   executePlan: (plan: ComputerUsePermissionPlan) => Promise<void> = (plan) => (
-    runCommand(plan, PERMISSION_TIMEOUT_MS)
+    runCommand(plan, PERMISSION_TIMEOUT_MS, signal)
   ),
+  signal?: AbortSignal,
 ): Promise<'granted' | 'requested'> {
+  signal?.throwIfAborted();
   if (process.env.AUTOHAND_SKIP_COMPUTER_USE_PERMISSIONS === '1') return 'requested';
 
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'autohand-computer-use-'));
@@ -301,9 +315,9 @@ export async function requestComputerUsePermissions(
   const statusResultPath = path.join(temporaryDirectory, 'status.json');
   try {
     await executePlan(buildComputerUsePermissionPlan({ appPath, driverPath, resultPath: grantResultPath }));
-    await waitForPermissionStatus(grantResultPath);
+    await waitForPermissionStatus(grantResultPath, PERMISSION_TIMEOUT_MS, signal);
     await executePlan(buildComputerUsePermissionStatusPlan({ appPath, resultPath: statusResultPath }));
-    const status = await waitForPermissionStatus(statusResultPath);
+    const status = await waitForPermissionStatus(statusResultPath, PERMISSION_TIMEOUT_MS, signal);
     return status.accessibility && status.screenRecording
       ? 'granted'
       : 'requested';
@@ -377,11 +391,26 @@ export function formatComputerUsePermissionIssue(
   ].join('\n');
 }
 
+export function formatComputerUseTrustInstructions(appPath: string): string {
+  return [
+    'Trust Autohand Computer Use?',
+    'Only continue if you trust this download. Setup requests permission to view your screen and control applications.',
+    'App: "' + appPath + '"',
+    'If macOS blocks an unnotarized build, try opening the app, then choose Open Anyway in System Settings → Privacy & Security and confirm Open.',
+    'Then approve Accessibility and Screen Recording for Autohand Computer Use.',
+    'Manual setup: autohand computer install',
+    'Check setup: autohand computer doctor',
+  ].join('\n');
+}
+
 export async function getManagedComputerUsePermissionIssue(
   servers: readonly McpServerConfigEntry[] | undefined,
   options: {
     platform?: NodeJS.Platform;
     inspect?: typeof inspectAutohandComputerUsePermissions;
+    confirmTrust?: (message: string) => Promise<boolean>;
+    requestPermissions?: (appPath: string, driverPath: string, signal?: AbortSignal) => Promise<'granted' | 'requested'>;
+    signal?: AbortSignal;
   } = {},
 ): Promise<string | undefined> {
   if ((options.platform ?? process.platform) !== 'darwin') return undefined;
@@ -391,10 +420,32 @@ export async function getManagedComputerUsePermissionIssue(
   if (!server?.command) return undefined;
   const appPath = path.resolve(server.command, '..', '..', '..');
   if (!appPath.endsWith('.app')) return undefined;
+  const inspect = options.inspect ?? inspectAutohandComputerUsePermissions;
+  const cancelled = 'Computer Use setup cancelled. No desktop actions were run.';
+  let issue: string;
   try {
-    const permissions = await (options.inspect ?? inspectAutohandComputerUsePermissions)(appPath);
-    return formatComputerUsePermissionIssue(permissions, appPath);
+    const permissions = await inspect(appPath);
+    const missing = formatComputerUsePermissionIssue(permissions, appPath);
+    if (!missing) return undefined;
+    issue = missing;
   } catch {
-    return `${AUTOHAND_COMPUTER_USE_APP_NAME} could not verify its desktop permissions. Run: autohand computer doctor`;
+    issue = AUTOHAND_COMPUTER_USE_APP_NAME + ' could not verify its desktop permissions.';
+  }
+  if (options.signal?.aborted) return cancelled;
+  const instructions = formatComputerUseTrustInstructions(appPath);
+  if (!options.confirmTrust) return issue + '\n' + instructions;
+  if (!await options.confirmTrust(instructions) || options.signal?.aborted) return cancelled;
+  const driverIndex = server.args?.indexOf('--driver-path') ?? -1;
+  const driverPath = driverIndex >= 0 ? server.args?.[driverIndex + 1] : undefined;
+  if (!driverPath) return issue + '\n' + instructions;
+  try {
+    const request = options.requestPermissions ?? ((app: string, driver: string, signal?: AbortSignal) => (
+      requestComputerUsePermissions(app, driver, undefined, signal)
+    ));
+    await request(appPath, driverPath, options.signal);
+    if (options.signal?.aborted) return cancelled;
+    return formatComputerUsePermissionIssue(await inspect(appPath), appPath);
+  } catch {
+    return options.signal?.aborted ? cancelled : issue + '\n' + instructions;
   }
 }

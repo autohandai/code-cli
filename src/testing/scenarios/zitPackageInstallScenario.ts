@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { installZit } from '../../../scripts/install-zit.mjs';
 
 export async function prepareZitPackageInstallScenario(
   repositoryRoot: string,
@@ -20,6 +21,11 @@ export async function prepareZitPackageInstallScenario(
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
   for (const key of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) delete manifest[key];
   await writeFile(manifestPath, JSON.stringify(manifest));
+  await installZit({
+    packageRoot: path.dirname(manifestPath),
+    force: true,
+    environment: { AUTOHAND_SKIP_ZIT_INSTALL: '0' },
+  });
   const archive = path.join(scenarioRoot, 'offline-install.tgz');
   execFileSync('tar', ['-czf', archive, '-C', packing, 'package'], { timeout: 60_000 });
   await writeFile(path.join(consumer, 'package.json'), JSON.stringify({ name: 'zit-install-scenario', private: true, trustedDependencies: [] }));

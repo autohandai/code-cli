@@ -35,7 +35,7 @@ describe('continue and resume startup flags', () => {
     await waitForExit(session);
     const output = session.readAll();
     expect(output).toContain('-c, --continue');
-    expect(output).toContain('-r, --resume [id]');
+    expect(output).toContain('-r, --resume [reference]');
     expect(output).toMatch(/\n\s+--auto-commit\s/);
     expect(output).not.toContain('-c, --auto-commit');
   });

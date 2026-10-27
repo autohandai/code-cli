@@ -13,7 +13,7 @@ The built-in `computer-control` skill activates for native GUI requests. Autohan
 
 ## Install and check
 
-The Unix and Windows Autohand installers install Autohand Computer Use automatically. The npm package does the same during `postinstall`. An existing compatible engine is reused. Computer Use is a required component of the default desktop installation: an installation failure returns a nonzero exit status and prints the repair command. Headless installations can explicitly opt out as described below.
+The Unix and Windows Autohand installers attempt to install Autohand Computer Use automatically. If that optional step fails or an older CLI does not support it, installation continues and prints setup guidance. The npm package installs it during `postinstall` and reports a nonzero exit status on failure. An existing compatible engine is reused. Headless installations can explicitly opt out as described below.
 
 ```sh
 autohand computer status
@@ -56,7 +56,11 @@ Run `autohand computer doctor` after installation and follow the platform guidan
 
 macOS requires the user to approve its protected permission prompts. Autohand opens the correct prompts during installation and does not require a separate driver setup command.
 
-Before a native app request on macOS, Autohand checks the managed host's effective permissions. A missing grant stops the turn before inference and prints recovery steps. Ordinary coding requests do not run this check. Permission-status subprocesses and result polling each have a five-second timeout; granting permissions during installation has a longer interactive timeout. `autohand computer doctor --json` reports `mcpReady: false` and exits unsuccessfully when a required permission is missing.
+Before a native app request on macOS, Autohand checks the managed host's effective permissions. If a grant is missing, the interactive CLI asks **Trust Autohand Computer Use?**, with **Cancel** selected by default. Choose **Trust and set up** only if you trust the download. This explicit choice is required even with `--yes` or Auto mode. Autohand requests Accessibility and Screen Recording, then verifies the effective OS grants before continuing to inference. Declining or leaving permissions unapproved stops the turn. Later requests reuse the OS grants. Command mode and RPC print manual setup guidance instead of showing the dialog. Ordinary coding requests do not run this check.
+
+While Apple developer enrollment is pending, macOS release packages use ad-hoc signatures and are **not notarized**. If macOS blocks the app, try opening `~/Applications/Autohand Computer Use.app`, then choose **Open Anyway** in **System Settings → Privacy & Security** and confirm **Open**. Follow [Apple's instructions](https://support.apple.com/en-us/102445), then approve Accessibility and Screen Recording and run `autohand computer doctor`. Updates may require approval again because ad-hoc signatures do not preserve a Developer ID permission identity. Releases automatically use Developer ID and notarization once all Apple credentials are configured.
+
+Permission-status subprocesses and result polling each have a five-second timeout; granting permissions during setup has a longer interactive timeout. `autohand computer doctor --json` reports `mcpReady: false` and exits unsuccessfully when a required permission is missing.
 
 If Accessibility is already enabled but doctor still reports it missing, macOS may have retained approval for an older signing identity. Remove the stale **Autohand Computer Use** entry, add the installed app again, and enable it. The default location is `~/Applications/Autohand Computer Use.app`, which is separate from the system `/Applications` folder. In the Add dialog, press **Cmd+Shift+G**, paste that path, and press Return to select it. Run doctor again to verify the effective grant. Autohand does not edit the macOS permission database.
 

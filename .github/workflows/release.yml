@@ -85,11 +85,11 @@ jobs:
 
           if [ "${#missing[@]}" -eq 0 ]; then
             echo "mode=developer-id" >> "$GITHUB_OUTPUT"
-          elif [ "$RELEASE_CHANNEL" = "alpha" ] && [ "${#missing[@]}" -eq "${#required[@]}" ]; then
+          elif [ "${#missing[@]}" -eq "${#required[@]}" ]; then
             echo "mode=adhoc" >> "$GITHUB_OUTPUT"
-            echo "::warning::macOS alpha artifacts will be ad-hoc signed, not notarized. macOS may require Open Anyway and renewed Computer Use permissions after updates."
+            echo "::warning::macOS artifacts will be ad-hoc signed, not notarized, while Apple credentials are unavailable. Users must trust the app on first use and may need Open Anyway and renewed Computer Use permissions after updates."
           else
-            echo "::error::Incomplete macOS signing configuration. Missing: ${missing[*]}. Stable releases require all Apple credentials; alpha releases can omit all of them for ad-hoc signing."
+            echo "::error::Incomplete macOS signing configuration. Missing: ${missing[*]}. Configure all Apple credentials for notarization, or omit all of them for the temporary ad-hoc signing path."
             exit 1
           fi
 
@@ -470,7 +470,7 @@ jobs:
           tar -czf "./binaries/autohand-computer-use-${{ matrix.target }}.tar.gz" \
             -C ./binaries "Autohand Computer Use.app"
 
-      - name: Ad-hoc sign macOS alpha artifacts
+      - name: Ad-hoc sign macOS artifacts
         if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing_mode == 'adhoc'
         run: |
           set -euo pipefail
@@ -813,10 +813,10 @@ jobs:
         run: |
           cat >> release-notes.md <<'EOF'
 
-          ### macOS alpha signing
+          ### macOS signing and first use
 
-          These macOS alpha binaries and the Computer Use app are ad-hoc signed, not notarized by Apple.
-          Downloaded apps may require **Open Anyway** in System Settings → Privacy & Security.
+          These macOS binaries and the Computer Use app are ad-hoc signed, not notarized by Apple while our Developer ID setup is pending.
+          On first use, trust Autohand Computer Use only if you trust the download. If macOS blocks it, try opening the app, then choose **Open Anyway** in System Settings → Privacy & Security and confirm **Open**.
           See [Apple's instructions](https://support.apple.com/en-us/102445).
           Computer Use may require Accessibility and Screen Recording permissions again after updates.
           EOF
