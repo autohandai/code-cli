@@ -110,6 +110,10 @@ describe('built CLI cloud terminal flow', () => {
   });
   it.each(['team', 'enterprise'])('starts a %s cloud session from the terminal', async tier => {
     const { state, session } = await launch(['--prompt', 'list files'], tier);
+    await session.waitForText('Cloud environment');
+    await session.press('down');
+    await session.waitForText('▸ 2. Start a hosted conversation without a repository');
+    await session.press('enter');
     await session.waitForText('Cloud agent connected');
     const calls = await requests(state);
     expect(calls.find(call => call.route.endsWith('/messages'))?.body).toMatchObject({ content: 'list files' });
