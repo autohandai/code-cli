@@ -67,15 +67,16 @@ describe('TeamPanel', () => {
     await vi.waitFor(() => expect(onInstruction).toHaveBeenCalledExactlyOnceWith('/team shutdown'));
     expect(onToggleTeamPanel).toHaveBeenCalledOnce();
   });
-  it('inspects a failure and confirms a selected retry without rerunning successful work', async () => {
+  it.each(['none', 'truecolor'] as const)('inspects a failure and confirms a selected retry without rerunning successful work in %s mode', async colorMode => {
     const onCommand = vi.fn();
     const onHide = vi.fn();
-    const view = renderWithTheme(<TeamPanel team={mockTeam} tasks={[
+    const theme = new Theme('dark', loadTheme('dark').colors, colorMode);
+    const view = render(<ThemeProvider theme={theme}><TeamPanel team={mockTeam} tasks={[
       mockTasks[0], { ...mockTasks[1], status: 'failed', error: 'Provider unavailable', output: 'Partial findings retained' },
-    ]} onCommand={onCommand} onHide={onHide} />);
+    ]} onCommand={onCommand} onHide={onHide} /></ThemeProvider>);
     await new Promise<void>(resolve => setImmediate(resolve));
     view.stdin.write('\u001b[B');
-    await vi.waitFor(() => expect(view.lastFrame()).toContain('› × Write API docs'));
+    await vi.waitFor(() => expect(stripVTControlCharacters(view.lastFrame() ?? '')).toContain('› × Write API docs'));
     view.stdin.write('\r');
     await vi.waitFor(() => expect(view.lastFrame()).toContain('Provider unavailable'));
     expect(view.lastFrame()).toContain('Partial findings retained');
