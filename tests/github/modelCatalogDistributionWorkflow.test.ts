@@ -60,15 +60,8 @@ describe("model catalog distribution automation", () => {
         "muse-wonder-1.0": expect.objectContaining({ provider: "autohandai", contextWindow: 262_144, maxTokens: 16_000 }),
         "qwen3.8-max": expect.objectContaining({ provider: "autohandai", contextWindow: 262_144, maxTokens: 16_000 }),
         "gemini-4-argon": expect.objectContaining({ provider: "autohandai", contextWindow: 1_048_576, maxTokens: 16_000 }),
-        weka: expect.objectContaining({
-          api: "autohand-decisions",
-          baseUrl: "https://api.autohand.ai/v1",
-          cliSupported: false,
-          contextWindow: 32_000,
-          endpoint: "/decisions",
-          provider: "autohandai",
-        }),
       });
+      expect(catalog.autohandai).not.toHaveProperty("weka");
       expect(catalog.anthropic["claude-sonnet-5"]).toEqual(expect.objectContaining({
         api: "anthropic-messages",
         baseUrl: "https://api.anthropic.com",

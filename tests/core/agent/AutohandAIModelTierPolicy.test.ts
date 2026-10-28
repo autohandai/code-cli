@@ -207,7 +207,7 @@ describe('resolveAutohandAIModelForTier', () => {
     expect(resolveAutohandAIModelForTier({ provider: 'openrouter', plan: undefined, model: 'anthropic/claude-5-sonnet', tier: 'pro' })).toBe('anthropic/claude-5-sonnet');
   });
 
-  it('rejects Weka with its API and Console route instead of treating it as an unknown chat model', async () => {
+  it('rejects Weka with its API and Agent SDK route instead of treating it as an unknown chat model', async () => {
     const { resolveAutohandAIModelForTier } = await import('../../../src/core/agent/AutohandAIModelTierPolicy.js');
 
     expect(() => resolveAutohandAIModelForTier({
@@ -216,7 +216,7 @@ describe('resolveAutohandAIModelForTier', () => {
       model: 'weka',
       tier: 'pro',
     })).toThrow(
-      'Weka is available through the Autohand API and Console Playground. CLI execution is not supported yet.',
+      'Weka is available through the Autohand API and Agent SDKs, not in the CLI. Pick another model with /model or --model.',
     );
   });
 });
