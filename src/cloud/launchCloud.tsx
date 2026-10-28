@@ -119,7 +119,8 @@ export async function launchCloud(context: CloudLaunchContext, options: CLIOptio
     conversation = (await client.detail(selected)).conversation;
   } else {
     const plan = await client.call('account', z.object({ tier: z.string().nullable(), paymentAccess: z.unknown().nullish() }));
-    if (plan.paymentAccess || !['pro', 'pro_plus', 'max'].includes(plan.tier ?? '')) throw new Error('Cloud CLI sessions are available on Pro, Pro+, and Max. Upgrade in Console.');
+    if (plan.paymentAccess) throw new Error("Cloud CLI sessions are paused while there's a billing issue on this account. Check billing in Console.");
+    if (!['pro', 'pro_plus', 'max', 'team', 'enterprise'].includes(plan.tier ?? '')) throw new Error('Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise. Upgrade in Console.');
     prompt = prompt ?? await input(context.snapshot ? 'Task for the cloud agent after handoff' : 'Task for your cloud agent') ?? undefined;
     if (!prompt?.trim()) return { kind: 'cancelled' };
     const models = (await client.call('models', modelsSchema)).models;

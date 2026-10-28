@@ -7,11 +7,11 @@ import { SessionTransferClient } from '../../src/session/transfer/transfer-clien
 const id = '11111111-1111-4111-8111-111111111111', workspaceId = '22222222-2222-4222-8222-222222222222';
 const conversation = { id, title: 'Repair parser', model: 'moa', updated_at: '2026-10-12' };
 const config: LoadedConfig = { configPath: '/fixture/config.json', auth: { token: 'cloud-fixture-token-1234567890', user: { id: 'ada', email: 'ada@autohand.test', name: 'Ada' } }, api: { accountId: 'personal_fixture' } };
-function fixture(tier = 'pro', workspaceStatus = 'ready') {
+function fixture(tier = 'pro', workspaceStatus = 'ready', paymentAccess: unknown = null) {
   const request = vi.fn<typeof fetch>(async (url, init) => {
     const path = new URL(String(url)).pathname;
     if (path.endsWith('/session')) return Response.json({ session: { user: { id: 'ada' }, account: { account: { id: 'personal_fixture' } } } });
-    if (path.endsWith('/account')) return Response.json({ tier, paymentAccess: null });
+    if (path.endsWith('/account')) return Response.json({ tier, paymentAccess });
     if (path.endsWith('/models')) return Response.json({ models: [{ id: 'moa', available: true }, { id: 'auto', available: true }] });
     if (path.endsWith('/sandbox-providers')) return Response.json({ providers: [{ id: 'cloudflare', available: true, name: 'Cloud' }] });
     if (path.endsWith('/workspaces')) return init?.method === 'POST'
@@ -59,12 +59,26 @@ describe('cloud launch orchestration', () => {
     expect(dependencies.view).toHaveBeenCalledOnce();
   });
   it('checks supported plans before provisioning or uploading local context', async () => {
-    for (const plan of ['free', 'lite', 'team', 'enterprise', 'unknown']) {
+    for (const plan of ['free', 'lite', 'unknown']) {
       const dependencies = fixture(plan);
       await expect(launchCloud({ config, workspaceRoot: '/fixture/parser' }, { cloud: true, prompt: 'Repair parser' }, dependencies)).rejects.toThrow('Pro');
       expect(dependencies.request.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
       expect(dependencies.view).not.toHaveBeenCalled();
     }
+  });
+  it.each(['pro', 'pro_plus', 'max', 'team', 'enterprise'])('starts a cloud session for %s without changing the selected account', async tier => {
+    const dependencies = fixture(tier);
+    await expect(launchCloud({ config, workspaceRoot: '/fixture/parser' }, { cloud: true, prompt: 'list files' }, dependencies)).resolves.toMatchObject({ kind: 'detached', conversationId: id, accountId: 'personal_fixture' });
+    expect(dependencies.view).toHaveBeenCalledOnce();
+    const send = dependencies.request.mock.calls.find(([url]) => new URL(String(url)).pathname.endsWith('/messages'));
+    expect(JSON.parse(String(send?.[1]?.body)).content).toBe('list files');
+    expect(new Headers(send?.[1]?.headers).get('X-Autohand-Account-Id')).toBe('personal_fixture');
+  });
+  it.each(['pro', 'team', 'enterprise'])('keeps billing-paused %s accounts from provisioning or sending work', async tier => {
+    const dependencies = fixture(tier, 'ready', { reason: 'past_due' });
+    await expect(launchCloud({ config, workspaceRoot: '/fixture/parser' }, { cloud: true, prompt: 'list files' }, dependencies)).rejects.toThrow("Cloud CLI sessions are paused while there's a billing issue on this account. Check billing in Console.");
+    expect(dependencies.request.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+    expect(dependencies.view).not.toHaveBeenCalled();
   });
   it('refuses a resume link from another account before making a network request', async () => {
     const dependencies = fixture();

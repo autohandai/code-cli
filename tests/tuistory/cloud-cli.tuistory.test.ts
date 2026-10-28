@@ -108,9 +108,17 @@ describe('built CLI cloud terminal flow', () => {
     const calls = await requests(state);
     expect(calls.filter(call => call.method === 'POST').map(call => call.route)).toEqual([`conversations/${cloudScenarioId}/stop`]);
   });
-  it('refuses an unsupported plan before provisioning or sending a task', async () => {
-    const { state, session } = await launch(['--prompt', 'Repair parser'], 'lite'); await waitForExit(session);
-    expect(await session.readAll()).toContain('Pro, Pro+, and Max');
+  it.each(['team', 'enterprise'])('starts a %s cloud session from the terminal', async tier => {
+    const { state, session } = await launch(['--prompt', 'list files'], tier);
+    await session.waitForText('Cloud agent connected');
+    const calls = await requests(state);
+    expect(calls.find(call => call.route.endsWith('/messages'))?.body).toMatchObject({ content: 'list files' });
+    await session.press(['ctrl', 'c']); await waitForExit(session);
+    expect(session.exitInfo?.exitCode).toBe(0);
+  });
+  it.each(['free', 'lite'])('refuses %s before provisioning or sending a task', async tier => {
+    const { state, session } = await launch(['--prompt', 'Repair parser'], tier); await waitForExit(session);
+    expect(await session.readAll()).toContain('Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise. Upgrade in Console.');
     expect((await requests(state)).every(call => call.method === 'GET')).toBe(true);
     expect(session.exitInfo?.exitCode).not.toBe(0);
   });

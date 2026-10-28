@@ -115,7 +115,7 @@ export class CloudClient {
       try { detail = z.object({ error: z.object({ message: z.string().max(1000), code: z.string().max(100).optional() }) }).parse(await readBoundedJson(response, 8192)); }
       catch { discardResponseBody(response); }
       const message = response.status === 401 ? 'Sign in again with autohand login to reconnect to Cloud.'
-        : response.status === 402 ? 'Cloud CLI sessions are available on Pro, Pro+, and Max. Upgrade in Console.'
+        : response.status === 402 ? 'Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise. Upgrade in Console.'
         : response.status === 403 || response.status === 404 ? 'This cloud session is unavailable in the selected account.'
         : detail?.error.message ?? 'Autohand Cloud could not complete this request. Reconnect to check the saved session before retrying.';
       throw new CloudRequestError(message, response.status, detail?.error.code);

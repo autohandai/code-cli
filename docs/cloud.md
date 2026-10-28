@@ -1,7 +1,7 @@
 # Autohand Cloud from your terminal
 
-Cloud CLI sessions are available only to **Pro, Pro+, and Max** accounts. Free,
-Lite, Team, and Enterprise accounts cannot start cloud work through this interface.
+Starting in 0.9.10, Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise.
+Free and Lite accounts cannot start cloud work through this interface.
 The selected account also needs write access, active billing, available model
 capacity, and repository authorization. Sign in with `autohand login`.
 
