@@ -1,6 +1,6 @@
 # Autohand Cloud from your terminal
 
-Starting in 0.9.10, Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise.
+Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise. Team and Enterprise need CLI 0.9.10 or later.
 Free and Lite accounts cannot start cloud work through this interface.
 The selected account also needs write access, active billing, available model
 capacity, and repository authorization. Sign in with `autohand login`.

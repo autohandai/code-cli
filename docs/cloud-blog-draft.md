@@ -4,7 +4,7 @@ Editorial draft. Keep unpublished until CLI and Desktop release readiness and na
 
 Start a hosted agent from the terminal, close the terminal while it works, and reconnect to the saved conversation. Autohand Cloud adds `--cloud`, `/cloud`, `/handoff`, and `/open` to the CLI. The same session can be reviewed in Code Web and an updated Autohand Desktop app.
 
-Starting in 0.9.10, Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise. Your selected account still needs active billing, model capacity, and permission to operate resources. A paid plan does not grant access to a repository that you have not authorized.
+Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise. Team and Enterprise need CLI 0.9.10 or later. Your selected account still needs active billing, model capacity, and permission to operate resources. A paid plan does not grant access to a repository that you have not authorized.
 
 ## Start a task where you work
 
@@ -83,7 +83,7 @@ Desktop links carry only a session ID and account ID. The remote cloud window ha
 
 The native CLI route authenticates a single account credential and forwards only allowlisted operations through the existing hosted API. It rechecks membership, ownership, write permissions, plan eligibility, model capacity, and repository grants. Browser cookies mixed with native bearer credentials are rejected. Responses remain private and are not cached.
 
-Starting in 0.9.10, Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise. Owned stop and queue cleanup remain available after a downgrade. If durable Jobs are unavailable, admission fails instead of falling back to execution tied to the terminal request.
+Only these plans can start new cloud work. Owned stop and queue cleanup remain available after a downgrade. If durable Jobs are unavailable, admission fails instead of falling back to execution tied to the terminal request.
 
 Local `--yes`, `--yolo`, custom MCP settings, system prompts, and tool-scope overrides cannot bypass hosted policy. Unsupported combinations fail before cloud launch. Local restrictions that Cloud cannot represent also fail closed. Read-only plan mode can preserve deny rules limited to mutating workspace operations; other custom restrictions require local execution.
 
