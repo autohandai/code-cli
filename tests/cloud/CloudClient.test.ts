@@ -57,6 +57,14 @@ describe('cloud session identity and HTTPS boundary', () => {
       expect(request).toHaveBeenCalledOnce();
     }
   });
+  it.each(['free', 'lite'])('retains the server 402 status and updated upgrade message for %s', async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error: { code: 'plan_required', message: 'Upgrade required' } }, { status: 402 }));
+    await expect(new CloudClient(identity, request).create('list files', 'auto', id)).rejects.toMatchObject({
+      status: 402,
+      message: 'Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise. Upgrade in Console.',
+    });
+    expect(request).toHaveBeenCalledOnce();
+  });
   it('rejects malformed responses and cancels an oversized response body', async () => {
     const invalid = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ conversation: { id: 'foreign' } }));
     await expect(new CloudClient(identity, invalid).create('Task', 'auto', id)).rejects.toThrow();
