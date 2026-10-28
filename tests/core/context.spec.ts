@@ -87,6 +87,19 @@ function fillConversation(cm: ConversationManager, count: number, contentLength 
 
 describe('context/tokenizer', () => {
   describe('getContextWindow', () => {
+    it.each(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6-astra', 'gpt-6.1-sol', 'openai/gpt-6-astra'])('uses the 272k context window for %s', (model) => {
+      expect(getContextWindow(model)).toBe(272_000);
+    });
+
+    it('keeps the environment override above the GPT-6 inference and explicit metadata', () => {
+      vi.stubEnv(CONTEXT_ENV_VARS.CONTEXT_WINDOW, '123456');
+      try {
+        expect(getContextWindow('openai/gpt-6-astra', 272_000)).toBe(123456);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it('returns known model context windows', () => {
       expect(getContextWindow('anthropic/claude-4-sonnet')).toBe(200_000);
       expect(getContextWindow('anthropic/claude-sonnet-5')).toBe(1_000_000);
