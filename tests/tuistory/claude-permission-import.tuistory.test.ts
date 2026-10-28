@@ -12,7 +12,12 @@ describe('built Claude permission import', () => {
     await fs.outputJson(legacy, { raw: { env: { TOKEN: 'SCRUB_LEGACY_ENV' } } });
     const beforeConfig = await fs.readFile(state.configPath, 'utf8');
     const beforeLegacy = await fs.readFile(legacy, 'utf8');
-    const args = ['--path', state.workspaceRoot, '--config', state.configPath, 'import', 'claude', '--categories', 'settings'];
+    const projectFile = path.join(state.workspaceRoot, '.autohand', 'settings.local.json');
+    const hadProjectSettings = await fs.pathExists(projectFile);
+    await fs.outputJson(path.join(state.workspaceRoot, '.mcp.json'), { mcpServers: {
+      'private-fixture': { command: 'fixture-server', env: { TOKEN: 'MCP_TERMINAL_FIXTURE_SECRET' } },
+    } });
+    const args = ['--path', state.workspaceRoot, '--config', state.configPath, 'import', 'claude', '--categories', 'settings,mcp'];
     try {
       const preview = await launchBuiltAutohand([...args, '--dry-run'], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { CLAUDE_CONFIG_DIR: source }, rows: 48 });
       try {
@@ -25,6 +30,7 @@ describe('built Claude permission import', () => {
         expect(text).not.toContain('NEVER_COPY_ENV');
         expect(await fs.readFile(state.configPath, 'utf8')).toBe(beforeConfig);
         expect(await fs.readFile(legacy, 'utf8')).toBe(beforeLegacy);
+        expect(await fs.pathExists(projectFile)).toBe(hadProjectSettings);
       } finally { preview.close(); }
       const imported = await launchBuiltAutohand(args, { autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { CLAUDE_CONFIG_DIR: source }, rows: 48 });
       try {
@@ -33,9 +39,12 @@ describe('built Claude permission import', () => {
         const text = await imported.text({ immediate: true });
         expect(text).toContain('Translated 2 allow and 1 deny');
         expect(text).toContain('Scrubbed raw Claude settings');
-        expect(text).not.toMatch(/NEVER_COPY_ENV|SCRUB_LEGACY_ENV/);
+        expect(text).not.toMatch(/NEVER_COPY_ENV|SCRUB_LEGACY_ENV|MCP_TERMINAL_FIXTURE_SECRET/);
         expect((await fs.readJson(state.configPath)).permissions.denyList).toContain('run_command:rm*');
         expect(await fs.readJson(legacy)).not.toHaveProperty('raw');
+        expect((await fs.readJson(projectFile)).mcp.servers).toContainEqual(expect.objectContaining({
+          name: 'private-fixture', autoConnect: false, localOnly: true,
+        }));
       } finally { imported.close(); }
     } finally { await state.cleanup(); }
   });

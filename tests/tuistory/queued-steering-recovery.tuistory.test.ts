@@ -119,7 +119,7 @@ describe('queued steering and streamed tool-call recovery in the built CLI', () 
       await vi.waitFor(() => expect(server.requests).toHaveLength(1), { timeout: 15_000 });
       const screen = await steerPendingMessage(session, options);
       if (options.fullScreen) {
-        const lines = (await session.text()).split('\n');
+        const lines = screen.split('\n').slice(-session.currentRows);
         const composerRow = lines.findLastIndex(line => line.trimStart().startsWith('❯'));
         expect(composerRow).toBeGreaterThanOrEqual(session.currentRows - 7);
         expect(composerRow).toBeLessThan(session.currentRows);

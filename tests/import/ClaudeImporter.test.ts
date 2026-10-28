@@ -40,6 +40,9 @@ vi.mock('fs-extra', () => ({
     writeFile: vi.fn().mockResolvedValue(undefined),
     copy: vi.fn().mockResolvedValue(undefined),
     stat: vi.fn(),
+    realpath: vi.fn(async (file: string) => file),
+    lstat: vi.fn(async () => ({ isSymbolicLink: () => false })),
+    chmod: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -136,7 +139,7 @@ describe('ClaudeImporter', () => {
       const result = await importer.import(['mcp']);
 
       expect(result.imported.get('mcp')).toEqual({ success: 1, failed: 0, skipped: 0 });
-      expect(vi.mocked(fse.writeJson).mock.calls[0]?.[1]).toMatchObject({
+      expect(JSON.parse(atomicFileMocks.atomicWriteFile.mock.calls[0]?.[1])).toMatchObject({
         mcp: { servers: [{ name: 'valid', command: 'run', transport: 'stdio', autoConnect: false, localOnly: true }] },
       });
     });
@@ -163,9 +166,9 @@ describe('ClaudeImporter', () => {
         skipped: 1,
         skipReasons: { 'already exists': 1 },
       });
-      const writes = vi.mocked(fse.writeJson).mock.calls;
+      const writes = atomicFileMocks.atomicWriteFile.mock.calls;
       expect(writes.some(call => String(call[0]) === userConfig)).toBe(false);
-      const localWrite = writes.find(call => String(call[0]).endsWith('.autohand/settings.local.json'))?.[1] as any;
+      const localWrite = JSON.parse(writes.find(call => String(call[0]).endsWith('.autohand/settings.local.json'))?.[1]);
       expect(localWrite.mcp.servers).toEqual(expect.arrayContaining([
         { name: 'project', command: 'shared', transport: 'stdio', autoConnect: false, localOnly: true },
         { name: 'keep', command: 'incoming', transport: 'stdio', autoConnect: false, localOnly: true },
@@ -191,6 +194,7 @@ describe('ClaudeImporter', () => {
       expect(result.imported.get('mcp')).toMatchObject({ success: 0, failed: 1 });
       expect(result.errors).toEqual([expect.objectContaining({ category: 'mcp', item: 'shared', error: expect.stringContaining('environment variable placeholders') })]);
       expect(fse.writeJson).not.toHaveBeenCalled();
+      expect(atomicFileMocks.atomicWriteFile).not.toHaveBeenCalled();
     });
 
     it('reports existing MCP servers as skipped without rewriting their config', async () => {
@@ -219,6 +223,7 @@ describe('ClaudeImporter', () => {
       });
       expect(fse.ensureDir).not.toHaveBeenCalled();
       expect(fse.writeJson).not.toHaveBeenCalled();
+      expect(atomicFileMocks.atomicWriteFile).not.toHaveBeenCalled();
       expect(fse.writeFile).not.toHaveBeenCalled();
     });
 

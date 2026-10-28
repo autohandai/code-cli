@@ -23,6 +23,7 @@ import YAML from 'yaml';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { BaseImporter } from './BaseImporter.js';
 import { ClaudePermissionImport } from '../ClaudePermissionImport.js';
+import { atomicWriteFile } from '../../utils/atomicFile.js';
 
 /**
  * A single parsed Claude event from a session JSONL file.
@@ -85,17 +86,13 @@ export class ClaudeImporter extends BaseImporter {
   }
 
   override async detect(): Promise<boolean> {
-    return await super.detect() || await this.permissionImport().scan() > 0;
+    return await super.detect() || await this.permissionImport().scan() > 0
+      || await fse.pathExists(path.join(path.dirname(this.resolvedHomePath), '.claude.json'))
+      || await fse.pathExists(path.join(path.resolve(this.hookImportOptions.workspaceRoot ?? process.cwd()), '.mcp.json'));
   }
 
   async previewSettings(): Promise<PermissionImportReport> {
     return this.permissionImport().preview();
-  }
-
-  async detect(): Promise<boolean> {
-    return await super.detect()
-      || await fse.pathExists(path.join(path.dirname(this.resolvedHomePath), '.claude.json'))
-      || await fse.pathExists(path.join(path.resolve(this.hookImportOptions.workspaceRoot ?? process.cwd()), '.mcp.json'));
   }
 
   // ---------------------------------------------------------------
@@ -277,6 +274,7 @@ export class ClaudeImporter extends BaseImporter {
     for (const { servers, file } of destinations) {
       try {
         if (!Object.keys(servers).length) continue;
+        if (servers === project) await this.assertProjectMcpDestination(workspace, file);
         const current = await this.readConfigFile(file);
         const mcp = isRecord(current.mcp) ? current.mcp : {};
         const existing = Array.isArray(mcp.servers) ? mcp.servers : [];
@@ -306,6 +304,7 @@ export class ClaudeImporter extends BaseImporter {
         const merged = [...existing, ...additions];
         if (servers === project) await this.ignoreLocalSettings(workspace);
         await fse.ensureDir(path.dirname(file));
+        if (servers === project) await this.assertProjectMcpDestination(workspace, file);
         const output = { ...current, mcp: { ...mcp, servers: merged } };
         await this.writeConfigFile(file, output);
         success += additions.length;
@@ -317,6 +316,19 @@ export class ClaudeImporter extends BaseImporter {
       skipped,
       ...(skipped > 0 ? { skipReasons } : {}),
     });
+  }
+
+  private async assertProjectMcpDestination(workspace: string, file: string): Promise<void> {
+    const root = await fse.realpath(workspace);
+    const directory = path.dirname(file);
+    if (await fse.pathExists(directory) && await fse.realpath(directory) !== path.join(root, '.autohand')) {
+      throw new Error('Project MCP settings directory escapes its repository');
+    }
+    try {
+      if ((await fse.lstat(file)).isSymbolicLink()) throw new Error('Project MCP settings file is a symlink');
+    } catch (error) {
+      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') throw error;
+    }
   }
 
   // Keep imported credentials out of Git without changing the shared .gitignore.
@@ -362,13 +374,10 @@ export class ClaudeImporter extends BaseImporter {
 
   private async writeConfigFile(file: string, config: Record<string, unknown>): Promise<void> {
     const extension = path.extname(file).toLowerCase();
-    if (extension === '.toml') {
-      await fse.writeFile(file, stringifyToml(config as never));
-    } else if (/\.ya?ml$/.test(extension)) {
-      await fse.writeFile(file, YAML.stringify(config));
-    } else {
-      await fse.writeJson(file, config, { spaces: 2 });
-    }
+    const content = extension === '.toml' ? stringifyToml(config)
+      : /\.ya?ml$/.test(extension) ? YAML.stringify(config) : JSON.stringify(config, null, 2) + '\n';
+    await atomicWriteFile(file, content);
+    await fse.chmod(file, 0o600);
   }
 
   // ---------------------------------------------------------------

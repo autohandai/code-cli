@@ -41,6 +41,39 @@ describe('Claude permission settings import', () => {
 
   const options = () => ({ sourceHome, workspaceRoot, configPath });
 
+  it('detects project permission settings when the Claude home and MCP configs are absent', async () => {
+    await fs.remove(sourceHome);
+    await fs.outputJson(path.join(workspaceRoot, '.claude', 'settings.json'), { permissions: { allow: ['Read'] } });
+    await expect(new ClaudeImporter(options()).detect()).resolves.toBe(true);
+  });
+
+  it.each(['directory', 'file'])('keeps imported MCP credentials out of a symlinked project %s', async kind => {
+    await fs.outputJson(path.join(workspaceRoot, '.mcp.json'), { mcpServers: { private: {
+      command: 'fixture-server', env: { TOKEN: 'MCP_FIXTURE_CREDENTIAL' },
+    } } });
+    const outside = path.join(root, 'outside');
+    await fs.ensureDir(outside);
+    const target = path.join(outside, 'settings.json');
+    const original = '{"untouched":true}\n';
+    if (kind === 'directory') await fs.symlink(outside, path.join(workspaceRoot, '.autohand'), 'junction');
+    else {
+      await fs.ensureDir(path.join(workspaceRoot, '.autohand'));
+      await fs.writeFile(target, original);
+      await fs.symlink(target, path.join(workspaceRoot, '.autohand', 'settings.local.json'));
+    }
+    const result = await new ClaudeImporter(options()).import(['mcp']);
+    expect(result.errors).toContainEqual(expect.objectContaining({ category: 'mcp' }));
+    if (kind === 'directory') expect(await fs.readdir(outside)).toEqual([]);
+    else expect(await fs.readFile(target, 'utf8')).toBe(original);
+  });
+
+  it.skipIf(process.platform === 'win32')('creates private project MCP configuration files', async () => {
+    await fs.outputJson(path.join(workspaceRoot, '.mcp.json'), { mcpServers: { private: { command: 'fixture-server' } } });
+    const result = await new ClaudeImporter(options()).import(['mcp']);
+    expect(result.errors).toEqual([]);
+    expect((await fs.stat(path.join(workspaceRoot, '.autohand', 'settings.local.json'))).mode & 0o777).toBe(0o600);
+  });
+
   async function seed() {
     await fs.outputJson(path.join(sourceHome, 'settings.json'), {
       env: { API_KEY: 'SOURCE_ENV_MUST_NOT_BE_COPIED' },

@@ -14,7 +14,7 @@ import {
   trustWorkspace,
 } from '../../src/permissions/workspaceTrust.js';
 
-const SCRATCH_DIR = path.join(os.homedir(), 'Documents/autohand/digital-team/charlie-cox/scratch');
+const SCRATCH_DIR = os.tmpdir();
 
 let tempDir: string;
 let storePath: string;

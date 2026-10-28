@@ -9,6 +9,15 @@ export function cloudViewport(session: Pick<Session, 'getTerminalData'>): string
 }
 
 export const cloudScenarioId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+export async function startCloudWithoutRepository(session: Pick<Session, 'waitForText' | 'press'>): Promise<void> {
+  await session.waitForText('Cloud environment');
+  await session.press('down');
+  await session.waitForText('▸ 2. Start a hosted conversation without a repository');
+  await session.press('enter');
+  await session.waitForText('Cloud agent connected');
+}
+
 export async function seedCloudScenario(directory: string, tier = 'pro', review = false, queueSize = 0, handoff = false): Promise<string> {
   const file = path.join(directory, 'cloud-fetch.mjs');
   const queued = Array.from({ length: queueSize }, (_, index) => ({ id: `bbbbbbbb-bbbb-4bbb-8bbb-${String(index).padStart(12, '0')}`, state: 'queued', revision: 3, content: `Correction ${index + 1}` }));

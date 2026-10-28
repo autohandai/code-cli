@@ -8,6 +8,7 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { createToolsRegistry } from '../../src/core/toolsRegistry.js';
+import { normalizeMetaToolDefinition } from '../../src/core/metaTools/schema.js';
 
 const definition = (name: string, scope: 'project' | 'user') => ({
   name,
@@ -16,7 +17,7 @@ const definition = (name: string, scope: 'project' | 'user') => ({
   handler: `echo ${scope}`,
 });
 
-const SCRATCH_DIR = path.join(os.homedir(), 'Documents/autohand/digital-team/charlie-cox/scratch');
+const SCRATCH_DIR = os.tmpdir();
 
 let root: string;
 let userDir: string;
@@ -34,6 +35,21 @@ afterEach(async () => {
 });
 
 describe('project meta-tools and workspace trust', () => {
+  it('creates an explicitly requested project tool without loading other untrusted project tools', async () => {
+    const workspace = path.join(root, 'workspace');
+    await fs.writeJson(path.join(workspace, '.autohand', 'tools', 'untrusted.json'), definition('untrusted', 'project'));
+    const registry = createToolsRegistry(workspace, userDir);
+    await registry.initialize();
+    const created = normalizeMetaToolDefinition({ ...definition('requested', 'project'), scope: 'project' });
+    if (!created) throw new Error('Invalid fixture');
+    await registry.saveMetaTool(created);
+    expect(registry.getMetaTool('requested')).toMatchObject({ scope: 'project' });
+    expect(registry.getMetaTool('untrusted')).toBeUndefined();
+    expect(registry.getRegistryEntries({ includeDisabled: true }).map(tool => tool.name)).toContain('requested');
+    await registry.initialize();
+    expect(registry.getMetaTool('requested')).toBeUndefined();
+    expect(registry.getMetaTool('untrusted')).toBeUndefined();
+  });
   it('loads no project meta-tools from an untrusted workspace', async () => {
     await fs.writeJson(path.join(root, 'workspace', '.autohand', 'tools', 'deploy.json'), definition('deploy', 'project'));
     const registry = createToolsRegistry(path.join(root, 'workspace'), userDir, { projectToolsTrusted: false });

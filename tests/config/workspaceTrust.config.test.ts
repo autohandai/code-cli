@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../../src/config.js';
 import { trustWorkspace } from '../../src/permissions/workspaceTrust.js';
 
-const SCRATCH_DIR = path.join(os.homedir(), 'Documents/autohand/digital-team/charlie-cox/scratch');
+const SCRATCH_DIR = os.tmpdir();
 
 let root: string;
 let configPath: string;

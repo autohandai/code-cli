@@ -2,7 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
-import { seedCloudScenario, cloudScenarioId, cloudViewport } from '../../src/testing/scenarios/cloudScenario.js';
+import { seedCloudScenario, cloudScenarioId, cloudViewport, startCloudWithoutRepository } from '../../src/testing/scenarios/cloudScenario.js';
 import { createTempAutohandHome, exitInteractive, launchBuiltAutohand, waitForExit, type TuistoryTempState } from './helpers/autohandTuistory.js';
 
 const sessions: Session[] = [], states: TuistoryTempState[] = [];
@@ -110,11 +110,7 @@ describe('built CLI cloud terminal flow', () => {
   });
   it.each(['team', 'enterprise'])('starts a %s cloud session from the terminal', async tier => {
     const { state, session } = await launch(['--prompt', 'list files'], tier);
-    await session.waitForText('Cloud environment');
-    await session.press('down');
-    await session.waitForText('▸ 2. Start a hosted conversation without a repository');
-    await session.press('enter');
-    await session.waitForText('Cloud agent connected');
+    await startCloudWithoutRepository(session);
     const calls = await requests(state);
     expect(calls.find(call => call.route.endsWith('/messages'))?.body).toMatchObject({ content: 'list files' });
     await session.press(['ctrl', 'c']); await waitForExit(session);

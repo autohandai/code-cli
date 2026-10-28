@@ -82,9 +82,8 @@ export function createToolsRegistry(
   const registry = new ToolsRegistry([{ scope: 'user', dir: userToolsDir }]);
   if (workspaceRoot) {
     const projectDir = path.join(workspaceRoot, PROJECT_DIR_NAME, 'tools');
-    if (options.projectToolsTrusted) {
-      registry.addLocation({ scope: 'project', dir: projectDir });
-    } else {
+    registry.addLocation({ scope: 'project', dir: projectDir });
+    if (!options.projectToolsTrusted) {
       registry.noteUntrustedProjectTools(projectDir);
     }
   }
@@ -125,7 +124,7 @@ export class ToolsRegistry {
     this.metaToolRecords.clear();
     this.diagnostics = [];
     for (const location of this.locations) {
-      await fs.ensureDir(location.dir);
+      if (this.isLoadableLocation(location)) await fs.ensureDir(location.dir);
     }
     await this.loadMetaToolDefinitions();
   }
@@ -372,6 +371,7 @@ export class ToolsRegistry {
       this.diagnostics.push({ file: this.untrustedProjectToolsDir, reason: UNTRUSTED_PROJECT_TOOLS_REASON });
     }
     for (const location of this.locations) {
+      if (!this.isLoadableLocation(location)) continue;
       try {
         const exists = await fs.pathExists(location.dir);
         if (!exists) {
@@ -415,6 +415,10 @@ export class ToolsRegistry {
       throw new Error(`No tools directory configured for ${scope} scope`);
     }
     return location;
+  }
+
+  private isLoadableLocation(location: ToolsRegistryLocation): boolean {
+    return location.scope !== 'project' || location.dir !== this.untrustedProjectToolsDir;
   }
 
   private async readDefinition(filePath: string): Promise<MetaToolDefinition | null> {
