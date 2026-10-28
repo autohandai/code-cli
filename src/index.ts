@@ -337,7 +337,7 @@ import { isDiscoveryInvocation, registerDiscoveryCommand } from './discovery/cli
 
 installProcessErrorHandlers();
 
-const program = new Command();
+export const program = new Command();
 
 const collectRepeatable = (value: string, previous: string[] = []): string[] => [...previous, value];
 

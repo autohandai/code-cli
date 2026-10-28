@@ -1,0 +1,1940 @@
+[
+  {
+    "command": "autohand",
+    "options": [
+      {
+        "flags": "--about",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--acp",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--add-dir <path...>",
+        "required": true,
+        "optional": false,
+        "variadic": true,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--agent <name>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--agents <json|path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--allowed-tools <patterns>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--answer-only",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--append-sys-prompt <value>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--append-system-prompt <value>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--append-system-prompt-file <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--auto-commit",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--auto-mode [prompt]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--auto-skill",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--bare",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--browser",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--cc, --context-compact",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--checkpoint-interval <n>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--chrome",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--client-context <context>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--completion-promise <text>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--config <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--dir <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--disallowed-tools <patterns>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--display-language <locale>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--dry-run",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--ephemeral",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--feedback",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--fork <pathOrId>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--goal [input]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--interactive-on-complete",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--json [mode]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--lead-session <id>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--learn",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--learn-update",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--login",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--logout",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--max-cost <d>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--max-duration <seconds>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--max-iterations <n>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--max-requests <n>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--max-runtime <m>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--max-tokens <n>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--mcp-config <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--mode <mode>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "interactive"
+      },
+      {
+        "flags": "--model <model>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--name <name>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--no-browser",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": true,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--no-cc, --no-context-compact",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": true,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--no-chrome",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": true,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--no-idle-logout",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": true,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--no-worktree",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": true,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--offline",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--output <file>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--output-format <format>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--output-schema <file>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--patch",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--path <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--permissions",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--plan",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--plugin-dir <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--profile <name>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--project",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--provider <provider>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--rename <name>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--restricted",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--search-engine <provider>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--set <key=value>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--settings",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--setup",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--setup-only",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--skill-install [skill-name]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--sync-settings [bool]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--sys-prompt <value>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--system-prompt <value>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--system-prompt-file <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--team <name>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--teammate-mode <mode>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--temperature <value>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--thinking [level]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--timeout <seconds>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--tmux",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--traces-off",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--traces-on",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--unrestricted",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--worktree [name]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--y",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--yolo [pattern]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--zit [intent]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "-c, --continue",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "-d, --debug",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "-p, --prompt [text]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "-r, --resume [id]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "-v, --version",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "-y, --yes",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand agents",
+    "options": [
+      {
+        "flags": "--once",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand auto-research",
+    "options": []
+  },
+  {
+    "command": "autohand browser",
+    "options": []
+  },
+  {
+    "command": "autohand browser install",
+    "options": [
+      {
+        "flags": "--browser <browser>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "all"
+      },
+      {
+        "flags": "--cli-path <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--extension-id <id>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--install-url <url>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "https://autohand.ai/chrome/installed"
+      },
+      {
+        "flags": "--open",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand chrome",
+    "options": []
+  },
+  {
+    "command": "autohand chrome install",
+    "options": [
+      {
+        "flags": "--browser <browser>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "all"
+      },
+      {
+        "flags": "--cli-path <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--extension-id <id>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--install-url <url>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "https://autohand.ai/chrome/installed"
+      },
+      {
+        "flags": "--open",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand completion",
+    "options": []
+  },
+  {
+    "command": "autohand computer",
+    "options": [
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand computer doctor",
+    "options": [
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand computer install",
+    "options": [
+      {
+        "flags": "--bin-dir <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--force",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--non-interactive",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--postinstall",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand computer status",
+    "options": [
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand config",
+    "options": []
+  },
+  {
+    "command": "autohand config set",
+    "options": []
+  },
+  {
+    "command": "autohand discovery",
+    "options": [
+      {
+        "flags": "--agent <id,id>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--analyze",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--depth <0|1|2>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "2"
+      },
+      {
+        "flags": "--dry-run",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--github",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--no-behavior",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": true,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--output <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--push",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--select <id,id>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--since <duration>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "30d"
+      },
+      {
+        "flags": "--skill-query <text>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--with-report",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--workspace <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand doctor",
+    "options": [
+      {
+        "flags": "--config <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--path <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--skip-mcp",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand experiments",
+    "options": []
+  },
+  {
+    "command": "autohand experiments disable",
+    "options": []
+  },
+  {
+    "command": "autohand experiments enable",
+    "options": []
+  },
+  {
+    "command": "autohand experiments list",
+    "options": []
+  },
+  {
+    "command": "autohand experiments refresh",
+    "options": []
+  },
+  {
+    "command": "autohand experiments status",
+    "options": []
+  },
+  {
+    "command": "autohand extensions",
+    "options": []
+  },
+  {
+    "command": "autohand extensions disable",
+    "options": [
+      {
+        "flags": "--scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "user"
+      }
+    ]
+  },
+  {
+    "command": "autohand extensions doctor",
+    "options": [
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand extensions enable",
+    "options": [
+      {
+        "flags": "--scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "user"
+      }
+    ]
+  },
+  {
+    "command": "autohand extensions install",
+    "options": [
+      {
+        "flags": "--link",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--replace",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "user"
+      },
+      {
+        "flags": "--trust",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand extensions list",
+    "options": [
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand extensions remove",
+    "options": [
+      {
+        "flags": "--scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "user"
+      },
+      {
+        "flags": "--yes",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand extensions show",
+    "options": [
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand extensions validate",
+    "options": [
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      }
+    ]
+  },
+  {
+    "command": "autohand import",
+    "options": [
+      {
+        "flags": "--all",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--categories <list>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--dry-run",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--retry-failed",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand init",
+    "options": [
+      {
+        "flags": "--path <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand login",
+    "options": []
+  },
+  {
+    "command": "autohand logout",
+    "options": []
+  },
+  {
+    "command": "autohand mcp",
+    "options": []
+  },
+  {
+    "command": "autohand mcp add",
+    "options": [
+      {
+        "flags": "-s, --scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "user"
+      },
+      {
+        "flags": "-t, --transport <transport>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "stdio"
+      }
+    ]
+  },
+  {
+    "command": "autohand mcp connect",
+    "options": [
+      {
+        "flags": "-s, --scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "user"
+      }
+    ]
+  },
+  {
+    "command": "autohand mcp disconnect",
+    "options": [
+      {
+        "flags": "-s, --scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "user"
+      }
+    ]
+  },
+  {
+    "command": "autohand mcp install",
+    "options": [
+      {
+        "flags": "-s, --scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "user"
+      }
+    ]
+  },
+  {
+    "command": "autohand mcp list",
+    "options": [
+      {
+        "flags": "-s, --scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "user"
+      }
+    ]
+  },
+  {
+    "command": "autohand mcp remove",
+    "options": [
+      {
+        "flags": "-s, --scope <scope>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": "user"
+      }
+    ]
+  },
+  {
+    "command": "autohand queue",
+    "options": []
+  },
+  {
+    "command": "autohand resume",
+    "options": [
+      {
+        "flags": "--all",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--config <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--last",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--model <model>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--offline",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--path <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand review",
+    "options": [
+      {
+        "flags": "--audience <audience>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--bare",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--base <git-ref>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--config <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--focus <text>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--format <format>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--head <git-ref>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--json [mode]",
+        "required": false,
+        "optional": true,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--model <model>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--no-open",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": true,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--offline",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--output-format <format>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--path <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--port <port>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": 0
+      }
+    ]
+  },
+  {
+    "command": "autohand sessions",
+    "options": [
+      {
+        "flags": "--project <name>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand squad",
+    "options": []
+  },
+  {
+    "command": "autohand traces",
+    "options": [
+      {
+        "flags": "--json",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand transfer",
+    "options": [
+      {
+        "flags": "--accept",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--account <id>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--config <path>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--import-only",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--offline",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": true,
+        "defaultValue": false
+      },
+      {
+        "flags": "--path <directory>",
+        "required": true,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand update",
+    "options": [
+      {
+        "flags": "--check",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--models",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  },
+  {
+    "command": "autohand upgrade",
+    "options": [
+      {
+        "flags": "--check",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      },
+      {
+        "flags": "--models",
+        "required": false,
+        "optional": false,
+        "variadic": false,
+        "negate": false,
+        "hasDefault": false,
+        "defaultValue": null
+      }
+    ]
+  }
+]
