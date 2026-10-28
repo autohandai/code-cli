@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const atomicFileMocks = vi.hoisted(() => ({
   atomicWriteFile: vi.fn().mockResolvedValue(undefined),
@@ -16,6 +17,16 @@ const atomicFileMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/utils/atomicFile.js', () => atomicFileMocks);
+
+vi.mock('node:child_process', async (importOriginal) => ({
+  ...await importOriginal<typeof import('node:child_process')>(),
+  execFileSync: vi.fn((file: string, args: string[]) => {
+    if (file !== 'git') throw new Error(`Unexpected command: ${file}`);
+    if (args.includes('--show-toplevel')) return '/workspace';
+    if (args.includes('info/exclude')) return '/workspace/.git/info/exclude';
+    throw new Error(`Unexpected git args: ${args.join(' ')}`);
+  }),
+}));
 
 // Mock fs-extra before importing anything that uses it
 vi.mock('fs-extra', () => ({
@@ -79,6 +90,148 @@ describe('ClaudeImporter', () => {
   // scan()
   // ---------------------------------------------------------------
   describe('scan()', () => {
+    it.each(['global config', 'project config'])('detects Claude when only the MCP %s exists', async (scope) => {
+      const root = '/workspace';
+      importer = new ClaudeImporter({ sourceHome: CLAUDE_HOME, workspaceRoot: root });
+      const onlyMcpConfig = scope === 'global config' ? path.join(HOME, '.claude.json') : path.join(root, '.mcp.json');
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => String(p) === onlyMcpConfig);
+
+      await expect(importer.detect()).resolves.toBe(true);
+    });
+
+    it('reports MCP servers from Claude configuration', async () => {
+      const root = '/workspace';
+      importer = new ClaudeImporter({ sourceHome: CLAUDE_HOME, workspaceRoot: root });
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => [CLAUDE_HOME, path.join(HOME, '.claude.json')].includes(String(p)));
+      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+        if (String(p) === path.join(HOME, '.claude.json')) return { mcpServers: { user: { command: 'run' } } } as never;
+        if (String(p) === path.join(root, '.mcp.json')) return { mcpServers: { project: { command: 'local' } } } as never;
+        throw new Error('missing');
+      });
+      const result = await importer.scan();
+      expect(result.available.get('mcp')?.count).toBe(2);
+    });
+
+    it('ignores malformed MCP server entries when scanning and importing', async () => {
+      const root = '/workspace';
+      const userConfig = '/autohand/config.json';
+      importer = new ClaudeImporter({ sourceHome: CLAUDE_HOME, workspaceRoot: root, configPath: userConfig });
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => String(p) === path.join(HOME, '.claude.json'));
+      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+        if (String(p) === path.join(HOME, '.claude.json')) return {
+          mcpServers: {
+            valid: { command: 'run' },
+            missingCommand: { type: 'stdio' },
+            missingUrl: { type: 'http' },
+            unsupported: { type: 'websocket', url: 'https://example.test' },
+            scalar: 'invalid',
+            '': { command: 'blank-name' },
+          },
+        } as never;
+        if (String(p) === userConfig) return {} as never;
+        throw new Error('missing');
+      });
+
+      expect((await importer.scan()).available.get('mcp')?.count).toBe(1);
+      const result = await importer.import(['mcp']);
+
+      expect(result.imported.get('mcp')).toEqual({ success: 1, failed: 0, skipped: 0 });
+      expect(vi.mocked(fse.writeJson).mock.calls[0]?.[1]).toMatchObject({
+        mcp: { servers: [{ name: 'valid', command: 'run', transport: 'stdio', autoConnect: false, localOnly: true }] },
+      });
+    });
+
+    it('writes MCP servers to user and workspace-local destinations without overwriting existing entries', async () => {
+      const root = '/workspace';
+      const userConfig = '/autohand/config.json';
+      importer = new ClaudeImporter({ sourceHome: CLAUDE_HOME, workspaceRoot: root, configPath: userConfig });
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => [path.join(HOME, '.claude.json'), path.join(root, '.mcp.json'), userConfig].includes(String(p)));
+      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+        if (String(p) === path.join(HOME, '.claude.json')) return { mcpServers: { user: { command: 'run' } }, projects: { [root]: { mcpServers: {
+          project: { command: 'shared' },
+          keep: { command: 'incoming' },
+          events: { type: 'sse', url: 'https://example.test/events', headers: { Authorization: 'Bearer secret' } },
+        } } } } as never;
+        if (String(p) === path.join(root, '.mcp.json')) return { mcpServers: { project: { type: 'http', url: 'https://local' }, local: { command: 'local-run' } } } as never;
+        if (String(p) === userConfig) return { unrelated: true, mcp: { servers: [{ name: 'user', transport: 'stdio', command: 'existing' }] } } as never;
+        throw new Error('missing');
+      });
+      const result = await importer.import(['mcp']);
+      expect(result.imported.get('mcp')).toEqual({
+        success: 4,
+        failed: 0,
+        skipped: 1,
+        skipReasons: { 'already exists': 1 },
+      });
+      const writes = vi.mocked(fse.writeJson).mock.calls;
+      expect(writes.some(call => String(call[0]) === userConfig)).toBe(false);
+      const localWrite = writes.find(call => String(call[0]).endsWith('.autohand/settings.local.json'))?.[1] as any;
+      expect(localWrite.mcp.servers).toEqual(expect.arrayContaining([
+        { name: 'project', command: 'shared', transport: 'stdio', autoConnect: false, localOnly: true },
+        { name: 'keep', command: 'incoming', transport: 'stdio', autoConnect: false, localOnly: true },
+        { name: 'events', type: 'sse', url: 'https://example.test/events', headers: { Authorization: 'Bearer secret' }, transport: 'sse', autoConnect: false, localOnly: true },
+        { name: 'local', command: 'local-run', transport: 'stdio', autoConnect: false, localOnly: true },
+      ]));
+      expect(execFileSync).toHaveBeenCalledWith('git', ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'], expect.objectContaining({ cwd: root }));
+      expect(fse.writeFile).toHaveBeenCalledWith('/workspace/.git/info/exclude', expect.stringContaining('**/.autohand/settings.local.json'));
+    });
+
+    it('reports MCP servers with Claude environment placeholders as unsupported', async () => {
+      const root = '/workspace';
+      importer = new ClaudeImporter({ sourceHome: CLAUDE_HOME, workspaceRoot: root });
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => [path.join(HOME, '.claude.json'), path.join(root, '.mcp.json')].includes(String(p)));
+      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+        if (String(p) === path.join(HOME, '.claude.json')) return {} as never;
+        if (String(p) === path.join(root, '.mcp.json')) return { mcpServers: { shared: { command: 'node', args: ['${SCRIPT:-server.js}'], env: { TOKEN: '${TOKEN}' } } } } as never;
+        throw new Error('missing');
+      });
+
+      const result = await importer.import(['mcp']);
+
+      expect(result.imported.get('mcp')).toMatchObject({ success: 0, failed: 1 });
+      expect(result.errors).toEqual([expect.objectContaining({ category: 'mcp', item: 'shared', error: expect.stringContaining('environment variable placeholders') })]);
+      expect(fse.writeJson).not.toHaveBeenCalled();
+    });
+
+    it('reports existing MCP servers as skipped without rewriting their config', async () => {
+      const root = '/workspace';
+      const userConfig = '/autohand/config.json';
+      importer = new ClaudeImporter({ sourceHome: CLAUDE_HOME, workspaceRoot: root, configPath: userConfig });
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) =>
+        [path.join(HOME, '.claude.json'), userConfig].includes(String(p)));
+      vi.mocked(fse.readJson).mockImplementation(async (p: string) => {
+        if (String(p) === path.join(HOME, '.claude.json')) {
+          return { mcpServers: { existing: { command: 'server' } } } as never;
+        }
+        if (String(p) === userConfig) {
+          return { mcp: { servers: [{ name: 'existing', command: 'server' }] } } as never;
+        }
+        throw new Error('unexpected file read');
+      });
+
+      const result = await importer.import(['mcp']);
+
+      expect(result.imported.get('mcp')).toEqual({
+        success: 0,
+        failed: 0,
+        skipped: 1,
+        skipReasons: { 'already exists': 1 },
+      });
+      expect(fse.ensureDir).not.toHaveBeenCalled();
+      expect(fse.writeJson).not.toHaveBeenCalled();
+      expect(fse.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('ignores malformed global Claude configuration', async () => {
+      importer = new ClaudeImporter({ sourceHome: CLAUDE_HOME });
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => String(p) === path.join(HOME, '.claude.json'));
+      vi.mocked(fse.readJson).mockRejectedValue(new SyntaxError('invalid JSON'));
+
+      const result = await importer.scan();
+
+      expect(result.available.has('mcp')).toBe(false);
+    });
+
     it('should return empty available map when ~/.claude does not exist', async () => {
       vi.mocked(fse.pathExists).mockResolvedValue(false as never);
 

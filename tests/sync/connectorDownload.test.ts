@@ -56,6 +56,29 @@ describe('Console connector downloads', () => {
     expect(loaded.mcp?.servers.some((server) => server.managedConnectorId === connector.id)).toBe(true);
   });
 
+  it('does not publish imported local-only MCP servers to the account', async () => {
+    const loaded = {
+      ...config(),
+      mcp: {
+        servers: [
+          { name: 'imported', transport: 'http' as const, url: 'https://private.example/mcp', headers: { Authorization: 'Bearer secret' }, autoConnect: false, localOnly: true },
+          { name: 'shared', transport: 'stdio' as const, command: 'npx', autoConnect: true },
+        ],
+      },
+    };
+    vi.spyOn(CodingAgentControlPlaneClient.prototype, 'pullConnectors').mockResolvedValue({ revision: 1, connectors: [] });
+    vi.spyOn(CodingAgentControlPlaneClient.prototype, 'pullSettingsProfiles').mockResolvedValue([]);
+    const createConnector = vi.spyOn(CodingAgentControlPlaneClient.prototype, 'createConnector').mockResolvedValue('remote-id');
+    vi.spyOn(CodingAgentControlPlaneClient.prototype, 'acknowledgeConnectors').mockResolvedValue();
+    vi.spyOn(CodingAgentControlPlaneClient.prototype, 'uploadSettingsSnapshot').mockResolvedValue();
+
+    await syncCodingAgentControlPlane(loaded, 'test-session', { publishLocalConnectors: true });
+
+    expect(createConnector).toHaveBeenCalledOnce();
+    expect(createConnector).toHaveBeenCalledWith('test-session', expect.objectContaining({ name: 'shared' }), undefined);
+    expect(JSON.stringify(createConnector.mock.calls)).not.toContain('Bearer secret');
+  });
+
   it('does not mutate live config or acknowledge a snapshot when persistence fails', async () => {
     const loaded = config();
     mocks.saveConfig.mockRejectedValue(new Error('Disk full'));

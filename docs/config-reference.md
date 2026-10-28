@@ -2415,6 +2415,7 @@ Configure MCP (Model Context Protocol) servers to extend Autohand with external 
 | `headers`      | `Record<string, string>`            | No             | `{}`               | Custom HTTP headers for http/sse transport (e.g. auth tokens) |
 | `env`          | `Record<string, string>`            | No             | `{}`               | Environment variables passed to the server                    |
 | `autoConnect`  | `boolean`                           | No             | `true`             | Whether to auto-connect on startup                            |
+| `localOnly`    | `boolean`                           | No             | `false`            | Keep the server on this device; do not publish it to the account control plane |
 
 > Servers connect asynchronously in the background during startup without blocking the prompt. Use `/mcp` to manage servers interactively, or `/mcp add` to browse the community registry or add custom servers.
 
@@ -2567,6 +2568,18 @@ The importer reads user and current-project configurations for Claude Code, Code
 Only compatible command hooks are translated. Unsupported source HTTP, prompt/agent, async, and `failClosed` handlers are reported as skipped, along with events that require unavailable behavior such as turn continuation or pre-compaction. Legacy Codex `notify` commands are detected and reported for manual porting because they receive JSON in argv. Source-specific payloads and tool schemas are not fully reproduced.
 
 See [hook import compatibility](./hooks.md#import-hooks-from-another-coding-agent) for source file locations, event mappings, timeout defaults, supported responses, and manual-porting limits.
+
+### Import MCP Servers from Claude Code
+
+```sh
+autohand import claude --categories mcp
+```
+
+The importer reads user servers from `~/.claude.json`, current-project servers from `projects[<workspace path>].mcpServers` in that file, and project servers from `<workspace>/.mcp.json`. Use `--path <workspace>` when importing for a workspace other than the current directory.
+
+Stdio servers keep their `command`, `args`, and `env`; HTTP and SSE servers keep their `url` and `headers`. User servers are added to the selected user config. Project servers are added to `<workspace>/.autohand/settings.local.json`. Imported servers are saved with `autoConnect: false`, so review them before enabling them. Existing servers with the same name are preserved and reported as skipped (`already exists`).
+
+Environment values and headers are copied as configured. The importer does not print server values, and imported servers stay on this device instead of being published to the account control plane.
 
 ---
 

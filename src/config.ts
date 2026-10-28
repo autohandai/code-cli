@@ -1705,6 +1705,9 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
         throw new Error(`mcp.servers must be an array in ${configPath}`);
       }
       for (const server of config.mcp.servers) {
+        if (server.localOnly !== undefined && typeof server.localOnly !== "boolean") {
+          throw new Error(`mcp.servers[].localOnly must be boolean in ${configPath}`);
+        }
         if (!server.name || typeof server.name !== "string") {
           throw new Error(
             `mcp.servers[].name must be a non-empty string in ${configPath}`,
