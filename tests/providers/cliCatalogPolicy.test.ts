@@ -20,7 +20,7 @@ describe('CLI hosted model availability', () => {
     expect(getProviderRunnableModelOptions('autohandai').some(model => model.id === 'weka')).toBe(false);
   });
   it.each(['weka', 'autohand/weka', 'autohandai/weka'])('rejects %s without depending on a catalog entry', model => {
-    expect(getAutohandAICloudModelCliUnsupportedReason(model)).toBe('Weka is available through the Autohand API and Agent SDKs, not in the CLI. Pick another model with /model or --model.');
+    expect(getAutohandAICloudModelCliUnsupportedReason(model)).toBe('Weka is available through the Autohand API, the Agent SDKs and the Console, not in the CLI. Pick another model with /model or --model.');
   });
   it.each(['anthropic', 'openrouter'])('offers the Claude 5 family with Sonnet 5.5 first on %s', provider => {
     const prefix = provider === 'openrouter' ? 'anthropic/' : '';
