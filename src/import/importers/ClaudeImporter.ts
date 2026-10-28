@@ -13,10 +13,12 @@ import type {
   ImportError,
   ImportCategoryResult,
   ProgressCallback,
+  PermissionImportReport,
 } from '../types.js';
 import type { SessionMessage } from '../../session/types.js';
 import { AUTOHAND_PATHS } from '../../constants.js';
 import { BaseImporter } from './BaseImporter.js';
+import { ClaudePermissionImport } from '../ClaudePermissionImport.js';
 
 /**
  * A single parsed Claude event from a session JSONL file.
@@ -46,6 +48,19 @@ export class ClaudeImporter extends BaseImporter {
   readonly name: ImportSource = 'claude';
   readonly displayName = 'Claude Code';
   readonly homePath = '~/.claude';
+  private permissionReport?: PermissionImportReport;
+
+  private permissionImport(): ClaudePermissionImport {
+    return new ClaudePermissionImport(this.resolvedHomePath, this.hookImportOptions);
+  }
+
+  override async detect(): Promise<boolean> {
+    return await super.detect() || await this.permissionImport().scan() > 0;
+  }
+
+  async previewSettings(): Promise<PermissionImportReport> {
+    return this.permissionImport().preview();
+  }
 
   // ---------------------------------------------------------------
   // scan()
@@ -54,6 +69,8 @@ export class ClaudeImporter extends BaseImporter {
   async scan(): Promise<ImportScanResult> {
     const available = new Map<ImportCategory, { count: number; description: string }>();
     await this.scanHooks(available);
+    const settingsCount = await this.permissionImport().scan();
+    if (settingsCount > 0) available.set('settings', { count: settingsCount, description: 'Claude user and project permission settings' });
     const home = this.resolvedHomePath;
 
     if (!(await fse.pathExists(home))) {
@@ -93,12 +110,6 @@ export class ClaudeImporter extends BaseImporter {
       });
     }
 
-    // Check settings
-    const settingsPath = path.join(home, 'settings.json');
-    if (await fse.pathExists(settingsPath)) {
-      available.set('settings', { count: 1, description: 'Claude Code settings.json' });
-    }
-
     // Check skills
     const skillsDir = path.join(home, 'skills');
     if (await fse.pathExists(skillsDir)) {
@@ -134,6 +145,7 @@ export class ClaudeImporter extends BaseImporter {
     const start = Date.now();
     const imported = new Map<ImportCategory, ImportCategoryResult>();
     const errors: ImportError[] = [];
+    this.permissionReport = undefined;
 
     for (const category of categories) {
       switch (category) {
@@ -158,11 +170,17 @@ export class ClaudeImporter extends BaseImporter {
       }
     }
 
+    if (!categories.includes('settings')) {
+      this.permissionReport = await this.permissionImport().cleanup();
+      errors.push(...(this.permissionReport.errors ?? []));
+    }
+
     return {
       source: this.name,
       imported,
       errors,
       duration: Date.now() - start,
+      ...(this.permissionReport ? { permissions: this.permissionReport } : {}),
     };
   }
 
@@ -323,54 +341,33 @@ export class ClaudeImporter extends BaseImporter {
     errors: ImportError[],
     onProgress?: ProgressCallback,
   ): Promise<void> {
-    const settingsPath = path.join(this.resolvedHomePath, 'settings.json');
-
-    if (!(await fse.pathExists(settingsPath))) {
-      imported.set('settings', { success: 0, failed: 0, skipped: 1 });
-      return;
-    }
-
     onProgress?.({
       category: 'settings',
       current: 1,
       total: 1,
-      item: 'settings.json',
+      item: 'Claude permission rules',
       status: 'importing',
     });
 
     try {
-      const settings = await this.safeReadJson(settingsPath);
-
-      // Extract permissions.allow and merge into autohand config
-      const permissions = settings.permissions as { allow?: string[] } | undefined;
-      if (permissions?.allow) {
-        const configDir = AUTOHAND_PATHS.config;
-        await fse.ensureDir(configDir);
-
-        const importedSettingsPath = path.join(configDir, 'imported-claude-settings.json');
-        await fse.writeJson(importedSettingsPath, {
-          importedFrom: 'claude',
-          importedAt: new Date().toISOString(),
-          permissions: permissions.allow,
-          raw: settings,
-        }, { spaces: 2 });
-      }
-
-      imported.set('settings', { success: 1, failed: 0, skipped: 0 });
+      const result = await this.permissionImport().import();
+      this.permissionReport = result.report;
+      imported.set('settings', result.stats);
+      errors.push(...result.errors);
 
       onProgress?.({
         category: 'settings',
         current: 1,
         total: 1,
-        item: 'settings.json',
-        status: 'done',
+        item: 'Claude permission rules',
+        status: result.stats.failed ? 'failed' : 'done',
       });
-    } catch (err) {
+    } catch {
       imported.set('settings', { success: 0, failed: 1, skipped: 0 });
       errors.push({
         category: 'settings',
         item: 'settings.json',
-        error: err instanceof Error ? err.message : String(err),
+        error: 'Could not import Claude permission settings. No raw settings were copied.',
         retriable: false,
       });
     }

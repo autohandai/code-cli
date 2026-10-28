@@ -182,6 +182,7 @@ export function mergePermissions(
       ...(normalizedGlobal.denyList || []),
       ...(normalizedLocal.denyList || [])
     ].filter((v, i, a) => a.indexOf(v) === i),
+    importedClaudeRules: [...(normalizedGlobal.importedClaudeRules ?? []), ...(normalizedLocal.importedClaudeRules ?? [])],
     // Merge rules (local rules checked first)
     rules: [
       ...(normalizedLocal.rules || []),

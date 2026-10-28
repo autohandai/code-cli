@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const atomicFileMocks = vi.hoisted(() => ({
+  atomicWriteFile: vi.fn().mockResolvedValue(undefined),
   atomicWriteJson: vi.fn().mockResolvedValue(undefined),
   withFileLock: vi.fn(
     (_lockPath: string, operation: () => Promise<unknown>) => operation(),
