@@ -66,6 +66,8 @@ function inferContextWindow(model: string): number | undefined {
   if (/^claude-sonnet-4[-.]5(?:$|[-.])/u.test(modelName)) return 1_000_000;
   if (/^claude-(?:haiku|opus)-4[-.]\d(?:$|[-.])/u.test(modelName)) return 200_000;
 
+  if (/^gpt-(?:5\.6|6(?:\.\d+)?)(?:$|-)/u.test(modelName)) return 272_000;
+
   if (normalized.startsWith('gpt-5.5')) return 1_050_000;
   if (normalized.startsWith('gpt-5.4') && !normalized.includes('mini') && !normalized.includes('nano')) return 1_050_000;
   if (

@@ -43,6 +43,10 @@ describe("modelCatalog", () => {
       "gpt-5.6-luna",
       "gpt-5.4",
     ]));
+    for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-6-astra', 'gpt-6.1-sol']) {
+      expect(getProviderModelOptions('openai')).toContainEqual(expect.objectContaining({ id, contextWindow: 272_000 }));
+    }
+    expect(getProviderDefaultModel('openai')).toBe('gpt-5.4');
     expect(getProviderDefaultModel("xai")).toBe("grok-4.5");
     expect(getProviderModelIds("xai")).toEqual(expect.arrayContaining([
       "grok-4.5",
