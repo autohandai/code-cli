@@ -39,24 +39,17 @@
         {"id": "qwen3.8-27b", "displayName": "qwen3.8-27b", "description": "Pro+, Max, Team and Enterprise", "contextWindow": 262144, "maxTokens": 16000, "toolCalls": true},
         {"id": "muse-wonder-1.0", "displayName": "Muse Wonder 1.0", "description": "Lite and above", "contextWindow": 262144, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high", "xhigh"]},
         {"id": "qwen3.8-max", "displayName": "Qwen 3.8 Max", "description": "Lite and above", "contextWindow": 262144, "maxTokens": 16000, "toolCalls": true},
-        {"id": "gemini-4-argon", "displayName": "Gemini 4 Argon", "description": "Max and Enterprise", "contextWindow": 1048576, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high"]},
-        {
-          "id": "weka",
-          "displayName": "Weka (API + Console only)",
-          "description": "Typed decision model for noul, choice, and score questions; not runnable in the CLI",
-          "api": "autohand-decisions",
-          "endpoint": "/decisions",
-          "contextWindow": 32000,
-          "maxTokens": 1024,
-          "toolCalls": false,
-          "cliSupported": false
-        }
+        {"id": "gemini-4-argon", "displayName": "Gemini 4 Argon", "description": "Max and Enterprise", "contextWindow": 1048576, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high"]}
       ]
     },
     "openrouter": {
-      "defaultModel": "anthropic/claude-sonnet-5",
-      "runtimeDefaultModel": "anthropic/claude-sonnet-5",
+      "defaultModel": "anthropic/claude-sonnet-5-5",
+      "runtimeDefaultModel": "anthropic/claude-sonnet-5-5",
       "models": [
+        {"id": "anthropic/claude-sonnet-5-5", "displayName": "Claude Sonnet 5.5"},
+        {"id": "anthropic/claude-opus-5-5", "displayName": "Claude Opus 5.5"},
+        {"id": "anthropic/claude-haiku-5-5", "displayName": "Claude Haiku 5.5"},
+        {"id": "anthropic/claude-fable-5-1", "displayName": "Claude Fable 5.1"},
         { "id": "openrouter/auto", "displayName": "OpenRouter Auto" },
         { "id": "anthropic/claude-opus-5-fast", "displayName": "Claude Opus 5 (Fast)", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
         { "id": "anthropic/claude-opus-5", "displayName": "Claude Opus 5", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
@@ -83,9 +76,13 @@
       ]
     },
     "anthropic": {
-      "defaultModel": "claude-sonnet-5",
-      "runtimeDefaultModel": "claude-sonnet-5",
+      "defaultModel": "claude-sonnet-5-5",
+      "runtimeDefaultModel": "claude-sonnet-5-5",
       "models": [
+        {"id": "claude-sonnet-5-5", "displayName": "Claude Sonnet 5.5"},
+        {"id": "claude-opus-5-5", "displayName": "Claude Opus 5.5"},
+        {"id": "claude-haiku-5-5", "displayName": "Claude Haiku 5.5"},
+        {"id": "claude-fable-5-1", "displayName": "Claude Fable 5.1"},
         { "id": "claude-opus-5", "displayName": "Claude Opus 5", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
         { "id": "claude-sonnet-5", "displayName": "Claude Sonnet 5", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },
         { "id": "claude-fable-5", "displayName": "Claude Fable 5", "contextWindow": 1000000, "maxTokens": 128000, "reasoningEffort": "high" },

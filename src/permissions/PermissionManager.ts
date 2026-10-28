@@ -37,6 +37,11 @@ const READ_ONLY_REVIEW_TOOLS = new Set([
   'git_status', 'git_list_untracked', 'git_diff', 'git_diff_range', 'git_log', 'checksum',
 ]);
 
+const PLAN_FILE_EDIT_TOOLS = new Set([
+  'write_file', 'append_file', 'apply_patch', 'notebook_edit', 'search_replace',
+  'format_file', 'multi_file_edit', 'delete_path', 'rename_path', 'copy_path',
+]);
+
 /**
  * Default security blacklist - always blocked patterns for sensitive files and dangerous commands.
  * These are merged with user settings and cannot be overridden by allowLists.
@@ -394,7 +399,10 @@ export class PermissionManager {
 
     // Pattern-based checks (AFTER security blacklist, BEFORE session cache)
     const patternDecision = this.checkPatterns(context);
-    if (patternDecision && (!this.readOnlyReview || !patternDecision.allowed)) {
+    const requestedTool = context.requestedTool ?? context.tool;
+    const planFileEdit = this.planEditApproval !== undefined && PLAN_FILE_EDIT_TOOLS.has(requestedTool);
+    const planOperation = this.hasPlanPermissionPolicy(context);
+    if (patternDecision && (!patternDecision.allowed || !planOperation) && (!this.readOnlyReview || !patternDecision.allowed)) {
       return patternDecision;
     }
 
@@ -432,6 +440,14 @@ export class PermissionManager {
     }
 
     if (this.readOnlyReview) return { allowed: true, reason: 'read_only_review' };
+
+    if (planFileEdit) {
+      if (this.mode === 'restricted') return { allowed: false, reason: 'mode_restricted' };
+      return this.planEditApproval === 'auto'
+        ? { allowed: true, reason: 'user_approved' }
+        : { allowed: false, reason: 'default' };
+    }
+    if (planOperation) return { allowed: false, reason: this.mode === 'restricted' ? 'mode_restricted' : 'default' };
 
     if (cachedDecision === true) {
       return { allowed: true, reason: 'user_approved', cached: true };
@@ -494,6 +510,24 @@ export class PermissionManager {
 
     // Default: needs prompt (interactive mode)
     return { allowed: false, reason: 'default' };
+  }
+
+  private planEditApproval: 'auto' | 'manual' | undefined;
+
+  setPlanEditApproval(approval: 'auto' | 'manual' | undefined): void {
+    this.planEditApproval = approval;
+  }
+
+  hasPlanPermissionPolicy(context: PermissionContext): boolean {
+    return this.planEditApproval !== undefined && (
+      PLAN_FILE_EDIT_TOOLS.has(context.requestedTool ?? context.tool)
+      || context.tool === 'write_file' || context.tool === 'run_command' || context.tool === 'shell'
+    );
+  }
+
+  requiresPlanApproval(context: PermissionContext): boolean {
+    return this.hasPlanPermissionPolicy(context)
+      && !(this.planEditApproval === 'auto' && PLAN_FILE_EDIT_TOOLS.has(context.requestedTool ?? context.tool));
   }
 
   /**

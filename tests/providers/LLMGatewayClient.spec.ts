@@ -1534,3 +1534,19 @@ describe('LLMGatewayClient', () => {
     });
   });
 });
+
+
+describe('Autohand reset-credit guidance', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it.each(['window_5h', 'window_24h', 'window_week'])('renders a trusted billing reset link for %s', async scope => {
+    const resetUrl = 'https://console.autohand.ai/billing?account=team_1&from=cli-limit';
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { type: 'rate_limited', scope, message: 'Window exhausted', resetAt: 1900000000, resetUrl } }, { status: 429 })));
+    const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, { maxRetries: 0 }, { serviceName: 'Autohand AI', credentialName: 'API key', accountName: 'account' });
+    await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] })).rejects.toThrow(`Skip the wait: use 100 reset credits to reset this window now. Packs start at US$10: ${resetUrl}`);
+  });
+  it.each(['https://evil.test/billing', 'http://console.autohand.ai/billing', 'https://console.autohand.ai/upgrade/'])('does not render an untrusted reset destination %s', async resetUrl => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { type: 'rate_limited', scope: 'window_5h', resetUrl } }, { status: 429 })));
+    const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, { maxRetries: 0 }, { serviceName: 'Autohand AI', credentialName: 'API key', accountName: 'account' });
+    await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] })).rejects.not.toThrow('Skip the wait:');
+  });
+});

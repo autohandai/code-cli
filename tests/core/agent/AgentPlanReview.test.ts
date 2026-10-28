@@ -13,6 +13,7 @@ const opener = vi.hoisted(() => ({ openPlanFile: vi.fn(async () => 'code') }));
 vi.mock('../../../src/ui/planAcceptModal.js', () => ({ showPlanAcceptModal: modal.showPlanAcceptModal }));
 vi.mock('../../../src/modes/planMode/openPlanFile.js', () => ({ openPlanFile: opener.openPlanFile }));
 
+import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
 import { getPlanModeManager } from '../../../src/commands/plan.js';
 import {
   handleAgentExitPlanMode,
@@ -45,6 +46,7 @@ function createHost() {
   const notes: string[] = [];
   const host = {
     runtime: { options: {}, workspaceRoot: '/repo' },
+    permissionManager: new PermissionManager({ mode: 'unrestricted' }),
     conversation: { addSystemNote: (note: string) => { notes.push(note); } },
     withModalPause: <T>(callback: () => Promise<T>) => callback(),
     resetConversationContext: vi.fn(async () => {}),
@@ -132,6 +134,15 @@ describe('plan presentation and review', () => {
       expect(options.planFilePath).toBe(expectedPath);
       await expect(options.onOpenPlan()).resolves.toBe('code');
       expect(opener.openPlanFile).toHaveBeenCalledExactlyOnceWith(expectedPath);
+    });
+
+    it.each(['auto_accept', 'clear_context_auto_accept', 'manual_approve'])('applies %s to the actual permission manager', async option => {
+      modal.showPlanAcceptModal.mockResolvedValue({ type: 'option', optionId: option });
+      vi.spyOn(PlanFileStorage.prototype, 'loadPlan').mockResolvedValue(plan());
+      const { host } = createHost();
+      await handleAgentExitPlanMode(host);
+      expect(host.permissionManager.checkPermission({ tool: 'write_file', path: '/repo/main.ts' }).allowed).toBe(option !== 'manual_approve');
+      expect(host.permissionManager.checkPermission({ tool: 'run_command', command: 'npm test' }).allowed).toBe(false);
     });
 
     it('accepts an untouched plan and lists its steps for execution', async () => {

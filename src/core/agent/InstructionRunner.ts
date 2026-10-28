@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { finalizeSessionGitSnapshot } from '../../actions/gitSessionSnapshot.js';
+import { getPlanModeManager } from '../../commands/plan.js';
 import chalk from 'chalk';
 import type { HookManager, HookExecutionResult } from '../HookManager.js';
 import type { ComputerUseLifecycle } from '../../computer/ComputerUseLifecycle.js';
@@ -763,6 +764,8 @@ export class InstructionRunner {
       // are disabled. Otherwise, in-flight streaming output bypasses writeAbove
       // and writes directly to stdout while regions are still active, corrupting
       // the fixed-region composer box (overlapping borders, leaked tool data).
+      host.permissionManager?.setPlanEditApproval(undefined);
+      getPlanModeManager().completeExecution();
       cleanupEsc();
       stopPreparation();
       host.stopStatusUpdates();

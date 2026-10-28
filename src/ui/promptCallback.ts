@@ -81,7 +81,8 @@ async function sendExternalRequest(request: ExternalPromptRequest): Promise<Exte
  */
 export async function confirm(
   message: string,
-  context?: PermissionContext
+  context?: PermissionContext,
+  options: { forcePrompt?: boolean } = {},
 ): Promise<PermissionPromptResult> {
   // External callback mode
   if (isExternalCallbackEnabled()) {
@@ -103,16 +104,18 @@ export async function confirm(
   }
 
   // Check for unrestricted mode (auto-confirm)
-  if (process.env.AUTOHAND_NON_INTERACTIVE === '1' ||
+  if (!options.forcePrompt && (process.env.AUTOHAND_NON_INTERACTIVE === '1' ||
       process.env.CI === '1' ||
-      process.env.AUTOHAND_YES === '1') {
+      process.env.AUTOHAND_YES === '1')) {
     return { decision: 'allow_once' };
   }
+
+  if (options.forcePrompt && !process.stdin.isTTY) return { decision: 'deny_once' };
 
   // Interactive mode - use Modal
   const commandPrefix = getCommandPrefix(context?.command);
   const alternativeKind = commandPrefix ? 'Command' : 'Path';
-  const options: ModalOption[] = [
+  const choices: ModalOption[] = [
     { label: t('commands.permissions.prompt.yes'), value: 'allow_once' },
     { label: t('commands.permissions.prompt.no'), value: 'deny_once' },
     { label: t('commands.permissions.prompt.allowOnce'), value: 'allow_session' },
@@ -127,7 +130,7 @@ export async function confirm(
 
   const result = await showModal({
     title: message,
-    options,
+    options: choices,
     initialIndex: 0
   });
 

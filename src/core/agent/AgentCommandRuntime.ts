@@ -357,8 +357,11 @@ export function parseAgentSlashCommand(_host: AgentCommandRuntimeHost, input: st
   }
 
 export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost, message: string, context?: { tool?: string; path?: string; command?: string }): Promise<PermissionPromptResult> {
+    const forcePrompt = context?.tool
+      ? host.permissionManager?.hasPlanPermissionPolicy?.({ ...context, tool: context.tool }) === true
+      : false;
     const normalizedYolo = normalizeYoloInput(host.runtime.options.yolo as string | boolean | undefined);
-    if (normalizedYolo && context?.tool) {
+    if (!forcePrompt && normalizedYolo && context?.tool) {
       try {
         const pattern = parseYoloPattern(normalizedYolo);
         if (isToolAllowedByYolo(context.tool, pattern)) {
@@ -369,7 +372,7 @@ export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost,
       }
     }
 
-    if (host.runtime.options.yes || host.runtime.options.unrestricted || host.runtime.config.ui?.autoConfirm) {
+    if (!forcePrompt && (host.runtime.options.yes || host.runtime.options.unrestricted || host.runtime.config.ui?.autoConfirm)) {
       return { decision: 'allow_once' };
     }
 
@@ -382,7 +385,7 @@ export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost,
     if (host.confirmationCallback) {
       decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => host.confirmationCallback(message, context)));
     } else if (isExternalCallbackEnabled()) {
-      decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => unifiedConfirm(message, promptContext)));
+      decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => unifiedConfirm(message, promptContext, { forcePrompt })));
     } else {
       host.notificationService.notify(
         { body: message, reason: 'confirmation' },
@@ -395,7 +398,7 @@ export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost,
         if (wasRaw) {
           safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
         }
-        return unifiedConfirm(message, promptContext);
+        return unifiedConfirm(message, promptContext, { forcePrompt });
       }));
     }
 
@@ -643,6 +646,7 @@ export async function handleAgentExitPlanMode(
         if (selectedOption) {
           const accepted = await adoptPlanFileEdits(plan);
           const config = planManager.acceptPlan(selectedOption.id);
+          host.permissionManager?.setPlanEditApproval(config.autoAcceptEdits ? 'auto' : 'manual');
 
           console.log(chalk.green(`\n✓ Plan accepted: ${selectedOption.label}`));
           if (accepted.edited) {
@@ -671,6 +675,7 @@ export async function handleAgentExitPlanMode(
       // Default: accept with manual approve if result wasn't recognized
       const accepted = await adoptPlanFileEdits(plan);
       planManager.acceptPlan('manual_approve');
+      host.permissionManager?.setPlanEditApproval('manual');
       console.log(chalk.green('\n✓ Plan accepted with manual approval for edits.\n'));
       host.conversation.addSystemNote(
         'Plan accepted with option: manual_approve. You may now proceed to execution.'
