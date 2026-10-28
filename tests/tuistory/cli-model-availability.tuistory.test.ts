@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { createTempAutohandHome, launchBuiltAutohand, exitInteractive } from './helpers/autohandTuistory.js';
+import { createTempAutohandHome, launchBuiltAutohand } from './helpers/autohandTuistory.js';
 
 it('explains the API and Agent SDK route when Weka is selected explicitly', async () => {
   const state = await createTempAutohandHome({ config: {
@@ -10,7 +10,6 @@ it('explains the API and Agent SDK route when Weka is selected explicitly', asyn
   try {
     await session.waitForText('Weka is available through the Autohand API and Agent SDKs, not in the CLI.', { timeout: 20_000 });
     expect(session.readAll().replace(/\s+/g, ' ')).toContain('Weka is available through the Autohand API and Agent SDKs, not in the CLI. Pick another model with /model or --model.');
-    await exitInteractive(session);
   } finally {
     session.close();
     await state.cleanup();
