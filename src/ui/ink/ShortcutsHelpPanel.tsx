@@ -39,6 +39,7 @@ export const ShortcutsHelpPanel = memo(function ShortcutsHelpPanel({
     ] },
     { title: 'Session', rows: [
       ...bindingRows('cycleMode', 'Change mode'), ['enter', 'Queue while working'],
+      ...bindingRows('toggleTeamPanel', 'Team panel'), ...bindingRows('toggleGoals', 'Goals panel'),
       ['↑ / ↓', 'Select queued message'], ['enter', 'Steer selected message'],
       ['ctrl+enter', 'Steer queued input'],
       ['esc', 'Interrupt'], ['ctrl+c', 'Clear input / exit'],

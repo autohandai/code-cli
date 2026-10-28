@@ -77,6 +77,10 @@ transport cannot be confused with terminal output.
 | `/team create [name]` | Create a team or reuse the active team with the same name |
 | `/team status` | Show team name, active/completed status, member count, task progress, member list with status indicators, and the full task list |
 | `/team view` | Open the live team view without asking the agent for a status report |
+| `/team errors` | Inspect failed task IDs, errors, and available partial output |
+| `/team retry <id>` | Retry one failed task on the active team |
+| `/team retry-failed` | Retry failed tasks while preserving successful and cancelled tasks |
+| `/team hide` | Hide the team panel and keep workers available |
 | `/team shutdown` | Gracefully shut down all teammates |
 
 Example `/team status` output:
@@ -179,12 +183,16 @@ Open or close the expanded view with:
 - **Ctrl+T** as the portable terminal shortcut.
 - **`/team view`** to open it explicitly.
 
-The expanded `TeamPanel` renders below the fixed status line and above the composer, and shows:
+The footer shows the shortcut from your current keybindings. The expanded team view takes over the composer while it is open, and shows:
 
-- **Header** -- Team name with an active/inactive indicator.
+- **Header** -- Team name and whether workers are available or the team is closed.
 - **Task list** -- Progress count (N/M done) and each task with its status icon, subject, and assigned owner.
 - **Teammate list** -- Each teammate with a status icon, name, agent type, and
   its effective provider and model while it is working.
+
+Use the arrow keys to select a task and Enter to inspect its error and available output. Press Esc to return to the list. Press **r** to retry the selected failed task, **a** to retry all failed tasks, or **s** to shut down the team; each action asks for confirmation. Press **h**, Esc from the list, or the displayed team shortcut to hide the view. Hiding keeps workers running and available for reuse; shutdown stops them.
+
+When no tasks remain pending or in progress, the footer stops animating and reports successful, failed, and cancelled counts. A finished batch can contain failures. Retry commands start new attempts only for failed tasks on an active team. Previous attempts remain available in `/agents view` within its bounded session history; creating a new team replaces the current task list.
 
 Creating a team from the default interactive editing mode also changes the
 session to **AUTO** so teammates can proceed without approval prompts. An

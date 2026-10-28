@@ -22,6 +22,7 @@ import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 import { writeAutohandDebugLine } from '../utils/debugLog.js';
 import { prepareCommandCoordination, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
 import { CommandOutputCapture } from '../utils/commandOutputCapture.js';
+import { resolveShellExecution } from '../utils/shellExecution.js';
 
 export type { BackgroundProcessCompletion } from '../actions/command.js';
 
@@ -378,7 +379,7 @@ interface PtyProcess {
 interface NodePtyModule {
   spawn(
     file: string,
-    args?: string[],
+    args?: string[] | string,
     options?: {
       name?: string;
       cols?: number;
@@ -545,9 +546,11 @@ export async function executeShellCommandAsync(
     throw new ShellCommandAbortedError();
   }
 
+  const execution = resolveShellExecution(trimmedCommand);
   const child = await spawnCoordinatedProcess({ file: trimmedCommand, args: [], cwd: cwd ?? process.cwd() }, {
-    shell: true, detached: SUPPORTS_PROCESS_GROUP_SIGNALS, stdio: ['ignore', 'pipe', 'pipe'], env: buildAutohandChildProcessEnv(),
-  }, options.signal);
+    windowsVerbatimArguments: execution.windowsVerbatimArguments,
+    shell: false, detached: SUPPORTS_PROCESS_GROUP_SIGNALS, stdio: ['ignore', 'pipe', 'pipe'], env: buildAutohandChildProcessEnv(),
+  }, options.signal, execution);
 
   return new Promise<ShellCommandResult>((resolve, reject) => {
     const stdout = new CommandOutputCapture();
@@ -685,22 +688,6 @@ export function supportsPtyExecution(
   return (runtimeVersions as { bun?: string }).bun === undefined;
 }
 
-function getPtyShellLaunch(command: string): { file: string; args: string[] } {
-  if (process.platform === 'win32') {
-    const comspec = process.env.ComSpec || 'cmd.exe';
-    return {
-      file: comspec,
-      args: ['/d', '/s', '/c', command],
-    };
-  }
-
-  const shell = process.env.SHELL || '/bin/sh';
-  return {
-    file: shell,
-    args: ['-lc', command],
-  };
-}
-
 export async function executeStreamingShellCommand(
   command: string,
   cwd?: string,
@@ -758,12 +745,12 @@ export async function executeStreamingShellCommand(
     return executeShellCommandAsync(trimmedCommand, cwd, DEFAULT_SHELL_TIMEOUT_MS, options);
   }
 
-  const { file, args } = getPtyShellLaunch(trimmedCommand);
-  const coordinated = await prepareCommandCoordination({ file, args, cwd: cwd ?? process.cwd() }, options.signal);
+  const { file, args, windowsVerbatimArguments } = resolveShellExecution(trimmedCommand);
+  const coordinated = await prepareCommandCoordination({ file: trimmedCommand, args: [], cwd: cwd ?? process.cwd() }, options.signal);
   let ptyProcess: PtyProcess;
   try {
     options.signal?.throwIfAborted();
-    ptyProcess = nodePty.spawn(file, args, {
+    ptyProcess = nodePty.spawn(file, windowsVerbatimArguments ? args.join(' ') : args, {
       name: process.env.TERM || 'xterm-256color',
       cols: Math.max(20, options.columns ?? process.stdout.columns ?? 80),
       rows: Math.max(10, options.rows ?? process.stdout.rows ?? 24),

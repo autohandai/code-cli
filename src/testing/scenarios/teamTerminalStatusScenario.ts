@@ -26,3 +26,33 @@ export async function inspectTerminalTeamOutcomes(session: Session): Promise<{ t
   });
   return { team, tasks };
 }
+
+export async function recoverFailedTeam(session: Session) {
+  await session.press(['ctrl', 't']);
+  await session.waitForText('Enter inspect');
+  await session.press('enter');
+  const failure = await session.text({ timeout: 10_000, waitFor: text => text.includes('SECURITY_TASK_FAILED') });
+  await session.press('escape');
+  await session.waitForText('Enter inspect');
+  await session.press('r');
+  await session.waitForText('Retry Review authentication?');
+  await session.press('y');
+  await session.waitForText('Retrying 1 failed task');
+  await session.press(['ctrl', 't']);
+  const retried = await session.text({ timeout: 30_000, waitFor: text => text.includes('1 succeeded') && text.includes('1 cancelled') });
+  await session.press('s');
+  await session.waitForText('Shut down this team');
+  await session.press('n');
+  await session.waitForText('Enter inspect');
+  await session.press('s');
+  await session.waitForText('Shut down this team');
+  await session.press('y');
+  const closed = await session.text({ timeout: 15_000, waitFor: text => text.includes('has been shut down') && text.includes('❯') });
+  await session.type('/team create replacement');
+  await session.press('enter');
+  const replacement = await session.text({ timeout: 10_000, waitFor: text => text.includes('Team "replacement" created') });
+  await session.type('/team shutdown');
+  await session.press('enter');
+  await session.waitForText('Team "replacement" has been shut down');
+  return { failure, retried, closed, replacement };
+}

@@ -23,6 +23,8 @@ Interactive sessions assess repository readiness in the background while you wor
 
 The shell installer includes [Zit](https://getzit.org) v0.1.2 by default on supported macOS and Linux platforms, preserving an existing installation and verifying release checksums. Use `--no-zit` or `AUTOHAND_SKIP_ZIT_INSTALL=1` to opt out. The Windows installer supports `-NoZit` and the same environment variable; it preserves an existing Zit installation and reports that native Windows binaries are currently unavailable. `autohand --zit` requires Git 2.38 or newer. Installing Zit does not initialize repositories.
 
+On Windows, running `install.sh` from Git Bash, MSYS, or Cygwin delegates to the native PowerShell installer and preserves installation options. Autohand launched from Git Bash uses Bash for command tools; see [shell settings](docs/config-reference.md#shell-settings) to choose an executable explicitly.
+
 The npm package includes checksum-verified Zit binaries for macOS and Linux on ARM64 and x64. `npm install -g autohand-cli` and `bun install -g autohand-cli` download them with the package, including when lifecycle scripts are disabled. Autohand uses `ZIT_BIN`, an existing `zit` on `PATH`, or its packaged binary, in that order. Rust and a separate Zit installation are not required. Native Windows Zit binaries are currently unavailable.
 
 - **Terminal-Native Agent**: Understands your codebase and executes approved changes from the CLI

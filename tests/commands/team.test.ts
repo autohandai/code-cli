@@ -37,6 +37,35 @@ function createMockTeamManager(hasTeam = true) {
 }
 
 describe('/team command', () => {
+  it('offers explicit recovery and retries only failed tasks', async () => {
+    const manager = new TeamManager({ leadSessionId: 'lead', workspacePath: process.cwd() });
+    manager.createTeam('recovery');
+    const success = manager.tasks.createTask({ subject: 'Successful work', description: '' });
+    const failure = manager.tasks.createTask({ subject: 'Broken review', description: '' });
+    const cancelled = manager.tasks.createTask({ subject: 'Cancelled work', description: '' });
+    manager.tasks.updateTask(success.id, { status: 'completed' });
+    manager.tasks.updateTask(failure.id, { status: 'failed', error: 'Provider unavailable' });
+    manager.stopTask(cancelled.id);
+
+    expect(await team({ teamManager: manager }, ['errors'])).toContain('Provider unavailable');
+    expect(await team({ teamManager: manager }, ['retry', success.id])).toContain('Only failed tasks');
+    expect(await team({ teamManager: manager }, ['retry-failed'])).toContain('Retrying 1 failed task');
+    expect(manager.tasks.getTask(failure.id)?.status).toBe('pending');
+    expect(manager.tasks.getTask(success.id)?.status).toBe('completed');
+    expect(manager.tasks.getTask(cancelled.id)?.status).toBe('cancelled');
+  });
+
+  it('hides the panel after successful shutdown without replacing failed outcomes', async () => {
+    const manager = new TeamManager({ leadSessionId: 'lead', workspacePath: process.cwd() });
+    manager.createTeam('recovery');
+    const failure = manager.tasks.createTask({ subject: 'Broken review', description: '' });
+    manager.tasks.updateTask(failure.id, { status: 'failed', error: 'Provider unavailable' });
+    const onToggleTeamView = vi.fn();
+    await team({ teamManager: manager, onToggleTeamView }, ['shutdown']);
+    expect(onToggleTeamView).toHaveBeenCalledWith(false);
+    expect(manager.tasks.getTask(failure.id)?.status).toBe('failed');
+    expect(await team({ teamManager: manager }, ['retry-failed'])).toContain('closed');
+  });
   it('opens the live team view without requiring a status prompt', async () => {
     const onToggleTeamView = vi.fn();
     const result = await team({

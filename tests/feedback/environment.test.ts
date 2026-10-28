@@ -4,10 +4,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import os from 'node:os';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { collectReportEnvironment } from '../../src/feedback/environment.js';
+import { configureShellExecution } from '../../src/utils/shellExecution.js';
+
+afterEach(() => configureShellExecution(undefined));
 
 describe('collectReportEnvironment', () => {
+  it('reports the selected execution shell rather than the inherited parent shell', () => {
+    configureShellExecution({ executable: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' });
+    expect(collectReportEnvironment({ env: { SHELL: '/usr/bin/bash' } })).toMatchObject({
+      shell: 'pwsh.exe', shellDialect: 'powershell', parentShell: 'bash',
+    });
+  });
   it('describes the operating system and JavaScript runtime', () => {
     const environment = collectReportEnvironment({ env: {} });
 
@@ -63,7 +72,7 @@ describe('collectReportEnvironment', () => {
     expect(Object.keys(environment).sort()).toEqual(
       expect.arrayContaining(['os', 'runtime']),
     );
-    for (const key of ['shell', 'terminal', 'term', 'multiplexer', 'locale', 'ssh', 'ci', 'provider', 'model', 'mode']) {
+    for (const key of ['terminal', 'term', 'multiplexer', 'locale', 'ssh', 'ci', 'provider', 'model', 'mode']) {
       expect(environment).not.toHaveProperty(key);
     }
     for (const value of Object.values(environment)) {

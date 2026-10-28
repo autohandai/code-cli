@@ -65,7 +65,7 @@ export function attachTeamActivityBridge(options: TeamActivityBridgeOptions): ()
       ];
       options.notifyUser(completed === total
         ? `Team "${team.name}" completed ${total}/${total} tasks.`
-        : `Team "${team.name}" finished: ${outcomes.join(', ')}.`);
+        : `Team "${team.name}" finished: ${outcomes.join(', ')}. Inspect with /team view; stop workers with /team shutdown.`);
     } else if (!allTasksFinished) {
       completionAnnounced = false;
     }

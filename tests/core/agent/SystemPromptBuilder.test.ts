@@ -35,6 +35,14 @@ describe('SystemPromptBuilder', () => {
     });
   }
 
+  it('tells the model which shell executable and dialect command tools use', async () => {
+    const prompt = await createBuilder({ runtime: { options: {}, workspaceRoot: process.cwd(), config: {
+      shell: { executable: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe' },
+    } } }).build();
+    expect(prompt).toContain('Command shell: "C:\\\\Program Files\\\\PowerShell\\\\7\\\\pwsh.exe"');
+    expect(prompt).toContain('Command dialect: powershell');
+  });
+
   it('includes the tool-choice rubric and compact tool catalog without runtime schemas', async () => {
     const builder = createBuilder();
 

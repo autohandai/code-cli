@@ -4,16 +4,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { stripVTControlCharacters } from 'node:util';
-import { render } from 'ink-testing-library';
+import { cleanup, render } from 'ink-testing-library';
 import { TeamPanel } from '../../../src/ui/ink/TeamPanel.js';
 import { TeammateView } from '../../../src/ui/ink/TeammateView.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { Theme } from '../../../src/ui/theme/Theme.js';
 import { loadTheme } from '../../../src/ui/theme/loader.js';
 import type { Team, TeamTask } from '../../../src/core/teams/types.js';
+import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
+import { I18nProvider } from '../../../src/ui/i18n/index.js';
+import { resolveKeybindings } from '../../../src/keybindings/profiles.js';
+
+afterEach(cleanup);
 
 const mockTeam: Team = {
   name: 'code-cleanup',
@@ -37,11 +42,72 @@ function renderWithTheme(element: React.ReactElement) {
 }
 
 describe('TeamPanel', () => {
+  it('shows and handles the configured team shortcut', async () => {
+    const onHide = vi.fn();
+    const view = renderWithTheme(<TeamPanel team={mockTeam} tasks={mockTasks}
+      keybindings={resolveKeybindings('autohand', { toggleTeamPanel: ['ctrl+y'] })}
+      onCommand={vi.fn()} onHide={onHide} />);
+    expect(view.lastFrame()).toContain('ctrl+y hide');
+    await new Promise<void>(resolve => setImmediate(resolve));
+    view.stdin.write('\u0019');
+    await vi.waitFor(() => expect(onHide).toHaveBeenCalledOnce());
+  });
+  it('owns recovery keys while the lead is working without sending them as a new prompt', async () => {
+    const onInstruction = vi.fn();
+    const onToggleTeamPanel = vi.fn();
+    const view = render(<I18nProvider><ThemeProvider><AgentUI state={{
+      ...createInitialUIState(), isWorking: true, teamPanelVisible: true,
+      teamActivity: { team: mockTeam, tasks: mockTasks },
+    }} onInstruction={onInstruction} onToggleTeamPanel={onToggleTeamPanel}
+      onEscape={() => {}} onCtrlC={() => {}} /></ThemeProvider></I18nProvider>);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    view.stdin.write('s');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('Shut down this team'));
+    view.stdin.write('y');
+    await vi.waitFor(() => expect(onInstruction).toHaveBeenCalledExactlyOnceWith('/team shutdown'));
+    expect(onToggleTeamPanel).toHaveBeenCalledOnce();
+  });
+  it('inspects a failure and confirms a selected retry without rerunning successful work', async () => {
+    const onCommand = vi.fn();
+    const onHide = vi.fn();
+    const view = renderWithTheme(<TeamPanel team={mockTeam} tasks={[
+      mockTasks[0], { ...mockTasks[1], status: 'failed', error: 'Provider unavailable', output: 'Partial findings retained' },
+    ]} onCommand={onCommand} onHide={onHide} />);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    view.stdin.write('\u001b[B');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('› × Write API docs'));
+    view.stdin.write('\r');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('Provider unavailable'));
+    expect(view.lastFrame()).toContain('Partial findings retained');
+    view.stdin.write('\u001b');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('Enter inspect'));
+    view.stdin.write('r');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('Retry'));
+    expect(onCommand).not.toHaveBeenCalled();
+    view.stdin.write('y');
+    await vi.waitFor(() => expect(onCommand).toHaveBeenCalledWith('/team retry task-002'));
+    expect(onHide).toHaveBeenCalledOnce();
+  });
+
+  it('distinguishes hiding from shutting down and permits cancellation of shutdown', async () => {
+    const onCommand = vi.fn();
+    const onHide = vi.fn();
+    const view = renderWithTheme(<TeamPanel team={mockTeam} tasks={mockTasks} onCommand={onCommand} onHide={onHide} />);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    view.stdin.write('s');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('Shut down'));
+    view.stdin.write('n');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('Enter inspect'));
+    expect(onCommand).not.toHaveBeenCalled();
+    view.stdin.write('h');
+    await vi.waitFor(() => expect(onHide).toHaveBeenCalledOnce());
+    expect(onCommand).not.toHaveBeenCalled();
+  });
   it('should render team name and status', () => {
     const { lastFrame } = renderWithTheme(<TeamPanel team={mockTeam} tasks={mockTasks} />);
     const output = lastFrame();
     expect(output).toContain('code-cleanup');
-    expect(output).toContain('Cmd+T close');
+    expect(output).toContain('ctrl+t hide');
   });
 
   it('should render task count', () => {

@@ -73,11 +73,11 @@ export function signalCoordinatedProcess(child: ChildProcess, signal: NodeJS.Sig
   child.kill(signal);
 }
 
-export async function spawnCoordinatedProcess(command: ResourceCommand, options: SpawnOptions = {}, signal?: AbortSignal): Promise<ChildProcess> {
+export async function spawnCoordinatedProcess(command: ResourceCommand, options: SpawnOptions = {}, signal?: AbortSignal, execution: Pick<ResourceCommand, 'file' | 'args'> = command): Promise<ChildProcess> {
   const coordinated = await prepareCommandCoordination(command, signal);
   try {
     signal?.throwIfAborted();
-    const child = spawn(command.file, command.args, { ...options, cwd: command.cwd, ...(coordinated ? { detached: true } : {}) });
+    const child = spawn(execution.file, execution.args, { ...options, cwd: command.cwd, ...(coordinated ? { detached: true } : {}) });
     coordinated?.observe(child);
     return child;
   } catch (error) {

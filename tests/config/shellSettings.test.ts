@@ -20,6 +20,8 @@ describe('shell.env config validation', () => {
     vi.restoreAllMocks();
     const { configureChildProcessEnvPolicy } = await import('../../src/utils/childProcessEnv.js');
     configureChildProcessEnvPolicy(undefined);
+    const { configureShellExecution } = await import('../../src/utils/shellExecution.js');
+    configureShellExecution(undefined);
     await fse.remove(testDir);
   });
 
@@ -37,6 +39,10 @@ describe('shell.env config validation', () => {
   });
 
   it.each([
+    [{ executable: 42 }, 'shell.executable must be a non-empty string'],
+    [{ executable: '' }, 'shell.executable must be a non-empty string'],
+    [{ executable: 'bash', dialect: 'unknown' }, 'shell.dialect must be'],
+    [{ dialect: 'powershell' }, 'shell.dialect requires shell.executable'],
     [{ env: { inherit: 'some' } }, 'shell.env.inherit must be "all", "essential", or "none"'],
     [{ env: { exclude: 'PATH' } }, 'shell.env.exclude must be a list of variable names or globs'],
     [{ env: { set: { CI: 1 } } }, 'shell.env.set must map variable names to strings'],

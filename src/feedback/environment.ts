@@ -5,6 +5,7 @@
  */
 import os from 'node:os';
 import path from 'node:path';
+import { getShellExecutionProfile } from '../utils/shellExecution.js';
 
 export interface ReportEnvironmentInput {
   provider?: string;
@@ -23,13 +24,19 @@ const MAX_VALUE_CHARS = 200;
  */
 export function collectReportEnvironment(input: ReportEnvironmentInput = {}): Record<string, string> {
   const env = input.env ?? process.env;
-  const shellPath = env.SHELL ?? env.ComSpec;
+  const parentShellPath = env.SHELL ?? env.ComSpec;
+  let executionShell: ReturnType<typeof getShellExecutionProfile> | undefined;
+  try { executionShell = getShellExecutionProfile({ environment: env }); } catch { /* Keep error reporting available when shell resolution fails. */ }
+  const shellName = executionShell ? path.basename(executionShell.executable.replaceAll('\\', '/')) : 'unresolved';
+  const parentShell = parentShellPath ? path.basename(parentShellPath.replaceAll('\\', '/')) : undefined;
   const size = process.stdout.isTTY ? `${process.stdout.columns}x${process.stdout.rows}` : undefined;
 
   const facts: Record<string, string | undefined> = {
     os: `${process.platform} ${os.release()} (${process.arch})`,
     runtime: process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.version}`,
-    shell: shellPath ? path.basename(shellPath.replaceAll('\\', '/')) : undefined,
+    shell: shellName,
+    shellDialect: executionShell?.dialect,
+    parentShell: parentShell !== shellName ? parentShell : undefined,
     terminal: [env.TERM_PROGRAM, env.TERM_PROGRAM_VERSION].filter(Boolean).join(' '),
     term: env.TERM,
     multiplexer: env.TMUX ? 'tmux' : env.STY ? 'screen' : undefined,

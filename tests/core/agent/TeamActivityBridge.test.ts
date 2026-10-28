@@ -108,6 +108,6 @@ describe('TeamActivityBridge', () => {
     manager.tasks.updateTask(tasks[2]!.id, { status: 'cancelled' });
     manager.tasks.setTaskOutput(tasks[2]!.id, 'Stopped by lead');
 
-    expect(notifyUser).toHaveBeenCalledExactlyOnceWith('Team "review" finished: 1/3 completed, 1 failed, 1 cancelled.');
+    expect(notifyUser).toHaveBeenCalledExactlyOnceWith('Team "review" finished: 1/3 completed, 1 failed, 1 cancelled. Inspect with /team view; stop workers with /team shutdown.');
   });
 });

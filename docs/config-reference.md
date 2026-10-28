@@ -1683,7 +1683,7 @@ git add -A && git commit -m "feat: add user dashboard with charts"
 
 ## Shell Settings
 
-Control what shell commands started by Autohand can see. This covers the `run_command` tool, `!` terminal commands, and streaming or interactive shells. Hook commands and MCP server processes have their own launchers and are not affected.
+Choose the shell used by `run_command`, foreground and background `!` commands, and streaming shells, and control their environment. Hook commands and MCP server processes have their own launchers and are not affected.
 
 ```json
 {
@@ -1700,12 +1700,16 @@ Control what shell commands started by Autohand can see. This covers the `run_co
 
 | Field         | Type     | Default | Description                                                                                          |
 | ------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| `executable` | string | auto | Shell executable or full path, such as `C:\\Program Files\\Git\\bin\\bash.exe`, `pwsh.exe`, or `/bin/zsh` |
+| `dialect` | string | inferred | `posix`, `cmd`, or `powershell`; requires `executable`. Controls command invocation and the syntax described to the agent |
 | `env.inherit` | string   | `all`   | `all` passes the whole parent environment; `essential` keeps PATH, HOME, USER, SHELL, TMPDIR, locale and terminal variables (plus their Windows equivalents); `none` starts empty |
 | `env.include` | string[] | `[]`    | Variable names or globs to add back on top of the inherited set                                      |
 | `env.exclude` | string[] | `[]`    | Variable names or globs removed after inheritance and includes                                        |
 | `env.set`     | object   | `{}`    | Values pinned for every command; applied last                                                         |
 
 Variables Autohand needs to run its own tooling (`AUTOHAND_*`, `AUTOHAND_CLI`, `AUTOHAND_HOME`, `CODEX_HOME`) are always present. Explicit per-command overrides supplied by a tool call still win over the policy.
+
+By default, macOS/Linux use `SHELL` or `/bin/sh`. Native Windows uses `ComSpec` or `cmd.exe`. When launched from Git Bash (`MSYSTEM` is set), Autohand resolves its Bash executable with `cygpath.exe` and uses POSIX command syntax. If that conversion fails, configure the full Windows path to `bash.exe`. Bug reports identify the selected command shell and dialect separately from the parent shell.
 
 ## Network Settings
 

@@ -10,6 +10,7 @@ import { isAbsolute, join } from 'node:path';
 import { buildAutohandChildProcessEnv } from '../utils/childProcessEnv.js';
 import { prepareCommandCoordination } from '../session/peers/CommandCoordinationGate.js';
 import { CommandOutputCapture } from '../utils/commandOutputCapture.js';
+import { resolveShellExecution } from '../utils/shellExecution.js';
 
 const DEFAULT_KILL_GRACE_PERIOD_MS = 1_000;
 
@@ -141,6 +142,8 @@ export async function runCommand(
   const workDir = options.directory
     ? (isAbsolute(options.directory) ? options.directory : join(cwd, options.directory))
     : cwd;
+  const shellExecution = options.shell ? resolveShellExecution([cmd, ...args].join(' ')) : undefined;
+  const execution = shellExecution ?? { file: cmd, args };
   const coordinated = await prepareCommandCoordination({ file: cmd, args, cwd: workDir }, options.signal);
   if (options.signal?.aborted) {
     const error = new CommandAbortedError();
@@ -155,7 +158,8 @@ export async function runCommand(
     // Build spawn options
     const spawnOptions: SpawnOptions = {
       cwd: workDir,
-      shell: options.shell ?? false,
+      shell: false,
+      windowsVerbatimArguments: shellExecution?.windowsVerbatimArguments,
       env: buildAutohandChildProcessEnv(options.env),
       ...(coordinated ? { detached: true } : {}),
     };
@@ -176,7 +180,7 @@ export async function runCommand(
     // uncaught exceptions from crashing the process.
     let child;
     try {
-      child = spawn(cmd, args, spawnOptions);
+      child = spawn(execution.file, execution.args, spawnOptions);
       coordinated?.observe(child);
     } catch (error) {
       const spawnError = toCommandSpawnError(error, cmd, workDir);

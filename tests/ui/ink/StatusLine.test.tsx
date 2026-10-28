@@ -9,7 +9,7 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { StatusLine, WORKING_SPINNER_INTERVAL_MS, formatLineSegments, mergeLineExtensions } from '../../../src/ui/ink/StatusLine.js';
+import { StatusLine, WORKING_SPINNER_INTERVAL_MS, buildTeamActivitySegment, formatLineSegments, mergeLineExtensions } from '../../../src/ui/ink/StatusLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 
@@ -24,6 +24,33 @@ function renderStatusLine(props: React.ComponentProps<typeof StatusLine>) {
 }
 
 describe('StatusLine extensions', () => {
+  it('settles a failed team batch without leaving a spinner timer running', async () => {
+    vi.useFakeTimers();
+    const baseline = vi.getTimerCount();
+    try {
+      const teamActivity = {
+        team: { name: 'recovery', createdAt: '', leadSessionId: 'lead', status: 'active' as const,
+          members: [{ name: 'reviewer', agentName: 'reviewer', pid: 123, status: 'idle' as const }] },
+        tasks: ['completed', 'failed', 'failed', 'cancelled'].map((status, index) => ({
+          id: String(index), subject: 'Review', description: '', blockedBy: [], createdAt: '',
+          status: status as 'completed' | 'failed' | 'cancelled',
+        })),
+      };
+      expect(buildTeamActivitySegment(teamActivity).busy).toBe(false);
+      const screen = renderStatusLine({ isWorking: false, status: '', teamActivity });
+      await vi.advanceTimersByTimeAsync(WORKING_SPINNER_INTERVAL_MS * 2);
+      expect(screen.lastFrame()).toContain('Finished with failures');
+      expect(screen.lastFrame()).toContain('1 succeeded');
+      expect(screen.lastFrame()).toContain('2 failed');
+      expect(screen.lastFrame()).toContain('1 cancelled');
+      expect(screen.lastFrame()).toContain('ctrl+t');
+      expect(vi.getTimerCount()).toBe(baseline);
+      screen.unmount();
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(baseline));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('reports each spinner frame while working so the terminal tab can follow it', async () => {
     vi.useFakeTimers();
     try {
@@ -107,7 +134,7 @@ describe('StatusLine extensions', () => {
     expect(frame).toContain('prompt-shrink');
     expect(frame).toContain('1/3 done');
     expect(frame).toContain('1 working');
-    expect(frame).toContain('cmd+t');
+    expect(frame).toContain('ctrl+t');
   });
 
   it('appends custom status segments after default active-turn chrome', () => {

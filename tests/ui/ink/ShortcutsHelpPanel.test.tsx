@@ -9,6 +9,11 @@ import { resolveKeybindings } from '../../../src/keybindings/profiles.js';
 afterEach(cleanup);
 
 describe('shortcut help', () => {
+  it('includes the team and goal panel shortcuts', () => {
+    const view = render(<ThemeProvider><ShortcutsHelpPanel visible columns={100} /></ThemeProvider>);
+    expect(view.lastFrame()).toContain('Team panel');
+    expect(view.lastFrame()).toContain('Goals panel');
+  });
   it.each([false, true])('shows the fixed queue steering shortcut with fullScreen=%s', async fullScreen => {
     const view = render(<ThemeProvider><ShortcutsHelpPanel visible fullScreen={fullScreen} columns={100} /></ThemeProvider>);
     await new Promise<void>(resolve => setImmediate(resolve));

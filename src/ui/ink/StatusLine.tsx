@@ -10,6 +10,7 @@ import { useTheme } from '../theme/ThemeContext.js';
 import { useTranslation } from '../i18n/index.js';
 import type { Theme } from '../theme/Theme.js';
 import type { TeamActivitySnapshot } from '../../core/teams/types.js';
+import { summarizeTaskOutcomes } from '../taskPanelModel.js';
 
 export type LineSegmentColor =
   | 'text'
@@ -52,6 +53,7 @@ export interface StatusLineProps {
   model?: string;
   /** Live background team state shown even while the lead is idle. */
   teamActivity?: TeamActivitySnapshot;
+  teamShortcut?: string;
   /** Optional extension points for status-line text segments. */
   lineExtension?: LineExtension;
   /** Fires with each spinner frame so the terminal tab can animate in step. */
@@ -81,13 +83,13 @@ function WorkingSpinner({ onFrame }: { onFrame?: (frame: number) => void }) {
 
 export function buildTeamActivitySegment(
   snapshot: TeamActivitySnapshot | undefined,
+  shortcut = 'ctrl+t',
 ): { segment?: LineSegment; busy: boolean } {
-  if (!snapshot?.team) return { busy: false };
-  const done = snapshot.tasks.filter((task) => task.status === 'completed').length;
+  if (!snapshot?.team || snapshot.team.status !== 'active') return { busy: false };
+  const outcome = summarizeTaskOutcomes(snapshot.tasks);
   const working = snapshot.team.members.filter((member) => member.status === 'working').length;
   const spawning = snapshot.team.members.filter((member) => member.status === 'spawning').length;
-  const open = snapshot.tasks.filter((task) => task.status !== 'completed').length;
-  const busy = snapshot.team.status === 'active' && (working > 0 || spawning > 0 || open > 0);
+  const busy = working > 0 || spawning > 0 || outcome.open > 0;
   const workerLabel = working > 0
     ? `${working} working`
     : spawning > 0
@@ -98,8 +100,8 @@ export function buildTeamActivitySegment(
     busy,
     segment: {
       id: 'team-activity',
-      text: `${snapshot.team.name} · ${done}/${snapshot.tasks.length} done · ${workerLabel} · cmd+t team`,
-      color: busy ? 'warning' : 'success',
+      text: `${snapshot.team.name} · ${outcome.settled ? outcome.label : `${outcome.completed}/${outcome.total} done · ${workerLabel}`} · ${shortcut} team`,
+      color: outcome.failed > 0 ? 'error' : busy || outcome.cancelled > 0 ? 'warning' : 'success',
     },
   };
 }
@@ -223,12 +225,13 @@ function StatusLineComponent({
   tokens,
   queueCount = 0,
   teamActivity,
+  teamShortcut,
   lineExtension,
   onSpinnerFrame,
 }: StatusLineProps) {
   const { colors, theme } = useTheme();
   const { t } = useTranslation();
-  const teamStatus = buildTeamActivitySegment(teamActivity);
+  const teamStatus = buildTeamActivitySegment(teamActivity, teamShortcut);
   const defaultSegments = [
     ...(isWorking ? buildStatusSegments(status, elapsed, tokens, queueCount, t('ui.escToCancel')) : []),
     ...(teamStatus.segment ? [teamStatus.segment] : []),

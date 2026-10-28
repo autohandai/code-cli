@@ -187,6 +187,14 @@ jobs:
           AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '1'
         run: sh src/testing/scenarios/fresh-alpha-install.sh ./binaries/autohand-test ci-alpha-smoke
 
+      - name: Verify Git Bash shell execution
+        if: runner.os == 'Windows'
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          cygpath --version
+          bun run test:ci tests/windowsShell.integration.test.ts tests/ui/ink/TeamPanel.test.tsx
+
       - name: Verify binary (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -209,3 +217,30 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Windows --help smoke test failed with exit code $LASTEXITCODE"
           }
+
+  windows-tuistory:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build CLI for terminal tests
+        run: bun run build
+
+      - name: Verify native team recovery from Git Bash
+        shell: bash
+        run: bun run test:tuistory tests/tuistory/team-activity.tuistory.test.ts

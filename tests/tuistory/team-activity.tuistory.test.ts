@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { Session } from 'tuistory';
-import { inspectTerminalTeamOutcomes } from '../../src/testing/scenarios/teamTerminalStatusScenario.js';
+import { inspectTerminalTeamOutcomes, recoverFailedTeam } from '../../src/testing/scenarios/teamTerminalStatusScenario.js';
 import {
   createTempAutohandHome,
   exitInteractive,
@@ -19,8 +19,9 @@ const sessions: Session[] = [];
 const tempStates: TuistoryTempState[] = [];
 const servers: Server[] = [];
 
-async function createTeamSequenceServer(failTeammate = false): Promise<string> {
+async function createTeamSequenceServer(failTeammate: boolean | 'once' = false): Promise<string> {
   let leadTurn = 0;
+  let teammateFailures = 0;
   const server = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -41,6 +42,8 @@ async function createTeamSequenceServer(failTeammate = false): Promise<string> {
 
       let content: string;
       let delayMs = 0;
+      const rejectTeammate = isSecurityTeammate && Boolean(failTeammate) && (failTeammate !== 'once' || teammateFailures === 0);
+      if (rejectTeammate) teammateFailures++;
       if (isSecurityTeammate) {
         content = JSON.stringify({ finalResponse: 'SECURITY_TASK_DONE', toolCalls: [] });
         delayMs = 5_000;
@@ -100,7 +103,7 @@ async function createTeamSequenceServer(failTeammate = false): Promise<string> {
       }
 
       setTimeout(() => {
-        if (failTeammate && isSecurityTeammate) {
+        if (rejectTeammate) {
           response.writeHead(400, { 'content-type': 'application/json' });
           response.end(JSON.stringify({ error: { message: 'SECURITY_TASK_FAILED', type: 'invalid_request_error' } }));
           return;
@@ -164,7 +167,7 @@ describe('interactive team activity', () => {
     const activeScreen = await session.text({
       timeout: 60_000,
       waitFor: (text) => text.includes('team-e2e · 0/1 done')
-        && text.includes('cmd+t team')
+        && text.includes('ctrl+t team')
         && text.includes('AUTO'),
     });
     expect(activeScreen).toContain('Review authentication');
@@ -188,14 +191,15 @@ describe('interactive team activity', () => {
 
     await session.text({
       timeout: 45_000,
-      waitFor: (text) => text.includes('team-e2e · 1/1 done')
+      waitFor: (text) => text.includes('1 succeeded')
         && text.includes('Review authentication'),
     });
+    await session.press(['ctrl', 't']);
     await session.type('/tasks');
     await session.press('enter');
     const completedScreen = await session.text({
       timeout: 10_000,
-      waitFor: (text) => text.includes('Tasks [1/1 done]'),
+      waitFor: (text) => /Tasks\s+1\/1 done/u.test(text),
     });
     expect(completedScreen).toContain('Review authentication');
 
@@ -236,4 +240,26 @@ describe('interactive team activity', () => {
 
     await exitInteractive(session);
   }, 90_000);
+
+  it('recovers a failed task, stops the native workers, and starts a new team', async () => {
+    const baseUrl = await createTeamSequenceServer('once');
+    const state = await createTempAutohandHome({ config: {
+      openrouter: { baseUrl, model: 'openai/gpt-4o-mini' },
+      agent: { maxIterations: 8, sessionRetryLimit: 0 }, network: { maxRetries: 0 },
+      ui: { promptSuggestions: false }, features: { automaticSpecialists: false },
+    } });
+    tempStates.push(state);
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, rows: 40, waitForDataTimeout: 15_000,
+    });
+    sessions.push(session);
+    await inspectTerminalTeamOutcomes(session);
+    const recovery = await recoverFailedTeam(session);
+    expect(recovery.failure).toContain('SECURITY_TASK_FAILED');
+    expect(recovery.retried).toContain('1 succeeded');
+    expect(recovery.retried).toContain('1 cancelled');
+    expect(recovery.closed).toContain('has been shut down');
+    expect(recovery.replacement).toContain('Team "replacement" created');
+    await exitInteractive(session);
+  }, 120_000);
 });

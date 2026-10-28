@@ -203,6 +203,11 @@ export function formatChord(chord: Chord): string {
   return parts.filter(Boolean).join(' + ');
 }
 
+export function actionShortcutHint(keybindings: ResolvedKeybindings, action: KeybindingAction, fallback: string): string {
+  const chord = keybindings.bindings[action][0];
+  return chord ? formatChord(chord).replaceAll(' + ', '+') : fallback;
+}
+
 export function normalizeChord(chord: Chord): string {
   return [chord.ctrl ? 'ctrl' : null, chord.meta ? 'meta' : null, chord.shift ? 'shift' : null, chord.key]
     .filter(Boolean)

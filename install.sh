@@ -199,6 +199,58 @@ install_computer_control() {
     fi
 }
 
+install_windows() {
+    local _channel="$1"
+    shift
+    local _powershell="" _candidate _tmp_dir _script _url _status _clean=0 _no_cache=0
+    for _candidate in powershell.exe pwsh.exe powershell pwsh; do
+        if command -v "$_candidate" >/dev/null 2>&1; then
+            _powershell="$_candidate"
+            break
+        fi
+    done
+    [ -n "$_powershell" ] || err "PowerShell is required for Windows installation. Open PowerShell and run the Windows installer: https://autohand.ai/install.ps1"
+    for _candidate in "$@"; do
+        case "$_candidate" in
+            --clean) _clean=1 ;;
+            --no-cache) _no_cache=1 ;;
+        esac
+    done
+    _tmp_dir=$(mktemp -d) || return 1
+    _script="$_tmp_dir/install.ps1"
+    _url="https://github.com/${REPO}/releases/latest/download/install.ps1"
+    if [ -n "${AUTOHAND_VERSION:-}" ] && [ "$AUTOHAND_VERSION" != "latest" ]; then
+        _url="https://github.com/${REPO}/releases/download/v${AUTOHAND_VERSION#v}/install.ps1"
+    fi
+    if ! curl -fsSL "$_url" -o "$_script"; then
+        rm -rf "$_tmp_dir"
+        err "Could not download the Windows installer from $_url"
+    fi
+    if command -v cygpath >/dev/null 2>&1; then
+        _script=$(cygpath -w "$_script") || { rm -rf "$_tmp_dir"; return 1; }
+    fi
+    set -- -NoProfile -ExecutionPolicy Bypass -File "$_script"
+    [ "$_channel" != "alpha" ] || set -- "$@" -Alpha
+    [ "${AUTOHAND_INSTALL_FRESH:-0}" != "1" ] || set -- "$@" -Fresh
+    [ "${AUTOHAND_SKIP_ZIT_INSTALL:-0}" != "1" ] || set -- "$@" -NoZit
+    [ "$_clean" != "1" ] || set -- "$@" -Clean
+    [ "$_no_cache" != "1" ] || set -- "$@" -NoCache
+    if [ -n "${AUTOHAND_VERSION:-}" ] && [ "$AUTOHAND_VERSION" != "latest" ]; then
+        set -- "$@" -Version "${AUTOHAND_VERSION#v}"
+    fi
+    if [ -n "${AUTOHAND_INSTALL_DIR:-}" ]; then
+        local _install_dir="$AUTOHAND_INSTALL_DIR"
+        if command -v cygpath >/dev/null 2>&1; then
+            _install_dir=$(cygpath -w "$_install_dir") || { rm -rf "$_tmp_dir"; return 1; }
+        fi
+        set -- "$@" -InstallDir "$_install_dir"
+    fi
+    info "Using the native Windows installer (PowerShell)."
+    if "$_powershell" "$@"; then _status=0; else _status=$?; fi
+    rm -rf "$_tmp_dir"
+    return "$_status"
+}
+
 main() {
     printf "${BLUE}"
     cat << 'EOF'
@@ -244,6 +296,10 @@ EOF
 
     get_architecture || return 1
     local _arch="$RETVAL"
+
+    case "$_arch" in
+        windows-*) install_windows "$_channel" "$@"; return $? ;;
+    esac
 
     local _version="${AUTOHAND_VERSION:-latest}"
     local _asset_name="autohand-${_arch}.tar.gz"

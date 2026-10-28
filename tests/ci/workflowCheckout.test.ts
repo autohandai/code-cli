@@ -91,9 +91,13 @@ describe('CI workflow checkout', () => {
       const workflowJobs = readWorkflowJobs().filter((job) => job.workflow === workflow);
       const tuistoryJobs = workflowJobs.filter((job) => job.body.includes('test:tuistory'));
 
-      expect(tuistoryJobs.map((job) => job.name), workflow).toEqual(['tuistory']);
-      expect(tuistoryJobs[0]?.body, workflow).not.toContain('run: bun run test:ci');
-      expect(tuistoryJobs[0]?.body, workflow).not.toMatch(/run: bun run test\s*$/mu);
+      expect(tuistoryJobs.map((job) => job.name), workflow).toEqual(
+        workflow === 'ci.yml' ? ['tuistory', 'windows-tuistory'] : ['tuistory'],
+      );
+      for (const job of tuistoryJobs) {
+        expect(job.body, workflow).not.toContain('run: bun run test:ci');
+        expect(job.body, workflow).not.toMatch(/run: bun run test\s*$/mu);
+      }
     }
   });
 

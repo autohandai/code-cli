@@ -32,6 +32,7 @@ import type {
   WorkspaceTrustState,
 } from "./types.js";
 import { AUTOHAND_FILES, AUTOHAND_HOME, PROJECT_DIR_NAME } from "./constants.js";
+import { configureShellExecution } from './utils/shellExecution.js';
 import { KEYBINDING_PROFILE_IDS, isKeybindingProfileId } from "./keybindings/profiles.js";
 import { INTERACTION_MODE_SEQUENCE } from "./core/agent/InteractionModeController.js";
 import { hookIdentifier } from "./core/hookEvents.js";
@@ -625,6 +626,7 @@ export async function loadConfig(
 
   validateConfig(withEnv, configPath);
   configureChildProcessEnvPolicy(withEnv.shell?.env);
+  configureShellExecution(withEnv.shell);
 
   if (initializeTheme) {
     // Initialize theme from config.
@@ -1402,6 +1404,16 @@ function isLegacyConfig(
 function validateShellSettings(config: AutohandConfig, configPath: string): void {
   if (config.shell === undefined) return;
   if (!isPlainObject(config.shell)) throw new Error(`shell must be an object in ${configPath}`);
+  const executable: unknown = config.shell.executable;
+  if (executable !== undefined && (typeof executable !== 'string' || !executable.trim() || /[\r\n\0]/u.test(executable))) {
+    throw new Error(`shell.executable must be a non-empty string in ${configPath}`);
+  }
+  if (config.shell.dialect !== undefined && (typeof config.shell.dialect !== 'string' || !['posix', 'cmd', 'powershell'].includes(config.shell.dialect))) {
+    throw new Error(`shell.dialect must be posix, cmd, or powershell in ${configPath}`);
+  }
+  if (config.shell.dialect !== undefined && executable === undefined) {
+    throw new Error(`shell.dialect requires shell.executable in ${configPath}`);
+  }
   const env: unknown = config.shell.env;
   if (env === undefined) return;
   if (!isPlainObject(env)) throw new Error(`shell.env must be an object in ${configPath}`);

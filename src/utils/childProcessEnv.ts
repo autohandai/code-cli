@@ -30,6 +30,7 @@ export const ESSENTIAL_CHILD_ENV_KEYS: readonly string[] = [
   'TERM', 'TERM_PROGRAM', 'COLORTERM', 'SSH_AUTH_SOCK',
   // Windows needs these to locate system binaries and profiles.
   'SystemRoot', 'SYSTEMROOT', 'ComSpec', 'COMSPEC', 'PATHEXT', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'ProgramData',
+  'MSYSTEM', 'MSYS2_ARG_CONV_EXCL', 'MSYS_NO_PATHCONV',
 ];
 
 const ALWAYS_PRESENT_PREFIX = 'AUTOHAND_';

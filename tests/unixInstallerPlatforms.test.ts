@@ -9,30 +9,46 @@ const functions = installer.replace(/\nmain "\$@" \|\| exit 1\s*$/, '');
 const alpineHost = await fs.pathExists('/etc/alpine-release');
 
 describe.skipIf(process.platform === 'win32')('Unix installer platform compatibility', () => {
-  async function run(system: string, libc: string, fullInstall = false) {
+  async function run(system: string, libc: string, fullInstall = false, args: string[] = [], windowsExit = 0) {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'installer-platform-'));
     try {
-      const bin = path.join(root, 'bin');
-      await fs.ensureDir(bin);
       const commands = {
         uname: `case "$1" in -s) printf '%s\\n' '${system}' ;; -m) printf 'x86_64\\n' ;; esac`,
         ldd: `printf '%s\\n' '${libc}' >&2`,
-        curl: 'exit 22',
+        curl: `case "$*" in *install.ps1*) while [ "$#" -gt 0 ]; do if [ "$1" = '-o' ]; then shift; printf '# fixture\\n' > "$1"; return 0; fi; shift; done ;; esac; return 22`,
+        powershell: `printf '<%s>\\n' "$@"; return ${windowsExit}`,
+        cygpath: `shift; printf '%s\\n' "$1"`,
       };
-      for (const [name, body] of Object.entries(commands)) {
-        await fs.writeFile(path.join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-      }
+      const fixtures = Object.entries(commands).map(([name, body]) => `${name}() {\n${body}\n}`).join('\n');
       const script = path.join(root, 'probe.sh');
-      await fs.writeFile(script, fullInstall ? installer : `${functions}\nget_architecture\nprintf '%s\\n' "$RETVAL"\n`);
-      return spawnSync('/bin/sh', [script], {
-        encoding: 'utf8', timeout: 5_000,
-        env: { ...process.env, PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin`, AUTOHAND_VERSION: '0.9.8',
+      await fs.writeFile(script, `${fixtures}\n${fullInstall ? installer : `${functions}\nget_architecture\nprintf '%s\\n' "$RETVAL"\n`}`);
+      return spawnSync('/bin/sh', [script, ...args], {
+        encoding: 'utf8', timeout: 15_000,
+        env: { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', AUTOHAND_VERSION: '0.9.8',
           AUTOHAND_INSTALL_DIR: path.join(root, 'install'), AUTOHAND_INSTALL_FIRST_RUN: 'no', AUTOHAND_SKIP_ZIT_INSTALL: '1' },
       });
     } finally {
       await fs.remove(root);
     }
   }
+
+  it.each(['MINGW64_NT-10.0', 'MSYS_NT-10.0', 'CYGWIN_NT-10.0'])(
+    'hands %s installation to PowerShell with the original options', async system => {
+      const result = await run(system, '', true, ['--alpha', '--fresh', '--no-zit']);
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      for (const option of ['<-File>', '<-Alpha>', '<-Fresh>', '<-NoZit>', '<-Version>', '<0.9.8>', '<-InstallDir>']) {
+        expect(result.stdout).toContain(option);
+      }
+      expect(result.stdout + result.stderr).not.toContain('autohand-windows-x64.tar.gz');
+    },
+  );
+
+  it('propagates failure from the Windows installer', async () => {
+    const result = await run('MINGW64_NT-10.0', '', true, [], 7);
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toContain('<-File>');
+    expect(result.stdout).not.toContain('Autohand CLI is ready');
+  });
 
   it('selects a musl-specific Linux asset', async () => {
     const result = await run('Linux', 'musl libc 1.2.5');

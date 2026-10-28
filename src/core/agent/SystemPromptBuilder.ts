@@ -15,6 +15,7 @@ import { isGoalFeatureEnabled } from '../../goals/feature.js';
 import type { SkillSource } from '../../skills/types.js';
 import type { AgentDefinition } from '../agents/AgentRegistry.js';
 import { formatAgentRoster } from '../agents/agentRoster.js';
+import { getShellExecutionProfile } from '../../utils/shellExecution.js';
 
 interface PromptSkillSummary {
   name: string;
@@ -165,12 +166,15 @@ export class SystemPromptBuilder {
         ]);
 
     const authUser = runtime.config.auth?.user;
+    const shell = getShellExecutionProfile({ settings: runtime.config.shell });
 
     const parts: string[] = [
       'You are Autohand, an expert AI software engineer built for the command line.',
       'You are the best engineer in the world. You write code that is clean, efficient, maintainable, and easy to understand.',
       'You are a master of your craft and can solve any problem with precision and elegance.',
       'Your goal: Gather necessary information, clarify uncertainties, and decisively execute. Never stop until the task is fully complete.',
+      `Command shell: ${JSON.stringify(shell.executable)}`,
+      `Command dialect: ${shell.dialect}. Use this dialect for shell tools and command syntax.`,
       '',
       ...(authUser ? [
         '## Current User',

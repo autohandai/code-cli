@@ -575,6 +575,8 @@ export interface RunConfigOverlaySnapshot {
 }
 
 export interface ShellSettings {
+  executable?: string;
+  dialect?: 'posix' | 'cmd' | 'powershell';
   /** Environment inherited by commands Autohand runs; see docs/config-reference.md. */
   env?: {
     inherit?: 'all' | 'essential' | 'none';

@@ -17,6 +17,10 @@ export const metadata: SlashCommand = {
     { name: 'create', description: 'Create a new team' },
     { name: 'view', description: 'Open the live team activity view' },
     { name: 'status', description: 'Show team status' },
+    { name: 'errors', description: 'Inspect failed tasks and their output' },
+    { name: 'retry', description: 'Retry one failed task by ID' },
+    { name: 'retry-failed', description: 'Retry all failed tasks' },
+    { name: 'hide', description: 'Hide the panel without stopping teammates' },
     { name: 'shutdown', description: 'Shut down all teammates' },
   ],
 };
@@ -40,6 +44,10 @@ export async function team(ctx: TeamCommandContext, args: string[]): Promise<str
       `  ${chalk.cyan('/team create <name>')}  Create a new team`,
       `  ${chalk.cyan('/team view')}           Open the live team activity view`,
       `  ${chalk.cyan('/team status')}         Show current team status`,
+      `  ${chalk.cyan('/team errors')}         Inspect failed tasks`,
+      `  ${chalk.cyan('/team retry <id>')}     Retry a failed task`,
+      `  ${chalk.cyan('/team retry-failed')}   Retry all failed tasks`,
+      `  ${chalk.cyan('/team hide')}           Hide the panel; keep workers available`,
       `  ${chalk.cyan('/team shutdown')}       Shut down all teammates`,
       `  ${chalk.cyan('/team')}                Show this help`,
       '',
@@ -53,7 +61,32 @@ export async function team(ctx: TeamCommandContext, args: string[]): Promise<str
         return chalk.yellow('No active team. Create one first.');
       }
       ctx.onToggleTeamView?.(true);
-      return chalk.green('Opened the live team view. Press Cmd+T or Ctrl+T to close it.');
+      return chalk.green('Opened the live team view. Use its recovery controls, or /team hide to hide the panel.');
+    }
+
+    case 'hide':
+      ctx.onToggleTeamView?.(false);
+      return 'Team panel hidden. Workers remain available; /team shutdown stops them.';
+
+    case 'errors': {
+      const failures = ctx.teamManager.tasks.listTasks().filter(task => task.status === 'failed');
+      if (!failures.length) return 'No failed team tasks.';
+      return failures.map(task => [
+        `${task.id} · ${task.subject}`,
+        task.error ?? 'No error details recorded.',
+        ...(task.output ? [task.output] : []),
+      ].join('\n')).join('\n\n');
+    }
+
+    case 'retry':
+    case 'retry-failed': {
+      if (ctx.teamManager.getTeam()?.status !== 'active') return 'This team is closed. Create a new team to start work.';
+      const failures = ctx.teamManager.tasks.listTasks().filter(task => task.status === 'failed');
+      const selected = subcommand === 'retry' ? failures.filter(task => task.id === args[1]) : failures;
+      if (subcommand === 'retry' && !selected.length) return 'Only failed tasks can be retried. Use /team errors to choose a task ID.';
+      if (!selected.length) return 'No failed team tasks to retry.';
+      for (const task of selected) ctx.teamManager.updateTask(task.id, { status: 'pending' });
+      return `Retrying ${selected.length} failed task${selected.length === 1 ? '' : 's'}. Successful and cancelled tasks are unchanged. Previous attempts remain in /agents view.`;
     }
 
     case 'create': {
@@ -121,6 +154,7 @@ export async function team(ctx: TeamCommandContext, args: string[]): Promise<str
         return chalk.yellow('No active team to shut down.');
       }
       await ctx.teamManager.shutdown();
+      ctx.onToggleTeamView?.(false);
       return chalk.green(`Team "${team.name}" has been shut down.`);
     }
 

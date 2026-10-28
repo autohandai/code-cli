@@ -11,6 +11,21 @@
 
 export type TaskPanelStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
 
+export function summarizeTaskOutcomes(tasks: readonly { status: TaskPanelStatus }[]) {
+  const counts = { pending: 0, in_progress: 0, completed: 0, failed: 0, cancelled: 0 };
+  for (const task of tasks) counts[task.status]++;
+  const open = counts.pending + counts.in_progress;
+  const settled = tasks.length > 0 && open === 0;
+  const outcome = counts.failed > 0 ? 'Finished with failures' : counts.cancelled > 0 ? 'Finished with cancellations' : 'Finished';
+  const label = [
+    outcome,
+    `${counts.completed} succeeded`,
+    ...(counts.failed ? [`${counts.failed} failed`] : []),
+    ...(counts.cancelled ? [`${counts.cancelled} cancelled`] : []),
+  ].join(' · ');
+  return { ...counts, total: tasks.length, open, settled, label };
+}
+
 export interface TaskPanelRow {
   id?: string;
   title: string;

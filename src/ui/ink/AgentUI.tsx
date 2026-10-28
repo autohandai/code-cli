@@ -54,6 +54,7 @@ import { TextBuffer } from '../textBuffer.js';
 import { handleTextBufferKey, type KeyHandlerResult } from '../textBufferKeyHandler.js';
 import {
   DEFAULT_KEYBINDINGS,
+  actionShortcutHint,
   matchesChord,
   normalizeChord,
   parseChord,
@@ -868,7 +869,8 @@ export function AgentUI({
   const { stdout } = useStdout();
   const [, redrawFullScreen] = useState(0);
   const fullScreenKeys = useRef(false);
-  fullScreenKeys.current = Boolean(fullScreenTranscript) && !state.agentRunsPanelVisible;
+  const teamViewVisible = state.teamPanelVisible && Boolean(state.teamActivity?.team);
+  fullScreenKeys.current = Boolean(fullScreenTranscript) && !state.agentRunsPanelVisible && !teamViewVisible;
   const { colors } = useTheme();
   const { t } = useTranslation();
   const slashCommands = state.runtimeSlashCommands ?? slashCommandProps;
@@ -2628,17 +2630,17 @@ export function AgentUI({
   }, []);
 
   const handlePaste = useCallback((pastedText: string) => {
-    if (state.agentRunsPanelVisible || (isWorkingRef.current && !enableQueueInputRef.current)) {
+    if (state.agentRunsPanelVisible || teamViewVisible || (isWorkingRef.current && !enableQueueInputRef.current)) {
       return;
     }
     insertPastedText(pastedText);
-  }, [insertPastedText, state.agentRunsPanelVisible]);
+  }, [insertPastedText, state.agentRunsPanelVisible, teamViewVisible]);
 
   // Ink owns bracketed-paste framing at the stdin parser boundary. Its paste
   // channel buffers split protocol markers and keeps pasted bytes out of
   // useInput, so the composer receives the complete payload exactly once.
   usePaste(handlePaste);
-  useInput(stableHandleInput, { isActive: !state.agentRunsPanelVisible });
+  useInput(stableHandleInput, { isActive: !state.agentRunsPanelVisible && !teamViewVisible });
 
   // Memoize tool outputs to prevent unnecessary re-renders
   // Static items use the entry id as key and never re-render
@@ -2798,6 +2800,12 @@ export function AgentUI({
           onMessage={onMessageAgentRun}
           onCtrlC={onCtrlC}
         />
+      ) : teamViewVisible && state.teamActivity?.team ? (
+        <TeamPanel key={`${state.teamActivity.team.name}:${state.teamActivity.team.createdAt}`}
+          team={state.teamActivity.team} tasks={state.teamActivity.tasks}
+          keybindings={keybindings} terminalRows={windowSize.rows} terminalColumns={windowSize.columns}
+          onHide={() => onToggleTeamPanelRef.current?.()}
+          onCommand={command => onInstructionRef.current(command)} onCtrlC={onCtrlC} />
       ) : <FixedBottom
         axo={state.axo}
         lastTurnOutcome={state.lastTurnOutcome}
@@ -2890,7 +2898,7 @@ export function AgentUI({
         taskListPosition={taskListPosition}
       />;
 
-  if (fullScreenTranscript) return state.agentRunsPanelVisible ? <Box height={Math.max(1, (windowSize.rows ?? 24) - 1)} overflow="hidden">{bottom}</Box> : <FullScreenFrame
+  if (fullScreenTranscript) return state.agentRunsPanelVisible || teamViewVisible ? <Box height={Math.max(1, (windowSize.rows ?? 24) - 1)} overflow="hidden">{bottom}</Box> : <FullScreenFrame
     model={fullScreenTranscript} messages={fullScreenMessages} detailsId={liveCommandItems.slice().reverse().find(entry => entry.isExpanded)?.id ?? expandedToolOutput?.id}
     rows={windowSize.rows ?? 24} columns={windowSize.columns ?? 80}
     footer={bottom}
@@ -3213,6 +3221,7 @@ interface StatusSectionProps {
   completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
   activityItems?: ActivityItem[];
   teamActivity?: TeamActivitySnapshot;
+  teamShortcut?: string;
   teamPanelVisible: boolean;
   goalActivity?: GoalSessionSnapshot;
   goalPanelVisible: boolean;
@@ -3323,6 +3332,7 @@ const StatusSection = memo(function StatusSection({
   completionStats,
   activityItems = [],
   teamActivity,
+  teamShortcut,
   teamPanelVisible,
   goalActivity,
   goalPanelVisible,
@@ -3363,6 +3373,7 @@ const StatusSection = memo(function StatusSection({
         provider={provider}
         model={model}
         teamActivity={teamActivity}
+        teamShortcut={teamShortcut}
         lineExtension={lineExtension}
         onSpinnerFrame={onWorkingSpinnerFrame}
       />
@@ -3420,6 +3431,7 @@ const StatusSection = memo(function StatusSection({
          prev.completionStats?.status === next.completionStats?.status &&
          prev.activityItems === next.activityItems &&
          prev.teamActivity === next.teamActivity &&
+         prev.teamShortcut === next.teamShortcut &&
          prev.teamPanelVisible === next.teamPanelVisible &&
          prev.goalActivity === next.goalActivity &&
          prev.goalPanelVisible === next.goalPanelVisible &&
@@ -3918,6 +3930,7 @@ const FixedBottom = memo(function FixedBottom({
           completionStats={completionStats}
           activityItems={activityItems}
           teamActivity={teamActivity}
+          teamShortcut={actionShortcutHint(keybindings, 'toggleTeamPanel', '/team view')}
           teamPanelVisible={teamPanelVisible}
           goalActivity={goalActivity}
           goalPanelVisible={goalPanelVisible}
