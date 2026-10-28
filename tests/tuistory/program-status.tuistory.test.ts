@@ -52,6 +52,7 @@ describe('OSC7501 built terminal lifecycle', () => {
     ]);
     await submitProgramStatusPrompt(session, 'Write the proof file');
     await vi.waitFor(() => expect(programStatusReports(session)).toContainEqual(expect.objectContaining({ state: 'blocked', kind: 'permission' })), { timeout: 15_000 });
+    await session.waitForText('Allow Once');
     await session.press('down');
     await session.press('up');
     await session.press('enter');
