@@ -9,6 +9,7 @@ import { executeCoordinatedFile, getCommandCoordination } from '../session/peers
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { WorktreeManager } from '../actions/worktree.js';
 
 export type SessionWorktreeOption = boolean | string | undefined;
 
@@ -23,6 +24,7 @@ export interface SessionWorktreeInfo {
   worktreePath: string;
   branchName: string;
   createdBranch: boolean;
+  baseRef: string;
 }
 
 interface GitResult {
@@ -97,6 +99,12 @@ export function isSessionWorktreeEnabled(worktree: SessionWorktreeOption): workt
 
 function planSessionWorktree(input: SessionWorktreeInput): { info: SessionWorktreeInfo; args: string[] } {
   const repoRoot = ensureGitRepo(input.cwd);
+  const original = runGit(repoRoot, ['rev-parse', '--symbolic-full-name', 'HEAD']);
+  const base = original.status === 0 && original.stdout.trim().startsWith('refs/heads/')
+    ? original
+    : runGit(repoRoot, ['rev-parse', '--verify', 'HEAD']);
+  if (base.status !== 0 || !base.stdout.trim()) throw new Error('Cannot determine the original worktree branch or commit.');
+  const baseRef = base.stdout.trim();
   const branchName = typeof input.worktree === 'string'
     ? sanitizeName(input.worktree)
     : buildAutoBranchName(input.mode);
@@ -111,7 +119,7 @@ function planSessionWorktree(input: SessionWorktreeInput): { info: SessionWorktr
     ? ['worktree', 'add', worktreePath, branchName]
     : ['worktree', 'add', '-b', branchName, worktreePath];
 
-  return { info: { repoRoot, worktreePath, branchName, createdBranch: !existingBranch }, args };
+  return { info: { repoRoot, worktreePath, branchName, createdBranch: !existingBranch, baseRef }, args };
 }
 
 function checkWorktreeResult(result: GitResult): void {
@@ -133,4 +141,15 @@ export async function prepareCoordinatedSessionWorktree(input: SessionWorktreeIn
   const { info, args } = planSessionWorktree(input);
   checkWorktreeResult(await executeCoordinatedFile({ file: 'git', args, cwd: info.repoRoot }));
   return info;
+}
+
+export async function cleanupSessionWorktree(info: SessionWorktreeInfo): Promise<string> {
+  try {
+    return await new WorktreeManager(info.repoRoot).remove(info.worktreePath, {
+      baseRef: info.baseRef,
+      deleteBranch: info.createdBranch,
+    });
+  } catch (error) {
+    return `Kept worktree ${info.worktreePath} (branch ${info.branchName}); cleanup could not complete safely: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }

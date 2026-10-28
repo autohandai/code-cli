@@ -2967,8 +2967,8 @@ export class AutohandAgent {
     return executeAgentSleepTool(this, seconds, reason);
   }
 
-  private async exitSessionWorktree(keep = false): Promise<string> {
-    return exitAgentSessionWorktree(this, keep);
+  private async exitSessionWorktree(keep = false, discardChanges = false): Promise<string> {
+    return exitAgentSessionWorktree(this, keep, discardChanges);
   }
 
   private isDestructiveCommand(command: string): boolean {

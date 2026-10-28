@@ -21,7 +21,7 @@ import {
   buildPermissionSettingsFromYolo,
 } from '../../permissions/yoloMode.js';
 import type { CLIOptions, AgentRuntime, ClientContext, LoadedConfig } from '../../types.js';
-import { isSessionWorktreeEnabled, prepareSessionWorktree } from '../../utils/sessionWorktree.js';
+import { cleanupSessionWorktree, isSessionWorktreeEnabled, prepareSessionWorktree, type SessionWorktreeInfo } from '../../utils/sessionWorktree.js';
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
@@ -75,7 +75,7 @@ import {
   writeInternalError,
 } from './protocol.js';
 import { getPlanModeManager } from '../../commands/plan.js';
-import { getRpcErrorMetadata, writeRpcDebugLine } from './logging.js';
+import { getRpcErrorMetadata, writeRpcDebugLine, writeRpcSessionNotice } from './logging.js';
 import { shutdownBrowserToolBridge } from '../../browser/browserToolBridge.js';
 import { configureSearchFromAccount } from '../../actions/web.js';
 import {
@@ -498,6 +498,7 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
 
   let adapter: RPCAdapter | null = null;
   let agent: AutohandAgent | null = null;
+  let sessionWorktree: SessionWorktreeInfo | null = null;
   let reader: LineReader | null = null;
   let exitCode = 0;
   let shutdownReason: RpcShutdownReason = 'error';
@@ -601,7 +602,7 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
     config.ui.useInkRenderer = false;
 
     if (isSessionWorktreeEnabled(options.worktree)) {
-      const sessionWorktree = prepareSessionWorktree({
+      sessionWorktree = prepareSessionWorktree({
         cwd: originalWorkspaceRoot,
         worktree: options.worktree,
         mode: 'rpc',
@@ -802,6 +803,7 @@ export async function runRpcMode(options: CLIOptions): Promise<0 | 1> {
 
     await Promise.resolve().then(() => shutdownBrowserToolBridge()).catch(() => {});
     await shutdownRpcRuntime(adapter, agent, shutdownReason).catch(() => {});
+    if (sessionWorktree) writeRpcSessionNotice(await cleanupSessionWorktree(sessionWorktree));
     await flushRpcOutput();
     process.stdout.off('error', handleStdoutError);
     restoreConsole();

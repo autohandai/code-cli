@@ -198,6 +198,9 @@ function resolveEffectivePermissionTool(
   action: AgentAction,
   values: Record<string, unknown>,
 ): string {
+  if (action.type === 'exit_worktree' && values.discard_changes === true && values.keep !== true) {
+    return 'delete_path';
+  }
   if (action.type === 'analyze_experiments'
     && values.operation === 'prune'
     && values.yes === true
@@ -1505,13 +1508,16 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'exit_worktree',
-    description: 'Exit the current session worktree and return to the original workspace. Optionally keep the worktree on disk for inspection.',
+    description: 'Return to the original workspace. Worktrees with edited or untracked files or commits not on the original branch are kept automatically. Discarding changes requires explicit deletion approval.',
     parameters: {
       type: 'object',
       properties: {
-        keep: { type: 'boolean', description: 'When true, keep the worktree and branch instead of removing them' }
+        keep: { type: 'boolean', description: 'When true, keep the worktree and branch instead of removing them' },
+        discard_changes: { type: 'boolean', description: 'Explicitly discard worktree changes after deletion approval. Default false; keep takes precedence.' }
       }
-    }
+    },
+    requiresApproval: true,
+    approvalMessage: 'Discard changes and remove the current session worktree? Uncommitted and untracked files will be deleted.'
   },
   {
     name: 'team_status',
@@ -2805,7 +2811,9 @@ export class ToolManager {
         continue;
       }
 
-      const requiresApproval = this.toolFilter.requiresApproval(call.tool, definition.requiresApproval);
+      const mayDiscard = call.tool !== 'exit_worktree'
+        || (this.getCallArgs(call).discard_changes === true && this.getCallArgs(call).keep !== true);
+      const requiresApproval = this.toolFilter.requiresApproval(call.tool, definition.requiresApproval && mayDiscard);
 
       try {
         this.assertNotAborted(signal);
@@ -3118,6 +3126,10 @@ export class ToolManager {
   }
 
   private resolvePermissionContexts(action: AgentAction): PermissionContext[] {
+    if (action.type === 'exit_worktree' && action.discard_changes === true && action.keep !== true
+      && !this.toolFilter.isAllowed('delete_path')) {
+      throw new Error('Discarding a worktree is not available in the current context.');
+    }
     const specialized = this.resolveSpecializedPermissionContext?.(action);
     const standardContexts = buildToolPermissionContexts(action);
     const contexts = specialized === undefined

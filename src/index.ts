@@ -62,7 +62,7 @@ import {
   resolveCommandOutputFormat,
 } from './modes/commandOutput.js';
 import { AUTOHAND_PATHS, PROJECT_DIR_NAME } from './constants.js';
-import { isSessionWorktreeEnabled, prepareSessionWorktree } from './utils/sessionWorktree.js';
+import { cleanupSessionWorktree, isSessionWorktreeEnabled, prepareSessionWorktree, type SessionWorktreeInfo } from './utils/sessionWorktree.js';
 import { armPromptExitBackstop } from './runtime/promptExitBackstop.js';
 import {
   buildZitSessionInstructions,
@@ -1606,6 +1606,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
   let commandOutputCompleted = false;
   // Records the --zit workspace once: in the finally block below, or on process exit.
   let sessionZitFinalizer: SessionZitFinalizer | null = null;
+  let sessionWorktree: SessionWorktreeInfo | null = null;
   const runtimeResourceOwner = new CliRuntimeResourceOwner<
     AuthUser,
     VersionCheckResult,
@@ -1648,7 +1649,6 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     await applyServedAutohandModel(config, options);
     const originalWorkspaceRoot = resolveWorkspaceRoot(config, options.path);
     let workspaceRoot = originalWorkspaceRoot;
-    let sessionWorktree: ReturnType<typeof import('./utils/sessionWorktree.js')['prepareSessionWorktree']> | null = null;
     let sessionZit: SessionZitInfo | null = null;
 
     // Initialize i18n with locale detection
@@ -2303,6 +2303,9 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     await herdrIntegration?.reporter.settled();
     herdrIntegration?.detach();
     sessionZitFinalizer?.finish(agent?.getLastAssistantResponse());
+    if (sessionWorktree && !options.tmux && process.env.AUTOHAND_TMUX_LAUNCHED !== '1') {
+      console.error(chalk.gray(await cleanupSessionWorktree(sessionWorktree)));
+    }
     agentHolder.current = null;
     restoreConsoleOutput?.();
     if (resolveAgentLaunchMode(options) === 'command') {
@@ -2733,103 +2736,111 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
     await resolveWorkspaceTrust(config, { interactive: false });
   }
 
-  if (isSessionWorktreeEnabled(opts.worktree)) {
-    const sessionWorktree = prepareSessionWorktree({
-      cwd: originalWorkspaceRoot,
-      worktree: opts.worktree,
-      mode: 'patch',
-    });
-    workspaceRoot = sessionWorktree.worktreePath;
-    const worktreeSafetyCheck = checkWorkspaceSafety(workspaceRoot);
-    if (!worktreeSafetyCheck.safe) {
-      printDangerousWorkspaceWarning(workspaceRoot, worktreeSafetyCheck);
-      process.exit(1);
-    }
-    console.error(chalk.gray(`Using git worktree: ${sessionWorktree.worktreePath}`));
-    console.error(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
-  }
-
-  const additionalDirs = await resolveAdditionalDirectoriesOrExit(opts.addDir);
-
-  // Override model from CLI if provided
-  if (opts.model) {
-    config = applyCliModelOverride(config, opts.model, opts.provider);
-  }
-  await applyServedAutohandModel(config, opts);
-
-  const { ProviderFactory } = await import('./providers/ProviderFactory.js');
-  const { FileActionManager } = await import('./actions/filesystem.js');
-  const llmProvider = ProviderFactory.create(config);
-  const files = new FileActionManager(workspaceRoot, additionalDirs);
-
-  // Enable preview mode - changes will be batched instead of written
-  const batchId = crypto.randomUUID();
-  files.enterPreviewMode(batchId);
-
-  // Set up runtime with auto-confirm and unrestricted mode
-  const patchOptions: CLIOptions = {
-    ...opts,
-    yes: true,           // Auto-confirm all actions
-    unrestricted: true   // Skip approval prompts
-  };
-
-  const runtime: AgentRuntime = {
-    config,
-    workspaceRoot,
-    options: patchOptions,
-    additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined
-  };
-
-  // Show status
-  console.error(chalk.cyan('Patch Mode: Changes will be captured without modifying files\n'));
-
-  // Configure web search provider
-  const { configureSearchFromAccount } = await import('./actions/web.js');
-  await configureSearchFromAccount(config, opts.searchEngine);
-
-  let agent: AutohandAgent | null = null;
-  let exitCode = 0;
+  let sessionWorktree: SessionWorktreeInfo | null = null;
   try {
-    const { AutohandAgent } = await import('./core/agent.js');
-    agent = new AutohandAgent(llmProvider, files, runtime);
+    if (isSessionWorktreeEnabled(opts.worktree)) {
+      sessionWorktree = prepareSessionWorktree({
+        cwd: originalWorkspaceRoot,
+        worktree: opts.worktree,
+        mode: 'patch',
+      });
+      workspaceRoot = sessionWorktree.worktreePath;
+      const worktreeSafetyCheck = checkWorkspaceSafety(workspaceRoot);
+      if (!worktreeSafetyCheck.safe) {
+        printDangerousWorkspaceWarning(workspaceRoot, worktreeSafetyCheck);
+        process.exitCode = 1;
+        return;
+      }
+      console.error(chalk.gray(`Using git worktree: ${sessionWorktree.worktreePath}`));
+      console.error(chalk.gray(`Branch: ${sessionWorktree.branchName}${sessionWorktree.createdBranch ? ' (new)' : ''}\n`));
+    }
 
-    // Run the instruction (changes will be batched in preview mode)
-    const succeeded = await agent.runCommandMode(opts.prompt);
-    if (!succeeded) {
-      exitCode = 1;
-    } else {
-      // Get all pending changes
-      const changes = files.getPendingChanges();
+    const additionalDirs = await resolveAdditionalDirectoriesOrExit(opts.addDir);
 
-      if (changes.length === 0) {
-        console.error(chalk.yellow('\nNo changes were made.'));
+    // Override model from CLI if provided
+    if (opts.model) {
+      config = applyCliModelOverride(config, opts.model, opts.provider);
+    }
+    await applyServedAutohandModel(config, opts);
+
+    const { ProviderFactory } = await import('./providers/ProviderFactory.js');
+    const { FileActionManager } = await import('./actions/filesystem.js');
+    const llmProvider = ProviderFactory.create(config);
+    const files = new FileActionManager(workspaceRoot, additionalDirs);
+
+    // Enable preview mode - changes will be batched instead of written
+    const batchId = crypto.randomUUID();
+    files.enterPreviewMode(batchId);
+
+    // Set up runtime with auto-confirm and unrestricted mode
+    const patchOptions: CLIOptions = {
+      ...opts,
+      yes: true,           // Auto-confirm all actions
+      unrestricted: true   // Skip approval prompts
+    };
+
+    const runtime: AgentRuntime = {
+      config,
+      workspaceRoot,
+      options: patchOptions,
+      additionalDirs: additionalDirs.length > 0 ? additionalDirs : undefined
+    };
+
+    // Show status
+    console.error(chalk.cyan('Patch Mode: Changes will be captured without modifying files\n'));
+
+    // Configure web search provider
+    const { configureSearchFromAccount } = await import('./actions/web.js');
+    await configureSearchFromAccount(config, opts.searchEngine);
+
+    let agent: AutohandAgent | null = null;
+    let exitCode = 0;
+    try {
+      const { AutohandAgent } = await import('./core/agent.js');
+      agent = new AutohandAgent(llmProvider, files, runtime);
+
+      // Run the instruction (changes will be batched in preview mode)
+      const succeeded = await agent.runCommandMode(opts.prompt);
+      if (!succeeded) {
+        exitCode = 1;
       } else {
-        // Generate unified patch
-        const patch = generateUnifiedPatch(changes);
+        // Get all pending changes
+        const changes = files.getPendingChanges();
 
-        // Show summary to stderr (so it doesn't pollute stdout when piping)
-        console.error(chalk.green(`\n✓ ${formatChangeSummary(changes)}`));
-
-        // Output patch
-        if (opts.output) {
-          await fs.default.ensureDir((await import('path')).dirname(opts.output));
-          await fs.default.writeFile(opts.output, patch);
-          console.error(chalk.green(`✓ Patch written to ${opts.output}`));
-          console.error(chalk.gray('\nTo apply: git apply ' + opts.output));
+        if (changes.length === 0) {
+          console.error(chalk.yellow('\nNo changes were made.'));
         } else {
-          // Output to stdout
-          process.stdout.write(patch);
+          // Generate unified patch
+          const patch = generateUnifiedPatch(changes);
+
+          // Show summary to stderr (so it doesn't pollute stdout when piping)
+          console.error(chalk.green(`\n✓ ${formatChangeSummary(changes)}`));
+
+          // Output patch
+          if (opts.output) {
+            await fs.default.ensureDir((await import('path')).dirname(opts.output));
+            await fs.default.writeFile(opts.output, patch);
+            console.error(chalk.green(`✓ Patch written to ${opts.output}`));
+            console.error(chalk.gray('\nTo apply: git apply ' + opts.output));
+          } else {
+            // Output to stdout
+            process.stdout.write(patch);
+          }
         }
       }
+    } catch (error) {
+      console.error(chalk.red(`\nError: ${(error as Error).message}`));
+      exitCode = 1;
+    } finally {
+      files.exitPreviewMode();
+      await agent?.shutdownRuntimeResources();
     }
-  } catch (error) {
-    console.error(chalk.red(`\nError: ${(error as Error).message}`));
-    exitCode = 1;
+    process.exitCode = exitCode;
   } finally {
-    files.exitPreviewMode();
-    await agent?.shutdownRuntimeResources();
+    if (sessionWorktree && !opts.tmux && process.env.AUTOHAND_TMUX_LAUNCHED !== '1') {
+      console.error(chalk.gray(await cleanupSessionWorktree(sessionWorktree)));
+    }
   }
-  process.exitCode = exitCode;
 }
 
 /**

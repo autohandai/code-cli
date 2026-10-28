@@ -156,6 +156,7 @@ vi.mock("../../../src/actions/filesystem.js", () => ({
 vi.mock("../../../src/utils/sessionWorktree.js", () => ({
   prepareSessionWorktree: mockPrepareSessionWorktree,
   isSessionWorktreeEnabled: mockIsSessionWorktreeEnabled,
+  cleanupSessionWorktree: vi.fn().mockResolvedValue('Removed worktree fixture'),
 }));
 
 vi.mock("../../../src/core/conversationManager.js", () => ({
@@ -800,6 +801,18 @@ describe("AutohandAcpAdapter", () => {
         mode: "acp",
       });
       expect(mockFileActionManager).toHaveBeenCalledWith("/workspace-worktree");
+    });
+
+    it.each(['dispose', 'shutdown'] as const)('safely cleans up worktrees after ACP %s releases agents', async method => {
+      const { cleanupSessionWorktree } = await import('../../../src/utils/sessionWorktree.js');
+      adapter = new AutohandAcpAdapter(connection, { worktree: true });
+      await adapter.initialize(makeInitRequest());
+      await adapter.newSession(makeNewSessionRequest());
+      await adapter[method]();
+      expect(cleanupSessionWorktree).toHaveBeenCalledOnce();
+      expect(cleanupSessionWorktree).toHaveBeenCalledWith(mockPrepareSessionWorktree.mock.results[0].value);
+      expect(mockAgent.shutdownRuntimeResources.mock.invocationCallOrder[0])
+        .toBeLessThan(vi.mocked(cleanupSessionWorktree).mock.invocationCallOrder[0]);
     });
   });
 

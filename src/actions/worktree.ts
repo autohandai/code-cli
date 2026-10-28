@@ -231,18 +231,39 @@ export class WorktreeManager {
   /**
    * Remove a worktree with cleanup
    */
-  async remove(worktreePath: string, options: { force?: boolean; deleteBranch?: boolean } = {}): Promise<string> {
+  async remove(worktreePath: string, options: {
+    force?: boolean;
+    deleteBranch?: boolean;
+    baseRef?: string;
+    /** The caller must authorize discarding through the deletion permission policy. */
+    discardChanges?: boolean;
+  } = {}): Promise<string> {
     const absolutePath = path.isAbsolute(worktreePath)
       ? worktreePath
       : path.resolve(this.repoRoot, worktreePath);
 
     // Get branch info before removal
     const worktrees = this.list();
-    const wt = worktrees.find(w => w.path === absolutePath);
+    const wt = worktrees.find(w => path.resolve(w.path) === path.resolve(absolutePath));
+    if (!wt || wt.bare) throw new Error(`Not a registered worktree: ${absolutePath}`);
     const branchToDelete = wt?.branch;
 
+    const status = spawnSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+      cwd: absolutePath, encoding: 'utf8',
+    });
+    const commits = spawnSync('git', ['rev-list', '--count', `${options.baseRef ?? this.getMainBranch()}..HEAD`], {
+      cwd: absolutePath, encoding: 'utf8',
+    });
+    if (status.status !== 0 || commits.status !== 0 || !/^\d+\s*$/.test(commits.stdout)) {
+      throw new Error(`Cannot verify worktree safety; kept ${absolutePath} (branch ${branchToDelete ?? '(detached)'}).`);
+    }
+    const hasChanges = status.stdout.trim().length > 0 || Number(commits.stdout.trim()) > 0;
+    if (hasChanges && options.discardChanges !== true) {
+      return `Kept worktree ${absolutePath} (branch ${branchToDelete ?? '(detached)'}) with changes (kept: has changes).`;
+    }
+
     const args = ['worktree', 'remove'];
-    if (options.force) {
+    if (options.discardChanges === true) {
       args.push('--force');
     }
     args.push(absolutePath);
@@ -304,8 +325,8 @@ export class WorktreeManager {
     const removed: string[] = [];
     for (const wt of toRemove) {
       try {
-        await this.remove(wt.path, { force: true, deleteBranch: options.removeMerged });
-        removed.push(wt.path);
+        const result = await this.remove(wt.path, { deleteBranch: options.removeMerged, baseRef: mainBranch });
+        if (!result.startsWith('Kept worktree ')) removed.push(wt.path);
       } catch {
         // Skip if removal fails
       }

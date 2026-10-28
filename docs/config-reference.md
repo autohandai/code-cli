@@ -2960,6 +2960,10 @@ These flags override config file settings:
 | `--patch`                     | Generate git patch without applying changes                                                    |
 | `--output <file>`             | Output file for patch (used with --patch)                                                      |
 
+When a `--worktree` session ends, Autohand removes its worktree only when there are no uncommitted or untracked files and no commits missing from the original branch. A branch created for that session is also removed; pre-existing branches are retained. Otherwise it prints `Kept worktree <path> (branch <b>) with changes` so you can recover your work. This cleanup applies to interactive, command, patch, RPC and ACP sessions; tmux and Zit behavior is unchanged.
+
+The agent's `exit_worktree` tool follows the same preservation rule and returns to the original workspace. `keep: true` always keeps the worktree. `discard_changes: true` explicitly requests removal with changes and follows the deletion approval policy; the restricted client profile denies it. `keep` takes precedence when both options are set. Cleanup stops safely if Git cannot verify the worktree or original branch.
+
 ### Zit Sessions
 
 `--zit` is the counterpart of `--worktree` for repositories shared by several agents through [Zit](https://github.com/autohandai/getzit). Instead of a git worktree and branch, the session runs in a disposable copy of the repository's current Zit state, and its edits are recorded as one Zit change when the session ends.
