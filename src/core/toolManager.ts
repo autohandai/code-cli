@@ -1567,7 +1567,7 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'web_search',
-    description: 'Search the web for up-to-date information about packages, libraries, frameworks, documentation, changelogs, and more. Use this when you need current information that may have changed after your training data.',
+    description: 'Search the web for up-to-date information about packages, libraries, frameworks, documentation, changelogs, and more. Use this when you need current information that may have changed after your training data. If a daily limit is returned, relay the complete upgrade and reset sentence verbatim and finish using the evidence already available.',
     parameters: {
       type: 'object',
       properties: {

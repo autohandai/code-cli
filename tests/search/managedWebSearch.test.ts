@@ -4,6 +4,11 @@ import { ManagedWebSearch, managedSearchIdentity } from '../../src/search/manage
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); });
 describe('included Autohand web search', () => {
   const identity = { token: 'ahc_search_fixture', accountId: 'selected-account' };
+  it('preserves the exact Free cap notice instead of replacing it with generic retry advice', async () => {
+    const message = "You've used your 10 free web searches today. They reset in 2h 5m. For more, upgrade to Pro: https://dev.autohand.ai/search/upgrade?source=cli";
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ error: { code: 'web_search_cap_hit', message } }, { status: 429 })));
+    await expect(new ManagedWebSearch(identity).search('docs', 5)).rejects.toThrow(message);
+  });
   it('uses account credentials and selected account only on the first-party endpoint', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ available: true, tier: 'lite', provider: 'cloudflare' }))
       .mockResolvedValueOnce(Response.json({ provider: 'cloudflare', query: 'docs', results: [{ title: 'Docs', url: 'https://autohand.ai/docs', snippet: 'Source' }] }));

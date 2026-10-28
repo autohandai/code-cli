@@ -9,7 +9,9 @@
 
 import * as https from 'https';
 import * as http from 'http';
-import { existsSync } from 'fs';
+import { existsSync, lstatSync, readdirSync } from 'fs';
+import { homedir } from 'node:os';
+import * as path from 'node:path';
 import { spawn } from 'child_process';
 import { getCommandCoordination, signalCoordinatedProcess, spawnCoordinatedProcess, waitForProcessPublication } from '../session/peers/CommandCoordinationGate.js';
 import { hasBrowserBridgeOutput } from '../browser/browserToolBridge.js';
@@ -80,6 +82,7 @@ let globalSearchConfig: SearchConfig = {
   provider: 'browser-profile'
 };
 let managedSearch: ManagedWebSearch | undefined;
+let managedSearchAvailable = false;
 let searchConfigurationRevision = 0;
 
 /**
@@ -94,6 +97,7 @@ export function configureSearchFromSettings(
   providerOverride?: SearchConfig['provider'],
 ): void {
   managedSearch = undefined;
+  managedSearchAvailable = false;
   searchConfigurationRevision += 1;
   configureSearch({
     provider: providerOverride ?? settings.provider ?? 'browser-profile',
@@ -112,11 +116,14 @@ export async function configureSearchFromAccount(
   const revision = searchConfigurationRevision;
   const identity = managedSearchIdentity(config);
   const client = identity ? new ManagedWebSearch(identity) : undefined;
-  const included = !providerOverride && !config.search?.provider && client ? await client.available(signal) : false;
+  const selected = providerOverride ?? config.search?.provider;
+  const checkIncluded = !selected || selected === 'browser-profile' || selected === 'autohand';
+  const included = checkIncluded && client ? await client.available(signal) : false;
   if (revision !== searchConfigurationRevision) return;
   signal?.throwIfAborted();
-  if (included) configureSearch({ provider: 'autohand' });
+  if (included && !selected) configureSearch({ provider: 'autohand' });
   managedSearch = client;
+  managedSearchAvailable = included;
 }
 
 /**
@@ -148,9 +155,12 @@ export function isSearchConfigured(): boolean {
 
   switch (config.provider) {
     case 'autohand':
-      return !!managedSearch;
-    case 'browser-profile':
-      return hasBrowserBridgeOutput() || !!findChromePath();
+      return managedSearchAvailable;
+    case 'browser-profile': {
+      if (hasBrowserBridgeOutput() || managedSearchAvailable) return true;
+      const profile = findBrowserProfile();
+      return !!findChromePath() && !!profile && !isBrowserProfileLocked(profile.userDataDir);
+    }
     case 'exa':
       return !!exaKey;
     case 'brave':
@@ -607,7 +617,7 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
 
   switch (provider) {
     case 'autohand':
-      if (!managedSearch) throw new Error('Sign in to Autohand for included web search (Lite and above), or configure your own provider with /search.');
+      if (!managedSearch) throw new Error('Sign in to Autohand for included web search, or configure your own provider with /search.');
       return managedSearch.search(enhancedQuery, maxResults, options.signal);
     case 'browser-profile':
       return browserProfileSearch(
@@ -986,17 +996,23 @@ async function browserProfileSearch(
     }
   }
 
+  const profile = findBrowserProfile();
+  throwIfAborted(signal);
+  if (profile && isBrowserProfileLocked(profile.userDataDir)) {
+    if (managedSearchAvailable && managedSearch) return managedSearch.search(query, maxResults, signal);
+    throw new Error("Chrome is open on your profile, so browser search can't run. Close Chrome, or pick another provider with /search.");
+  }
   const chromePath = findChromePath();
   if (!chromePath) {
+    if (managedSearchAvailable && managedSearch) return managedSearch.search(query, maxResults, signal);
     throw new Error(
       'No connected Chromium bridge or Chrome/Chromium installation was found. Connect Chromium or configure another provider with /search.'
     );
   }
 
   // Find a user profile to use
-  const profile = await findBrowserProfile();
-  throwIfAborted(signal);
   if (!profile) {
+    if (managedSearchAvailable && managedSearch) return managedSearch.search(query, maxResults, signal);
     throw new Error('Browser Profile search needs a browser profile. Connect Chromium or choose a provider with /search.');
   }
 
@@ -1140,13 +1156,8 @@ function parseBrowserSearchResults(payload: string, maxResults: number): WebSear
  * Detect user's browser profile to use for searching.
  * Returns the profile directory and user data dir for Chrome/Chromium/Brave/Edge.
  */
-async function findBrowserProfile(): Promise<{ userDataDir: string; profileDirectory: string; browser: string } | null> {
-  const os = await import('node:os');
-  const path = await import('node:path');
-  const fs = await import('fs-extra');
-  const { pathExists } = fs;
-
-  const homeDir = os.homedir();
+function findBrowserProfile(): { userDataDir: string; profileDirectory: string; browser: string } | null {
+  const homeDir = homedir();
   const platform = process.platform;
 
   // Define browser data roots by platform
@@ -1178,12 +1189,12 @@ async function findBrowserProfile(): Promise<{ userDataDir: string; profileDirec
 
   // Find the first browser with a valid profile
   for (const browser of browserRoots) {
-    if (!(await pathExists(browser.userDataDir))) {
+    if (!existsSync(browser.userDataDir)) {
       continue;
     }
 
     try {
-      const entries = await fs.readdir(browser.userDataDir);
+      const entries = readdirSync(browser.userDataDir);
       const profiles = entries.filter((entry: string) =>
         entry === 'Default' || entry.startsWith('Profile ')
       );
@@ -1203,6 +1214,16 @@ async function findBrowserProfile(): Promise<{ userDataDir: string; profileDirec
   }
 
   return null;
+}
+
+function isBrowserProfileLocked(userDataDir: string): boolean {
+  try {
+    // Chromium's lock can be a dangling symlink; existsSync follows it and misses the lock.
+    lstatSync(path.join(userDataDir, 'SingletonLock'));
+    return true;
+  } catch (error) {
+    return !(error instanceof Error && 'code' in error && error.code === 'ENOENT');
+  }
 }
 
 /**
