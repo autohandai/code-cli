@@ -121,7 +121,9 @@ async function executeTaskWithEnvironment(
     workspaceRoot: workspacePath,
     options: { clientContext: 'cli' },
   };
-  const toolsRegistry = createToolsRegistry(workspacePath);
+  const toolsRegistry = createToolsRegistry(workspacePath, undefined, {
+    projectToolsTrusted: config.workspaceTrust?.trusted === true,
+  });
   // Teammates read the same skills as the lead, bound to the same account
   // profile, with their own activation state.
   const skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills, 'autohand-user', { accountConfigPath: config.configPath });

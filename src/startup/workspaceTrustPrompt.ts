@@ -30,7 +30,7 @@ function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-/** For example "2 project hooks and 1 MCP server". */
+/** For example "2 project hooks and 1 MCP server" or "1 project tool file". */
 export function describeWorkspaceTrustEntries(trust: WorkspaceTrustState): string {
   const parts: string[] = [];
   if (trust.hooks.length > 0) {
@@ -39,7 +39,11 @@ export function describeWorkspaceTrustEntries(trust: WorkspaceTrustState): strin
   if (trust.mcpServers.length > 0) {
     parts.push(countLabel(trust.mcpServers.length, 'MCP server', 'MCP servers'));
   }
-  return parts.join(' and ');
+  const tools = trust.tools ?? [];
+  if (tools.length > 0) {
+    parts.push(countLabel(tools.length, 'project tool file', 'project tool files'));
+  }
+  return parts.length <= 2 ? parts.join(' and ') : `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
 }
 
 function describeServerLaunch(server: McpServerConfigEntry): string {
@@ -66,6 +70,10 @@ export function formatWorkspaceTrustSummary(trust: WorkspaceTrustState): string 
       'MCP servers',
       ...formatRows(trust.mcpServers.map((server) => [server.name, describeServerLaunch(server)])),
     );
+  }
+  const tools = trust.tools ?? [];
+  if (tools.length > 0) {
+    lines.push('', `Project tools: ${tools.length} file(s)`, ...tools.map((tool) => `  ${tool.file}`));
   }
   return lines.join('\n');
 }

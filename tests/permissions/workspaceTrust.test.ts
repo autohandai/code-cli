@@ -8,10 +8,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  collectProjectToolEntries,
   computeWorkspaceTrustFingerprint,
   isWorkspaceTrusted,
   trustWorkspace,
 } from '../../src/permissions/workspaceTrust.js';
+
+const SCRATCH_DIR = path.join(os.homedir(), 'Documents/autohand/digital-team/charlie-cox/scratch');
 
 let tempDir: string;
 let storePath: string;
@@ -57,6 +60,43 @@ describe('computeWorkspaceTrustFingerprint', () => {
     expect(changedHook).not.toBe(original);
     expect(changedServer).not.toBe(original);
     expect(changedHook).not.toBe(changedServer);
+  });
+
+  it('includes project tool files in the trust fingerprint', async () => {
+    const root = await fs.mkdtemp(path.join(SCRATCH_DIR, 'trust-tools-'));
+    try {
+      const toolFile = path.join(root, '.autohand', 'tools', 'deploy.json');
+      await fs.outputFile(toolFile, '{"name":"deploy","description":"d","handler":"echo d"}');
+      const tools = await collectProjectToolEntries(root);
+      expect(tools).toEqual([{ file: '.autohand/tools/deploy.json', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
+
+      const a = computeWorkspaceTrustFingerprint({ hooks: [], mcpServers: [], tools });
+      await fs.writeFile(toolFile, '{"name":"deploy","description":"d","handler":"echo changed"}');
+      const b = computeWorkspaceTrustFingerprint({ hooks: [], mcpServers: [], tools: await collectProjectToolEntries(root) });
+
+      expect(a).not.toBe(b);
+    } finally {
+      await fs.remove(root);
+    }
+  });
+
+  it('lists tool files sorted by name and ignores non-JSON files and a missing tools dir', async () => {
+    const root = await fs.mkdtemp(path.join(SCRATCH_DIR, 'trust-tools-'));
+    try {
+      expect(await collectProjectToolEntries(root)).toEqual([]);
+
+      const toolsDir = path.join(root, '.autohand', 'tools');
+      await fs.outputFile(path.join(toolsDir, 'zeta.json'), '{"name":"zeta"}');
+      await fs.outputFile(path.join(toolsDir, 'alpha.json'), '{"name":"alpha"}');
+      await fs.outputFile(path.join(toolsDir, 'README.md'), 'not a tool');
+
+      expect((await collectProjectToolEntries(root)).map((tool) => tool.file)).toEqual([
+        '.autohand/tools/alpha.json',
+        '.autohand/tools/zeta.json',
+      ]);
+    } finally {
+      await fs.remove(root);
+    }
   });
 });
 

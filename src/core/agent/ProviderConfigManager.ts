@@ -46,6 +46,7 @@ import {
 import { VERTEX_AI_CODING_MODELS } from "../../providers/VertexAIProvider.js";
 import { sanitizeModelId } from "../../providers/errors.js";
 import { getOpenRouterModelContextWindow } from "../../providers/modelCapabilities.js";
+import { OPENROUTER_ATTRIBUTION_HEADERS } from "../../providers/OpenRouterClient.js";
 import { saveConfig, getProviderConfig } from "../../config.js";
 import { getContextWindow } from "../context/tokenizer.js";
 import {
@@ -3895,11 +3896,7 @@ export class ProviderConfigManager {
           ...(provider === "llmgateway" && {
             "x-source": "Autohand Code CLI",
           }),
-          ...(provider === "openrouter" && {
-            "HTTP-Referer": "https://autohand.dev",
-            "X-OpenRouter-Title": "Autohand Code CLI",
-            "X-OpenRouter-Categories": "cli-agent",
-          }),
+          ...(provider === "openrouter" && OPENROUTER_ATTRIBUTION_HEADERS),
         },
         signal: AbortSignal.timeout(10000), // 10s timeout for validation
       });

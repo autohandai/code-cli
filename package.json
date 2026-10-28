@@ -78,7 +78,15 @@
     "llm",
     "agent",
     "agentic",
-    "autohand"
+    "autohand",
+    "coding-agent",
+    "ai-coding-agent",
+    "claude-code",
+    "codex",
+    "mcp",
+    "ollama",
+    "byok",
+    "terminal"
   ],
   "engines": {
     "node": ">=22.0.0"

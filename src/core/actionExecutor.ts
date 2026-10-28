@@ -403,7 +403,9 @@ export class ActionExecutor {
     this.projectManager = deps.projectManager;
     this.sessionId = deps.sessionId;
     this.logExploration = deps.onExploration;
-    this.toolsRegistry = deps.toolsRegistry ?? createToolsRegistry(deps.runtime.workspaceRoot);
+    this.toolsRegistry = deps.toolsRegistry ?? createToolsRegistry(deps.runtime.workspaceRoot, undefined, {
+      projectToolsTrusted: deps.runtime.config.workspaceTrust?.trusted === true,
+    });
     this.metaToolService = deps.metaToolService ?? new MetaToolService(this.toolsRegistry);
     this.getRegisteredTools = deps.getRegisteredTools ?? (() => []);
     this.permissionManager = deps.permissionManager ?? new PermissionManager(deps.runtime.config.permissions);

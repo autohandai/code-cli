@@ -570,7 +570,9 @@ export function initializeAgentDependencies(
 
     const agentRegistry = configureAgentRegistry(runtime);
     const pluginDir = (runtime.config as typeof runtime.config & { pluginDir?: string }).pluginDir;
-    const toolsRegistry = createToolsRegistry(runtime.workspaceRoot, pluginDir ?? AUTOHAND_PATHS.tools);
+    const toolsRegistry = createToolsRegistry(runtime.workspaceRoot, pluginDir ?? AUTOHAND_PATHS.tools, {
+      projectToolsTrusted: runtime.config.workspaceTrust?.trusted === true,
+    });
     host.toolsRegistry = toolsRegistry;
     host.extensionService = new ExtensionService({
       projectRoot: join(runtime.workspaceRoot, PROJECT_DIR_NAME, 'extensions'),

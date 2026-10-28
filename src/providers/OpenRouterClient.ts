@@ -76,6 +76,18 @@ function sanitizeMessages(
 }
 
 const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
+
+/**
+ * App attribution OpenRouter reads for its public app rankings. HTTP-Referer creates the app,
+ * X-OpenRouter-Title names it (X-Title is the older alias), and cli-agent is a recognised category.
+ */
+export const OPENROUTER_ATTRIBUTION_HEADERS = {
+  "HTTP-Referer": "https://autohand.ai",
+  "X-OpenRouter-Title": "Autohand Code",
+  "X-Title": "Autohand Code",
+  "X-OpenRouter-Categories": "cli-agent",
+} as const;
+
 const DEFAULT_MAX_RETRIES = 3;
 const MAX_ALLOWED_RETRIES = 5;
 const DEFAULT_RETRY_DELAY = 1000;
@@ -292,9 +304,7 @@ export class OpenRouterClient {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://autohand.dev",
-      "X-OpenRouter-Title": "Autohand Code CLI",
-      "X-OpenRouter-Categories": "cli-agent",
+      ...OPENROUTER_ATTRIBUTION_HEADERS,
     };
     if (this.apiKey) {
       headers.Authorization = `Bearer ${this.apiKey}`;
