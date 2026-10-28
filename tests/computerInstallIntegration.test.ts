@@ -20,6 +20,17 @@ afterEach(async () => {
 });
 
 describe('computer control installation integration', () => {
+  it('keeps npm installation successful when optional computer setup fails', async () => {
+    const packageRoot = await mkdtemp(path.join(tmpdir(), 'autohand-computer-postinstall-'));
+    temporaryDirectories.push(packageRoot);
+    await mkdir(path.join(packageRoot, 'dist'));
+    await writeFile(path.join(packageRoot, 'dist/index.js'), '');
+    const warn = vi.fn();
+    await expect(installComputerUsePostinstall({ packageRoot, warn,
+      runCli: () => { throw new Error('fixture setup failure'); },
+    })).resolves.toEqual({ status: 'failed-optional' });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('fixture setup failure'));
+  });
   async function runComputerInstall(binaryLines: string[]) {
     const script = await readFile('install.sh', 'utf8');
     const functionSource = script.slice(script.indexOf('computer_control_supported() {'), script.indexOf('\nmain() {'));
@@ -113,6 +124,7 @@ describe('computer control installation integration', () => {
     const distDirectory = path.join(packageRoot, 'dist');
     await mkdir(distDirectory);
     await writeFile(path.join(distDirectory, 'index.js'), [
+      "if (process.argv[2] === '--help') { console.log('Commands:\\n  computer  Computer control'); process.exit(0); }",
       "const expected = ['computer', 'install', '--non-interactive', '--postinstall', '--bin-dir', 'vendor'];",
       'if (JSON.stringify(process.argv.slice(2)) !== JSON.stringify(expected)) process.exit(2);',
     ].join('\n'));
@@ -120,6 +132,17 @@ describe('computer control installation integration', () => {
     await expect(installComputerUsePostinstall({ packageRoot })).resolves.toEqual({
       status: 'completed',
     });
+  });
+
+  it('does not invoke computer install when packaged help lacks the command', async () => {
+    const packageRoot = await mkdtemp(path.join(tmpdir(), 'autohand-computer-postinstall-'));
+    temporaryDirectories.push(packageRoot);
+    await mkdir(path.join(packageRoot, 'dist'));
+    await writeFile(path.join(packageRoot, 'dist/index.js'), [
+      "if (process.argv[2] === '--help') { console.log('Commands:\\n  login  Sign in'); process.exit(0); }",
+      "throw new Error('unsupported computer install must not run');",
+    ].join('\n'));
+    await expect(installComputerUsePostinstall({ packageRoot })).resolves.toEqual({ status: 'skipped-unsupported' });
   });
 
   it('rejects a published package that is missing its built CLI', async () => {

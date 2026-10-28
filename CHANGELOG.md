@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Keep npm installation successful when optional Computer control setup fails, matching the standalone installers.
+
 - Restore the interactive composer after session export dialogs so typing and a clean exit remain available.
 
 ### Changed

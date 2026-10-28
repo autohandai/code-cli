@@ -1,0 +1,27 @@
+name: Installer release compatibility
+on:
+  pull_request:
+    paths:
+      - install.sh
+      - install.ps1
+      - scripts/install-computer-use.mjs
+      - src/testing/scenarios/released-installer-smoke.py
+      - .github/workflows/installer-release-compatibility.yml
+  schedule:
+    - cron: '21 6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  released-installer:
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        channel: [stable, alpha]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the independently published binary in a clean HOME
+        run: python3 src/testing/scenarios/released-installer-smoke.py --channel '${{ matrix.channel }}'
