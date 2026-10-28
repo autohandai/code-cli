@@ -69,7 +69,7 @@ describe("AutohandAIProvider", () => {
         apiKey: "test-autohand-key",
         model,
       })).toThrow(
-        "Weka is available through the Autohand API and Console Playground. CLI execution is not supported yet.",
+        "Weka is available through the Autohand API and Agent SDKs, not in the CLI. Pick another model with /model or --model.",
       );
     },
   );
@@ -88,7 +88,7 @@ describe("AutohandAIProvider", () => {
       model: "weka",
       messages: [{ role: "user", content: "Decide" }],
     })).rejects.toThrow(
-      "Weka is available through the Autohand API and Console Playground. CLI execution is not supported yet.",
+      "Weka is available through the Autohand API and Agent SDKs, not in the CLI. Pick another model with /model or --model.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });

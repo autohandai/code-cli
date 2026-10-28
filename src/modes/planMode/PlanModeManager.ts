@@ -179,6 +179,13 @@ export class PlanModeManager extends EventEmitter {
     this.emit('execution:started', this.state.plan);
   }
 
+  completeExecution(): void {
+    if (this.state.phase !== 'executing') return;
+    this.state.phase = 'completed';
+    this.disable();
+    this.emit('execution:completed', this.state.plan);
+  }
+
   /**
    * Get list of read-only tools allowed in plan mode
    */

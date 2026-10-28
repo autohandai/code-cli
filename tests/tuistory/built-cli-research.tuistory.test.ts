@@ -828,7 +828,7 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
   });
 
   it('persists an Anthropic provider selection and restores it after restart', async () => {
-    const selectedModel = 'claude-sonnet-5';
+    const selectedModel = 'claude-sonnet-5-5';
     const apiKey = 'sk-ant-tuistory-key-long-enough';
     const authServer = await createMockAuthServer();
     mockAuthServers.push(authServer);
@@ -863,7 +863,7 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     await session.type(apiKey);
     await session.press('enter');
     await session.waitForText('Select a model', { timeout: 10_000 });
-    await selectModalOptionByLabel(session, 'Claude Sonnet 5');
+    await selectModalOptionByLabel(session, 'Claude Sonnet 5.5');
     await session.waitForText('Anthropic configured successfully!', { timeout: 10_000 });
     const screen = await session.text({
       timeout: 10_000,

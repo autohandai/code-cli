@@ -18,6 +18,8 @@ import {
 import { HookManager } from '../../../src/core/HookManager.js';
 import { ComputerUseLifecycle } from '../../../src/computer/ComputerUseLifecycle.js';
 import { ApiError, classifyApiError } from '../../../src/providers/errors.js';
+import { getPlanModeManager } from '../../../src/commands/plan.js';
+import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
 import { ProviderNotConfiguredError } from '../../../src/providers/ProviderFactory.js';
 
 function overrideStreamTTY(
@@ -1158,4 +1160,27 @@ it('skips automatic specialists for an explicitly scoped native instruction', as
   expect(host.prepareSpecialists).not.toHaveBeenCalled();
   expect(await new InstructionRunner(host).run('Inspect again')).toBe(true);
   expect(host.prepareSpecialists).toHaveBeenCalledTimes(1);
+});
+
+
+describe('accepted plan execution cleanup', () => {
+  it.each(['completed', 'failed', 'cancelled'])('restores normal permissions and iteration mode after %s execution', async outcome => {
+    const host = createHost();
+    host.permissionManager = new PermissionManager({ mode: 'interactive' });
+    host.runReactLoop = vi.fn(async controller => {
+      const manager = getPlanModeManager();
+      manager.enable();
+      manager.setPlan({ id: 'accepted', steps: [], rawText: 'Plan', createdAt: 1 });
+      manager.acceptPlan('auto_accept');
+      host.permissionManager!.setPlanEditApproval('auto');
+      if (outcome === 'failed') throw new Error('Execution failed');
+      if (outcome === 'cancelled') controller.abort();
+      return { status: 'completed' };
+    });
+    await new InstructionRunner(host).run('execute the accepted plan');
+    expect(getPlanModeManager().isEnabled()).toBe(false);
+    expect(getPlanModeManager().getPhase()).toBe('completed');
+    expect(host.permissionManager.checkPermission({ tool: 'write_file', path: '/repo/main.ts' }).allowed).toBe(false);
+    expect(getPlanModeManager().getPromptIndicator()).toBe('');
+  });
 });

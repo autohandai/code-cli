@@ -2992,6 +2992,7 @@ export class ToolManager {
           }
           shouldPrompt = permissionHookPromptOverride ?? shouldPrompt;
         }
+        if (this.permissionManager.requiresPlanApproval?.(permissionContext)) shouldPrompt = true;
         if (shouldPrompt) {
           const decision = normalizePermissionPromptResponse(
             await this.confirmApproval(

@@ -510,7 +510,7 @@ describe("resolveDefaultModel()", () => {
       },
     } as any);
 
-    expect(resolveDefaultModel(config)).toBe("anthropic/claude-sonnet-5");
+    expect(resolveDefaultModel(config)).toBe("anthropic/claude-sonnet-5-5");
   });
 
   it("returns model for autohandai provider settings when autohand_inference is enabled", () => {
@@ -531,7 +531,7 @@ describe("resolveDefaultModel()", () => {
   it("returns fallback model when provider config has no model", () => {
     const config = makeConfig({ openrouter: undefined } as any);
 
-    expect(resolveDefaultModel(config)).toBe("anthropic/claude-sonnet-5");
+    expect(resolveDefaultModel(config)).toBe("anthropic/claude-sonnet-5-5");
   });
 
   it("defaults to openrouter when provider is not specified", () => {

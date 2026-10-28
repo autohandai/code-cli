@@ -114,6 +114,7 @@ interface StructuredGatewayError {
   scope?: string;
   resetAt?: number;
   upgradeUrl?: string;
+  resetUrl?: string;
 }
 
 function structuredGatewayError(value: unknown): StructuredGatewayError | undefined {
@@ -132,6 +133,7 @@ function structuredGatewayError(value: unknown): StructuredGatewayError | undefi
       ? { resetAt: error.resetAt }
       : {}),
     ...(typeof error.upgradeUrl === "string" ? { upgradeUrl: error.upgradeUrl } : {}),
+    ...(typeof error.resetUrl === "string" ? { resetUrl: error.resetUrl } : {}),
   };
 }
 
@@ -230,10 +232,28 @@ function buildAutohandQuotaMessage(error: StructuredGatewayError): string {
   const upgradeMessage = upgradeUrl
     ? `\nUpgrade your Autohand Code plan for more usage: ${upgradeUrl}`
     : "";
+  const resetUrl = ['window_5h', 'window_24h', 'window_week'].includes(error.scope ?? '')
+    ? trustedAutohandResetUrl(error.resetUrl)
+    : undefined;
+  const resetMessage = resetUrl
+    ? `\nSkip the wait: use 100 reset credits to reset this window now. Packs start at US$10: ${resetUrl}`
+    : '';
   return `Autohand AI ${AUTOHAND_QUOTA_SCOPE_LABELS[scope]} reached.`
     + `\n${error.message ?? "Your current request quota is exhausted."}`
     + `\n${formatAutohandQuotaReset(error.resetAt)}`
-    + upgradeMessage;
+    + upgradeMessage
+    + resetMessage;
+}
+
+function trustedAutohandResetUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.origin === 'https://console.autohand.ai' && url.pathname === '/billing'
+      && !url.username && !url.password && !url.hash ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function buildAutohandTokenThroughputMessage(error: StructuredGatewayError): string {

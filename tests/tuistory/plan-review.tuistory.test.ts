@@ -30,11 +30,12 @@ afterEach(async () => {
   for (const state of states.splice(0)) await state.cleanup();
 });
 
-async function launch() {
+async function launch(executeEdits = false, unrestricted = false) {
   const server = await createMockAutohandAINativeSequenceServer([
     { content: 'Drafting a plan.', toolCall: { id: 'first-plan', name: 'plan', args: { notes: FIRST_PLAN_NOTES } } },
     { content: 'Refining the plan.', toolCall: { id: 'refined-plan', name: 'plan', args: { notes: REFINED_PLAN_NOTES } } },
     { content: 'Presenting the plan.', toolCall: { id: 'review-plan', name: 'exit_plan_mode', args: {} } },
+    ...(executeEdits ? [{ content: 'Implementing the accepted plan.', toolCall: { id: 'approved-edit', name: 'write_file', args: { path: 'approved-plan.txt', contents: 'accepted plan edit' } } }] : []),
     { content: 'PLAN_REVIEW_COMPLETE' },
   ]);
   servers.push(server);
@@ -42,6 +43,7 @@ async function launch() {
     provider: 'autohandai',
     autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-test-key', model: 'moa', baseUrl: server.baseUrl },
     features: { autohand_inference: true },
+    permissions: { mode: unrestricted ? 'unrestricted' : 'interactive' },
     agent: { autoMemory: false, maxIterations: 6, sessionRetryLimit: 0 },
     network: { maxRetries: 0, retryDelay: 0 },
     ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
@@ -78,6 +80,32 @@ function toolResult(server: MockNativeToolServer, toolCallId: string): string | 
 }
 
 describe('plan review', () => {
+  it('auto-accepts the chosen plan edit and restores the normal composer afterward', async () => {
+    const { session, state } = await launch(true);
+    await planUntilReview(session);
+    await session.type('3');
+    await session.waitForText('PLAN_REVIEW_COMPLETE', { timeout: 30_000 });
+    expect(await readFile(path.join(state.workspaceRoot, 'approved-plan.txt'), 'utf8')).toBe('accepted plan edit');
+    await session.waitIdle();
+    const current = session.getTerminalData();
+    const visible = current.lines.slice(-current.rows).map(line => line.spans.map(span => span.text).join('')).join('\n');
+    expect(visible.split('\n').slice(-5).join('\n')).not.toContain('[EXEC]');
+    await exitInteractive(session);
+  });
+
+  it('prompts for a manual plan edit even when the session started unrestricted', async () => {
+    const { session, state } = await launch(true, true);
+    await planUntilReview(session);
+    await session.type('2');
+    await session.waitForText('Allow Once', { timeout: 20_000 });
+    await expect(readFile(path.join(state.workspaceRoot, 'approved-plan.txt'), 'utf8')).rejects.toThrow();
+    await session.press('down');
+    await session.press('enter');
+    await session.waitForText('PLAN_REVIEW_COMPLETE', { timeout: 30_000 });
+    await expect(readFile(path.join(state.workspaceRoot, 'approved-plan.txt'), 'utf8')).rejects.toThrow();
+    await exitInteractive(session);
+  });
+
   it('shows the plan as written, goes straight to review after a refinement, and says where the file is', async () => {
     const { session, state } = await launch();
 
