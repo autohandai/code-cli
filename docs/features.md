@@ -39,7 +39,7 @@ Autohand is an autonomous LLM-powered coding agent designed to work directly in 
 - [ ] Search history and command palette
 
 ## Session Management
-- [x] [Cloud sessions](cloud.md): hosted execution, reconnect, queue steering, approvals, and local/cloud handoff. Cloud CLI sessions need Pro, Pro+, Max, Team or Enterprise. Team and Enterprise need CLI 0.9.10 or later.
+- [x] [Cloud sessions](cloud.md): hosted execution, reconnect, queue steering, approvals, and local/cloud handoff. Needs Pro, Pro+, Max, Team or Enterprise (Team and Enterprise from CLI 0.9.10).
 - [x] Auto-save to `~/.autohand/sessions`
 - [x] Resume with `/resume` or `autohand resume <id>`
 - [x] History tracking (interactions, tool outputs, agent thoughts)
