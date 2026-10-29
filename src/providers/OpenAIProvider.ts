@@ -287,41 +287,54 @@ export class OpenAIProvider implements LLMProvider {
         let response: Response;
         const headers = await this.buildAuthHeaders();
 
-        try {
-            response = await fetch(`${this.baseUrl}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...headers
-                },
-                body: JSON.stringify(body),
-                signal: request.signal
-            });
-        } catch (error) {
-            const err = error as Error;
+        for (let swappedTokenParameter = false; ; swappedTokenParameter = true) {
+            try {
+                response = await fetch(`${this.baseUrl}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...headers
+                    },
+                    body: JSON.stringify(body),
+                    signal: request.signal
+                });
+            } catch (error) {
+                const err = error as Error;
 
-            // User cancelled
-            if (err.name === 'AbortError' && request.signal?.aborted) {
-                throw new ApiError('Request cancelled.', 'cancelled', 0, false);
-            }
+                // User cancelled
+                if (err.name === 'AbortError' && request.signal?.aborted) {
+                    throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+                }
 
-            // Timeout
-            if (err.name === 'AbortError') {
+                // Timeout
+                if (err.name === 'AbortError') {
+                    throw new ApiError(
+                        'The request timed out. The OpenAI service may be experiencing high load.',
+                        'timeout', 0, true,
+                    );
+                }
+
+                // Network error
                 throw new ApiError(
-                    'The request timed out. The OpenAI service may be experiencing high load.',
-                    'timeout', 0, true,
+                    `Unable to connect to ${this.baseUrl}. Please check the URL and your internet connection.`,
+                    'network_error', 0, true,
                 );
             }
 
-            // Network error
-            throw new ApiError(
-                `Unable to connect to ${this.baseUrl}. Please check the URL and your internet connection.`,
-                'network_error', 0, true,
-            );
-        }
+            if (response.ok) {
+                break;
+            }
 
-        if (!response.ok) {
-            throw await this.buildApiError(response);
+            const apiError = await this.buildApiError(response);
+            // Models we don't recognize (fine-tunes, new families) may still reject
+            // max_tokens. Resend once with max_completion_tokens instead of failing.
+            if (!swappedTokenParameter && 'max_tokens' in body
+                && /unsupported parameter:\s*'max_tokens'/i.test(apiError.rawDetail ?? '')) {
+                body.max_completion_tokens = body.max_tokens;
+                delete body.max_tokens;
+                continue;
+            }
+            throw apiError;
         }
 
         const data = await response.json() as OpenAIChatResponse;
