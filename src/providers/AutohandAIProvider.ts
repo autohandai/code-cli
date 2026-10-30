@@ -204,7 +204,7 @@ export class AutohandAIProvider implements LLMProvider {
       serviceName: "Autohand AI",
       credentialName: "Autohand AI API key",
       accountName: "Autohand AI account",
-    });
+    }, 'autohandai');
   }
 
   getName(): string {

@@ -17,7 +17,7 @@ import {
     formatAccountPlanThroughput,
     formatUsageDashboard,
     gatherUsageDashboardData,
-    resolveAccountEntitlement,
+    resolveProviderEntitlement,
 } from './usage.js';
 import { formatAccount } from './accountDisplay.js';
 import type { AccountEntitlement } from '../auth/AuthClient.js';
@@ -71,7 +71,7 @@ async function gatherStatusData(ctx: SlashCommandContext): Promise<StatusData> {
         apiConnected = false;
     }
 
-    const accountEntitlement = await resolveAccountEntitlement(ctx);
+    const accountEntitlement = await resolveProviderEntitlement(ctx);
 
     return {
         version: packageJson.version,

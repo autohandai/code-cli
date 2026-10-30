@@ -15,6 +15,7 @@ import type { LoadedConfig, PermissionMode, ProviderName, ProviderSettings, Reas
 import { createCommandTheme } from './commandTheme.js';
 import { formatAccount } from './accountDisplay.js';
 import type { AccountEntitlement } from '../auth/AuthClient.js';
+import { usesAutohandAICloud } from '../providers/AutohandAIProvider.js';
 
 export const USAGE_V2_FLAG = 'usage_v2';
 export const CLI_USAGE_V2_FLAG = 'cli_usage_v2';
@@ -52,6 +53,7 @@ export interface UsageLimitRow {
 }
 
 export interface UsageDashboardData {
+  autohandCloud: boolean;
   model: string;
   provider: ProviderName | string;
   directory: string;
@@ -164,6 +166,12 @@ export async function resolveAccountEntitlement(ctx: SlashCommandContext): Promi
   } catch {
     return null;
   }
+}
+
+export async function resolveProviderEntitlement(ctx: SlashCommandContext): Promise<AccountEntitlement | null> {
+  return usesAutohandAICloud(ctx.config ?? {}, resolveActiveProvider(ctx))
+    ? resolveAccountEntitlement(ctx)
+    : null;
 }
 
 function formatAccountPlanSummary(entitlement: AccountEntitlement): string {
@@ -437,6 +445,7 @@ export function gatherUsageDashboardData(ctx: SlashCommandContext): UsageDashboa
   return {
     model,
     provider,
+    autohandCloud: usesAutohandAICloud(ctx.config ?? {}, provider),
     directory: formatPath(ctx.workspaceRoot),
     permissions: formatPermissionMode(ctx.config?.permissions?.mode),
     agentsFile: resolveAgentsFile(ctx.workspaceRoot),
@@ -546,14 +555,15 @@ export function formatUsageDashboard(
   entitlement: AccountEntitlement | null = null,
 ): string {
   const labelWidth = 24;
-  const accountQuotaRows = data.provider === 'autohandai'
+  if (!data.autohandCloud) entitlement = null;
+  const accountQuotaRows = data.autohandCloud
     ? accountQuotaUsageRows(entitlement)
     : null;
   const providerLimitRows = data.usageLimits.length > 0
     ? data.usageLimits
     : accountQuotaRows ?? [{
       label: String(data.provider),
-      unavailableReason: data.provider === 'autohandai' && entitlement
+      unavailableReason: data.autohandCloud && entitlement
         ? 'current quota temporarily unavailable'
         : 'not reported by provider',
     }];
@@ -578,6 +588,7 @@ export function formatUsageDashboard(
     formatInfoRow('', formatProgressBar(data.contextPercentLeft), labelWidth),
     '',
     formatInfoRow('Provider limits:', '', labelWidth).trimEnd(),
+    ...(!data.autohandCloud ? ['No Autohand rate limits or quotas apply to this provider.'] : []),
     ...providerLimitRows.map((row) => formatUsageLimitRow(row, labelWidth)),
   ];
 
@@ -702,15 +713,16 @@ function formatPeriodTabs(period: UsageActivityPeriod): string {
 function formatUsageActivityDashboard(
   data: UsageActivityData,
   entitlement: AccountEntitlement | null,
-  provider: string | undefined,
+  autohandCloud: boolean,
 ): string {
   const theme = createCommandTheme();
   const heatmap = data.period === 'daily' ? renderDailyHeatmap(data) : renderLinearHeatmap(data);
-  const quotaRows = provider === 'autohandai' ? accountQuotaUsageRows(entitlement) : null;
+  const quotaRows = autohandCloud ? accountQuotaUsageRows(entitlement) : null;
   return [
     theme.accent(`/usage ${data.period}`),
     '',
     ...(entitlement ? [formatAccountPlanSummary(entitlement), ''] : []),
+    ...(!autohandCloud ? ['No Autohand rate limits or quotas apply to this provider.', ''] : []),
     ...(quotaRows ? [
       theme.bold('Quota windows'),
       ...quotaRows.map((row) => formatUsageLimitRow(row, 18)),
@@ -742,9 +754,10 @@ export async function usage(ctx: SlashCommandContext, args: string[] = []): Prom
       try {
         await showUsageScreen({
           account: formatAccount(ctx.config, 'Local profile'),
+          autohandCloud: usesAutohandAICloud(ctx.config ?? {}, resolveActiveProvider(ctx)),
           initialDays: period === 'monthly' ? 30 : 7,
           loadReport: (query, signal) => loadUsageReport(ctx, query, signal),
-          loadAccount: async (signal) => { signal.throwIfAborted(); return resolveAccountEntitlement(ctx); },
+          loadAccount: async (signal) => { signal.throwIfAborted(); return resolveProviderEntitlement(ctx); },
           loadTraces: async (query, signal) => {
             if (!ctx.config) return null;
             const { isTraceMonitoringEnabled } = await import('../integrations/ahtraces/consent.js');
@@ -758,9 +771,9 @@ export async function usage(ctx: SlashCommandContext, args: string[] = []): Prom
     }
     const [activity, entitlement] = await Promise.all([
       gatherUsageActivityData(ctx, period),
-      resolveAccountEntitlement(ctx),
+      resolveProviderEntitlement(ctx),
     ]);
-    return formatUsageActivityDashboard(activity, entitlement, ctx.provider);
+    return formatUsageActivityDashboard(activity, entitlement, usesAutohandAICloud(ctx.config ?? {}, resolveActiveProvider(ctx)));
   }
 
   if (!isUsageV2Enabled(ctx)) {
@@ -774,6 +787,6 @@ export async function usage(ctx: SlashCommandContext, args: string[] = []): Prom
 
   return formatUsageDashboard(
     gatherUsageDashboardData(ctx),
-    await resolveAccountEntitlement(ctx),
+    await resolveProviderEntitlement(ctx),
   );
 }

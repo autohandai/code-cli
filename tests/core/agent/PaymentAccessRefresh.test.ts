@@ -14,6 +14,18 @@ function agent() {
 }
 afterEach(() => vi.restoreAllMocks());
 describe('live payment access refresh', () => {
+  it.each(['custom:tatch', 'openai', 'openrouter', 'ollama', 'autohandai'])('does not apply cloud account restrictions to %s outside Autohand Cloud', async (provider) => {
+    const fetch = vi.spyOn(getAuthClient(), 'fetchEntitlement').mockResolvedValue({ tier: 'free', freeRemaining: 0, paymentAccess });
+    const host = agent();
+    host.activeProvider = provider;
+    host.runtime.config.provider = provider;
+    if (provider === 'autohandai') host.runtime.config.autohandai.plan = 'local';
+    await host.refreshAccountPlan();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(host.emitOutput).not.toHaveBeenCalled();
+    expect(host.providerConfigManager.applyModelChangeRemote).not.toHaveBeenCalled();
+    expect(host.accountPlan).toBeNull();
+  });
   it('automatically selects Fantail, displays Free and emits a single recovery notice', async () => {
     vi.spyOn(getAuthClient(), 'fetchEntitlement').mockResolvedValue({ tier: 'free', freeRemaining: 20, paymentAccess });
     const host = agent();
@@ -25,11 +37,10 @@ describe('live payment access refresh', () => {
     expect(host.emitOutput).toHaveBeenCalledTimes(1);
     expect(host.runtime.config.autohandai.reasoningEffort).toBeUndefined();
   });
-  it('preserves third-party and local provider selections and the last plan during outages', async () => {
-    const host = agent(); host.activeProvider = 'openai'; host.runtime.config.provider = 'openai';
+  it('preserves the last cloud plan during outages', async () => {
+    const host = agent();
     const fetch = vi.spyOn(getAuthClient(), 'fetchEntitlement').mockResolvedValue({ tier: 'free', freeRemaining: 20, paymentAccess });
     await host.refreshAccountPlan();
-    expect(host.providerConfigManager.applyModelChangeRemote).not.toHaveBeenCalled();
     fetch.mockResolvedValue(null);
     await host.refreshAccountPlan();
     expect(host.accountPlan.tier).toBe('free');
@@ -58,6 +69,34 @@ describe('prompt admission with a slow or failing entitlement check', () => {
       runInstructionWithPeerActivity: vi.fn().mockResolvedValue(true),
     });
   }
+
+  it('admits repeated Tatch turns with an exhausted Autohand account without consulting its quota', async () => {
+    const fetch = vi.spyOn(getAuthClient(), 'fetchEntitlement').mockResolvedValue({ tier: 'free', freeRemaining: 0, paymentAccess });
+    const host = admittedAgent();
+    host.activeProvider = 'custom:tatch';
+    host.runtime.config.provider = 'custom:tatch';
+    host.accountPlan = { tier: 'free', label: 'Free', interval: null };
+    await expect(host.executeAdmittedInstruction('first')).resolves.toBe(true);
+    await expect(host.executeAdmittedInstruction('second')).resolves.toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(host.runInstructionWithPeerActivity).toHaveBeenCalledTimes(2);
+    expect(host.providerConfigManager.applyModelChangeRemote).not.toHaveBeenCalled();
+  });
+
+  it('discards a cloud entitlement response after switching to Tatch', async () => {
+    let resolve!: (value: { tier: string; freeRemaining: number; paymentAccess: typeof paymentAccess }) => void;
+    vi.spyOn(getAuthClient(), 'fetchEntitlement').mockReturnValue(new Promise(done => { resolve = done; }));
+    const host = admittedAgent();
+    const pending = host.refreshAccountPlan();
+    host.activeProvider = 'custom:tatch';
+    host.runtime.config.provider = 'custom:tatch';
+    await host.refreshAccountPlan();
+    resolve({ tier: 'free', freeRemaining: 0, paymentAccess });
+    await pending;
+    expect(host.accountPlan).toBeNull();
+    expect(host.emitOutput).not.toHaveBeenCalled();
+    expect(host.providerConfigManager.applyModelChangeRemote).not.toHaveBeenCalled();
+  });
 
   it('runs the instruction on the cached plan while /auth/me is still pending, then adopts the fresh plan', async () => {
     let resolveEntitlement!: (value: { tier: string; freeRemaining: number | null }) => void;

@@ -13,7 +13,7 @@ describe('cloud inference streaming', () => {
     vi.stubGlobal('fetch', fetch);
     const cloud = new LLMGatewayClient({ apiKey: 'fixture', model: 'moa' }, { maxRetries: 2, retryDelay: 1 }, {
       serviceName: 'Autohand AI', credentialName: 'Autohand API key', accountName: 'Autohand account',
-    });
+    }, 'autohandai');
     await expect(cloud.complete({ messages: [] })).rejects.toMatchObject({ retryable: false,
       message: expect.stringContaining('stage=http-json') });
     expect(fetch).toHaveBeenCalledOnce();
@@ -31,7 +31,7 @@ describe('cloud inference streaming', () => {
     vi.stubGlobal('fetch', fetch);
     const cloud = new LLMGatewayClient({ apiKey: 'fixture', model: 'fantail' }, { maxRetries: 2, retryDelay: 1 }, {
       serviceName: 'Autohand AI', credentialName: 'Autohand API key', accountName: 'Autohand account',
-    });
+    }, 'autohandai');
     const result = cloud.complete({ messages: [{ role: 'user', content: 'Play Felix Rosch in Spotify' }], stream });
     await expect(result).rejects.toMatchObject({
       code: 'content_blocked', retryable: false,

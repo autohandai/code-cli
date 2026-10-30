@@ -160,7 +160,7 @@ describe('LLMGatewayClient', () => {
         serviceName: 'Autohand AI',
         credentialName: 'Autohand AI API key',
         accountName: 'Autohand AI account',
-      });
+      }, 'autohandai');
 
       const failure = await client.complete({
         messages: [{ role: 'user', content: 'Hello' }],
@@ -190,7 +190,7 @@ describe('LLMGatewayClient', () => {
         maxRetries: 2, timeout: 1000, retryDelay: 1,
       }, {
         serviceName: 'Autohand AI', credentialName: 'Autohand AI API key', accountName: 'Autohand AI account',
-      });
+      }, 'autohandai');
       const failure = client.complete({ messages: [{ role: 'user', content: 'Inspect Spotify' }], stream: true })
         .catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(1000);
@@ -585,7 +585,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -628,7 +628,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       try {
@@ -679,7 +679,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -725,7 +725,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       try {
@@ -772,7 +772,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -808,7 +808,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -858,7 +858,7 @@ describe('LLMGatewayClient', () => {
             serviceName: 'Autohand AI',
             credentialName: 'Autohand AI API key',
             accountName: 'Autohand AI account',
-          },
+          }, 'autohandai',
         );
 
         try {
@@ -910,7 +910,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       try {
@@ -958,7 +958,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -1009,7 +1009,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       try {
@@ -1049,7 +1049,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -1080,7 +1080,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
       let settled = false;
       const outcome = client.complete({
@@ -1541,12 +1541,12 @@ describe('Autohand reset-credit guidance', () => {
   it.each(['window_5h', 'window_24h', 'window_week'])('renders a trusted billing reset link for %s', async scope => {
     const resetUrl = 'https://console.autohand.ai/billing?account=team_1&from=cli-limit';
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { type: 'rate_limited', scope, message: 'Window exhausted', resetAt: 1900000000, resetUrl } }, { status: 429 })));
-    const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, { maxRetries: 0 }, { serviceName: 'Autohand AI', credentialName: 'API key', accountName: 'account' });
+    const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, { maxRetries: 0 }, { serviceName: 'Autohand AI', credentialName: 'API key', accountName: 'account' }, 'autohandai');
     await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] })).rejects.toThrow(`Skip the wait: use 100 reset credits to reset this window now. Packs start at US$10: ${resetUrl}`);
   });
   it.each(['https://evil.test/billing', 'http://console.autohand.ai/billing', 'https://console.autohand.ai/upgrade/'])('does not render an untrusted reset destination %s', async resetUrl => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { type: 'rate_limited', scope: 'window_5h', resetUrl } }, { status: 429 })));
-    const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, { maxRetries: 0 }, { serviceName: 'Autohand AI', credentialName: 'API key', accountName: 'account' });
+    const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, { maxRetries: 0 }, { serviceName: 'Autohand AI', credentialName: 'API key', accountName: 'account' }, 'autohandai');
     await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] })).rejects.not.toThrow('Skip the wait:');
   });
 });

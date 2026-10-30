@@ -421,6 +421,8 @@ Sakana.AI provider configuration. The API is OpenAI-compatible and uses `https:/
 
 ### `customProviders`
 
+Autohand sign-in is required with every provider. Autohand rate limits and account quotas apply only to hosted Autohand AI inference. Third-party, custom, and local providers do not consume that allowance or inherit those limits. Your provider can still enforce its own limits; explicitly configured run budgets also remain in effect.
+
 Custom providers let users bring an OpenAI-compatible endpoint without a code change or a new bundled provider. Add the provider under `customProviders`, then select it with `provider: "custom:<id>"`. The same flow is available from `/model` with **New provider...**. During setup, Autohand verifies the base URL, authentication, and selected model through the OpenAI-compatible `/models` endpoint before saving the provider.
 
 ```json

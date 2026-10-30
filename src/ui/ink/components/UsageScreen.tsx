@@ -14,6 +14,7 @@ import type { WorkMap } from '../../../integrations/ahtraces/workMap.js';
 
 export interface UsageScreenProps {
   account: string;
+  autohandCloud?: boolean;
   loadReport: (query: UsageQuery, signal: AbortSignal) => Promise<UsageReportData>;
   loadAccount: (signal: AbortSignal) => Promise<AccountEntitlement | null>;
   loadTraces: (query: UsageQuery, signal: AbortSignal) => Promise<WorkMap | null>;
@@ -51,6 +52,7 @@ function chart(days: UsageDay[], selected: number, metric: 'tokens' | 'messages'
 }
 
 interface ReportView {
+  autohandCloud: boolean;
   tab: number;
   data: UsageReportData;
   report: ReturnType<typeof aggregateUsageReport>;
@@ -72,12 +74,13 @@ interface ReportView {
   muted: ChalkInstance;
 }
 
-function overviewLines({ report, accountData, heatmap, width, colors, accent, muted, data }: ReportView): string[] {
+function overviewLines({ report, accountData, heatmap, width, colors, accent, muted, data, autohandCloud }: ReportView): string[] {
   const lines: string[] = [];
   lines.push(accent.bold('Activity overview'), `${number(report.tokens)} recorded tokens   ${report.sessions.length} sessions   ${number(report.messages)} messages`,
     `Longest recorded turn ${duration(report.longestTurnMs)}   Cache reads ${report.cacheRead === undefined ? 'unavailable' : number(report.cacheRead)}`,
-    `${report.unknownSessions} sessions with unavailable token totals`, '', accent.bold('Account quota · API'));
-  if (accountData === undefined) lines.push('Loading account quota…');
+    `${report.unknownSessions} sessions with unavailable token totals`, '', accent.bold(autohandCloud ? 'Account quota · API' : 'Provider usage'));
+  if (!autohandCloud) lines.push('No Autohand rate limits or quotas apply to this provider.');
+  else if (accountData === undefined) lines.push('Loading account quota…');
   else if (!accountData) lines.push('Account quota unavailable. Local activity is still available.');
   else {
     lines.push(clean(accountData.limits?.displayName ?? accountData.tier));
@@ -184,7 +187,7 @@ function activityLines({ tab, report, days, selectedDay, activeDay, width, bodyH
   return lines;
 }
 
-export function UsageScreen({ account, loadReport, loadAccount, loadTraces, onClose, initialDays = 7, rows, columns }: UsageScreenProps) {
+export function UsageScreen({ account, autohandCloud = false, loadReport, loadAccount, loadTraces, onClose, initialDays = 7, rows, columns }: UsageScreenProps) {
   const size = useWindowSize();
   const height = rows ?? size.rows;
   const width = Math.max(20, (columns ?? size.columns) - 1);
@@ -219,12 +222,13 @@ export function UsageScreen({ account, loadReport, loadAccount, loadTraces, onCl
     return () => controller.abort();
   }, [loadReport, query, refresh]);
   useEffect(() => {
+    if (!autohandCloud) return;
     const controller = new AbortController();
     setAccountData(undefined);
     void loadAccount(controller.signal).then(result => { if (!controller.signal.aborted) setAccountData(result); })
       .catch(() => { if (!controller.signal.aborted) setAccountData(null); });
     return () => controller.abort();
-  }, [loadAccount, refresh]);
+  }, [autohandCloud, loadAccount, refresh]);
   useEffect(() => {
     if (tab !== 6) return;
     const controller = new AbortController();
@@ -246,7 +250,7 @@ export function UsageScreen({ account, loadReport, loadAccount, loadTraces, onCl
   } else if (loading) lines.push('Loading local activity…');
   else if (error) lines.push('Unable to load local activity. Press R to retry.');
   else if (data) {
-    const view: ReportView = { tab, data, report, heatmap, sessions, accountData, trace, traceError, detail, row, sortTokens, days, selectedDay, activeDay, width, bodyHeight, colors, accent, muted };
+    const view: ReportView = { tab, data, report, heatmap, sessions, accountData, trace, traceError, detail, row, sortTokens, days, selectedDay, activeDay, width, bodyHeight, colors, accent, muted, autohandCloud };
     lines.push(...(tab === 0 ? overviewLines(view) : tab === 5 ? sessionLines(view) : tab === 6 ? traceLines(view) : activityLines(view)));
   }
   const wrapped = lines.flatMap(line => wrapAnsi(line, width, { hard: true, trim: false }).split('\n'));

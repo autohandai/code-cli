@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { usesAutohandAICloud } from '../providers/AutohandAIProvider.js';
 import type { RunBudget } from './agent/RunBudget.js';
 import { SteeringQueue } from './agent/SteeringQueue.js';
 import { AgentProgramStatus, shouldWriteProgramStatus, withProgramStatusPrompt } from './agent/AgentProgramStatus.js';
@@ -1685,6 +1686,13 @@ export class AutohandAgent {
    * plan and picks up the fresh one afterwards.
    */
   refreshAccountPlan(): Promise<void> {
+    if (!usesAutohandAICloud(this.runtime.config, this.activeProvider)) {
+      const hadPlan = Boolean(this.accountPlan);
+      this.accountPlan = null;
+      this.lastPaymentNotice = null;
+      if (hadPlan) this.syncProviderModelStatusLine();
+      return Promise.resolve();
+    }
     if (this.accountPlanRefresh) return this.accountPlanRefresh;
     const pending = this.readAccountPlan().finally(() => { this.accountPlanRefresh = undefined; });
     this.accountPlanRefresh = pending;
@@ -1705,7 +1713,7 @@ export class AutohandAgent {
 
     try {
       const entitlement = await getAuthClient().fetchEntitlement(token, selectedAccountId(this.runtime.config));
-      if (!entitlement || token !== currentToken()) return;
+      if (!entitlement || token !== currentToken() || !usesAutohandAICloud(this.runtime.config, this.activeProvider)) return;
       const next = planSummaryFromEntitlement(entitlement);
       const payment = entitlement.paymentAccess;
       const noticeId = payment ? `${payment.actionUrl}:${payment.since}` : null;
@@ -1761,6 +1769,11 @@ export class AutohandAgent {
   }
 
   private syncProviderModelStatusLine(provider: ProviderName = this.activeProvider): void {
+    const autohandCloud = usesAutohandAICloud(this.runtime.config, provider);
+    const planLabel = formatComposerPlanLabel(autohandCloud ? this.accountPlan : null);
+    if (!autohandCloud && this.inkRenderer?.getState?.()?.tip?.kind === 'upgrade') {
+      this.ui?.setTip?.(undefined);
+    }
     const providerSettings = getProviderConfig(this.runtime.config, provider);
     const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     const providerLabel =
@@ -1768,7 +1781,7 @@ export class AutohandAgent {
         ? providerSettings.displayName
         : provider;
     this.ui?.setProviderModel?.(providerLabel, model);
-    this.ui?.setPlanLabel?.(formatComposerPlanLabel(this.accountPlan));
+    this.ui?.setPlanLabel?.(planLabel);
     const statusLineSettings = getConfigStatusLineSettings(this.runtime.config);
     this.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusBarExtensions(this.runtime.config, {
       workspaceRoot: this.runtime.workspaceRoot,
@@ -1781,7 +1794,7 @@ export class AutohandAgent {
         interactionMode: this.getInteractionMode(),
         model,
         providerLabel,
-        planLabel: formatComposerPlanLabel(this.accountPlan),
+        planLabel,
         contextPercentLeft: this.contextPercentLeft,
         sessionTokensUsed: this.totalTokensUsed ?? 0,
         sessionTokenUsageUnavailable: this.sessionTokenUsageUnavailable,
@@ -2079,7 +2092,7 @@ export class AutohandAgent {
         model,
         provider: this.activeProvider,
       });
-      if (this.activeProvider === 'autohandai') {
+      if (usesAutohandAICloud(this.runtime.config, this.activeProvider)) {
         this.ui?.setTip?.({ kind: 'upgrade', text: formatUpgradeHint(this.accountPlan) });
       }
     }

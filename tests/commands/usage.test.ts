@@ -120,6 +120,18 @@ function makeContext(overrides: Partial<SlashCommandContext> = {}): SlashCommand
 }
 
 describe('/usage command', () => {
+  it.each(['custom:tatch', 'openai', 'openrouter', 'ollama', 'autohandai'] as const)('does not load Autohand quotas for %s outside Autohand Cloud', async (provider) => {
+    const { usage } = await import('../../src/commands/usage.js');
+    const getAccountEntitlement = vi.fn(async () => ({ tier: 'free', freeRemaining: 0 }));
+    const ctx = makeContext({ provider, getAccountEntitlement });
+    ctx.config = { ...ctx.config!, provider, autohandai: { plan: provider === 'autohandai' ? 'local' : 'cloud', model: 'moa' } };
+    const output = stripAnsi(await usage(ctx));
+    expect(getAccountEntitlement).not.toHaveBeenCalled();
+    expect(output).not.toContain('Autohand plan');
+    expect(output).not.toContain('Quota windows');
+    expect(output).toContain('No Autohand rate limits or quotas apply to this provider.');
+    expect(output).toContain('Token activity');
+  });
   it('shows the Free 200-request monthly hard stop in the plan allowance', async () => {
     const { formatAccountPlanAllowance } = await import('../../src/commands/usage.js');
     expect(formatAccountPlanAllowance({

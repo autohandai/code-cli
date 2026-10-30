@@ -296,6 +296,7 @@ export class LLMGatewayClient {
     settings: LLMGatewaySettings,
     networkSettings?: NetworkSettings,
     errorLabels: LLMGatewayCompatibleErrorLabels = DEFAULT_ERROR_LABELS,
+    private readonly inferenceProvider: 'autohandai' | 'external' = 'external',
   ) {
     this.apiKey = settings.apiKey ?? "";
     this.accountId = settings.accountId;
@@ -358,7 +359,7 @@ export class LLMGatewayClient {
     if (this.accountId) {
       headers["X-Autohand-Account-Id"] = this.accountId;
     }
-    if (this.errorLabels.serviceName === "Autohand AI") {
+    if (this.inferenceProvider === "autohandai") {
       headers["x-autohand-client-request-id"] = crypto.randomUUID();
     }
 
@@ -486,7 +487,7 @@ export class LLMGatewayClient {
       // Autohand AI stops here to avoid replaying a potentially metered call;
       // other gateways retain their configured transport retry policy.
       if (err.name === "AbortError") {
-        const isAutohandAI = this.errorLabels.serviceName === "Autohand AI";
+        const isAutohandAI = this.inferenceProvider === "autohandai";
         const requestId = headers["x-autohand-client-request-id"];
         throw new ApiError(
           `Request timed out waiting for ${this.errorLabels.serviceName} to start a response (${Math.round((isStreaming ? this.timeout : Math.max(this.timeout, COMPLETION_TIMEOUT)) / 1000)}s).`
@@ -518,7 +519,7 @@ export class LLMGatewayClient {
       try {
         return await readOpenAIEventStream(response, onDelta, signal, this.timeout);
       } catch (error) {
-        if (error instanceof ApiError && error.code !== 'cancelled' && error.code !== 'content_blocked' && this.errorLabels.serviceName === 'Autohand AI') {
+        if (error instanceof ApiError && error.code !== 'cancelled' && error.code !== 'content_blocked' && this.inferenceProvider === 'autohandai') {
           throw new ApiError(
             `${error.message}\nThe accepted request was not replayed. Check /usage before retrying. Request ID: ${headers['x-autohand-client-request-id']}.`,
             error.code, error.httpStatus, false, error.retryAfterMs, error.rawDetail,
@@ -608,14 +609,14 @@ export class LLMGatewayClient {
       );
     }
 
-    if (this.errorLabels.serviceName === "Autohand AI" && structuredError?.type === "model_not_available") {
+    if (this.inferenceProvider === "autohandai" && structuredError?.type === "model_not_available") {
       const upgradeUrl = trustedAutohandUpgradeUrl(structuredError.upgradeUrl);
       const message = `Access denied. ${structuredError.message ?? "This model is not available on your current plan."}`
         + (upgradeUrl ? `\nPlease upgrade your plan: ${upgradeUrl}` : "");
       return new ApiError(message, "access_denied", status, false, undefined, errorDetail);
     }
 
-    if (this.errorLabels.serviceName === "Autohand AI"
+    if (this.inferenceProvider === "autohandai"
       && structuredError?.type === "rate_limited"
       && isAutohandQuotaScope(structuredError.scope)) {
       return new AutohandRateLimitError(
@@ -630,7 +631,7 @@ export class LLMGatewayClient {
 
     // Token-throughput buckets refill within the minute, so the throttle is transient: wait
     // out the server-supplied delay like an RPM throttle rather than abandoning the turn.
-    if (this.errorLabels.serviceName === "Autohand AI"
+    if (this.inferenceProvider === "autohandai"
       && structuredError?.type === "rate_limited"
       && isAutohandTokenThroughputScope(structuredError.scope)) {
       const classified = classifyApiError(status, errorDetail, response.headers);
@@ -644,7 +645,7 @@ export class LLMGatewayClient {
       );
     }
 
-    if (this.errorLabels.serviceName === "Autohand AI"
+    if (this.inferenceProvider === "autohandai"
       && structuredError?.type === "rate_limited"
       && structuredError.scope === "rpm") {
       const classified = classifyApiError(status, errorDetail, response.headers);
@@ -662,13 +663,13 @@ export class LLMGatewayClient {
     const classified = classifyApiError(status, errorDetail, response.headers);
     const friendlyMessage = buildFriendlyErrors(this.errorLabels)[classified.code];
     if (friendlyMessage) {
-      const upgradeUrl = this.errorLabels.serviceName === "Autohand AI"
+      const upgradeUrl = this.inferenceProvider === "autohandai"
         ? trustedAutohandUpgradeUrl(structuredError?.upgradeUrl)
         : undefined;
       const upgradeMessage = classified.code === "rate_limited" && upgradeUrl
         ? `\nUpgrade your Autohand Code plan for more usage: ${upgradeUrl}`
         : "";
-      const retryable = this.errorLabels.serviceName === "Autohand AI"
+      const retryable = this.inferenceProvider === "autohandai"
         && classified.code === "rate_limited"
         ? false
         : classified.retryable;
