@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,10 +23,73 @@ async function createGitWorkspace(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(tempRoots.splice(0).map((root) => fs.remove(root)));
+  if (vi.isMockFunction(fs.remove)) {
+    for (const [target] of vi.mocked(fs.remove).mock.calls) {
+      if (String(target).includes('autohand-change-index-')) tempRoots.push(String(target));
+    }
+  }
+  vi.restoreAllMocks();
+  await Promise.all([...new Set(tempRoots.splice(0))].map((root) => fs.remove(root)));
 });
 
 describe('WorkspaceChangeCapture', () => {
+  it.each(['EBUSY', 'EPERM', 'EIO'])('keeps a captured review diff when temporary index cleanup fails with %s', async (code) => {
+    const root = await createGitWorkspace();
+    await fs.writeFile(path.join(root, 'new.ts'), 'export const fresh = 2;\n');
+    const remove = fs.remove.bind(fs);
+    const cleanup = vi.spyOn(fs, 'remove').mockImplementation(async (target) => {
+      if (String(target).includes('autohand-change-index-')) {
+        throw Object.assign(new Error(`${code}: cannot remove '${target}'`), { code });
+      }
+      return remove(target);
+    });
+
+    const changes = await WorkspaceChangeCapture.pending(root);
+
+    expect(changes?.files.map(file => file.path)).toEqual(['new.ts']);
+    expect(changes?.files[0]?.patch).toContain('+export const fresh = 2;');
+    expect(cleanup).toHaveBeenCalledTimes(code === 'EIO' ? 1 : 4);
+  });
+
+  it('retries a transient Windows cleanup lock before returning the review diff', async () => {
+    const root = await createGitWorkspace();
+    await fs.writeFile(path.join(root, 'new.ts'), 'export const fresh = 2;\n');
+    const remove = fs.remove.bind(fs);
+    const cleanup = vi.spyOn(fs, 'remove')
+      .mockRejectedValueOnce(Object.assign(new Error('resource busy or locked'), { code: 'EBUSY' }))
+      .mockImplementation(remove);
+
+    const changes = await WorkspaceChangeCapture.pending(root);
+
+    expect(changes?.files.map(file => file.path)).toEqual(['new.ts']);
+    expect(cleanup).toHaveBeenCalledTimes(2);
+    expect(await fs.pathExists(String(cleanup.mock.calls[0]?.[0]))).toBe(false);
+  });
+
+  it('preserves a real Git capture error when temporary index cleanup also fails', async () => {
+    const root = await createGitWorkspace();
+    await fs.writeFile(path.join(root, '.gitattributes'), '*.txt filter=capture-failure\n');
+    await fs.writeFile(path.join(root, 'new.txt'), 'cannot capture this file\n');
+    await execFileAsync('git', ['config', 'filter.capture-failure.clean', 'git not-a-command'], { cwd: root });
+    await execFileAsync('git', ['config', 'filter.capture-failure.required', 'true'], { cwd: root });
+    vi.spyOn(fs, 'remove').mockRejectedValue(Object.assign(new Error('cleanup locked'), { code: 'EBUSY' }));
+
+    await expect(WorkspaceChangeCapture.pending(root)).rejects.toThrow('git add');
+  });
+
+  it('retains the initialization fallback when cleanup of a failed temporary index is locked', async () => {
+    const root = await createGitWorkspace();
+    const mkdtemp = fs.mkdtemp.bind(fs);
+    vi.spyOn(fs, 'mkdtemp').mockImplementation(async (prefix) => {
+      const tempRoot = await mkdtemp(prefix);
+      await fs.writeFile(path.join(tempRoot, 'index.lock'), 'held by another process');
+      return tempRoot;
+    });
+    vi.spyOn(fs, 'remove').mockRejectedValue(Object.assign(new Error('cleanup locked'), { code: 'EBUSY' }));
+
+    await expect(WorkspaceChangeCapture.pending(root)).resolves.toBeNull();
+  });
+
   it('captures the pending diff including staged and untracked files without altering the real index', async () => {
     const root = await createGitWorkspace();
     await fs.writeFile(path.join(root, 'staged.ts'), 'export const staged = 1;\n');
