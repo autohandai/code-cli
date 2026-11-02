@@ -571,6 +571,8 @@ export async function runAgentInteractive(host: AgentLifecycleHost, initialInstr
 
     host.mcpStartupCoordinator.prepareForInteractiveStartup();
 
+    await initializeInteractiveComposer(host);
+
     // Start ALL initialization in background so prompt appears instantly.
     // The user can start typing while managers initialize.
     // When they submit, we await initReady before processing.
@@ -1644,10 +1646,7 @@ async function executeQueuedMobileComposerCommand(
   }
 }
 
-export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise<void> {
-    // Initialize Ink UI early so the composer is ready before the first idle check.
-    // This ensures consistent UI from startup instead of falling back to readline
-    // and then switching to Ink after the first prompt.
+async function initializeInteractiveComposer(host: AgentLifecycleHost): Promise<void> {
     if (host.useInkRenderer && !host.inkRenderer) {
       await host.initializeUI(undefined, undefined, true);
       if (host.restoredChatMessages?.length && host.inkRenderer?.setChatMessages) {
@@ -1662,6 +1661,10 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
       }
       host.inkRenderer?.setPendingSuggestion?.(host.pendingSuggestion ?? undefined);
     }
+  }
+
+export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise<void> {
+    await initializeInteractiveComposer(host);
 
     while (true) {
       // Check if we should exit immediately (SIGINT/SIGTERM received)
