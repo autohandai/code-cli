@@ -107,6 +107,14 @@ export interface SessionGitState {
   sessionGitSnapshotFinalized?: boolean;
 }
 
+/** A new session captures its baseline at the first instruction, after setup. */
+export function resetSessionGitSnapshot(runtime: SessionGitState | undefined): void {
+  if (!runtime) return;
+  delete runtime.sessionGitSnapshot;
+  delete runtime.sessionGitSnapshotError;
+  runtime.sessionGitSnapshotFinalized = false;
+}
+
 export function initializeSessionGitSnapshot(runtime: SessionGitState | undefined, force = false): void {
   if (!runtime?.workspaceRoot) return;
   if (!force && runtime.sessionGitSnapshot !== undefined) return;
