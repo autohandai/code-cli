@@ -284,6 +284,14 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
       waitFor: (text) => text.includes('upgrade=pro_plus'),
     }));
     expect(output).toContain('https://console.autohand.ai/?upgrade=pro_plus&source=cli');
+    const offer = 'Annual plans are 20% off for the first year only, until 1 Jan 2027: autohand.ai/code/pricing';
+    const active = Date.now() < Date.UTC(2027, 0, 1);
+    const settled = active ? stripAnsi(await session.text({
+      timeout: 10_000,
+      waitFor: text => text.includes('Annual plans are 20% off'),
+    })) : output;
+    expect(settled.replace(/\s+/g, ' ').includes(offer)).toBe(active);
+
 
     await exitInteractive(session);
   });
