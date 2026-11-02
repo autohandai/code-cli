@@ -39,7 +39,7 @@ describe('Autohand Computer Use release assets', () => {
 
     expect(asset).toMatchObject({ name, format });
     expect(asset.url).toBe(
-      `${COMPUTER_USE_RELEASE_BASE_URL}/${COMPUTER_USE_RELEASE_TAG}/${name}`,
+      `${COMPUTER_USE_RELEASE_BASE_URL}/${platform === 'darwin' ? 'computer-use-v0.28.2-autohand.1' : COMPUTER_USE_RELEASE_TAG}/${name}`,
     );
     expect(asset.sha256).toMatch(/^[0-9a-f]{64}$/u);
   });
@@ -106,6 +106,21 @@ describe('verifyCuaInstallerAsset', () => {
 });
 
 describe('installCuaDriver', () => {
+  it('repairs a compatible macOS engine whose managed native files lack Autohand Developer ID signatures', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'autohand-signing-upgrade-'));
+    tempRoots.push(root);
+    const binDirectory = path.join(root, 'bin');
+    const fetchImpl = vi.fn(async () => { throw new Error('signed download started'); });
+    await expect(installCuaDriver({
+      platform: 'darwin', architecture: 'arm64', binDirectory,
+      resolveDriverPath: () => path.join(binDirectory, 'cua-driver'),
+      inspectDriver: async driverPath => ({ status: 'ready', path: driverPath, version: CUA_DRIVER_VERSION, supported: true }),
+      isManagedMacOSRuntimeSigned: async () => false,
+      prepareComputerUse: vi.fn(), fetchImpl,
+    })).rejects.toThrow('signed download started');
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
   it('prepares Autohand Computer Use and requests its permissions when reusing a macOS engine', async () => {
     const prepareComputerUse = vi.fn(async () => ({
       status: 'ready' as const,
@@ -126,6 +141,7 @@ describe('installCuaDriver', () => {
         supported: true,
       }),
       prepareComputerUse,
+      isManagedMacOSRuntimeSigned: async () => true,
     });
 
     expect(prepareComputerUse).toHaveBeenCalledWith({
