@@ -133,6 +133,10 @@ describe('queued steering and streamed tool-call recovery in the built CLI', () 
     { sequence: '\x1b[27;5;13~', selected: true, fullScreen: false },
     { sequence: '\x1b[13;5u', selected: false, fullScreen: true },
     { sequence: '\x1b[27;5;13~', selected: true, fullScreen: true },
+    { sequence: '\x13', selected: false, fullScreen: false },
+    { sequence: '\x13', selected: true, fullScreen: false },
+    { sequence: '\x13', selected: false, fullScreen: true },
+    { sequence: '\x13', selected: true, fullScreen: true },
   ])('steers queued input into the active request sequence: %j', async options => {
     let releaseFirst = () => {};
     const first = new Promise<void>(resolve => { releaseFirst = resolve; });
@@ -163,7 +167,7 @@ describe('queued steering and streamed tool-call recovery in the built CLI', () 
       }
       expect(pendingQueueSnapshot(screen)).toMatchInlineSnapshot(`
         [
-          "Queue · 1 pending · ctrl+enter steer next",
+          "Queue · 1 pending · ctrl+s or ctrl+enter steer next",
           "1. QUEUE_LATER: leave this for the following turn",
         ]
       `);

@@ -345,7 +345,7 @@ interface TextBufferKeyInfo {
 }
 
 /** Chords no extension may take, whichever profile is active. */
-const FIXED_RESERVED_KEYBINDINGS = ['ctrl+c', 'ctrl+d', 'ctrl+x', 'ctrl+enter', 'escape', 'enter', 'return'];
+const FIXED_RESERVED_KEYBINDINGS = ['ctrl+c', 'ctrl+d', 'ctrl+x', 'ctrl+s', 'ctrl+enter', 'escape', 'enter', 'return'];
 
 /** Normalises an Ink keypress into the shape the keybinding matcher reads. */
 export function toInkKeyEvent(input: string, key: InkKey): KeyEvent {
@@ -1805,10 +1805,12 @@ export function AgentUI({
       return;
     }
 
-    if (key.return && key.ctrl && !key.shift && !key.meta && !key.super && !key.hyper
+    const portableSteeringKey = key.ctrl && char === 's' && !key.shift && !key.meta && !key.super && !key.hyper;
+    const queuedSteeringKey = (key.return && key.ctrl || portableSteeringKey) && !key.shift && !key.meta && !key.super && !key.hyper;
+    if (queuedSteeringKey
       && (key.eventType === 'release' || key.eventType === 'repeat')) return;
 
-    if (key.return && key.ctrl && !key.shift && !key.meta && !key.super && !key.hyper
+    if (queuedSteeringKey
       && isWorkingRef.current && enableQueueInputRef.current
       && editingQueueIndexRef.current === null && editingGoalRef.current === null
       && queuedInstructionsRef.current.length > 0 && onSteerQueuedInstructionRef.current) {
@@ -1822,6 +1824,8 @@ export function AgentUI({
       }
       return;
     }
+
+    if (portableSteeringKey && editingQueueIndexRef.current === null) return;
 
     if (activeKeybindings.matches('toggleTeamPanel', keyEvent)) {
       onToggleTeamPanelRef.current?.();
@@ -2272,6 +2276,10 @@ export function AgentUI({
     // directly; a selected queue edit always has its own submit behavior.
     let submitChar = char;
     let submitKey = key;
+    if (portableSteeringKey && editingQueueIndexRef.current !== null) {
+      submitChar = '\r';
+      submitKey = { ...key, return: true };
+    }
     const saveSelectedQueueEdit = editingQueueIndexRef.current !== null && isShiftEnterKey(char, key);
     // Shell, slash, and :alias inputs skip this split and run at once.
     if (isWorkingRef.current && enableQueueInputRef.current && editingQueueIndexRef.current === null && onSteerRef.current && textBeforeKey.trim().length > 0 && canSteerComposerInput(textBeforeKey)) {
@@ -3271,7 +3279,7 @@ const QueuedInstructionsPanel = memo(function QueuedInstructionsPanel({
     <Box flexDirection="column" marginTop={1}>
       <Text color={colors.muted} bold>
         Queue · {queuedInstructions.length} pending
-        {queueSteeringEnabled ? <Text bold={false}> · ctrl+enter steer {focused ? 'selected' : 'next'}</Text> : null}
+        {queueSteeringEnabled ? <Text bold={false}> · ctrl+s or ctrl+enter steer {focused ? 'selected' : 'next'}</Text> : null}
       </Text>
       {visibleInstructions.map((instruction, visibleIndex) => {
         const idx = start + visibleIndex;

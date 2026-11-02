@@ -13,7 +13,7 @@ function repaintingSession(permanentDrift = false) {
   const frame = (row: number) => {
     const lines = Array<string>(currentRows).fill('');
     if (queued) {
-      lines[31] = `Queue · ${queued} pending · ctrl+enter steer next`;
+      lines[31] = `Queue · ${queued} pending · ctrl+s or ctrl+enter steer next`;
       lines[32] = steered ? '1. QUEUE_LATER: leave this for the following turn' : '1. STEER_NOW: mention the worktrees too';
       if (queued === 2) lines[33] = '2. QUEUE_LATER: leave this for the following turn';
     }
@@ -50,7 +50,7 @@ describe('queued steering terminal assertions', () => {
     const screen = await steerPendingMessage(session, { sequence: '\x1b[13;5u', selected: false, fullScreen: true });
     expect(screen.split('\n').slice(-session.currentRows)[37]).toBe('❯ KEEP_THIS_DRAFT');
     expect(pendingQueueSnapshot(screen)).toEqual([
-      'Queue · 1 pending · ctrl+enter steer next', '1. QUEUE_LATER: leave this for the following turn',
+      'Queue · 1 pending · ctrl+s or ctrl+enter steer next', '1. QUEUE_LATER: leave this for the following turn',
     ]);
     expect(vi.getTimerCount()).toBe(0);
   });
