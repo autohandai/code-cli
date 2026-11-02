@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { captureAutoCommitSnapshot, executeAutoCommit, getAutoCommitInfo } from '../src/actions/git.js';
+import { finalizeSessionGitSnapshot, resetSessionGitSnapshot, type SessionGitState } from '../src/actions/gitSessionSnapshot.js';
 
 describe('session-scoped auto-commit (F-0151)', () => {
   let root: string;
@@ -16,6 +17,30 @@ describe('session-scoped auto-commit (F-0151)', () => {
     git('add', '--', '.'); git('commit', '-qm', 'fixture');
   });
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('defers a new session baseline until its first instruction and preserves intervening user edits', async () => {
+    const runtime: SessionGitState = {
+      workspaceRoot: root, sessionGitSnapshot: captureAutoCommitSnapshot(root),
+      sessionGitSnapshotFinalized: true, sessionGitSnapshotError: 'previous session',
+    };
+    resetSessionGitSnapshot(runtime);
+    expect(runtime.sessionGitSnapshot).toBeUndefined();
+    expect(runtime.sessionGitSnapshotError).toBeUndefined();
+    expect(runtime.sessionGitSnapshotFinalized).toBe(false);
+    fs.writeFileSync(path.join(root, 'README.md'), 'user edit before first instruction\n');
+    fs.writeFileSync(path.join(root, 'notes.txt'), 'user notes before first instruction\n');
+    finalizeSessionGitSnapshot(runtime);
+    const snapshot = runtime.sessionGitSnapshot;
+    if (!snapshot) throw new Error('The first instruction must capture a Git baseline');
+    fs.writeFileSync(path.join(root, 'feature.ts'), 'session feature\n');
+    const result = await executeAutoCommit(root, 'Add session feature', true, snapshot);
+    expect(result.success).toBe(true);
+    expect(git('show', '--pretty=', '--name-only', 'HEAD')).toBe('feature.ts');
+    expect(git('status', '--porcelain')).toContain(' M README.md');
+    expect(git('status', '--porcelain')).toContain('?? notes.txt');
+    expect(fs.readFileSync(path.join(root, 'README.md'), 'utf8')).toBe('user edit before first instruction\n');
+    expect(fs.readFileSync(path.join(root, 'notes.txt'), 'utf8')).toBe('user notes before first instruction\n');
+  });
 
   it('commits only the new test and leaves pre-existing edits and untracked notes alone', async () => {
     fs.writeFileSync(path.join(root, 'README.md'), 'user edit\n');
