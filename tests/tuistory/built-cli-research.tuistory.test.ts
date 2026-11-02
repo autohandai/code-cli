@@ -331,10 +331,13 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     mockAuthServers.push(authServer);
     const session = await launchInteractive({
       config: {
-        provider: 'openai',
-        openai: {
-          apiKey: 'tuistory-test-api-key',
-          model: 'gpt-5.5',
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'account',
+          accountToken: 'tuistory-account-token',
+          model: 'fantail',
+          backgroundCalls: false,
         },
         auth: {
           token: 'tuistory-account-token',
