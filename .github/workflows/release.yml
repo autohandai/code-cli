@@ -249,12 +249,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-26
             target: darwin-arm64
             artifact: autohand-macos-arm64
             tracesArtifact: ahtraces-macos-arm64
             computerUseArtifact: autohand-computer-use-darwin-arm64.tar.gz
-          - os: macos-15-intel
+          - os: macos-26-intel
             target: darwin-x64
             artifact: autohand-macos-x64
             tracesArtifact: ahtraces-macos-x64
@@ -413,6 +413,13 @@ jobs:
           AUTOHAND_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           ./computer-use-component/autohand/scripts/build-macos-host.sh --output "./binaries/Autohand Computer Use.app" --version "$AUTOHAND_BUILD_VERSION"
+          # The component builder defaults to its runner's macOS version. Keep
+          # the executable compatible with the bundle's declared minimum OS.
+          /usr/bin/swiftc -O -target "$(uname -m)-apple-macosx13.0" \
+            ./computer-use-component/autohand/macos/main.swift \
+            -module-cache-path "$RUNNER_TEMP/computer-use-swift-cache" \
+            -framework ApplicationServices -framework CoreGraphics \
+            -o "./binaries/Autohand Computer Use.app/Contents/MacOS/AutohandComputerUse"
 
       - name: Sign and notarize macOS artifacts
         if: runner.os == 'macOS' && needs.prepare.outputs.macos_signing_mode == 'developer-id'
@@ -442,9 +449,11 @@ jobs:
 
           IDENTITY="Developer ID Application: ${DEVELOPER_NAME} (${TEAM_ID})"
           codesign --force --timestamp --options runtime --sign "$IDENTITY" \
+            --entitlements "./native/macos/cli.entitlements.plist" \
             ./binaries/${{ matrix.artifact }}
           codesign --verify --strict --verbose=4 ./binaries/${{ matrix.artifact }}
           codesign --force --timestamp --options runtime --sign "$IDENTITY" \
+            --entitlements "./native/macos/cli.entitlements.plist" \
             ./binaries/${{ matrix.tracesArtifact }}
           codesign --verify --strict --verbose=4 ./binaries/${{ matrix.tracesArtifact }}
           codesign --force --timestamp --options runtime --sign "$IDENTITY" \
@@ -484,7 +493,7 @@ jobs:
             -C ./binaries "Autohand Computer Use.app"
 
       - name: Verify binary
-        if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') || matrix.os == 'macos-latest' && contains(matrix.target, 'arm64')
+        if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') || matrix.os == 'macos-26' && contains(matrix.target, 'arm64')
         run: |
           chmod +x ./binaries/${{ matrix.artifact }}
           file ./binaries/${{ matrix.artifact }}
@@ -492,7 +501,7 @@ jobs:
           file ./binaries/${{ matrix.tracesArtifact }}
 
       - name: Smoke test binary
-        if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') && !contains(matrix.target, 'musl') || matrix.os == 'macos-latest' && contains(matrix.target, 'arm64')
+        if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') && !contains(matrix.target, 'musl') || matrix.os == 'macos-26' && contains(matrix.target, 'arm64')
         shell: bash
         run: |
           # Helper: run a command with a timeout (works on both Linux and macOS)
@@ -553,7 +562,7 @@ jobs:
           }
 
       - name: Verify fresh alpha installation
-        if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') && !contains(matrix.target, 'musl') || matrix.os == 'macos-latest' && contains(matrix.target, 'arm64')
+        if: runner.os != 'Windows' && !contains(matrix.target, 'arm64') && !contains(matrix.target, 'musl') || matrix.os == 'macos-26' && contains(matrix.target, 'arm64')
         shell: bash
         timeout-minutes: 10
         run: |
@@ -582,11 +591,11 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-26
             artifact: autohand-macos-arm64
             tracesArtifact: ahtraces-macos-arm64
             computerUseArtifact: autohand-computer-use-darwin-arm64.tar.gz
-          - os: macos-15-intel
+          - os: macos-26-intel
             artifact: autohand-macos-x64
             tracesArtifact: ahtraces-macos-x64
             computerUseArtifact: autohand-computer-use-darwin-x64.tar.gz
@@ -600,7 +609,10 @@ jobs:
 
       - name: Verify transported macOS binary
         shell: bash
+        env:
+          MACOS_SIGNING_MODE: ${{ needs.prepare.outputs.macos_signing_mode }}
         run: |
+          set -euo pipefail
           binary="./binaries/${{ matrix.artifact }}"
           ahtraces="./binaries/${{ matrix.tracesArtifact }}"
           computer_use_archive="./binaries/${{ matrix.computerUseArtifact }}"
@@ -615,6 +627,10 @@ jobs:
           mkdir -p computer-use-verification
           tar -xzf "$computer_use_archive" -C computer-use-verification
           codesign --verify --deep --strict --verbose=4 "computer-use-verification/Autohand Computer Use.app"
+          if [ "$MACOS_SIGNING_MODE" = "developer-id" ]; then
+            xcrun stapler validate "computer-use-verification/Autohand Computer Use.app"
+            spctl -a -vv -t exec "computer-use-verification/Autohand Computer Use.app"
+          fi
 
   release:
     needs: [prepare, build, verify-macos-artifacts]
