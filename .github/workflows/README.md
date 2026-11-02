@@ -40,6 +40,15 @@ resolutions. Weekly Dependabot updates keep the GitHub Actions versions current.
    ticket. While credentials are unavailable, alpha and stable releases use ad-hoc
    signatures. Both modes verify each transported Actions artifact on a native Apple
    Silicon or Intel runner before publication.
+   Developer ID signing applies `native/macos/cli.entitlements.plist` to the Bun
+   executables for JavaScript execution and native addons. The Swift Computer Use
+   host is signed separately without those runtime exceptions.
+
+   macOS build, verification, and CI jobs use `macos-26` (Apple Silicon) and
+   `macos-26-intel` (Intel). GitHub retired the macOS 14 runner image on
+   [November 2, 2026](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/).
+   The Computer Use host is compiled explicitly for macOS 13, matching its bundle
+   deployment target, so the runner upgrade does not raise its minimum OS.
 
 6. **Generates release notes** from the correct previous release tag
 
@@ -132,7 +141,7 @@ Add these secrets in GitHub Settings → Secrets → Actions:
 2. **`AHTRACES_REPO_TOKEN`** (required for release and CI builds)
    - Fine-grained read-only token for the private `autohandai/ahtraces` repository
 
-3. **macOS signing and notarization secrets** (optional while Apple enrollment is pending)
+3. **macOS signing and notarization secrets** (required for notarized releases)
    - `APPLICATION_CERT_BASE64`: base64-encoded Developer ID Application `.p12`
    - `CERT_PASSWORD`: password for the signing certificate archive
    - `DEVELOPER_NAME`: organization name in the Developer ID certificate
@@ -142,6 +151,13 @@ Add these secrets in GitHub Settings → Secrets → Actions:
    - Configure all six secrets to sign with Developer ID and notarize macOS artifacts.
      Partially configured signing fails in the prepare job rather than silently
      downgrading a configured Developer ID release.
+   - Apple Developer enrollment does not configure GitHub Actions automatically.
+     Make these secrets available to this repository and enable the Release workflow
+     before dispatching a release. The CLI builds its Computer Use host from the
+     pinned component revision and signs it here; component CI alone does not
+     notarize the host shipped by the CLI.
+   - Developer ID releases validate the stapled ticket and Gatekeeper acceptance
+     again after downloading the Computer Use app on a fresh verification runner.
    - Alpha and stable releases with none of these secrets use temporary ad-hoc signing. Signatures are
      verified before upload and again after downloading the artifacts, but Apple
      does not notarize these builds. Downloaded apps may require **Open Anyway** in
