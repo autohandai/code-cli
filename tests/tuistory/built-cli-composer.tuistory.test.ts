@@ -52,11 +52,12 @@ registerBuiltCliCleanup();
 describe('interactive built CLI Tuistory tests: composer, tips, announcements, auth, and goals', () => {
 
 
-  it('answers the first message and exits promptly while an MCP server never finishes its handshake', async () => {
+  it.each([false, true])('answers the first message and exits promptly while an MCP server never finishes its handshake; fullscreen=%s', async fullScreenMode => {
     const openRouterServer = await createMockOpenRouterServer('MCP gate cleared.');
     mockServers.push(openRouterServer);
     const session = await launchInteractive({
       config: {
+        features: { fullScreenMode },
         openrouter: { baseUrl: openRouterServer.baseUrl },
         agent: { sessionRetryLimit: 0 },
         mcp: {

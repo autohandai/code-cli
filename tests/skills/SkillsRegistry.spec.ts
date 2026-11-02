@@ -81,7 +81,7 @@ ${body}
       const goalWriter = registry.getSkill('goal-writer');
       expect(goalWriter).not.toBeNull();
       expect(goalWriter?.source).toBe('builtin');
-      expect(goalWriter?.path).toContain('src/skills/builtin/goal-writer/SKILL.md');
+      expect(goalWriter?.path).toContain(path.join('skills', 'builtin', 'goal-writer', 'SKILL.md'));
       expect(goalWriter?.body).toContain('completion contract');
       expect(goalWriter?.body).toContain('acceptance_criteria');
       expect(goalWriter?.body).toContain('Never\n   add criteria the user did not approve');
@@ -89,19 +89,19 @@ ${body}
       const deepResearch = registry.getSkill('deep-research');
       expect(deepResearch).not.toBeNull();
       expect(deepResearch?.source).toBe('builtin');
-      expect(deepResearch?.path).toContain('src/skills/builtin/deep-research/SKILL.md');
+      expect(deepResearch?.path).toContain(path.join('skills', 'builtin', 'deep-research', 'SKILL.md'));
       expect(deepResearch?.body).toContain('cited research report');
 
       const extensionBuilder = registry.getSkill('extension-builder');
       expect(extensionBuilder).not.toBeNull();
       expect(extensionBuilder?.source).toBe('builtin');
-      expect(extensionBuilder?.path).toContain('src/skills/builtin/extension-builder/SKILL.md');
+      expect(extensionBuilder?.path).toContain(path.join('skills', 'builtin', 'extension-builder', 'SKILL.md'));
       expect(extensionBuilder?.body).toContain('Pi');
 
       const brainstorm = registry.getSkill('brainstorm');
       expect(brainstorm).not.toBeNull();
       expect(brainstorm?.source).toBe('builtin');
-      expect(brainstorm?.path).toContain('src/skills/builtin/brainstorm/SKILL.md');
+      expect(brainstorm?.path).toContain(path.join('skills', 'builtin', 'brainstorm', 'SKILL.md'));
       expect(brainstorm?.body).toContain('Software Architect');
       expect(brainstorm?.body).toContain('Product Owner');
       expect(brainstorm?.body).toContain('Product Manager');

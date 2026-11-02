@@ -17,6 +17,7 @@ import { getCommandCoordination, signalCoordinatedProcess, spawnCoordinatedProce
 import { hasBrowserBridgeOutput } from '../browser/browserToolBridge.js';
 import type { AutohandConfig, SearchProvider } from '../types.js';
 import { ManagedWebSearch, managedSearchIdentity } from '../search/managedWebSearch.js';
+import { awaitCliLifecycleStep } from '../runtime/CliRuntimeResourceOwner.js';
 
 export interface WebSearchResult {
   title: string;
@@ -84,6 +85,10 @@ let globalSearchConfig: SearchConfig = {
 let managedSearch: ManagedWebSearch | undefined;
 let managedSearchAvailable = false;
 let searchConfigurationRevision = 0;
+let pendingSearchConfiguration: {
+  resolve(signal?: AbortSignal): Promise<void>;
+  task?: Promise<void>;
+} | undefined;
 
 /**
  * Configure the global search provider settings
@@ -98,6 +103,7 @@ export function configureSearchFromSettings(
 ): void {
   managedSearch = undefined;
   managedSearchAvailable = false;
+  pendingSearchConfiguration = undefined;
   searchConfigurationRevision += 1;
   configureSearch({
     provider: providerOverride ?? settings.provider ?? 'browser-profile',
@@ -107,23 +113,54 @@ export function configureSearchFromSettings(
   });
 }
 
-export async function configureSearchFromAccount(
+export function prepareSearchFromAccount(
   config: Pick<AutohandConfig, 'search' | 'auth' | 'autohandai' | 'api'>,
   providerOverride?: SearchProvider,
   signal?: AbortSignal,
-): Promise<void> {
+): void {
   configureSearchFromSettings(config.search, providerOverride);
   const revision = searchConfigurationRevision;
   const identity = managedSearchIdentity(config);
   const client = identity ? new ManagedWebSearch(identity) : undefined;
   const selected = providerOverride ?? config.search?.provider;
   const checkIncluded = !selected || selected === 'browser-profile' || selected === 'autohand';
-  const included = checkIncluded && client ? await client.available(signal) : false;
-  if (revision !== searchConfigurationRevision) return;
-  signal?.throwIfAborted();
-  if (included && !selected) configureSearch({ provider: 'autohand' });
   managedSearch = client;
-  managedSearchAvailable = included;
+  if (!checkIncluded || !client) return;
+  pendingSearchConfiguration = {
+    resolve: async turnSignal => {
+      const requestSignal = signal && turnSignal ? AbortSignal.any([signal, turnSignal]) : signal ?? turnSignal;
+      const included = await client.available(requestSignal);
+      if (revision !== searchConfigurationRevision) return;
+      requestSignal?.throwIfAborted();
+      if (included && !selected) configureSearch({ provider: 'autohand' });
+      managedSearchAvailable = included;
+    },
+  };
+}
+
+export async function ensureSearchConfiguration(signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  while (pendingSearchConfiguration) {
+    const configuration = pendingSearchConfiguration;
+    const task = configuration.task ??= configuration.resolve(signal);
+    try {
+      if (signal) await awaitCliLifecycleStep(task, signal);
+      else await task;
+    } catch (error) {
+      if (configuration.task === task) configuration.task = undefined;
+      throw error;
+    }
+    if (pendingSearchConfiguration === configuration) pendingSearchConfiguration = undefined;
+  }
+}
+
+export async function configureSearchFromAccount(
+  config: Pick<AutohandConfig, 'search' | 'auth' | 'autohandai' | 'api'>,
+  providerOverride?: SearchProvider,
+  signal?: AbortSignal,
+): Promise<void> {
+  prepareSearchFromAccount(config, providerOverride, signal);
+  await ensureSearchConfiguration(signal);
 }
 
 /**
@@ -590,6 +627,7 @@ function htmlToText(html: string): string {
  */
 export async function webSearch(query: string, options: WebSearchOptions = {}): Promise<WebSearchResult[]> {
   throwIfAborted(options.signal);
+  await ensureSearchConfiguration(options.signal);
   const maxResults = options.maxResults ?? 5;
   const searchType = options.searchType ?? 'general';
 

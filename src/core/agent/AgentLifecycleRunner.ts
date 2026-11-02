@@ -5,7 +5,7 @@
  */
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import chalk from 'chalk';
-import { initializeSessionGitSnapshot, type SessionGitState } from '../../actions/gitSessionSnapshot.js';
+import { resetSessionGitSnapshot, type SessionGitState } from '../../actions/gitSessionSnapshot.js';
 import { isAxoInput } from '../../ui/axo/axoCommand.js';
 import { isStartupTimingEnabled, startupTimeline } from '../../startup/startupTimeline.js';
 import { buildOutputSchemaInstruction, buildOutputSchemaRepairInstruction, checkOutputAgainstSchema, type OutputSchemaSpec } from '../../modes/outputSchema.js';
@@ -344,7 +344,7 @@ export async function startFreshAgentSession(
     }
   }
 
-  initializeSessionGitSnapshot(host.runtime, true);
+  resetSessionGitSnapshot(host.runtime);
   const startedAt = Date.now();
   await host.resetConversationContext();
   host.resetAgentStateForFreshSession(startedAt);
@@ -570,6 +570,8 @@ export async function runAgentInteractive(host: AgentLifecycleHost, initialInstr
     }
 
     host.mcpStartupCoordinator.prepareForInteractiveStartup();
+
+    await initializeInteractiveComposer(host);
 
     // Start ALL initialization in background so prompt appears instantly.
     // The user can start typing while managers initialize.
@@ -815,7 +817,6 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
   }
 
 export async function initializeAgentManagers(host: AgentLifecycleHost): Promise<void> {
-    initializeSessionGitSnapshot(host.runtime);
     if (host.runtime?.options?.bare === true) {
       await runWithConcurrency([
         { label: 'session_manager', run: async () => host.sessionManager.initialize() },
@@ -1391,7 +1392,7 @@ export async function runAgentCommandMode(
   }
 
 export async function restoreAgentSessionState(host: AgentLifecycleHost, sessionOrId: string | Session) {
-    initializeSessionGitSnapshot(host.runtime, true);
+    resetSessionGitSnapshot(host.runtime);
     const session = typeof sessionOrId === 'string'
       ? await host.sessionManager.loadSession(sessionOrId)
       : sessionOrId;
@@ -1644,10 +1645,7 @@ async function executeQueuedMobileComposerCommand(
   }
 }
 
-export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise<void> {
-    // Initialize Ink UI early so the composer is ready before the first idle check.
-    // This ensures consistent UI from startup instead of falling back to readline
-    // and then switching to Ink after the first prompt.
+async function initializeInteractiveComposer(host: AgentLifecycleHost): Promise<void> {
     if (host.useInkRenderer && !host.inkRenderer) {
       await host.initializeUI(undefined, undefined, true);
       if (host.restoredChatMessages?.length && host.inkRenderer?.setChatMessages) {
@@ -1662,6 +1660,10 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
       }
       host.inkRenderer?.setPendingSuggestion?.(host.pendingSuggestion ?? undefined);
     }
+  }
+
+export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise<void> {
+    await initializeInteractiveComposer(host);
 
     while (true) {
       // Check if we should exit immediately (SIGINT/SIGTERM received)
