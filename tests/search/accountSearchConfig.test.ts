@@ -1,11 +1,51 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { configureSearchFromAccount, getSearchConfig, isSearchConfigured, webSearch } from '../../src/actions/web.js';
+import { configureSearchFromAccount, ensureSearchConfiguration, getSearchConfig, isSearchConfigured, prepareSearchFromAccount, webSearch } from '../../src/actions/web.js';
 import { SETTINGS_REGISTRY, settings } from '../../src/commands/settings.js';
 
 vi.mock('../../src/config.js', async original => ({ ...await original<typeof import('../../src/config.js')>(), saveConfig: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('fs', async original => ({ ...await original<typeof import('fs')>(), existsSync: () => false }));
 afterEach(() => { vi.unstubAllGlobals(); });
 describe('account-aware search configuration', () => {
+  it('prepares local settings without a request and resolves account availability once on demand', async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ provider: 'cloudflare', available: true, tier: 'lite' }));
+    vi.stubGlobal('fetch', fetch);
+    prepareSearchFromAccount({ auth: { token: 'ahc_paid' } });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(getSearchConfig().provider).toBe('browser-profile');
+    expect(isSearchConfigured()).toBe(false);
+    await Promise.all([ensureSearchConfiguration(), ensureSearchConfiguration()]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(getSearchConfig().provider).toBe('autohand');
+    expect(isSearchConfigured()).toBe(true);
+    await ensureSearchConfiguration();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('cancels an on-demand capability check and allows a later turn to retry', async () => {
+    const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>(() => {}))
+      .mockResolvedValueOnce(Response.json({ provider: 'cloudflare', available: true, tier: 'lite' }));
+    vi.stubGlobal('fetch', fetch);
+    prepareSearchFromAccount({ auth: { token: 'ahc_paid' } });
+    const controller = new AbortController();
+    const ready = ensureSearchConfiguration(controller.signal);
+    controller.abort(new DOMException('Turn cancelled', 'AbortError'));
+    await expect(ready).rejects.toThrow('Turn cancelled');
+    expect(isSearchConfigured()).toBe(false);
+    await ensureSearchConfiguration();
+    expect(isSearchConfigured()).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('discards an unstarted account check when an explicit provider replaces it', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    prepareSearchFromAccount({ auth: { token: 'ahc_old' } });
+    await configureSearchFromAccount({ search: { provider: 'exa', exaApiKey: 'own-key' } });
+    await ensureSearchConfiguration();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(getSearchConfig().provider).toBe('exa');
+    expect(isSearchConfigured()).toBe(true);
+  });
   it('selects included search only after the account API confirms availability', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ provider: 'cloudflare', available: true, tier: 'lite' }))
       .mockResolvedValueOnce(Response.json({ provider: 'cloudflare', query: 'docs', results: [] }));
