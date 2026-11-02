@@ -2123,11 +2123,11 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     }
 
     // Configure web search provider from CLI flag, config file, or environment
-    const { configureSearchFromAccount } = await awaitCliLifecycleStep(
+    const { prepareSearchFromAccount } = await awaitCliLifecycleStep(
       import('./actions/web.js'),
       commandLifecycleController.signal,
     );
-    await configureSearchFromAccount(config, options.searchEngine, commandLifecycleController.signal);
+    prepareSearchFromAccount(config, options.searchEngine, commandLifecycleController.signal);
 
     // Pipe mode: read stdin once if piped, then compose with prompt text (if any).
     // This must happen before AutohandAgent construction because dependency

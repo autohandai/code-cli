@@ -8,7 +8,7 @@ import type { GoalMutationResult } from '../../goals/types.js';
 import { formatToolObservation } from './AgentToolOutputRuntime.js';
 import type { PermissionManager } from '../../permissions/PermissionManager.js';
 import { getProviderConfig } from '../../config.js';
-import { isSearchConfigured } from '../../actions/web.js';
+import { ensureSearchConfiguration, isSearchConfigured } from '../../actions/web.js';
 import { DEFAULT_TOOL_OUTPUT_MODE, formatToolOutputForDisplay, type ToolOutputDisplay, type ToolOutputMode } from '../../ui/toolOutput.js';
 import { COMPUTER_USE_TOOL_PREFIX } from '../../computer/computerUseOutput.js';
 import { getPlanModeManager } from '../../commands/plan.js';
@@ -558,6 +558,7 @@ export async function runAgentReactLoop(
     }
 
     const refreshRuntimeTools = async () => {
+      await ensureSearchConfiguration(abortController.signal);
       await syncDynamicRuntimeExtensions(host, host.runtime);
       let definitions = host.toolManager.toFunctionDefinitions();
 
