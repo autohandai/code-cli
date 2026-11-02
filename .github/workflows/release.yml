@@ -556,10 +556,12 @@ jobs:
           chmod +x "$binary"
           file "$binary"
           codesign --verify --strict --verbose=4 "$binary"
+          codesign --verify --strict -R=notarized --check-notarization "$binary"
           "$binary" --version < /dev/null
           chmod +x "$ahtraces"
           file "$ahtraces"
           codesign --verify --strict --verbose=4 "$ahtraces"
+          codesign --verify --strict -R=notarized --check-notarization "$ahtraces"
           "$ahtraces" --version < /dev/null
           mkdir -p computer-use-verification
           tar -xzf "$computer_use_archive" -C computer-use-verification

@@ -5,6 +5,8 @@
  */
 import { stripVTControlCharacters } from 'node:util';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import stringWidth from 'string-width';
 import { markdownRenderingSample } from '../../src/testing/scenarios/markdownRenderingScenario.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -47,7 +49,7 @@ describe('renderMarkdownForTerminal', () => {
     const rendered = renderMarkdownForTerminal('[Docs](https://example.test)\n\n![Preview](./preview.png)', { color: false });
 
     expect(rendered).toContain('\u001b]8;;https://example.test\u0007Docs');
-    expect(rendered).toContain(`\u001b]8;;file://${process.cwd()}/preview.png\u0007Image: Preview`);
+    expect(rendered).toContain(`\u001b]8;;${pathToFileURL(resolve('preview.png')).href}\u0007Image: Preview`);
     expect(stripVTControlCharacters(rendered)).toBe('Docs\n\nImage: Preview');
   });
 
