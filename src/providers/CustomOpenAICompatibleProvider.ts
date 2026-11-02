@@ -34,6 +34,7 @@ export class CustomOpenAICompatibleProvider implements LLMProvider {
         apiKey: config.apiKey ?? "",
         baseUrl: config.baseUrl,
         model: config.model,
+        supportsPromptCacheKey: config.supportsPromptCacheKey === true,
       },
       networkSettings,
       {

@@ -31,7 +31,7 @@ describe('AgentDelegator typed outcomes', () => {
       complete: async request => {
         requests.push(request);
         return { id: 'worker', created: 0, raw: null, content: requests.length === 1 ? '' : 'Read-only report completed.',
-          ...(requests.length === 1 ? { toolCalls: [{ id: 'unsafe', function: { name: 'write_file', arguments: '{"path":"secret.ts","contents":"overwrite"}' } }] } : {}) };
+          ...(requests.length === 1 ? { toolCalls: [{ id: 'unsafe', function: { name: 'run_tool_script', arguments: JSON.stringify({ script: "return await tools.write_file({path:'secret.ts',contents:'overwrite'});" }) } }] } : {}) };
       },
     };
     const delegator = new AgentDelegator(provider, { executeForTool } as unknown as ActionExecutor, {
@@ -39,7 +39,8 @@ describe('AgentDelegator typed outcomes', () => {
     });
     expect((await delegator.delegateTaskForTool('reader', 'Inspect source')).success).toBe(true);
     expect(executeForTool).not.toHaveBeenCalled();
-    expect(requests[0].tools?.map(tool => tool.name)).toContain('read_file');
+    expect(requests[0].tools?.map(tool => tool.name)).toEqual(['run_tool_script', 'tool_search']);
+    expect(JSON.stringify(requests[1].messages)).toContain('Unknown tool');
     expect(requests[0].tools?.map(tool => tool.name)).not.toContain('write_file');
     expect(requests[0].tools?.map(tool => tool.name)).not.toContain('delegate_task');
     expect(JSON.stringify(requests[0].messages)).toContain('compact structured report');

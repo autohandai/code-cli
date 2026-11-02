@@ -14,7 +14,7 @@ import type {
     NetworkSettings,
     FunctionDefinition,
 } from '../types.js';
-import { ApiError, classifyApiError } from './errors.js';
+import { ApiError, classifyApiError, providerRetryDelay, waitForProviderRetry } from './errors.js';
 import { normalizeProviderFinishReason } from './finishReason.js';
 import { toTextOnlyContent } from './messagePayload.js';
 import { normalizeLLMUsage } from './usage.js';
@@ -200,8 +200,7 @@ export class OllamaProvider implements LLMProvider {
                 }
 
                 if (attempt < this.maxRetries) {
-                    const delay = this.retryDelay * Math.pow(2, attempt);
-                    await this.sleep(delay);
+                    await waitForProviderRetry(providerRetryDelay(lastError, this.retryDelay, attempt), request.signal);
                 }
             }
         }
@@ -693,7 +692,4 @@ export class OllamaProvider implements LLMProvider {
         return !classified.retryable;
     }
 
-    private sleep(ms: number): Promise<void> {
-        return new Promise((resolve) => setTimeout(resolve, ms));
-    }
 }

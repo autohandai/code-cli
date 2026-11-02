@@ -308,11 +308,24 @@ const completionEvidenceParameter: ToolParameter = {
   required: ['summary', 'checks'],
 };
 
-/**
- * Script tool definition — registered only while the `code_mode` feature is on.
- * It needs no approval of its own: the script can do nothing except call tools,
- * and each of those calls is authorized exactly as if the model had made it.
- */
+export function searchToolDefinitions<T extends { name: string; description: string }>(
+  tools: readonly T[], query: string, requestedLimit = 10,
+): T[] {
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 10;
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return tools.map((tool) => {
+    const name = tool.name.toLowerCase();
+    const haystack = `${name} ${tool.description.toLowerCase()}`;
+    const score = terms.reduce((total, term) => total
+      + (name === term ? 10 : name.includes(term) ? 6 : 0)
+      + (haystack.includes(term) ? 2 : 0), 0);
+    return { tool, score };
+  }).filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score || left.tool.name.localeCompare(right.tool.name))
+    .slice(0, limit).map(({ tool }) => tool);
+}
+
+/** Every nested action is independently authorized through ToolManager. */
 export const CODE_MODE_TOOL_DEFINITION: ToolDefinition = {
   name: CODE_MODE_TOOL_NAME,
   description: [
@@ -321,12 +334,17 @@ export const CODE_MODE_TOOL_DEFINITION: ToolDefinition = {
     'scanning or aggregating across files, loops, filtering, counting, joining results.',
     'Inside the script, call `await tools.<name>(args)` with the same arguments as the tool itself',
     '(MCP tools as `tools["mcp__server__tool"](args)`). Each call resolves to',
-    '`{ ok: true, output }` or `{ ok: false, error, kind }` and never throws; start independent calls',
+    '`{ ok: true, output }` or `{ ok: false, error, kind }`; start independent calls',
     'together with `Promise.all`. `console.log` is captured. `return` a small JSON-serialisable value:',
     'only that value, the logs and call counts come back to you. The script has no file, network,',
-    'process or timer access of its own, and cannot delegate, plan, ask the user, or start another script.',
+    'process or timer access of its own. Goals, research, planning, delegation, and installed tools use this same bridge.',
+    'Use tool_search to obtain exact argument schemas as data before calling unfamiliar tools.',
+    'User questions and another script cannot be nested. Browser, desktop, and MCP tools use the same checked bridge.',
+    'Discovery is also callable as tools.tool_search({ query: "capability" }) inside a script.',
     'Every nested call goes through the usual permission checks, and a denied call ends the script.',
-    'Prefer the ordinary tools for one or two simple calls.',
+    'If a result has images: true, return so you can inspect the attached evidence before deciding what to do next.',
+    'Use this as the default tool dispatch path, including single calls. Read intermediate results in the script',
+    'and return the evidence needed for your next decision. A script can call up to 512 tools.',
   ].join(' '),
   parameters: {
     type: 'object',

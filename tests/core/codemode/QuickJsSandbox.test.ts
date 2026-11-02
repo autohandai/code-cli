@@ -355,7 +355,7 @@ describe('runSandboxedScript', () => {
         maxScriptChars: 50_000,
         maxResultChars: 20_000,
         maxLogChars: 4_000,
-        maxToolCalls: 200,
+        maxToolCalls: 512,
         maxToolResultChars: 1_048_576,
       });
     });

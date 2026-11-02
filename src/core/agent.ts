@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { areProviderBackgroundCallsEnabled } from './agent/AutohandOrchestration.js';
+import { selectCodeModeTools } from './agent/CodeModeRunner.js';
 import { usesAutohandAICloud } from '../providers/AutohandAIProvider.js';
 import type { RunBudget } from './agent/RunBudget.js';
 import { SteeringQueue } from './agent/SteeringQueue.js';
@@ -41,7 +43,7 @@ import { maybeOfferAutohandAISwitch } from '../commands/login.js';
 import { getFeatureState, isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
 import type { RemoteFeatureFlagManager } from '../features/RemoteFeatureFlagManager.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
-import { ApiError } from '../providers/errors.js';
+import { ApiError, waitForProviderRetry } from '../providers/errors.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
@@ -967,7 +969,8 @@ export class AutohandAgent {
   private shouldRunTurnMemoryReflection(): boolean {
     if (this.runtime.options?.bare || this.runtime.options?.ephemeral || this.runtime.options?.daemon === false) return false;
     if (this.runtime.isCommandMode || this.runtime.options?.prompt) return false;
-    return this.runtime.config?.agent?.autoMemory !== false;
+    return this.runtime.config?.agent?.autoMemory !== false
+      && areProviderBackgroundCallsEnabled(this.runtime.config, this.activeProvider);
   }
 
   private async runQueuedTurnMemoryReflection(): Promise<void> {
@@ -1957,8 +1960,8 @@ export class AutohandAgent {
   /**
    * Sleep helper for retry delays
    */
-  private sleep(ms: number): Promise<void> {
-    return agentSleep(ms);
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return signal ? waitForProviderRetry(ms, signal) : agentSleep(ms);
   }
 
 
@@ -2286,7 +2289,8 @@ export class AutohandAgent {
    * Used by RPC adapter to provide real context usage data.
    */
   getToolDefinitions(): import('../types.js').FunctionDefinition[] {
-    return this.toolManager?.toFunctionDefinitions() ?? [];
+    const tools = this.toolManager?.toFunctionDefinitions() ?? [];
+    return selectCodeModeTools(tools, this.llm?.getCapabilities?.().maxTools) ?? tools;
   }
 
   /**

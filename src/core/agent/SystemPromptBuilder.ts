@@ -16,6 +16,7 @@ import type { SkillSource } from '../../skills/types.js';
 import type { AgentDefinition } from '../agents/AgentRegistry.js';
 import { formatAgentRoster } from '../agents/agentRoster.js';
 import { getShellExecutionProfile } from '../../utils/shellExecution.js';
+import { isCodeModeEnabled } from '../codemode/feature.js';
 
 interface PromptSkillSummary {
   name: string;
@@ -128,7 +129,10 @@ export class SystemPromptBuilder {
 
     await this.options.refreshRuntimeExtensions?.();
     const toolDefs = this.options.getToolDefinitions();
-    const toolCatalog = formatToolCapabilityCatalog(toolDefs);
+    const codeMode = isCodeModeEnabled(runtime.config);
+    const toolCatalog = codeMode
+      ? 'File and code search, edits, shell commands, Git, goals, research, memory, skills, delegation, and connected tools are available through tools.<name>(args) in run_tool_script. Use tool_search for exact schemas.'
+      : formatToolCapabilityCatalog(toolDefs);
     const supportsNativeToolCalling = this.options.supportsNativeToolCalling === true;
     const goalPromptSection = isGoalFeatureEnabled(runtime.config)
       ? [
@@ -261,9 +265,19 @@ export class SystemPromptBuilder {
         : 'Include your reflection in the "reflection" field of your response. This ensures you process observations before acting on them.',
       '',
       '### Available Tools',
-      'Exact tool schemas are selected per request based on the user intent and recent tool results.',
-      'The native tool list for the current request is the source of truth for callable arguments.',
-      'Use `tool_search` when you need a capability that is not currently exposed.',
+      ...(codeMode ? [
+        'Use `run_tool_script` as the default tool dispatch path, including single calls. Write plain JavaScript with top-level await and return.',
+        'Use `tool_search` to discover exact tool names and JSON argument schemas as data. Discovery does not add native tools or rewrite this prompt.',
+        'Call `await tools.<name>(args)` inside the script. Each result is { ok: true, output: string } or { ok: false, error, kind }; parse JSON output when appropriate and check ok before using output.',
+        'Batch independent calls with Promise.all; await dependent calls in order. Return concise results and the evidence needed for your next decision, keeping irrelevant intermediate output inside the script.',
+        'All registered task tools, including goals and research, use the same permission and hook checks as direct calls. Denial or cancellation stops the script.',
+        'If a script tool result has images: true, return immediately so the next model response can inspect the attached images before taking further action.',
+        'Use ask_followup_question directly for user questions. Browser, desktop, and MCP tools use the script bridge; return after image observations so the model can inspect them. Scripts cannot nest another script.',
+      ] : [
+        'Exact tool schemas are selected per request based on the user intent and recent tool results.',
+        'The native tool list for the current request is the source of truth for callable arguments.',
+        'Use `tool_search` when you need a capability that is not currently exposed.',
+      ]),
       '',
       '### Tool Capability Catalog',
       toolCatalog || 'Tools are resolved at runtime. Use tools_registry to inspect them.',

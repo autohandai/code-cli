@@ -8,6 +8,13 @@ import type { LoadedConfig, LLMRequest, LLMResponse } from '../../../src/types.j
 const config: LoadedConfig = { provider: 'autohandai', autohandai: { plan: 'cloud', model: 'moa' } };
 
 describe('Autohand orchestration defaults', () => {
+  it('caps session threads per provider, including custom endpoints', () => {
+    expect(orchestrationThreadLimit({ provider: 'openai', openai: { model: 'fixture', maxConcurrentThreads: 1 } })).toBe(1);
+    expect(orchestrationThreadLimit({ provider: 'custom:fixture', customProviders: { fixture: {
+      id: 'fixture', displayName: 'Fixture', apiFormat: 'openai-compatible', model: 'qwen', baseUrl: 'https://fixture.invalid', maxConcurrentThreads: 2,
+    } } })).toBe(2);
+  });
+
   it('enables cloud orchestration with three workers and respects explicit choices', () => {
     expect(isAutohandOrchestrationEnabled(config)).toBe(true);
     expect(orchestrationThreadLimit(config)).toBe(4);

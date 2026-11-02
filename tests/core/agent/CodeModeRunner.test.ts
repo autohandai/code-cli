@@ -11,6 +11,7 @@ import {
   codeModeToolDefinitions,
   isScriptCallableTool,
   runCodeModeScript,
+  selectCodeModeTools,
   syncCodeModeTool,
   type CodeModeToolHost,
   type SandboxRunner,
@@ -56,18 +57,48 @@ function sandbox(
 const INPUT = { script: 'return 1', toolCallId: 'call-1' };
 
 describe('isScriptCallableTool', () => {
+  it.each(['browser_screenshot', 'capture_test_evidence', 'mcp__autohand-computer-use__click', 'mcp__cua-driver__get_state'])(
+    'routes %s through checked programmatic dispatch with image evidence preserved',
+    tool => expect(isScriptCallableTool(tool)).toBe(true),
+  );
+  it.each(['get_goal', 'update_goal', 'research_search', 'todo_write', 'tool_search', 'create_meta_tool', 'delegate_task'])(
+    'makes %s available through the same checked programmatic dispatch path',
+    (tool) => expect(isScriptCallableTool(tool)).toBe(true),
+  );
+
   it.each(['read_file', 'search', 'write_file', 'run_command', 'git_status', 'fetch_url', 'web_search', 'recall_memory', 'mcp__github__list_issues'])(
     'lets a script call %s',
     (tool) => expect(isScriptCallableTool(tool)).toBe(true),
   );
 
   it.each([
-    CODE_MODE_TOOL_NAME, 'delegate_task', 'delegate_parallel', 'todo_write', 'plan', 'exit_plan_mode', 'ask_followup_question',
-    'create_meta_tool', 'tools_registry', 'tool_search', 'set_lifecycle_hook', 'create_hook', 'mcp__autohand-computer-use__click', 'made_up_tool',
+    CODE_MODE_TOOL_NAME, 'ask_followup_question',
   ])('keeps %s out of scripts', (tool) => expect(isScriptCallableTool(tool)).toBe(false));
 });
 
+describe('compact provider tool limits', () => {
+  it('keeps the script bridge when the provider accepts only one native tool', () => {
+    const tools = ['ask_followup_question', CODE_MODE_TOOL_NAME, 'tool_search', 'browser_screenshot']
+      .map(name => ({ name, description: name }));
+    expect(selectCodeModeTools(tools, 1)?.map(tool => tool.name)).toEqual([CODE_MODE_TOOL_NAME]);
+  });
+});
+
 describe('runCodeModeScript', () => {
+  it('forwards nested image evidence for model inspection without putting image bytes in script output', async () => {
+    const imagePaths = ['/tmp/verified-frame.png'];
+    const imageRefs = ['tool-image:11111111-1111-4111-8111-111111111111'];
+    const { host } = createHost(call => ({ tool: call.tool, success: true, output: 'Image captured', imagePaths, imageRefs }));
+    let observed: SandboxToolOutcome | undefined;
+    const result = await runCodeModeScript(host, INPUT, sandbox(async call => {
+      [observed] = await call([{ tool: 'read_file', args: { path: 'image.png' } }]);
+      return {};
+    }));
+    expect(result).toMatchObject({ success: true, imagePaths, imageRefs });
+    expect(observed).toMatchObject({ ok: true, images: true });
+    expect(result.output).not.toContain('base64');
+  });
+
   it('offers the sandbox only the registered tools a script may call', async () => {
     const { host } = createHost();
     const runSandbox = vi.fn(sandbox(async () => ({})));
@@ -75,9 +106,7 @@ describe('runCodeModeScript', () => {
     await runCodeModeScript(host, INPUT, runSandbox);
 
     const options = runSandbox.mock.calls[0]?.[0] as SandboxRunOptions;
-    expect([...options.toolNames].sort()).toEqual([
-      'fetch_url', 'git_status', 'mcp__github__list_issues', 'read_file', 'recall_memory', 'run_command', 'search', 'web_search', 'write_file',
-    ]);
+    expect([...options.toolNames].sort()).toEqual(REGISTERED.filter(isScriptCallableTool).sort());
     expect(options.script).toBe('return 1');
     expect(options.timeoutMs).toBe(CODE_MODE_DEFAULT_TIMEOUT_MS);
   });
@@ -162,7 +191,7 @@ describe('runCodeModeScript', () => {
     let seen: SandboxToolOutcome[] = [];
 
     await runCodeModeScript(host, INPUT, sandbox(async (call) => {
-      seen = await call([{ tool: 'delegate_task', args: {} }, { tool: 'read_file', args: { path: 'a.ts' } }]);
+      seen = await call([{ tool: 'made_up_tool', args: {} }, { tool: 'read_file', args: { path: 'a.ts' } }]);
       return {};
     }));
 
@@ -282,8 +311,8 @@ describe('feature gating of the script tool', () => {
   const config = (codeMode?: boolean): LoadedConfig =>
     ({ configPath: '/tmp/config.json', provider: 'openrouter', ...(codeMode === undefined ? {} : { features: { codeMode } }) }) as LoadedConfig;
 
-  it('adds the tool definition only while the feature is on', () => {
-    expect(codeModeToolDefinitions(config())).toEqual([]);
+  it('enables programmatic dispatch by default and honors an explicit opt-out', () => {
+    expect(codeModeToolDefinitions(config()).map(({ name }) => name)).toEqual([CODE_MODE_TOOL_NAME]);
     expect(codeModeToolDefinitions(config(false))).toEqual([]);
     expect(codeModeToolDefinitions(config(true)).map(({ name }) => name)).toEqual([CODE_MODE_TOOL_NAME]);
   });

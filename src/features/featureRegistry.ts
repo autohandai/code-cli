@@ -181,7 +181,7 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     description: 'Let the agent run one sandboxed script that calls its tools and returns only the answer, instead of many separate tool calls.',
     stage: 'experimental',
     configPath: 'features.codeMode',
-    defaultEnabled: false,
+    defaultEnabled: true,
   },
   {
     id: 'token_usage_status',

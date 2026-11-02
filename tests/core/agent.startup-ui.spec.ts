@@ -1794,7 +1794,7 @@ describe('agent startup and active input UI', () => {
       expect(result).toBe(true);
       expect(agent.runReactLoop).toHaveBeenCalledTimes(2);
       expect(agent.submitSessionFailureBugReport).toHaveBeenCalledTimes(1);
-      expect(agent.sleep).toHaveBeenCalledWith(0);
+      expect(agent.sleep).toHaveBeenCalledWith(0, expect.any(AbortSignal));
       expect(agent.injectContinuationMessage).not.toHaveBeenCalled();
       expect(agent.setUIStatus).toHaveBeenCalledWith('Recovering session...');
       expect(agent.sessionRetryCount).toBe(0);

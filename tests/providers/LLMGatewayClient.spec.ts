@@ -20,6 +20,48 @@ describe('LLMGatewayClient', () => {
   });
 
   describe('constructor', () => {
+    it.each([429, 503])('waits for a custom provider Retry-After on HTTP %i', async (status) => {
+      vi.useFakeTimers();
+      try {
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce({ ok: false, status, headers: new Headers({ 'Retry-After': '3' }), json: async () => ({ error: { message: 'Temporarily busy' } }) })
+          .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'retry', choices: [{ message: { content: 'ok' } }] }) });
+        global.fetch = fetchMock;
+        const client = new LLMGatewayClient({ apiKey: 'fixture', model: 'qwen', baseUrl: 'https://fixture.invalid/v1' }, { maxRetries: 1, retryDelay: 10 });
+        const pending = client.complete({ messages: [{ role: 'user', content: 'hello' }] });
+        await vi.advanceTimersByTimeAsync(2999);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(pending).resolves.toMatchObject({ content: 'ok' });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps runtime notes in place and sends only one leading system message', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 'roles', choices: [{ message: { content: 'ok' } }] }),
+      });
+      global.fetch = fetchMock;
+      const client = new LLMGatewayClient({ apiKey: 'fixture', model: 'qwen', baseUrl: 'https://fixture.invalid/v1' });
+      await client.complete({ messages: [
+        { role: 'system', content: 'Stable policy' },
+        { role: 'system', content: 'Stable environment' },
+        { role: 'assistant', content: 'Earlier session context' },
+        { role: 'user', content: 'Continue the goal' },
+        { role: 'system', content: 'Project Knowledge: fresh evidence' },
+      ] });
+      const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(payload.messages.filter((message: LLMMessage) => message.role === 'system')).toEqual([
+        { role: 'system', content: 'Stable policy\n\nStable environment' },
+      ]);
+      expect(payload.messages[1].role).toBe('user');
+      expect(payload.messages.at(-1)).toMatchObject({ role: 'user', content: expect.stringContaining('Project Knowledge: fresh evidence') });
+      expect(payload.messages[0].content).not.toContain('fresh evidence');
+    });
+
     it('should use default base URL when not provided', () => {
       const settings: LLMGatewaySettings = {
         apiKey: 'test-key',
@@ -400,7 +442,7 @@ describe('LLMGatewayClient', () => {
       expect(payload.messages[3]?.content).toBeTruthy();
     });
 
-    it('preserves orphaned tool observations as API-valid system context', async () => {
+    it('preserves orphaned tool observations as user context without adding a system message', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -436,7 +478,7 @@ describe('LLMGatewayClient', () => {
       expect(payload.messages).toEqual([
         { role: 'user', content: 'Continue' },
         {
-          role: 'system',
+          role: 'user',
           content: '[Recovered Tool Result: read_file]\norphan result',
         },
       ]);

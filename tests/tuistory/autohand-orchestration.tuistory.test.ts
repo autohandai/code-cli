@@ -2,6 +2,7 @@ import { createServer, type ServerResponse } from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { scriptToolCall } from '../../src/testing/scenarios/codeModeScenario.js';
 import { runOrchestrationScenario } from '../../src/testing/scenarios/autohandOrchestrationScenario.js';
 import { createTempAutohandHome, exitInteractive, launchBuiltAutohand } from './helpers/autohandTuistory.js';
 
@@ -19,10 +20,11 @@ describe('default Autohand AI orchestration', () => {
     let leadTurns = 0;
     let audited = false;
     const reply = (response: ServerResponse, content: string, tool?: { name: string; args: Record<string, unknown> }) => {
+      const call = tool ? scriptToolCall(`call-${tool.name}`, tool.name, tool.args) : undefined;
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ id: 'orchestration-fixture', created: 1,
         choices: [{ index: 0, finish_reason: tool ? 'tool_calls' : 'stop', message: { role: 'assistant', content,
-          ...(tool ? { tool_calls: [{ id: `call-${tool.name}`, type: 'function', function: { name: tool.name, arguments: JSON.stringify(tool.args) } }] } : {}) } }],
+          ...(call ? { tool_calls: [{ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } : {}) } }],
         usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
       }));
     };
@@ -78,7 +80,7 @@ describe('default Autohand AI orchestration', () => {
       expect(workers).toHaveLength(6);
       for (const worker of workers) {
         expect(worker.extra_body?.chat_template_kwargs?.reasoning_effort).toBeUndefined();
-        expect(worker.tools?.map(tool => tool.function.name)).toContain('read_file');
+        expect(worker.tools?.map(tool => tool.function.name)).toEqual(['run_tool_script', 'tool_search']);
         expect(worker.tools?.map(tool => tool.function.name)).not.toContain('write_file');
         expect(worker.tools?.map(tool => tool.function.name)).not.toContain('shell');
       }
@@ -95,7 +97,7 @@ describe('default Autohand AI orchestration', () => {
         await session.type(`Confirm the ${mode} setting in a short reply.`);
         await session.press('enter');
         await session.text({ timeout: 15_000, waitFor: text => text.includes(`ORCHESTRATION_MODE_${mode.toUpperCase()}`) });
-        const instructions = requests.at(-1)!.messages.filter(message => message.role === 'system' && message.content.startsWith('[Autohand AI orchestration]'));
+        const instructions = requests.at(-1)!.messages.filter(message => message.role === 'user' && message.content.includes('[Autohand AI orchestration]'));
         expect(instructions.at(-1)?.content).toContain(`orchestration is ${mode === 'on' ? 'enabled' : 'disabled'}`);
       }
     } finally {

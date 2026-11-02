@@ -12,7 +12,7 @@ import type {
   FunctionDefinition,
   MultimodalMessage,
 } from "../types.js";
-import { ApiError, classifyApiError, createApiError, type ApiErrorCode } from "./errors.js";
+import { ApiError, classifyApiError, createApiError, waitForProviderRetry, type ApiErrorCode } from "./errors.js";
 import { modelSupportsImages } from "./modelCapabilities.js";
 import {
   anthropicModelSupportsTemperature,
@@ -377,7 +377,7 @@ export class OpenRouterClient {
             this.retryDelay * Math.pow(2, attempt),
             retryAfterMs ?? 0
           );
-          await this.sleep(delay);
+          await waitForProviderRetry(delay, request.signal);
         }
       }
     }
@@ -547,7 +547,4 @@ export class OpenRouterClient {
     return !classified.retryable;
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }

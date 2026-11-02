@@ -1204,13 +1204,56 @@ Control agent behavior and iteration limits.
 
 ### Tool Schema Selection
 
-Autohand does not send every full tool schema on every LLM request. The system prompt includes a compact tool capability catalog, and each request exposes only a small set of concrete schemas selected from:
+Programmatic tool dispatch is enabled by default for every provider. The model uses
+`run_tool_script` to call registered tools inside a sandboxed JavaScript program.
+`tool_search` returns exact argument schemas as data; discovering goal, research,
+Git, MCP, or extension tools does not add their schemas to the native tool array.
+The native interface contains the script runner, schema search, and user
+questions, in stable name order. Browser, desktop, MCP, and extension tools run
+through the same checked script bridge. Providers with smaller native-tool limits
+retain the script runner first; schema search is also callable inside scripts.
 
-- Core discovery tools such as `tool_search`, `read_file`, `fff_find`, and `find_grep`
-- Intent-matched tools for editing, verification, git, browser, web, dependency, or project-tracking work
-- Tools requested through recent `tool_search` calls or explicitly mentioned by name
+Scripts can make up to 512 calls, batch independent work with `Promise.all`, and
+return concise evidence. Intermediate output stays inside the sandbox. Each call
+still passes through the normal permissions, plan-mode restrictions, hooks, and
+cancellation checks. Approval for a script does not approve its nested actions.
+Enabled Moa plan, commit, and repeated-failure reviews also apply to nested calls.
+Goal completion waits for final answer delivery and any required completion review.
+Image evidence is attached to the next model response without being embedded in
+script output or the persisted transcript. When a result has `images: true`, the
+script should return so the model can inspect it before choosing another action.
 
-This avoids the large upfront context cost of sending all tool schemas before the user intent is known. `toolSelectionCache` controls only the local selector cache for equivalent turns; it does not perform a pre-user LLM warmup and does not force a large cached prompt prefix.
+Set `features.codeMode` to `false` to restore relevance-based direct tool selection.
+`agent.toolSelectionCache` controls the local cache for that legacy selector;
+turning it off does not control provider prefix caching. Runtime notes are sent
+in place as user-role context, preserving the leading system policy. Context
+compaction can still change history and invalidate the affected cached suffix.
+Replaceable runtime state, such as goal budget updates, is serialized at the
+request tail so updates preserve the earlier conversation prefix.
+
+For providers with limited session capacity, set these fields in that provider's
+configuration (including entries under `customProviders`):
+
+```json
+{
+  "backgroundCalls": false,
+  "maxConcurrentThreads": 1
+}
+```
+
+`backgroundCalls: false` disables optional readiness reviews, suggestions, session
+title refinement, automatic memory reflection, and checkpoint advice. Explicit
+user work and necessary context management still run. `maxConcurrentThreads`
+(1–64) caps session threads including the lead; `1` disables delegation. The lower
+of this provider limit and the session-wide thread limit applies. These controls
+apply within one CLI session; separate CLI processes have separate limits.
+
+Custom endpoints that accept `prompt_cache_key` can opt into session affinity:
+set `features.promptCaching` to `true` and `supportsPromptCacheKey` to `true` on
+that custom provider entry. The CLI sends a stable hashed session key, with a
+separate key for each subagent conversation. The endpoint capability defaults to
+`false`; enable it only when the server accepts this field. Stable tool dispatch
+and runtime-note placement do not require this option.
 
 To disable the local selector cache:
 

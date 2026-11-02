@@ -9,6 +9,8 @@ import { formatToolObservation } from './AgentToolOutputRuntime.js';
 import type { PermissionManager } from '../../permissions/PermissionManager.js';
 import { getProviderConfig } from '../../config.js';
 import { isSearchConfigured } from '../../actions/web.js';
+import { normalizePromptRoles, toTextOnlyContent } from '../../providers/messagePayload.js';
+import { ApiError } from '../../providers/errors.js';
 import { DEFAULT_TOOL_OUTPUT_MODE, formatToolOutputForDisplay, type ToolOutputDisplay, type ToolOutputMode } from '../../ui/toolOutput.js';
 import { COMPUTER_USE_TOOL_PREFIX } from '../../computer/computerUseOutput.js';
 import { getPlanModeManager } from '../../commands/plan.js';
@@ -25,6 +27,7 @@ import type {
   ProviderName,
   TurnUsage,
   ToolCallRequest,
+  ToolExecutionContext,
   ToolExecutionResult,
   ToolImageInput,
   ToolImageRegistrationResult,
@@ -42,6 +45,7 @@ import type { ToolManager } from '../toolManager.js';
 import type { ToolsRegistry } from '../toolsRegistry.js';
 import { calculateContextUsage } from '../context/tokenizer.js';
 import { filterToolsByRelevance, limitToolSelection } from '../toolFilter.js';
+import { selectCodeModeTools } from './CodeModeRunner.js';
 import type { PeerCommunicationRuntime } from './PeerCommunicationRuntime.js';
 import type { AgentPeerRuntime } from './AgentPeerRuntime.js';
 import { pushBounded } from '../../utils/bounded.js';
@@ -82,7 +86,7 @@ import { usesAutohandAICloud } from '../../providers/AutohandAIProvider.js';
 import { combineDeltaHandlers, StreamedOutputRelay, StreamingResponsePreview } from './StreamingResponsePreview.js';
 import type { RunBudgetGate } from './RunBudget.js';
 import { CheckpointAdvisor, checkpointForCalls, type AdvisorCheckpoint, type AdvisorReview, type TurnAdvisor } from './CheckpointAdvisor.js';
-import { canUseMoaAdvisor, isAutohandOrchestrationEnabled, ORCHESTRATION_INSTRUCTIONS } from './AutohandOrchestration.js';
+import { areProviderBackgroundCallsEnabled, canUseMoaAdvisor, isAutohandOrchestrationEnabled, ORCHESTRATION_INSTRUCTIONS } from './AutohandOrchestration.js';
 import { createTeamMemberProvider } from '../teams/TeamModelPolicy.js';
 
 const COMPLETION_REMINDER_TOOL_BATCH_THRESHOLD = 3;
@@ -603,7 +607,8 @@ export async function runAgentReactLoop(
       : null;
 
     try {
-    const advisor = host.createCheckpointAdvisor ? host.createCheckpointAdvisor()
+    const advisor = !areProviderBackgroundCallsEnabled(host.runtime.config, host.activeProvider) ? undefined
+      : host.createCheckpointAdvisor ? host.createCheckpointAdvisor()
       : canUseMoaAdvisor({ ...host.runtime.config, provider: host.activeProvider ?? host.runtime.config.provider }, host.accountTier, host.runtime.options.model ?? host.runtime.config.autohandai?.model)
         ? new CheckpointAdvisor({
             provider: createTeamMemberProvider(host.runtime.config, { provider: 'autohandai', model: 'moa', reasoningEffort: 'high', source: 'agent-nature' }),
@@ -662,6 +667,31 @@ export async function runAgentReactLoop(
       }
       host.conversation.addSystemNote(`[Moa ${checkpoint} review: ${review.verdict}] ${review.feedback}`);
       return review;
+    };
+    const executeNestedToolCalls: NonNullable<ToolExecutionContext['executeNestedToolCalls']> = async (calls, execute) => {
+      const refused = (feedback: string): ToolExecutionResult[] => calls.map(call => ({
+        tool: call.tool, success: false, kind: 'authorization', error: `Checkpoint review: ${feedback}`,
+      }));
+      const checkpoint = checkpointForCalls(calls);
+      if (advisor && checkpoint) {
+        const review = await consultAdvisor(checkpoint, JSON.stringify(calls));
+        if (review.verdict !== 'approved') {
+          advisorRejections += 1;
+          return refused(review.feedback);
+        }
+      }
+      const results = await execute();
+      for (const [index, result] of results.entries()) {
+        const call = calls[index];
+        if (advisor && call && advisor.observeFailure(call, result)) {
+          const review = await consultAdvisor('repeated_failure', JSON.stringify({ call, result }));
+          if (review.verdict !== 'approved') {
+            advisorRejections += 1;
+            return refused(review.feedback);
+          }
+        }
+      }
+      return results;
     };
     const perToolFailureLimit = 2; // Max consecutive failures for same tool (regardless of args)
     const loopGuard = new ToolLoopGuard();
@@ -783,13 +813,14 @@ export async function runAgentReactLoop(
       await host.peerCommunicationRuntime?.safeBoundary();
       if (abortController.signal.aborted) break;
       const messages = host.conversation.history();
-      const relevantTools = filterToolsByRelevance(allTools, messages, {
+      const programmaticTools = selectCodeModeTools(allTools, host.llm.getCapabilities?.().maxTools);
+      const relevantTools = programmaticTools ?? filterToolsByRelevance(allTools, messages, {
         cache: host.runtime.config.agent?.toolSelectionCache !== false,
         // The browser side panel is browser-first by definition, so browser_*
         // tools stay available even before the user mentions a page.
         baselineCategories: host.runtime.options.clientContext === 'browser' ? ['browser'] : [],
       });
-      let tools = limitToolSelection(
+      let tools = programmaticTools ?? limitToolSelection(
         selectCacheStableTools(host, allTools, relevantTools, promptCacheToolSet, messages),
         relevantTools, messages, host.llm.getCapabilities?.().maxTools,
       );
@@ -907,6 +938,20 @@ export async function runAgentReactLoop(
         ) as 'none' | 'normal' | 'extended' | undefined ?? 'normal';
 
         const requestTools = supportsNativeToolCalling && tools.length > 0 ? tools : undefined;
+        const requestMessages = normalizePromptRoles(messagesWithImages);
+        const maxTokens = host.contextWindow > 0
+          ? Math.min(16000, Math.max(1, Math.floor(host.contextWindow * 0.25)))
+          : 16000;
+        const requestUsage = calculateContextUsage(
+          requestMessages.map((message) => ({ ...message, content: toTextOnlyContent(message.content) })),
+          requestTools ?? [], model, maxTokens, host.contextWindow,
+        );
+        if (requestUsage.isExceeded) {
+          throw new ApiError(
+            `The prepared request exceeds the configured context limit (${requestUsage.contextWindow} tokens) after compaction. Reduce the input or start a new session.`,
+            'context_overflow', 0, false,
+          );
+        }
 
         host.runBudget?.assertRequestAllowed();
         host.runBudget?.recordRequest();
@@ -928,13 +973,13 @@ export async function runAgentReactLoop(
           : retryWait.handle;
         try {
           completion = await host.llm.complete({
-            messages: messagesWithImages,
+            messages: requestMessages,
             temperature: host.runtime.options.temperature ?? 0.2,
             model: host.runtime.options.model,
             signal: abortController.signal,
             tools: requestTools,
             toolChoice: requestTools ? 'auto' : undefined,
-            maxTokens: 16000,  // Allow large outputs for file generation
+            maxTokens,
             thinkingLevel,
             promptCache: getSessionPromptCacheDirective(host),
             onRetry,
@@ -1516,6 +1561,12 @@ export async function runAgentReactLoop(
               }
             }, {
               signal: abortController.signal,
+              executeNestedToolCalls,
+              handleSmartContextCrop: async call => {
+                const output = await host.handleSmartContextCrop(call);
+                host.updateContextUsage(host.conversation.history(), tools);
+                return output;
+              },
               deferGoalCompletion: (prepared, commit) => {
                 if (pendingGoalCompletion) return { ...prepared, ok: false, completionPending: false,
                   message: 'Goal completion is already prepared for this turn. Deliver the final response before completing another goal.' };

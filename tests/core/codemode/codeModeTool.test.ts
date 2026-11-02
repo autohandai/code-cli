@@ -42,14 +42,14 @@ describe('run_tool_script definition', () => {
 });
 
 describe('code mode feature flag', () => {
-  it('is an experimental feature that is off until features.codeMode is set', () => {
+  it('enables the compact programmatic tool surface unless explicitly disabled', () => {
     expect(findFeature(CODE_MODE_FEATURE_ID)).toMatchObject({
       id: 'code_mode',
       stage: 'experimental',
       configPath: 'features.codeMode',
-      defaultEnabled: false,
+      defaultEnabled: true,
     });
-    expect(isCodeModeEnabled(config())).toBe(false);
+    expect(isCodeModeEnabled(config())).toBe(true);
     expect(isCodeModeEnabled(config({ codeMode: false }))).toBe(false);
     expect(isCodeModeEnabled(config({ codeMode: true }))).toBe(true);
     expect(isCodeModeEnabled(undefined)).toBe(false);

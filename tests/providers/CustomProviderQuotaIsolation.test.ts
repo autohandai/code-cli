@@ -1,9 +1,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProviderFactory } from '../../src/providers/ProviderFactory.js';
+import { getSessionPromptCacheDirective } from '../../src/core/agent/PromptCache.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('custom provider quota isolation', () => {
+  it.each([true, false])('forwards a stable opaque cache key only with explicit endpoint support: %s', async supportsPromptCacheKey => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }));
+    vi.stubGlobal('fetch', fetch);
+    const provider = ProviderFactory.create({
+      provider: 'custom:fixture', customProviders: { fixture: {
+        id: 'fixture', displayName: 'Fixture', apiFormat: 'openai-compatible', apiKeyRequired: false,
+        baseUrl: 'https://fixture.invalid/v1', model: 'qwen', supportsPromptCacheKey,
+      } },
+    });
+    const promptCache = getSessionPromptCacheDirective('private-session-id');
+    await provider.complete({ messages: [{ role: 'user', content: 'First' }], promptCache });
+    await provider.complete({ messages: [{ role: 'user', content: 'Second' }], promptCache });
+    const payloads = fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+    for (const payload of payloads) {
+      expect(payload.prompt_cache_key).toBe(supportsPromptCacheKey ? promptCache?.key : undefined);
+      expect(String(payload.prompt_cache_key)).not.toContain('private-session-id');
+    }
+  });
+
   it.each(['Tatch', 'Autohand AI'])('uses only the custom endpoint and retries its own 429 with display name %s', async (displayName) => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(Response.json({ error: { type: 'rate_limited', scope: 'window_5h', message: 'Provider busy' } }, { status: 429, headers: { 'retry-after': '0' } }))

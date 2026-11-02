@@ -11,6 +11,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
+import { scriptToolCall } from '../../src/testing/scenarios/codeModeScenario.js';
 import { inspectLifecycleHelp, submitLifecycleCommand } from '../../src/testing/scenarios/lifecycleCommandsScenario.js';
 import {
   createMockAutohandAINativeSequenceServer,
@@ -81,7 +82,7 @@ describe('lifecycle commands Tuistory', () => {
 
   it('exposes capture to Autohand AI and returns a real missing-prerequisite report', async () => {
     const server = await createMockAutohandAINativeSequenceServer([
-      { content: 'Capture the local app evidence.', toolCall: { id: 'capture-local-evidence', name: 'capture_test_evidence', args: { url: 'http://127.0.0.1:4321' } } },
+      { content: 'Capture the local app evidence.', toolCall: scriptToolCall('capture-local-evidence', 'capture_test_evidence', { url: 'http://127.0.0.1:4321' }) },
       { content: 'LIFECYCLE_CAPTURE_NOT_RUN: Playwright is not installed in this project; visual inspection was not run.' },
     ]);
     servers.push(server);
@@ -100,7 +101,8 @@ describe('lifecycle commands Tuistory', () => {
     sessions.push(session);
 
     await submitLifecycleCommand(session, '/tester verify local checkout', 'LIFECYCLE_CAPTURE_NOT_RUN');
-    expect(JSON.stringify(server.requests[0]?.tools)).toContain('capture_test_evidence');
+    expect(JSON.stringify(server.requests[0]?.tools)).toContain('run_tool_script');
+    expect(JSON.stringify(server.requests[0]?.tools)).not.toContain('capture_test_evidence');
     expect(JSON.stringify(server.requests)).toContain('visualInspection');
     const runDirectory = path.join(state.workspaceRoot, '.autohand/test-evidence');
     const runs = await fs.readdir(runDirectory);
@@ -122,11 +124,11 @@ describe('lifecycle commands Tuistory', () => {
     const address = app.address();
     if (!address || typeof address === 'string') throw new Error('Browser fixture did not receive a TCP address.');
     const server = await createMockAutohandAINativeSequenceServer([
-      { content: 'Capture the save journey.', toolCall: { id: 'capture-real-frames', name: 'capture_test_evidence', args: {
+      { content: 'Capture the save journey.', toolCall: scriptToolCall('capture-real-frames', 'capture_test_evidence', {
         url: `http://127.0.0.1:${address.port}/`,
         max_frames: 3,
         steps: [{ action: 'click', selector: '#save' }, { action: 'waitFor', selector: 'h1:has-text("Saved locally")' }],
-      } } },
+      }) },
       { content: 'LIFECYCLE_REAL_FRAMES_RECEIVED. This transport fixture does not claim semantic visual verification.' },
     ]);
     servers.push(server);

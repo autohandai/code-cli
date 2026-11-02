@@ -96,6 +96,7 @@ import {
   buildToolPermissionContexts,
   DEFAULT_TOOL_DEFINITIONS,
   shouldPromptForToolPermission,
+  searchToolDefinitions,
   type ToolDefinition,
   type ToolParameter,
 } from './toolManager.js';
@@ -1205,6 +1206,13 @@ export class ActionExecutor {
     }
 
     switch (action.type) {
+      case 'smart_context_cropper': {
+        if (!context?.handleSmartContextCrop) {
+          return this.recordToolFailure(capture, 'operational', 'Context cropping is unavailable for this worker.');
+        }
+        const { type, ...args } = action;
+        return context.handleSmartContextCrop({ tool: type, id: context.toolCallId, args });
+      }
       case 'inspect_work_map': {
         const map = await buildLocalWorkMap(this.runtime.config, {
           since: action.since ?? '30d',
@@ -1753,29 +1761,19 @@ export class ActionExecutor {
         if (!query) {
           throw new Error('tool_search requires a non-empty "query" argument.');
         }
-        const limit = Math.max(1, action.limit ?? 10);
-        const tools = await this.toolsRegistry.listTools(this.getRegisteredTools());
-        const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-        const scored = tools
-          .map((tool) => {
-            const haystack = `${tool.name} ${tool.description}`.toLowerCase();
-            let score = 0;
-            for (const term of terms) {
-              if (tool.name.toLowerCase() === term) {
-                score += 10;
-              } else if (tool.name.toLowerCase().includes(term)) {
-                score += 6;
-              }
-              if (haystack.includes(term)) {
-                score += 2;
-              }
-            }
-            return { tool, score };
-          })
-          .filter((entry) => entry.score > 0)
-          .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
-          .slice(0, limit)
-          .map((entry) => entry.tool);
+        const limit = Number.isFinite(action.limit) ? Math.max(1, Math.min(20, Math.floor(action.limit!))) : 10;
+        const registered = this.getRegisteredTools();
+        const definitions = new Map(registered.map((tool) => [tool.name as string, tool]));
+        const tools = await this.toolsRegistry.listTools(registered);
+        const scored = searchToolDefinitions(tools, query, limit)
+          .map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            source: tool.source,
+            parameters: definitions.get(tool.name)?.parameters
+              ?? this.toolsRegistry.getMetaTool(tool.name)?.parameters
+              ?? { type: 'object', properties: {} },
+          }));
 
         return JSON.stringify(scored, null, 2);
       }

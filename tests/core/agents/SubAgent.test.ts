@@ -21,6 +21,69 @@ function nativeToolCall(name: string, args: Record<string, unknown>, id = `call-
 }
 
 describe('SubAgent', () => {
+  it.each(['task', 'tool output'])('refuses an oversized %s before sending a child request beyond the configured context window', async source => {
+    const complete = vi.fn(async (_request: Parameters<LLMProvider['complete']>[0]) => ({
+      id: 'fixture', created: 0, raw: null, content: '',
+      toolCalls: [nativeToolCall('read_file', { path: 'large.txt' })],
+    }));
+    const large = 'Long context content. '.repeat(20_000);
+    const agent = new SubAgent({
+      name: 'reader', description: 'Reader', systemPrompt: 'Inspect assigned source.', tools: ['read_file'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'custom:fixture', complete,
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool: async () => ({ success: true, output: large }) } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+      featureConfig: {
+        provider: 'custom:fixture', features: { codeMode: false }, customProviders: { fixture: {
+          id: 'fixture', displayName: 'Fixture', apiFormat: 'openai-compatible', apiKeyRequired: false,
+          baseUrl: 'http://127.0.0.1:1', model: 'fixture', contextWindow: 8192,
+        } },
+      } as LoadedConfig,
+    });
+    await expect(agent.run(source === 'task' ? large : 'Read large.txt.')).rejects.toThrow('configured context limit');
+    expect(complete).toHaveBeenCalledTimes(source === 'task' ? 0 : 1);
+    if (source === 'tool output') expect(complete.mock.calls[0][0]).toMatchObject({ maxTokens: 2048 });
+  });
+
+  it('uses compact scripts and local schema discovery without escaping its tool allowlist', async () => {
+    const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
+    const executeForTool = vi.fn(async () => ({ success: true as const, output: 'verified file' }));
+    const replies = [
+      { content: '', toolCalls: [nativeToolCall('tool_search', { query: 'read_file write_file' })] },
+      { content: 'The discovered schema permits reading the assigned file.', toolCalls: [nativeToolCall('run_tool_script', {
+        script: "const read = await tools.read_file({path:'a.ts'}); let refused = false; try { await tools.write_file({path:'a.ts',contents:'x'}); } catch { refused = true; } return {value:read.output,refused};",
+      })] },
+      { content: 'Verified.' },
+    ];
+    const agent = new SubAgent({
+      name: 'reader', description: 'Reader', systemPrompt: 'Inspect assigned source.', tools: ['read_file'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'custom:fixture',
+      complete: async request => { requests.push(request); return { id: 'fixture', created: 0, raw: null, ...replies.shift()! }; },
+      getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+      featureConfig: { provider: 'custom:fixture' } as LoadedConfig,
+    });
+    await expect(agent.run('Inspect a.ts')).resolves.toBe('Verified.');
+    expect(requests.map(request => request.tools?.map(tool => tool.name))).toEqual([
+      ['run_tool_script', 'tool_search'], ['run_tool_script', 'tool_search'], ['run_tool_script', 'tool_search'],
+    ]);
+    const discovery = requests[1].messages.find(message => message.role === 'tool');
+    expect(String(discovery?.content)).toContain('"parameters"');
+    expect(String(discovery?.content)).toContain('read_file');
+    expect(String(discovery?.content)).not.toContain('write_file');
+    const output = requests[2].messages.find(message => message.role === 'tool' && message.name === 'run_tool_script');
+    expect(String(output?.content)).toContain('verified file');
+    expect(String(output?.content)).toContain('"refused": true');
+    expect(executeForTool).toHaveBeenCalledTimes(1);
+    expect(requests[0].messages[0].content).not.toContain('read_file(');
+    expect(requests[2].messages.filter(message => message.role === 'system')).toHaveLength(1);
+  });
+
   it.each([true, false])('preserves user scope and uses plain-text startup output (native tools: %s)', async nativeToolCalling => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const requests: Array<Parameters<LLMProvider['complete']>[0]> = [];
@@ -84,19 +147,20 @@ describe('SubAgent', () => {
       getCapabilities: () => ({ nativeToolCalling: true }),
       listModels: async () => [], isAvailable: async () => true, setModel: () => {},
     }, {} as ActionExecutor, { clientContext: 'cli', depth: 1, maxDepth: 1, skillsRegistry });
-    const systemText = (index: number) => requests[index].messages.filter((message) => message.role === 'system').map((message) => String(message.content)).join('\n');
+    const skillText = (index: number) => String(requests[index].messages
+      .filter(message => message.role === 'user' && String(message.content).includes('<!-- subagent-skills -->')).at(-1)?.content);
     try {
       await expect(agent.run('Why does login fail?')).resolves.toBe('Diagnosed.');
-      expect(systemText(0)).toContain('### Skill: systematic-debugging\nReproduce before fixing.');
-      expect(systemText(0)).toContain('- **pull-request-review**: pull-request-review help');
+      expect(skillText(0)).toContain('### Skill: systematic-debugging\nReproduce before fixing.');
+      expect(skillText(0)).toContain('- **pull-request-review**: pull-request-review help');
       expect(String(requests[0].messages[0].content)).toContain('skill(');
       const toolResult = requests[1].messages.find((message) => message.role === 'tool');
       expect(String(toolResult?.content)).toContain('Activated skill: pull-request-review\n\nRead the whole diff.');
-      // The prompt follows the agent's activation state on every request.
-      expect(systemText(1)).toContain('### Skill: pull-request-review\nRead the whole diff.');
-      expect(systemText(2)).not.toContain('### Skill: systematic-debugging');
-      expect(systemText(2)).toContain('- **systematic-debugging**: systematic-debugging help');
-      expect(requests[2].messages.filter((message) => message.role === 'system' && String(message.content).includes('<!-- subagent-skills -->'))).toHaveLength(1);
+      expect(skillText(1)).toContain('### Skill: pull-request-review\nRead the whole diff.');
+      expect(skillText(2)).not.toContain('### Skill: systematic-debugging');
+      expect(skillText(2)).toContain('- **systematic-debugging**: systematic-debugging help');
+      expect(requests[2].messages[0]).toEqual(requests[0].messages[0]);
+      expect(requests[2].messages.filter(message => message.role === 'system')).toHaveLength(1);
     } finally {
       log.mockRestore();
     }
@@ -387,7 +451,7 @@ describe('SubAgent', () => {
       await expect(agent.run('Write the result')).rejects.toThrow(/truncated 3 consecutive responses/i);
       expect(complete).toHaveBeenCalledTimes(3);
       const secondRecoveryNote = (complete.mock.calls[2]?.[0]?.messages as Array<{ role: string; content: string }>)
-        .filter((message) => message.role === 'system')
+        .filter((message) => message.role === 'user' && message.content.includes('Recovery'))
         .at(-1);
       expect(secondRecoveryNote?.content).toContain('Recovery 2/3');
     } finally {
@@ -705,9 +769,9 @@ describe('SubAgent', () => {
       expect(second[0]).not.toBe(first[0]);
     });
 
-    it('sends no key for other providers, the local plan, or when caching is switched off', async () => {
+    it('sends no key without provider opt-in, for the local plan, or when caching is switched off', async () => {
       const cases: Array<{ provider: string; featureConfig?: LoadedConfig }> = [
-        { provider: 'openai', featureConfig: { ...cloudConfig, features: { promptCaching: true } } as LoadedConfig },
+        { provider: 'openai', featureConfig: cloudConfig },
         { provider: 'autohandai', featureConfig: { autohandai: { plan: 'local' } } as LoadedConfig },
         { provider: 'autohandai', featureConfig: { ...cloudConfig, features: { promptCaching: false } } as LoadedConfig },
         { provider: 'autohandai' },
@@ -716,6 +780,16 @@ describe('SubAgent', () => {
         const [keys] = await cacheKeysForRun(testCase);
         expect(keys).toEqual([undefined, undefined]);
       }
+    });
+
+    it.each(['openai', 'custom:fixture'])('uses independent stable subagent keys when %s explicitly opts in', async provider => {
+      const [first, second] = await cacheKeysForRun({
+        provider, agents: 2, featureConfig: { features: { promptCaching: true } } as LoadedConfig,
+      });
+      expect(first[0]).toMatch(/^ahpc_/);
+      expect(first[1]).toBe(first[0]);
+      expect(second[1]).toBe(second[0]);
+      expect(second[0]).not.toBe(first[0]);
     });
 
     it('honours the lead session prompt caching resolver, including its remote kill switch', async () => {

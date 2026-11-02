@@ -64,6 +64,10 @@ export interface ProviderSettings {
   model: string;
   /** Exact model context window from provider metadata or user config. */
   contextWindow?: number;
+  /** Permit optional model calls for readiness, suggestions, titles, memory, and checkpoint advice. */
+  backgroundCalls?: boolean;
+  /** Cap session threads including the lead for this provider (1-64). */
+  maxConcurrentThreads?: number;
   /** Reasoning effort level for reasoning-capable models (e.g., OpenAI) */
   reasoningEffort?: ReasoningEffort;
 }
@@ -95,6 +99,8 @@ export interface CustomProviderModel {
 }
 
 export interface CustomProviderSettings extends ProviderSettings {
+  /** Explicit endpoint capability; requires features.promptCaching to attach a session cache key. */
+  supportsPromptCacheKey?: boolean;
   /** Stable config key and telemetry-safe provider identifier. */
   id: string;
   /** User-facing provider name shown in /model. */
@@ -509,7 +515,7 @@ export interface FeatureFlagSettings {
   awsBedrockProvider?: boolean;
   /** Enable persistent goals across CLI, tools, RPC, and ACP. Defaults to true. */
   slashGoal?: boolean;
-  /** Expose `run_tool_script`: one sandboxed script that calls tools and returns only its result (default: false). */
+  /** Use compact programmatic tool dispatch by default; false restores direct tool selection. */
   codeMode?: boolean;
   /** Show real-time token usage (tokens up/down + context window occupancy) in the status line. */
   tokenUsageStatus?: boolean;
@@ -1482,6 +1488,8 @@ export interface LLMMessage {
   role: MessageRole;
   content: string;
   name?: string;
+  /** Replaceable runtime state; serialized at the request tail rather than inside the cached policy. */
+  runtimeContextKey?: string;
   /** Tool call ID for tool response messages (required when role is 'tool') */
   tool_call_id?: string;
   /** Tool calls made by the assistant (included when role is 'assistant' and model invoked tools) */
@@ -2142,6 +2150,11 @@ export type ToolExecutionResult = {
 } & ToolActionOutcome;
 
 export interface ToolExecutionContext {
+  executeNestedToolCalls?: (
+    calls: ToolCallRequest[],
+    execute: () => Promise<ToolExecutionResult[]>,
+  ) => Promise<ToolExecutionResult[]>;
+  handleSmartContextCrop?: (call: ToolCallRequest) => Promise<string>;
   deferGoalCompletion?: (
     prepared: import('./goals/types.js').GoalMutationResult,
     commit: () => Promise<import('./goals/types.js').GoalMutationResult>,

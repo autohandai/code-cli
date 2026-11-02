@@ -178,7 +178,7 @@ export interface AgentInstructionHost {
     maxRetries: number,
     options?: SessionFailureBugReportOptions
   ): Promise<void>;
-  sleep(ms: number): Promise<void>;
+  sleep(ms: number, signal?: AbortSignal): Promise<void>;
   shouldUsePassiveSessionRetry(error: Error): boolean;
   injectContinuationMessage(error: Error, attempt: number): void;
   getDisplayErrorMessage(error: unknown): string;
@@ -673,7 +673,12 @@ export class InstructionRunner {
           // Show retry message to user
           console.log(chalk.yellow(`\n⚠ Session encountered an error: ${err.message}`));
           console.log(chalk.cyan(`  Attempting recovery (${host.sessionRetryCount}/${maxRetries}) in ${formatRecoveryWait(delay)}...`));
-          await host.sleep(delay);
+          try {
+            await host.sleep(delay, abortController.signal);
+          } catch (waitError) {
+            if (abortController.signal.aborted) return false;
+            throw waitError;
+          }
           if (abortController.signal.aborted) {
             return false;
           }

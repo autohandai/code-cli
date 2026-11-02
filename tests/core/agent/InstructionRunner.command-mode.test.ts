@@ -17,7 +17,7 @@ import {
 } from '../../../src/core/agent/InputTurnCoordinator.js';
 import { HookManager } from '../../../src/core/HookManager.js';
 import { ComputerUseLifecycle } from '../../../src/computer/ComputerUseLifecycle.js';
-import { ApiError, classifyApiError } from '../../../src/providers/errors.js';
+import { ApiError, classifyApiError, waitForProviderRetry } from '../../../src/providers/errors.js';
 import { getPlanModeManager } from '../../../src/commands/plan.js';
 import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
 import { ProviderNotConfiguredError } from '../../../src/providers/ProviderFactory.js';
@@ -850,7 +850,36 @@ describe('InstructionRunner command mode UI', () => {
     }
   });
 
-  it('bounds the backoff delay when a retryable outage advertises an hours-long Retry-After', async () => {
+  it('cancels a session recovery wait immediately without another request or a retained timer', async () => {
+    vi.useFakeTimers();
+    const host = createHost();
+    const waiting = Promise.withResolvers<void>();
+    let controller: AbortController | undefined;
+    host.isRetryableSessionError = vi.fn(() => true);
+    host.runReactLoop = vi.fn(async (activeController: AbortController) => {
+      controller = activeController;
+      throw new ApiError('Busy', 'server_error', 503, true, 120_000);
+    });
+    host.sleep = vi.fn((ms: number, signal?: AbortSignal) => {
+      waiting.resolve();
+      return waitForProviderRetry(ms, signal);
+    });
+    const pending = new InstructionRunner(host).run('continue the research job');
+    try {
+      await waiting.promise;
+      controller!.abort();
+      expect(vi.getTimerCount()).toBe(0);
+      await expect(pending).resolves.toBe(false);
+      expect(host.runReactLoop).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await vi.advanceTimersByTimeAsync(120_000);
+      await pending;
+      vi.useRealTimers();
+    }
+  });
+
+  it('honors an hours-long Retry-After rather than retrying before the server permits it', async () => {
     const host = createHost();
     host.runtime = {
       ...host.runtime,
@@ -884,12 +913,11 @@ describe('InstructionRunner command mode UI', () => {
       const result = await new InstructionRunner(host).run('call the flaky provider');
 
       expect(result).toBe(false);
-      // Initial attempt + 3 retries, all completing rather than stalling on
-      // an hours-long sleep for the first retry.
       expect(host.runReactLoop).toHaveBeenCalledTimes(4);
       expect(sleepDelays).toHaveLength(3);
       for (const delay of sleepDelays) {
-        expect(delay).toBeLessThanOrEqual(60_000);
+        expect(delay).toBeGreaterThan(4 * 60 * 60 * 1000 - 2000);
+        expect(delay).toBeLessThanOrEqual(4 * 60 * 60 * 1000);
       }
     } finally {
       consoleLogSpy.mockRestore();

@@ -5,9 +5,10 @@
  */
 
 import chalk from 'chalk';
+import { getProviderConfig } from '../../config.js';
 import { formatToolObservation } from '../agent/AgentToolOutputRuntime.js';
 import { randomUUID } from 'node:crypto';
-import { SUBAGENT_SKILLS_PROMPT_KEY, SubAgentSkills, type SubAgentSkillsRegistry } from './subAgentSkills.js';
+import { SubAgentSkills, type SubAgentSkillsRegistry } from './subAgentSkills.js';
 import type { RunBudgetGate } from '../agent/RunBudget.js';
 import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
 import { formatAgentRoster } from './agentRoster.js';
@@ -19,6 +20,7 @@ import {
     ToolManager,
     DEFAULT_TOOL_DEFINITIONS,
     GOAL_TOOL_DEFINITIONS,
+    searchToolDefinitions,
     type ToolAuthorizationOptions,
     type ToolDefinition,
     type ToolManagerOptions,
@@ -48,7 +50,10 @@ import { evaluateAssistantTurn } from '../agent/TurnOutcomeEvaluator.js';
 import { TruncationRecoveryTracker } from '../agent/TruncationRecovery.js';
 import { DEFAULT_RESPONSE_COMPLETION_HOOKS } from '../agent/ResponseCompletionClassifier.js';
 import { getSessionPromptCacheDirective, isPromptCachingEnabled } from '../agent/PromptCache.js';
-import { usesAutohandAICloud } from '../../providers/AutohandAIProvider.js';
+import { CODE_MODE_TOOL_NAME, codeModeToolDefinitions, runCodeModeScript, selectCodeModeTools, isScriptCallableTool } from '../agent/CodeModeRunner.js';
+import { normalizePromptRoles, toTextOnlyContent } from '../../providers/messagePayload.js';
+import { ApiError } from '../../providers/errors.js';
+import { calculateContextUsage, getContextWindow } from '../context/tokenizer.js';
 import { isAutohandOrchestrationEnabled, RESEARCH_WORKER_INSTRUCTIONS, RESEARCH_WORKER_TOOLS } from '../agent/AutohandOrchestration.js';
 
 /**
@@ -154,6 +159,7 @@ export class SubAgent {
     private readonly usage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
     private readonly skills: SubAgentSkills | null;
     private readonly promptCache: PromptCacheDirective | undefined;
+    private lastSkillsPrompt?: string;
 
     constructor(
         private readonly config: AgentDefinition,
@@ -245,8 +251,32 @@ export class SubAgent {
                 ? Math.min(3, options.maxConcurrency ?? 5)
                 : 1; // depth 2+ = sequential
 
+        const scriptDefinitions = codeModeToolDefinitions(options.featureConfig);
+        if (scriptDefinitions.length > 0) {
+            const discovery = DEFAULT_TOOL_DEFINITIONS.filter(definition => definition.name === 'tool_search');
+            let transport = toolFilter.filterDefinitions([...scriptDefinitions, ...discovery]);
+            transport = options.authorization?.permissionManager?.filterAdvertisedTools(transport) ?? transport;
+            definitions = uniqueToolDefinitions([...definitions, ...transport]);
+        }
+
         this.toolManager = new ToolManager({
             executor: async (action, context) => {
+                if (action.type === CODE_MODE_TOOL_NAME) {
+                    return runCodeModeScript(this.toolManager, {
+                        script: action.script, timeoutMs: action.timeout_ms,
+                        toolCallId: context?.toolCallId ?? `script-${randomUUID()}`,
+                        signal: context?.signal, context,
+                    });
+                }
+                if (action.type === 'tool_search') {
+                    const query = action.query?.trim();
+                    if (!query) return { success: false, kind: 'validation', error: 'tool_search requires a non-empty query.' };
+                    const matches = searchToolDefinitions(this.toolManager.listDefinitions(), query, action.limit);
+                    return { success: true, output: JSON.stringify(matches.map(tool => ({
+                        name: tool.name, description: tool.description,
+                        parameters: tool.parameters ?? { type: 'object', properties: {} },
+                    }))) };
+                }
                 // Handle delegation actions
                 if (action.type === 'delegate_task' && this.delegator) {
                     return this.delegator.delegateTaskForTool(
@@ -290,7 +320,7 @@ export class SubAgent {
     private resolvePromptCache(): PromptCacheDirective | undefined {
         const config = this.options.featureConfig;
         const provider = this.llm.getName?.() as ProviderName | undefined;
-        if (!config || !usesAutohandAICloud(config, provider)) return undefined;
+        if (!config) return undefined;
         const enabled = this.options.isPromptCachingEnabled?.(provider)
             ?? isPromptCachingEnabled(config, undefined, provider);
         return enabled ? getSessionPromptCacheDirective(`subagent:${randomUUID()}`) : undefined;
@@ -300,14 +330,21 @@ export class SubAgent {
     private refreshSkillsPrompt(): void {
         if (!this.skills) return;
         const canActivate = this.toolManager.listToolNames().includes('skill');
-        this.conversation.addSystemNote(this.skills.buildPrompt({ canActivate }), SUBAGENT_SKILLS_PROMPT_KEY);
+        const prompt = this.skills.buildPrompt({ canActivate });
+        if (prompt !== this.lastSkillsPrompt) {
+            this.conversation.addMessage({ role: 'user', content: prompt });
+            this.lastSkillsPrompt = prompt;
+        }
     }
 
     /**
      * Build system prompt with tool signatures for the LLM
      */
     private buildSystemPrompt(basePrompt: string, tools: ToolDefinition[]): string {
+        const codeMode = tools.some(tool => tool.name === CODE_MODE_TOOL_NAME);
+        if (codeMode) tools = tools.filter(tool => !isScriptCallableTool(tool.name) || tool.name === 'tool_search');
         const toolSignatures = tools.map(def => this.formatToolSignature(def)).join('\n');
+        if (codeMode) basePrompt += '\nUse run_tool_script as the default dispatch path. Call tools.<name>(args) in plain JavaScript, await dependent work in order, and return concise evidence. tool_search returns exact schemas for only your allowed tools; discovery never expands your permissions or the native registry. Each nested call passes through the normal policy and hooks. If a result has images: true, return so you can inspect the attached evidence before proceeding.';
 
         if (this.supportsNativeToolCalling) {
             return [
@@ -408,7 +445,14 @@ export class SubAgent {
         this.conversation.addMessage({ role: 'user', content: task });
 
         // Get function definitions for LLM function calling
-        const tools = this.toolManager.toFunctionDefinitions();
+        const definitions = this.toolManager.toFunctionDefinitions();
+        const tools = selectCodeModeTools(definitions, this.llm.getCapabilities?.().maxTools) ?? definitions;
+        const providerSettings = this.options.featureConfig
+            ? getProviderConfig(this.options.featureConfig, this.llm.getName?.() as ProviderName | undefined)
+            : null;
+        const model = this.options.model ?? providerSettings?.model ?? 'unconfigured';
+        const contextWindow = getContextWindow(model, providerSettings?.contextWindow);
+        const maxTokens = Math.min(16000, Math.max(1, Math.floor(contextWindow * 0.25)));
         const loopGuard = new ToolLoopGuard();
         const reflectionGuard = new ToolReflectionGuard();
         let withholdToolsNextRequest = false;
@@ -432,12 +476,21 @@ export class SubAgent {
                 ? tools
                 : undefined;
 
+            const requestMessages = normalizePromptRoles(this.toolImages.prepare(this.conversation.history()));
+            const requestUsage = calculateContextUsage(
+                requestMessages.map(message => ({ ...message, content: toTextOnlyContent(message.content) })),
+                requestTools ?? [], model, maxTokens, contextWindow,
+            );
+            if (requestUsage.isExceeded) {
+                throw new ApiError(`[${this.name}] The prepared request exceeds the configured context limit (${contextWindow} tokens). Reduce the delegated task or its tool output.`, 'context_overflow', 0, false);
+            }
             this.options.runBudget?.assertRequestAllowed();
             this.options.runBudget?.recordRequest();
             const completion = await this.llm.complete({
-                messages: this.toolImages.prepare(this.conversation.history()),
+                messages: requestMessages,
                 // A definition's model is a suggestion resolved by the team policy; never send it raw.
-            model: this.options.model,
+                model: this.options.model,
+                maxTokens,
                 temperature: 0.2,
                 signal: options.signal,
                 tools: requestTools,

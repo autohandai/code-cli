@@ -52,7 +52,7 @@ import type {
   ToolImageMimeType,
 } from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
-import { orchestrationThreadLimit } from './AutohandOrchestration.js';
+import { areProviderBackgroundCallsEnabled, orchestrationThreadLimit } from './AutohandOrchestration.js';
 import { AgentRunStore, type AgentRunsSnapshot, type AgentRunSource } from '../agents/AgentRunStore.js';
 import { createAgentRunLifecycleHandler } from '../agents/AgentRunLifecycle.js';
 import { attachTeamActivityBridge, enableAutomaticCoordinationMode } from './TeamActivityBridge.js';
@@ -538,21 +538,23 @@ export function initializeAgentDependencies(
         .map(t => t.name)
         .filter(name => toolFilter.isAllowed(name) && !fullyBlockedTools.has(name));
       host.suggestionEngine = new SuggestionEngine(host.llm, {
+        isEnabled: () => areProviderBackgroundCallsEnabled(runtime.config, host.activeProvider),
         allowedTools: toolNames,
         debugLogger: (message: string) => host.writeDebugLine(message),
       });
     }
     host.sessionAutoNamer = new SessionAutoNamer({
-      getProvider: () => host.llm,
+      getProvider: () => areProviderBackgroundCallsEnabled(runtime.config, host.activeProvider) ? host.llm : undefined,
       enabled: !runtime.options.bare && runtime.options.offline !== true && runtime.config.ui?.promptSuggestions !== false,
     });
     if (!runtime.options.bare && !runtime.options.ephemeral && !runtime.options.offline
       && !runtime.options.prompt && !runtime.isCommandMode && !runtime.isRpcMode
-      && runtime.config.ui?.repositoryReadiness !== false) {
+      && runtime.config.ui?.repositoryReadiness !== false
+      && areProviderBackgroundCallsEnabled(runtime.config, initialProvider)) {
       host.repositoryReadiness = new RepositoryReadiness({
         workspaceRoot: runtime.repositorySourceRoot ?? runtime.workspaceRoot,
         signal: host.runtimeResourceShutdownController?.signal,
-        getProvider: () => host.llm,
+        getProvider: () => areProviderBackgroundCallsEnabled(runtime.config, host.activeProvider) ? host.llm : undefined,
         notify: message => {
           if (host.inkRenderer?.isRunning()) host.inkRenderer.addNotification(message, { placement: 'transcript' });
           else host.notifyUser(message);

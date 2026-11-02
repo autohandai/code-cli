@@ -15,6 +15,7 @@ import type {
 import { AzureTokenManager } from "./azure/tokenManager.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { normalizeProviderFinishReason } from "./finishReason.js";
+import { ApiError, classifyApiError, providerRetryDelay, waitForProviderRetry } from "./errors.js";
 
 /**
  * Constructor options for AzureClient.
@@ -231,8 +232,7 @@ export class AzureClient {
 
         // If we have more attempts left, wait before retrying
         if (attempt < this.maxRetries) {
-          const delay = this.retryDelay * Math.pow(2, attempt);
-          await this.sleep(delay);
+          await waitForProviderRetry(providerRetryDelay(lastError, this.retryDelay, attempt), request.signal);
         }
       }
     }
@@ -290,7 +290,9 @@ export class AzureClient {
     }
 
     if (!response.ok) {
-      throw new Error(await this.buildFriendlyError(response));
+      const message = await this.buildFriendlyError(response);
+      const classified = classifyApiError(response.status, message, response.headers);
+      throw new ApiError(message, classified.code, classified.httpStatus, classified.retryable, classified.retryAfterMs);
     }
 
     const json = (await response.json()) as any;
@@ -372,6 +374,7 @@ export class AzureClient {
   }
 
   private isNonRetryableError(error: Error): boolean {
+    if (error instanceof ApiError) return !error.retryable;
     const message = error.message.toLowerCase();
 
     if (message.includes("cancelled") || message.includes("aborted")) {
@@ -393,7 +396,4 @@ export class AzureClient {
     return false;
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }

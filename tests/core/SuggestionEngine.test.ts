@@ -24,6 +24,19 @@ function createMockProvider(response = 'Run the test suite'): LLMProvider {
 }
 
 describe('SuggestionEngine', () => {
+  it('honors a live background-call policy without recreating the engine', async () => {
+    let enabled = true;
+    const llm = createMockProvider();
+    const engine = new SuggestionEngine(llm, { isEnabled: () => enabled });
+    const history: LLMMessage[] = [{ role: 'user', content: 'Inspect code' }];
+    await engine.generate(history);
+    enabled = false;
+    await engine.generate(history);
+    await engine.generateFromProjectContext({ recentFiles: ['a.ts'] });
+    expect(llm.complete).toHaveBeenCalledTimes(1);
+    expect(engine.getSuggestion()).toBeNull();
+  });
+
   let engine: SuggestionEngine;
   let provider: LLMProvider;
 

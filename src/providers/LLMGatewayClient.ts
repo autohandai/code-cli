@@ -13,7 +13,7 @@ import type {
   MultimodalMessage,
 } from "../types.js";
 import { joinReasoning, splitInlineThinking } from "./inlineThinking.js";
-import { ApiError, classifyApiError, readContentBlockedError } from "./errors.js";
+import { ApiError, classifyApiError, readContentBlockedError, waitForProviderRetry } from "./errors.js";
 import { normalizeOutboundMessages, toTextOnlyContent } from "./messagePayload.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { readOpenAIEventStream } from "./openAIEventStream.js";
@@ -46,7 +46,7 @@ function sanitizeMessages(
     recoverOrphanedToolResult: (message) => {
       const label = message.name ? `: ${message.name}` : "";
       return {
-        role: "system",
+        role: "user",
         content: `[Recovered Tool Result${label}]\n${toTextOnlyContent(message.content)}`,
       };
     },
@@ -403,10 +403,10 @@ export class LLMGatewayClient {
 
         // If we have more attempts left, wait before retrying
         if (attempt < this.maxRetries) {
-          const delay = lastError instanceof AutohandRateLimitError
-            && lastError.retryAfterMs !== undefined
-            ? lastError.retryAfterMs
-            : this.retryDelay * Math.pow(2, attempt);
+          const delay = Math.max(
+            this.retryDelay * Math.pow(2, attempt),
+            lastError instanceof ApiError ? lastError.retryAfterMs ?? 0 : 0,
+          );
           request.onRetry?.({
             phase: "waiting",
             delayMs: delay,
@@ -414,7 +414,7 @@ export class LLMGatewayClient {
             maxAttempts: this.maxRetries,
             reason: this.describeRetryReason(lastError),
           });
-          await this.sleep(delay, request.signal);
+          await waitForProviderRetry(delay, request.signal);
           request.onRetry?.({ phase: "retrying", attempt: attempt + 1, maxAttempts: this.maxRetries });
         }
       }
@@ -739,21 +739,4 @@ export class LLMGatewayClient {
     return false;
   }
 
-  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) {
-      return Promise.reject(new ApiError("Request cancelled.", "cancelled", 0, false));
-    }
-
-    return new Promise((resolve, reject) => {
-      const onAbort = () => {
-        clearTimeout(timeoutId);
-        reject(new ApiError("Request cancelled.", "cancelled", 0, false));
-      };
-      const timeoutId = setTimeout(() => {
-        signal?.removeEventListener("abort", onAbort);
-        resolve();
-      }, ms);
-      signal?.addEventListener("abort", onAbort, { once: true });
-    });
-  }
 }

@@ -43,8 +43,8 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).toContain('Command dialect: powershell');
   });
 
-  it('includes the tool-choice rubric and compact tool catalog without runtime schemas', async () => {
-    const builder = createBuilder();
+  it('keeps the legacy tool catalog when code mode is explicitly disabled', async () => {
+    const builder = createBuilder({ runtime: { options: {}, workspaceRoot: process.cwd(), config: { features: { codeMode: false } } } });
 
     const prompt = await builder.build();
 
@@ -60,6 +60,19 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).toContain('Reflect Before Acting');
     expect(prompt).toContain('Write code using `apply_patch`');
     expect(prompt).not.toContain('multi_file_edit');
+  });
+
+  it('uses a stable programmatic contract without enumerating the registry by default', async () => {
+    const getToolDefinitions = vi.fn(() => [{ name: 'read_file', description: 'Read a file' }]);
+    const builder = createBuilder({ getToolDefinitions });
+    const first = await builder.build();
+    getToolDefinitions.mockReturnValue([{ name: 'new_runtime_tool', description: 'A newly installed tool' }]);
+    const second = await builder.build();
+    expect(second).toBe(first);
+    expect(first).toContain('Use `run_tool_script` as the default tool dispatch path');
+    expect(first).toContain('Discovery does not add native tools');
+    expect(first).not.toContain('Exact tool schemas are selected per request');
+    expect(first).not.toContain('new_runtime_tool');
   });
 
   it('refreshes dynamic extensions before reading tools and discovered agents', async () => {
