@@ -25,6 +25,7 @@ import { matchesToolPattern } from './toolPatterns.js';
 import { filterAdvertisedTools } from './toolAdvertising.js';
 import { checkRunToolScope, isToolAdvertisedByScope, type RunToolScope } from './runToolScope.js';
 import { YoloTimer } from './yoloMode.js';
+import { setBounded } from '../utils/bounded.js';
 import {
   addToSessionAllowList,
   addToSessionDenyList,
@@ -43,6 +44,9 @@ const PLAN_FILE_EDIT_TOOLS = new Set([
   'write_file', 'append_file', 'apply_patch', 'notebook_edit', 'search_replace',
   'format_file', 'multi_file_edit', 'delete_path', 'rename_path', 'copy_path',
 ]);
+
+/** Evict the oldest recorded cache entries; explicit allow and deny rules remain in their own stores. */
+export const MAX_SESSION_CACHE_ENTRIES = 1000;
 
 /**
  * Default security blacklist - always blocked patterns for sensitive files and dangerous commands.
@@ -568,7 +572,7 @@ export class PermissionManager {
     const merged = this.getMergedSettings();
     if (merged.rememberSession) {
       const cacheKey = this.getCacheKey(context);
-      this.sessionCache.set(cacheKey, allowed);
+      setBounded(this.sessionCache, cacheKey, allowed, MAX_SESSION_CACHE_ENTRIES);
     }
 
     // Build pattern for allowList/denyList
