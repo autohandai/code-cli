@@ -31,12 +31,13 @@ export async function upgrade(
   const url = buildUpgradeUrl(target);
   await ctx.trackFeatureActivation?.('upgrade_link', { tier: entitlement.tier, target });
 
-  if (ctx.isNonInteractive) {
-    return t('commands.upgrade.link', { url });
+  if (!ctx.isNonInteractive) {
+    await (deps.openBrowser ?? openBrowserDefault)(url);
   }
-
-  await (deps.openBrowser ?? openBrowserDefault)(url);
-  return t('commands.upgrade.opening', { url });
+  const message = t(ctx.isNonInteractive ? 'commands.upgrade.link' : 'commands.upgrade.opening', { url });
+  return Date.now() < Date.UTC(2027, 0, 1)
+    ? `${message}\nAnnual plans are 20% off for the first year only, until 1 Jan 2027: autohand.ai/code/pricing`
+    : message;
 }
 
 export const metadata = {
