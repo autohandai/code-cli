@@ -3971,8 +3971,8 @@ const FixedBottom = memo(function FixedBottom({
         ) : null}
         {fullScreen && menus}
         <ShortcutsHelpPanel visible={showShortcuts && !isWorking} keybindings={keybindings} columns={terminalColumns} fullScreen={fullScreen} />
-        {goalEditUnavailable ? <Text color={colors.warning}>Goal is unavailable. Draft kept; Esc cancels.</Text> : null}
       </Box>
+      {goalEditUnavailable ? <Box flexShrink={0}><Text color={colors.warning}>Goal is unavailable. Draft kept; Esc cancels.</Text></Box> : null}
       <InputLineWrapper
         maxRows={fullScreen ? Math.max(1, Math.min(4, Math.floor((terminalRows ?? 24) / 4))) : undefined}
         enableQueueInput={enableQueueInput}
