@@ -424,7 +424,7 @@ program
   .option('--output-format <format>', 'Command output format: stream-json')
   .option('--json [mode]', 'Command JSON output: stream (default) or local')
   .option('--output-schema <file>', 'Command mode only: the final answer must be one JSON document valid against this JSON Schema file')
-  .option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
+  .option('--bare', 'Minimal mode: skip hooks, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
   .option('--no-daemon', 'Disable background services and child processes; keep foreground tools and session commands')
   .option('--offline', 'Disable startup network operations, including model catalog refreshes', false)
   .option('--path <path>', 'Workspace path to operate in')
