@@ -275,7 +275,9 @@
         "braveApiKey": "Brave API kulcs",
         "braveApiKeyDesc": "API kulcs a Brave Searchhez",
         "parallelApiKey": "Parallel API kulcs",
-        "parallelApiKeyDesc": "API kulcs a Parallel.ai-hoz"
+        "parallelApiKeyDesc": "API kulcs a Parallel.ai-hoz",
+        "keenableApiKey": "Keenable API key",
+        "keenableApiKeyDesc": "API key for Keenable"
       }
     },
     "status": {

@@ -325,6 +325,8 @@
         "braveApiKeyDesc": "API key for Brave Search",
         "parallelApiKey": "Parallel API key",
         "parallelApiKeyDesc": "API key for Parallel.ai",
+        "keenableApiKey": "Keenable API key",
+        "keenableApiKeyDesc": "API key for Keenable",
         "exaApiKey": "Exa API key",
         "exaApiKeyDesc": "API key for Exa.ai"
       }

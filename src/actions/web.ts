@@ -75,6 +75,7 @@ export interface SearchConfig {
   braveApiKey?: string;
   parallelApiKey?: string;
   exaApiKey?: string;
+  keenableApiKey?: string;
 }
 
 /** Global search configuration - set by the agent at startup */
@@ -104,6 +105,7 @@ export function configureSearchFromSettings(
     braveApiKey: settings.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY,
     parallelApiKey: settings.parallelApiKey ?? process.env.PARALLEL_API_KEY,
     exaApiKey: settings.exaApiKey ?? process.env.EXA_API_KEY,
+    keenableApiKey: settings.keenableApiKey ?? process.env.KEENABLE_API_KEY,
   });
 }
 
@@ -145,6 +147,7 @@ export function getSearchConfig(): SearchConfig {
  * - Exa is selected AND has an API key
  * - Brave is selected AND has an API key
  * - Parallel is selected AND has an API key
+ * - Keenable is selected AND has an API key
  * - Google is selected (no key required, more reliable than DDG)
  */
 export function isSearchConfigured(): boolean {
@@ -152,6 +155,7 @@ export function isSearchConfigured(): boolean {
   const braveKey = config.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY;
   const parallelKey = config.parallelApiKey ?? process.env.PARALLEL_API_KEY;
   const exaKey = config.exaApiKey ?? process.env.EXA_API_KEY;
+  const keenableKey = config.keenableApiKey ?? process.env.KEENABLE_API_KEY;
 
   switch (config.provider) {
     case 'autohand':
@@ -167,6 +171,8 @@ export function isSearchConfigured(): boolean {
       return !!braveKey;
     case 'parallel':
       return !!parallelKey;
+    case 'keenable':
+      return !!keenableKey;
     case 'google':
       return true; // Google scraping doesn't need an API key
     case 'duckduckgo':
@@ -614,6 +620,7 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
   const braveApiKey = globalSearchConfig.braveApiKey ?? process.env.BRAVE_SEARCH_API_KEY;
   const parallelApiKey = globalSearchConfig.parallelApiKey ?? process.env.PARALLEL_API_KEY;
   const exaApiKey = globalSearchConfig.exaApiKey ?? process.env.EXA_API_KEY;
+  const keenableApiKey = globalSearchConfig.keenableApiKey ?? process.env.KEENABLE_API_KEY;
 
   switch (provider) {
     case 'autohand':
@@ -653,6 +660,15 @@ export async function webSearch(query: string, options: WebSearchOptions = {}): 
         );
       }
       return parallelSearch(enhancedQuery, parallelApiKey, maxResults, options.signal);
+
+    case 'keenable':
+      if (!keenableApiKey) {
+        throw new Error(
+          'Keenable Search requires an API key. Configure it with /search or set KEENABLE_API_KEY environment variable. ' +
+          'Get an API key at: https://keenable.ai'
+        );
+      }
+      return keenableSearch(enhancedQuery, keenableApiKey, maxResults, options.signal);
 
     case 'google':
       return googleSearch(enhancedQuery, maxResults, options.signal);
@@ -869,6 +885,53 @@ async function parallelSearch(
       title: result.title || result.url || 'Untitled',
       url: result.url || '',
       snippet: result.excerpt || result.content?.slice(0, 300) || result.snippet || result.description || '',
+    });
+  }
+  return results;
+}
+
+/**
+ * Search using the Keenable Search API
+ */
+export async function keenableSearch(
+  query: string,
+  apiKey: string,
+  maxResults: number,
+  signal?: AbortSignal,
+): Promise<WebSearchResult[]> {
+  const postData = JSON.stringify({ query, max_results: maxResults });
+  const response = await simpleRequest('https://api.keenable.ai/v1/search', {
+    method: 'POST',
+    body: postData,
+    timeout: 30000,
+    maxLength: 500000,
+    signal,
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': String(Buffer.byteLength(postData)),
+      'X-API-Key': apiKey,
+      'X-Keenable-Title': 'Autohand Code CLI',
+    },
+  });
+  if (response.statusCode && response.statusCode >= 400) {
+    throw new Error(`Keenable API error: HTTP ${response.statusCode} - ${response.body}`);
+  }
+
+  let json: { results?: Array<{ title?: string; url?: string; description?: string; snippet?: string }> };
+  try {
+    json = JSON.parse(response.body);
+  } catch (parseError) {
+    throw new Error(`Failed to parse Keenable response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+  }
+
+  const results: WebSearchResult[] = [];
+  for (const result of (json.results ?? []).slice(0, maxResults)) {
+    if (!result.url) continue;
+    results.push({
+      title: result.title || result.url,
+      url: result.url,
+      // Prefer the short description; fall back to a truncated page excerpt.
+      snippet: result.description || result.snippet?.slice(0, 500) || '',
     });
   }
   return results;

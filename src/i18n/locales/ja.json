@@ -275,7 +275,9 @@
         "braveApiKey": "Brave APIキー",
         "braveApiKeyDesc": "Brave Search用のAPIキー",
         "parallelApiKey": "Parallel APIキー",
-        "parallelApiKeyDesc": "Parallel.ai用のAPIキー"
+        "parallelApiKeyDesc": "Parallel.ai用のAPIキー",
+        "keenableApiKey": "Keenable API key",
+        "keenableApiKeyDesc": "API key for Keenable"
       }
     },
     "status": {
