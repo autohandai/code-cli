@@ -648,6 +648,12 @@ describe('initializeAgentForRPC', () => {
     await initializeAgentForRPC(host, undefined, 'persisted-session-123');
 
     expect(host.sessionManager.loadSession).toHaveBeenCalledWith('persisted-session-123');
+    expect(host.sessionManager.loadSession).toHaveBeenCalledTimes(1);
+    expect(host.resetConversationContext).toHaveBeenCalledTimes(1);
+    expect(host.injectSessionBootstrap).toHaveBeenCalledTimes(1);
+    expect(host.injectProjectKnowledge).toHaveBeenCalledTimes(1);
+    expect(host.telemetryManager.startSession).toHaveBeenCalledTimes(1);
+    expect(host.hookManager.executeHooks).toHaveBeenCalledTimes(1);
     expect(host.sessionManager.createSession).not.toHaveBeenCalled();
     expect(host.hookManager.executeHooks).toHaveBeenCalledWith('session-start', {
       sessionId: 'persisted-session-123',

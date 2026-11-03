@@ -4,6 +4,34 @@ import type { Session as TerminalSession } from 'tuistory';
 import { Session, SessionManager } from '../../session/SessionManager.js';
 import type { SessionMessage, SessionMetadata } from '../../session/types.js';
 import type { PtyDriver } from '../drivers/pty-driver.js';
+import { waitForExit } from '../drivers/tuistory-driver.js';
+
+interface RpcTranscriptMessage {
+  jsonrpc?: string;
+  method?: string;
+  params?: { sessionId?: string; sessionType?: string };
+  id?: number;
+  result?: unknown;
+}
+
+export async function inspectSdkSessionResume(session: TerminalSession): Promise<RpcTranscriptMessage[]> {
+  await session.waitForText('autohand.agentStart', { timeout: 20_000 });
+  await session.type(JSON.stringify({ jsonrpc: '2.0', id: 71, method: 'autohand.getMessages', params: {} }));
+  await session.press('enter');
+  await session.text({ timeout: 15_000, waitFor: () => session.getRawOutput().includes('Added a vitest case that resizes') });
+  await session.press(['ctrl', 'c']);
+  await waitForExit(session, 15_000);
+  const messages: RpcTranscriptMessage[] = [];
+  for (const line of session.getRawOutput().split(/\r?\n/u)) {
+    try {
+      const message: RpcTranscriptMessage = JSON.parse(line);
+      if (message?.jsonrpc === '2.0') messages.push(message);
+    } catch {
+      continue;
+    }
+  }
+  return messages;
+}
 
 interface FixtureMessage { role: 'user' | 'assistant'; content: string; }
 

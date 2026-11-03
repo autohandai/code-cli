@@ -411,7 +411,8 @@ export class RPCAdapter {
     model: string,
     workspace: string,
     config?: LoadedConfig,
-    mcpServerConfigs?: McpServerConfigEntry[]
+    mcpServerConfigs?: McpServerConfigEntry[],
+    sessionType: 'startup' | 'resume' = 'startup',
   ): void {
     this.agent = agent;
     this.conversation = conversation;
@@ -420,7 +421,7 @@ export class RPCAdapter {
     this.sessionStartedAt = Date.now();
     this.config = config ? { ...config } : { configPath: '' };
     this.browserV2PromptInjected = false;
-    this.sessionId = generateId('session');
+    this.sessionId = agent.getSessionManager?.()?.getCurrentSession?.()?.metadata?.sessionId ?? generateId('session');
     this.mcpServerConfigs = mcpServerConfigs ?? [];
 
     // Get reference to agent's ImageManager for handling multimodal prompts
@@ -451,7 +452,7 @@ export class RPCAdapter {
       timestamp: createTimestamp(),
       contextPercent: this.contextPercent,
     });
-    this.emitHookSessionStart('startup');
+    this.emitHookSessionStart(sessionType);
     agent.programStatus?.start();
   }
 

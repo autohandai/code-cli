@@ -24,7 +24,7 @@ import type { AgentOutputEvent } from '../../../src/types.js';
 
 const timestamp = '2026-07-22T00:00:00.000Z';
 
-function createHarness() {
+function createHarness(sessionType: 'startup' | 'resume' = 'startup') {
   const hookManager = new HookManager({
     workspaceRoot: '/workspace',
     settings: { enabled: false, hooks: [] },
@@ -61,6 +61,9 @@ function createHarness() {
     conversation as unknown as ConversationManager,
     'model',
     '/workspace',
+    undefined,
+    undefined,
+    sessionType,
   );
   return { adapter, agent, hookManager, emitOutput: (event: AgentOutputEvent) => outputListener?.(event) };
 }
@@ -135,13 +138,17 @@ describe('HookManager to RPC lifecycle integration', () => {
     });
   });
 
-  it('emits startup exactly once on the real adapter lifecycle', () => {
-    const { adapter } = createHarness();
-
-    expect(hookNotifications()).toEqual([
-      ['autohand.hook.sessionStart', { sessionType: 'startup', timestamp }],
-    ]);
-    expect(adapter).toBeDefined();
+  it.each(['startup', 'resume'] as const)('announces %s once without executing user hooks again', sessionType => {
+    const hooks = vi.spyOn(HookManager.prototype, 'executeHooks');
+    try {
+      createHarness(sessionType);
+      expect(hookNotifications()).toEqual([
+        ['autohand.hook.sessionStart', { sessionType, timestamp }],
+      ]);
+      expect(hooks).not.toHaveBeenCalled();
+    } finally {
+      hooks.mockRestore();
+    }
   });
 
   it.each([
