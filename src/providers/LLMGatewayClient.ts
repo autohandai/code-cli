@@ -70,6 +70,7 @@ export interface LLMGatewayCompatibleErrorLabels {
   serviceName: string;
   credentialName: string;
   accountName: string;
+  statusUrl?: string;
 }
 
 const DEFAULT_ERROR_LABELS: LLMGatewayCompatibleErrorLabels = {
@@ -83,12 +84,12 @@ function buildFriendlyErrors(labels: LLMGatewayCompatibleErrorLabels): Record<st
   return {
     invalid_request: "The request was malformed and could not be processed.",
     context_overflow: "The conversation is too long for this model. Try /undo to remove recent turns or /new to start fresh.",
-    model_not_found: "The requested model was not found. Use /model to select a different one.",
+    model_not_found: `${labels.serviceName} could not find the requested model. Use /model to select a different one.`,
     auth_failed: `Authentication failed. Please verify your ${labels.credentialName} in ~/.autohand/config.json.`,
     payment_required: `Payment required. Please check your ${labels.accountName} balance or billing settings.`,
     access_denied: `Access denied. Your ${labels.credentialName} may not have permission for this model.`,
     rate_limited: "Rate limit exceeded. Please wait a moment and try again, or choose a different model.",
-    server_error: `The ${labels.serviceName} service is temporarily unavailable. Please try again later.`,
+    server_error: `The ${labels.serviceName} service is temporarily unavailable. Please try again later.${labels.statusUrl === undefined ? "" : ` Service status: ${labels.statusUrl}`}`,
     timeout: `The request timed out. The ${labels.serviceName} service may be experiencing high load.`,
   };
 }

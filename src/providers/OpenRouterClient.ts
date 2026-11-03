@@ -94,6 +94,8 @@ const DEFAULT_RETRY_DELAY = 1000;
 const DEFAULT_TIMEOUT = 30000;
 
 const OPENROUTER_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
+  model_not_found:
+    "OpenRouter could not find the requested model. Use /model to select a different one.",
   auth_failed:
     "Authentication failed. Please verify your OpenRouter API key in ~/.autohand/config.json.",
   payment_required:
@@ -101,7 +103,7 @@ const OPENROUTER_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   access_denied:
     "Access denied. Your OpenRouter API key may not have permission for this model.",
   server_error:
-    "The OpenRouter service encountered an error. Please try again later.",
+    "The OpenRouter service encountered an error. Please try again later. Check OpenRouter status at https://status.openrouter.ai",
   network_error:
     "Unable to connect to OpenRouter. Please check your internet connection.",
   timeout:
@@ -177,19 +179,19 @@ function extractAffordableMaxTokens(errorDetail: string): number | undefined {
 const OPENROUTER_TRANSIENT_ERROR_TYPES: Partial<Record<string, { code: ApiErrorCode; message: string }>> = {
   provider_unavailable: {
     code: 'server_error',
-    message: 'The upstream model provider returned an invalid or empty response. Please try again.',
+    message: 'The upstream model provider returned an invalid or empty response. Please try again. Check OpenRouter status at https://status.openrouter.ai',
   },
   provider_overloaded: {
     code: 'server_error',
-    message: 'The upstream model provider is temporarily overloaded. Please try again.',
+    message: 'The upstream model provider is temporarily overloaded. Please try again. Check OpenRouter status at https://status.openrouter.ai',
   },
   timeout: {
     code: 'timeout',
-    message: 'The upstream model provider did not respond in time. Please try again.',
+    message: 'The upstream model provider did not respond in time. Please try again. Check OpenRouter status at https://status.openrouter.ai',
   },
   server: {
     code: 'server_error',
-    message: 'The upstream model provider encountered an internal error. Please try again.',
+    message: 'The upstream model provider encountered an internal error. Please try again. Check OpenRouter status at https://status.openrouter.ai',
   },
 };
 

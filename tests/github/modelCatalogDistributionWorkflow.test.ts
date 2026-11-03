@@ -31,6 +31,12 @@ describe("model catalog distribution automation", () => {
         outputPath,
       ]);
       const catalog = JSON.parse(readFileSync(outputPath, "utf8"));
+      for (const model of ["fantail", "moa", "auto", "grok-4.7", "qwen3.8-27b", "qwen3.8-max"]) {
+        expect(catalog.autohandai[model].input).toEqual(["text", "image"]);
+      }
+      for (const model of ["gpt-6-sol", "gpt-5.6-luna", "deepseek-v4-flash", "muse-wonder-1.0", "gemini-4-argon"]) {
+        expect(catalog.autohandai[model].input).toEqual(["text"]);
+      }
 
       expect(catalog.autohandai).toEqual({
         fantail: expect.objectContaining({

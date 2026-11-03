@@ -438,6 +438,7 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     await session.waitForText('Autohand (Pro) (Autohand AI, moa)', { timeout: 10_000 });
     expect(session.readAll()).not.toContain('Pro · Monthly');
     await session.type('/status');
+    await session.text({ timeout: 10_000, waitFor: text => text.includes('❯ /status') });
     await session.press('enter');
     await session.waitForText('(tab to cycle)', { timeout: 10_000 });
     await session.press('tab');

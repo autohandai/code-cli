@@ -10,7 +10,8 @@
           "description": "Ultra-fast coding model with tool calls and 256k input context",
           "contextWindow": 262144,
           "maxTokens": 16000,
-          "toolCalls": true
+          "toolCalls": true,
+          "input": ["text", "image"]
         },
         {
           "id": "moa",
@@ -20,7 +21,8 @@
           "maxTokens": 262144,
           "toolCalls": true,
           "reasoningEffort": "high",
-          "reasoningEfforts": ["medium", "high", "xhigh"]
+          "reasoningEfforts": ["medium", "high", "xhigh"],
+          "input": ["text", "image"]
         },
         {
           "id": "auto",
@@ -30,16 +32,17 @@
           "maxTokens": 16000,
           "toolCalls": true,
           "reasoningEffort": "high",
-          "reasoningEfforts": ["medium", "high", "xhigh"]
+          "reasoningEfforts": ["medium", "high", "xhigh"],
+          "input": ["text", "image"]
         },
-        {"id": "gpt-5.6-luna", "displayName": "GPT-5.6 Luna", "description": "Lite and above", "contextWindow": 1050000, "maxTokens": 16000, "toolCalls": true},
-        {"id": "deepseek-v4-flash", "displayName": "DeepSeek V4 Flash", "description": "Lite and above", "contextWindow": 1048576, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["none", "low", "high"]},
-        {"id": "gpt-6-sol", "displayName": "GPT-6 Sol", "description": "Pro, Pro+, Max, Team and Enterprise", "contextWindow": 1050000, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high", "xhigh"]},
-        {"id": "grok-4.7", "displayName": "Grok 4.7", "description": "Pro+, Max, Team and Enterprise", "contextWindow": 500000, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high", "xhigh"]},
-        {"id": "qwen3.8-27b", "displayName": "qwen3.8-27b", "description": "Pro+, Max, Team and Enterprise", "contextWindow": 262144, "maxTokens": 16000, "toolCalls": true},
-        {"id": "muse-wonder-1.0", "displayName": "Muse Wonder 1.0", "description": "Lite and above", "contextWindow": 262144, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high", "xhigh"]},
-        {"id": "qwen3.8-max", "displayName": "Qwen 3.8 Max", "description": "Lite and above", "contextWindow": 262144, "maxTokens": 16000, "toolCalls": true},
-        {"id": "gemini-4-argon", "displayName": "Gemini 4 Argon", "description": "Max, Team and Enterprise", "contextWindow": 1048576, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high"]}
+        {"id": "gpt-5.6-luna", "displayName": "GPT-5.6 Luna", "description": "Lite and above", "contextWindow": 1050000, "maxTokens": 16000, "toolCalls": true, "input": ["text"]},
+        {"id": "deepseek-v4-flash", "displayName": "DeepSeek V4 Flash", "description": "Lite and above", "contextWindow": 1048576, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["none", "low", "high"], "input": ["text"]},
+        {"id": "gpt-6-sol", "displayName": "GPT-6 Sol", "description": "Pro, Pro+, Max, Team and Enterprise", "contextWindow": 1050000, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high", "xhigh"], "input": ["text"]},
+        {"id": "grok-4.7", "displayName": "Grok 4.7", "description": "Pro+, Max, Team and Enterprise", "contextWindow": 500000, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high", "xhigh"], "input": ["text", "image"]},
+        {"id": "qwen3.8-27b", "displayName": "qwen3.8-27b", "description": "Pro+, Max, Team and Enterprise", "contextWindow": 262144, "maxTokens": 16000, "toolCalls": true, "input": ["text", "image"]},
+        {"id": "muse-wonder-1.0", "displayName": "Muse Wonder 1.0", "description": "Lite and above", "contextWindow": 262144, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high", "xhigh"], "input": ["text"]},
+        {"id": "qwen3.8-max", "displayName": "Qwen 3.8 Max", "description": "Lite and above", "contextWindow": 262144, "maxTokens": 16000, "toolCalls": true, "input": ["text", "image"]},
+        {"id": "gemini-4-argon", "displayName": "Gemini 4 Argon", "description": "Max, Team and Enterprise", "contextWindow": 1048576, "maxTokens": 16000, "toolCalls": true, "reasoningEffort": "high", "reasoningEfforts": ["low", "medium", "high"], "input": ["text"]}
       ]
     },
     "openrouter": {

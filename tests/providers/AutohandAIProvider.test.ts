@@ -13,6 +13,22 @@ import {
   getAutohandAIAvailableModelOptions,
 } from "../../src/providers/AutohandAIProvider.js";
 
+describe("Autohand outage guidance", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it.each([[503, true], [401, false]] as const)(
+    "includes status guidance only for service failures (HTTP %s)",
+    async (status, includesStatus) => {
+      globalThis.fetch = vi.fn().mockResolvedValue(Response.json({ error: { message: "fixture failure" } }, { status })) as typeof globalThis.fetch;
+      const provider = new AutohandAIProvider({ plan: "cloud", authMode: "api-key", apiKey: "test-key", model: "fantail" }, { maxRetries: 0 });
+      const error = await provider.complete({ messages: [{ role: "user", content: "hi" }] }).catch((failure: unknown) => failure);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message.includes("https://status.autohand.ai")).toBe(includesStatus);
+    },
+  );
+});
+
 describe("AutohandAIProvider", () => {
   let originalFetch: typeof globalThis.fetch;
 
@@ -23,6 +39,24 @@ describe("AutohandAIProvider", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+  it("names Autohand AI and the recovery action when a hosted model is not found", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({
+      error: { message: "Fixture model is not available" },
+    }, { status: 404 }));
+    globalThis.fetch = fetchMock;
+    const provider = new AutohandAIProvider({
+      plan: "cloud", authMode: "api-key", apiKey: "test-key", model: "fantail",
+    }, { maxRetries: 0 });
+
+    await expect(provider.complete({ messages: [{ role: "user", content: "hi" }] }))
+      .rejects.toMatchObject({
+        code: "model_not_found", httpStatus: 404, retryable: false,
+        message: expect.stringContaining("Autohand AI could not find the requested model. Use /model to select a different one."),
+        rawDetail: "Fixture model is not available",
+      });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("uses the authenticated plan catalog and excludes non-chat models", async () => {

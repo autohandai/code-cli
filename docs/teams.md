@@ -140,9 +140,8 @@ Tasks move through the following states:
 
 ```
 pending --> in_progress --> completed
-   ^
-   |
-   +---- (crash recovery) ----+
+                  |
+                  +--> failed
 ```
 
 1. **Created** -- Tasks are created with status `pending`. Each task has a `subject`, `description`, and optional `blockedBy` array of task IDs.
@@ -150,7 +149,7 @@ pending --> in_progress --> completed
 3. **Assigned** -- When a teammate goes idle, the lead picks the first available task, sets its status to `in_progress`, assigns the `owner`, and sends a `team.assignTask` message to the teammate.
 4. **In progress** -- The teammate works on the task and sends `team.log` messages to report progress.
 5. **Completed** -- The teammate sends a `team.taskUpdate` with `status: "completed"`. The lead records a `completedAt` timestamp and sets the teammate status to `idle`.
-6. **Released (crash recovery)** -- If a teammate exits unexpectedly, all of its `in_progress` tasks are released back to `pending` with the `owner` cleared. These tasks become available for reassignment.
+6. **Failed (teammate exit)** -- If a teammate exits unexpectedly, its `in_progress` tasks are marked `failed` and the failure is reported to the lead. Dependent tasks stay blocked. The lead can inspect the failure and reset a task to `pending` with `task_update` before assigning it again.
 
 ### Task Dependencies
 
@@ -291,10 +290,12 @@ If a teammate process exits unexpectedly (non-zero exit code, killed by signal, 
 
 1. The lead detects the exit via the child process `exit` event handler.
 2. The teammate's status is set to `shutdown`.
-3. All tasks owned by that teammate with status `in_progress` are released: their status is reset to `pending` and their `owner` is cleared.
-4. Released tasks re-enter the available pool and can be assigned to other idle teammates on the next assignment cycle.
+3. Tasks owned by that teammate with status `in_progress` are marked `failed`, with the exit recorded as an error. The lead receives the failure report.
+4. The teammate is not automatically restarted and failed tasks are not automatically reassigned. Tasks that depend on them stay blocked until their prerequisites complete.
 
-This prevents work from being silently lost when a teammate crashes. The task will be retried by another teammate.
+If the team is shutting down, in-progress tasks are cancelled instead of failed, and a task you already asked to cancel keeps the state you requested.
+
+The lead can inspect the error and worktree, then explicitly reset a failed task to `pending` with `task_update` and assign it to an available teammate. A process exit does not silently start a second attempt.
 
 ---
 
