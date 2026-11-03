@@ -71,7 +71,7 @@ export async function readAdaptiveSkillReceipts(fixture: AdaptiveSkillsFixture):
 }
 
 export async function launchAdaptiveSkillsFixture(options: {
-  adaptiveSkills: boolean; localSkills?: number; turns: MockNativeAssistantTurn[];
+  adaptiveSkills: boolean; localSkills?: number; turns: MockNativeAssistantTurn[]; env?: Record<string, string | undefined>;
 }): Promise<AdaptiveSkillsFixture> {
   const server = await createMockAutohandAINativeSequenceServer(options.turns);
   const state = await createTempAutohandHome({ config: {
@@ -94,7 +94,7 @@ export async function launchAdaptiveSkillsFixture(options: {
       autohandHome: state.autohandHome, cwd: state.workspaceRoot, rows: 50,
       env: { HOME: state.autohandHome, PATH: '/usr/bin:/bin:/usr/sbin:/sbin:/Users/igorcosta/.bun/bin:/opt/homebrew/bin',
         OPENROUTER_API_KEY: undefined, OPENAI_API_KEY: undefined, ANTHROPIC_API_KEY: undefined,
-        AUTOHAND_API_KEY: undefined, AUTOHAND_AUTH_TOKEN: undefined, AUTOHAND_DEBUG: undefined },
+        AUTOHAND_API_KEY: undefined, AUTOHAND_AUTH_TOKEN: undefined, AUTOHAND_DEBUG: undefined, ...options.env },
     });
     return { session, state, server, adaptiveSkills: options.adaptiveSkills, localSkills,
       cleanup: async () => { session.close(); await server.close(); await state.cleanup(); } };

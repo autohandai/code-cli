@@ -26,6 +26,13 @@ function expectStableNativeBridge(fixture: AdaptiveSkillsFixture): void {
   }
 }
 
+function expectBoundedStartupRequest(request: Record<string, unknown>): void {
+  const messages = requestMessages(request);
+  const messageEstimate = messages.reduce((sum, message) => sum + estimateTokens(message.content ?? '') + 10, 0);
+  const schemaEstimate = estimateTokens(JSON.stringify(request.tools));
+  expect(messageEstimate + schemaEstimate).toBeLessThanOrEqual(8_000);
+}
+
 describe('adaptive skills in the built CLI', () => {
   it.each([14, 1_000])('captures eager and adaptive greetings with %i local skills and zero prepared packets', async localSkills => {
     const policies: string[] = [];
@@ -41,6 +48,7 @@ describe('adaptive skills in the built CLI', () => {
         expect(first).not.toContain('ADAPTIVE_FIXTURE_BODY_');
         expect(await readAdaptiveSkillReceipts(fixture)).toEqual([]);
         if (adaptiveSkills) {
+          expectBoundedStartupRequest(fixture.server.requests[0]);
           expect(first).toContain(SKILL_DISCOVERY_CONTRACT);
           expect(first).not.toContain('Adaptive fixture workflow');
           expect(first).not.toContain('<available_skills>');
@@ -75,6 +83,7 @@ describe('adaptive skills in the built CLI', () => {
       expect(capturedToolResult(fixture.server, 'skill-tools')).toContain('install_agent_skill');
       expect(capturedToolResult(fixture.server, 'skill-search')).toContain('adaptive-fixture-13');
       const first = requestText(fixture.server.requests[0]);
+      expectBoundedStartupRequest(fixture.server.requests[0]);
       expect(first).not.toContain('ADAPTIVE_FIXTURE_BODY_13');
       const finalRequest = fixture.server.requests.at(-1)!;
       expect(requestText(finalRequest)).toContain('ADAPTIVE_FIXTURE_BODY_13');

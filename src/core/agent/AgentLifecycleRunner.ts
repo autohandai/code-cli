@@ -34,6 +34,7 @@ import type {
 import type { Session } from '../../session/SessionManager.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
+import { isWorkflowDiscoveryShortcut } from '../../discovery/preview.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
 import { plan as planCommand } from '../../commands/plan.js';
 import type { SlashCommandContext } from '../slashCommandTypes.js';
@@ -1837,7 +1838,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         // before runInstruction, but instructions from the Ink queue bypass
         // that path. Without host, /help etc. go through the full ReAct loop
         // which sends them to the LLM and leaves the composer frozen.
-        if (!mobileTurn && instruction.startsWith('/')) {
+        if (!mobileTurn && (instruction.startsWith('/') || isWorkflowDiscoveryShortcut(instruction, host.skillsRegistry, host.runtime.options.bare))) {
           if (host.runtime.options.bare && !isLikelyFilePathSlashInput(instruction)) {
             if (host.inkRenderer?.isRunning()) {
               if (!consumeAgentInkSubmittedInstructionEcho(host, instruction)) {

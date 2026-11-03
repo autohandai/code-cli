@@ -1999,6 +1999,10 @@ These settings appear under **Agent Behavior** in `/settings` and are accepted b
 
 Remote decision requests also require online operation, background calls enabled, an attested execution provider, and the individual feature opt-in. Weka is available only for eligible Autohand AI Cloud decision requests with valid authentication, account model entitlement, and quota. It cannot run as the main coding model. Stored Autohand credentials, a provider display name, or `AUTOHAND_TYPE_AHEAD_MODEL=weka` cannot authorize Weka while execution uses another provider. Ineligible or stale routes fall back to local behavior. Login alone does not enable remote previews or learning.
 
+Native code-mode providers use compact shared workflow instructions and a lossless installed-agent roster. Workspace instructions, permissions and goal evidence rules remain in force. Total input still includes those instructions, session context and the three native tool schemas; the small adaptive skill-discovery section is only one part of that total.
+
+Follow-up questions collect actual user input even with `--yes` or unrestricted mode. Those flags automate approval prompts, not factual answers. A non-interactive session without a response callback reports the question as unanswered and does not imply consent.
+
 ### Verified Learning and Recovery
 
 Automatic learning is separate from ordinary skill activation, `/learn` project recommendations, and `agent.autoMemory`. Use `/skills learning status`, `/skills learning on`, or `/skills learning off` to inspect or change the automatic-learning preference. Explicit `/skills learn [outcome-id]` requests a draft from a qualifying completed work outcome while automatic learning remains off.

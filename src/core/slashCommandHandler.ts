@@ -818,6 +818,10 @@ export class SlashCommandHandler {
           const { tools } = await import('../commands/tools.js');
           return tools({ toolsRegistry: this.ctx.toolsRegistry }, args);
         }
+        case '/discovery': {
+          const { discovery } = await import('../commands/discovery.js');
+          return discovery(this.ctx, args);
+        }
         case '/experiments': {
           const { features } = await import('../commands/features.js');
           const subcommand = (args[0] ?? '').toLowerCase();

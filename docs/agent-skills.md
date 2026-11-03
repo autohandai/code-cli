@@ -36,6 +36,8 @@ The visible `Loaded <name> · <source> · this task` status follows actual provi
 
 Community discovery and approved installation remain available through `find_agent_skills`, `install_agent_skill`, and `/skills install`. `/skills search` searches the community registry, while the `skill` tool's `search` operation searches installed metadata. `/skills new` and `/skills-new` retain interactive local authoring.
 
+The bundled `$workflow-discovery` invoked alone opens a local `/discovery` preview. Its structured ranking contract is supplied by the discovery pipeline, so it does not require users to prepare internal evidence JSON.
+
 Automatic learning is off by default (`skills.learning.enabled: false`). `/skills learning status|on|off` controls that preference; `/skills learn [outcome-id]` requests an explicit draft. Eligible automatic drafts require configured independent acceptance checks and changed artifacts. Greetings, no-op work, clean exits, and activation counts are not verification. Drafts retain their source scope and revision; they do not replace upstream packages or implicitly enable team/public sharing.
 
 Inspect drafts with `/skills learning list` and `/skills inspect <candidate>`, validate with `/skills verify <candidate>`, and remove learned preference with `/skills rollback <candidate>`. `/skills exclude` prevents future learning/preference; `/skills forget` removes learning evidence and queued jobs while retaining package files. Preferred promotion requires a predeclared independent benefit evaluator supplied through the host API. The CLI has no built-in live held-out runner, and preference fails closed when that evaluator is unavailable.

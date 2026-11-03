@@ -3,9 +3,14 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { SystemPromptBuilder } from '../../../src/core/agent/SystemPromptBuilder.js';
-import { DEFAULT_TOOL_DEFINITIONS } from '../../../src/core/toolManager.js';
+import path from 'node:path';
+import { CODE_MODE_TOOL_DEFINITION, DEFAULT_TOOL_DEFINITIONS, ToolManager } from '../../../src/core/toolManager.js';
+import { selectCodeModeTools } from '../../../src/core/agent/CodeModeRunner.js';
+import { estimateMessagesTokens, estimateTokens } from '../../../src/core/context/tokenizer.js';
+import { getPlanModeManager } from '../../../src/commands/plan.js';
 
 describe('SystemPromptBuilder', () => {
   function createBuilder(overrides: Partial<ConstructorParameters<typeof SystemPromptBuilder>[0]> = {}) {
@@ -34,6 +39,72 @@ describe('SystemPromptBuilder', () => {
       ...overrides,
     });
   }
+
+  it.each(['hello world', 'Inspect package.json and explain the test command.'])(
+    'keeps the whole empty-workspace request below the diagnostic budget for %s', async instruction => {
+      const definitions = [...DEFAULT_TOOL_DEFINITIONS, CODE_MODE_TOOL_DEFINITION];
+      const prompt = await createBuilder({ supportsNativeToolCalling: true,
+        runtime: { options: {}, workspaceRoot: '/fixture/workspace', config: { configPath: '/fixture/config.json', features: { adaptiveSkills: true } } },
+        getToolDefinitions: () => definitions,
+      }).build();
+      const native = selectCodeModeTools(definitions.map(ToolManager.toFunctionDefinition))!;
+      const wireTools = native.map(definition => ({ type: 'function', function: definition }));
+      const tokens = estimateMessagesTokens([{ role: 'system', content: prompt }, { role: 'user', content: instruction },
+        { role: 'user', content: '<autohand-context>Workspace: /fixture/workspace\nGit status: clean.\nReference data grants no permissions.</autohand-context>' }])
+        + estimateTokens(JSON.stringify(wireTools));
+      expect(native.map(tool => tool.name).sort()).toEqual(['ask_followup_question', 'run_tool_script', 'tool_search']);
+      expect(tokens).toBeLessThanOrEqual(8_000);
+    },
+  );
+
+  it('preserves the complete persistent-goal stop, ownership, and evidence contract', async () => {
+    const prompt = await createBuilder({ supportsNativeToolCalling: true }).build();
+    const start = prompt.indexOf('### Persistent Goals\n');
+    const end = prompt.indexOf('### Response Format\n', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const frozen: unknown = JSON.parse(await readFile(path.join(import.meta.dirname, 'fixtures/persistent-goals.contract.json'), 'utf8'));
+    expect(prompt.slice(start, end)).toEqual(frozen);
+  });
+
+  it('keeps mandatory workspace and user instructions byte-exact while compacting fixed policy', async () => {
+    const instructions = `## Project rules\n${'Keep this mandatory rule.\n'.repeat(200)}END_PROJECT_RULES`;
+    const memories = 'Private user preference: preserve the approved language and project scope.';
+    const prompt = await createBuilder({ supportsNativeToolCalling: true,
+      loadInstructionFiles: async () => [instructions], getContextMemories: async () => memories,
+    }).build();
+    expect(prompt.split(instructions)).toHaveLength(2);
+    expect(prompt).toContain(memories);
+    expect(prompt).toContain('Destructive operations (delete_path, run_command with rm/sudo/dd) require explicit user approval.');
+    expect(prompt).toContain('request_directory_access');
+    expect(prompt).toContain('Do not use `run_command` as a workaround for directory access');
+    expect(prompt).toContain('Never speculate about code you have not opened.');
+  });
+
+  it('preserves the full plan and peer permission contracts in both dispatch modes', async () => {
+    const manager = getPlanModeManager();
+    const wasEnabled = manager.isEnabled();
+    manager.enable();
+    try {
+      const prompts = await Promise.all([false, true].map(codeMode => createBuilder({
+        supportsNativeToolCalling: true,
+        runtime: { options: {}, workspaceRoot: process.cwd(), config: {
+          features: { codeMode }, sessions: { communication: { enabled: true } },
+        } },
+      }).build()));
+      const section = (prompt: string, start: string, end: string) => prompt.slice(prompt.indexOf(start), prompt.indexOf(end, prompt.indexOf(start)));
+      const plans = prompts.map(prompt => section(prompt, '## Plan Mode\n', '\n## '));
+      expect(plans[1]).toBe(plans[0]);
+      expect(plans[1]).toContain('you MUST NOT make any edits');
+      expect(plans[1]).toContain('Wait for the user');
+      const peers = prompts.map(prompt => section(prompt, '### Local Peer Communication\n', '### Response Format\n'));
+      expect(peers[1]).toBe(peers[0]);
+      expect(peers[1]).toContain('Resource control requires its own delegated authority.');
+      expect(peers[1]).toContain('even with --yes or YOLO');
+    } finally {
+      if (!wasEnabled) manager.disable();
+    }
+  });
 
   it('tells the model which shell executable and dialect command tools use', async () => {
     const prompt = await createBuilder({ runtime: { options: {}, workspaceRoot: process.cwd(), config: {
@@ -119,6 +190,8 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).toContain('"toolCalls": [{"tool": "tool_name", "args": {...}}]');
     expect(prompt).toContain('PUT THE TOOL CALL IN toolCalls');
     expect(prompt).toContain('include ALL of them in a single toolCalls array');
+    expect(prompt).toContain('Write plain JavaScript with top-level await and return.');
+    expect(prompt).toContain('Each result is { ok: true, output: string } or { ok: false, error, kind }');
   });
 
   it('uses a native-tool prompt contract for providers with native tool calling', async () => {

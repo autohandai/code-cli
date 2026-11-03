@@ -818,6 +818,60 @@ describe('InstructionRunner command mode UI', () => {
     }
   });
 
+  it('retains the complete quota failure in active Ink without duplicating stderr', async () => {
+    const host = createHost();
+    host.useInkRenderer = true;
+    const addNotification = vi.fn();
+    host.inkRenderer = { addNotification };
+    host.runtime.isCommandMode = false;
+    host.runtime.options = {};
+    const message = [
+      'Autohand AI 24-hour request quota reached.',
+      "You've used all your requests in this 24-hour window.",
+      'Resets 3 Nov 2026, 6:00 pm (Pacific/Auckland) · in 2h 30m.',
+      'Upgrade your Autohand Code plan for more usage: https://console.autohand.ai/upgrade/?from=cli&tier=pro',
+    ].join('\n');
+    const error = new ApiError(message, 'rate_limited', 429, false);
+    host.runReactLoop = vi.fn(async () => { throw error; });
+    host.getDisplayErrorMessage = vi.fn(() => message);
+    host.notifySessionFailure = vi.fn();
+    host.recordTurnFailure = vi.fn();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await new InstructionRunner(host).run('call the provider')).toBe(false);
+      expect(host.stopUI).toHaveBeenCalledWith(true, 'Session failed');
+      expect(addNotification).toHaveBeenCalledExactlyOnceWith(message, { placement: 'transcript' });
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(host.emitOutput).toHaveBeenCalledWith({ type: 'error', content: message });
+      expect(host.recordTurnFailure).toHaveBeenCalledWith(message);
+      expect(host.notifySessionFailure).toHaveBeenCalledExactlyOnceWith(error);
+      expect(host.submitSessionFailureBugReport).toHaveBeenCalledWith(error, 0, 3, { autoReport: true });
+      expect(host.printCompletionSummary).not.toHaveBeenCalled();
+      expect(host.cleanupUI).toHaveBeenCalledWith(true);
+    } finally { consoleError.mockRestore(); }
+  });
+
+  it.each([false, true])('preserves stderr details when Ink display ownership is %s but no renderer is active', async useInkRenderer => {
+    const host = createHost();
+    host.useInkRenderer = useInkRenderer;
+    host.inkRenderer = null;
+    const message = 'Cloud request timed out after being accepted.';
+    const error = new ApiError(message, 'timeout', 504, false);
+    host.runReactLoop = vi.fn(async () => { throw error; });
+    host.getDisplayErrorMessage = vi.fn(() => message);
+    host.notifySessionFailure = vi.fn();
+    host.recordTurnFailure = vi.fn();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await new InstructionRunner(host).run('call the provider')).toBe(false);
+      expect(host.stopUI).toHaveBeenCalledWith(true, 'Session failed');
+      expect(consoleError).toHaveBeenCalledExactlyOnceWith(expect.stringContaining(message));
+      expect(host.emitOutput).toHaveBeenCalledWith({ type: 'error', content: message });
+      expect(host.recordTurnFailure).toHaveBeenCalledWith(message);
+      expect(host.notifySessionFailure).toHaveBeenCalledExactlyOnceWith(error);
+    } finally { consoleError.mockRestore(); }
+  });
+
   it('continues retrying provider outages until a later retry succeeds', async () => {
     const host = createHost();
     host.runtime = {

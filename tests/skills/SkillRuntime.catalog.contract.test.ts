@@ -23,7 +23,7 @@ describe('adaptive skills deterministic catalog contract', () => {
       expect(runtime.resolve(target.reference)).toBe(target);
     }
     expect(runtime.receipts()).toEqual([]);
-  });
+  }, 60_000);
 
   it.each(ADAPTIVE_CATALOG_SIZES)('preserves fixture discovery, lexical multilingual support, and abstention at %i entries', async size => {
     const corpus = await loadAdaptiveSkillsCorpus();

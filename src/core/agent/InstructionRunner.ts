@@ -83,7 +83,9 @@ interface InstructionPersistentInput {
   setStatusLine(statusLine: string | { left: string; right?: string }): void;
 }
 
-type InstructionInkRenderer = object;
+interface InstructionInkRenderer {
+  addNotification?(message: string, options?: { placement: 'transcript' }): void;
+}
 
 interface EnvironmentBootstrapResult {
   success: boolean;
@@ -753,7 +755,6 @@ export class InstructionRunner {
         }
 
         host.stopUI(true, 'Session failed');
-        // Emit error for RPC mode
         const errorMessage = host.getDisplayErrorMessage(err);
         recordReflectionFailure(
           encounteredProviderFailure || err instanceof ApiError ? 'provider' : 'unexpected',
@@ -762,7 +763,10 @@ export class InstructionRunner {
         host.recordTurnFailure?.(errorMessage);
         host.clearActivityForCompletedTurn?.();
         host.emitOutput({ type: 'error', content: errorMessage });
-        if (err instanceof Error) {
+        const inkRenderer = host.useInkRenderer ? host.inkRenderer : null;
+        if (inkRenderer?.addNotification) {
+          inkRenderer.addNotification(errorMessage, { placement: 'transcript' });
+        } else if (err instanceof Error) {
           console.error(chalk.red(errorMessage));
         } else {
           console.error(errorMessage);

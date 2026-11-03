@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "script": {
+      "type": "string",
+      "description": "Body of an async JavaScript function (plain JavaScript, not TypeScript). Top-level `await` and `return` are allowed. Example: \"const files = await tools.find({ pattern: '*.ts' }); return files.ok ? files.output.split('\\n').length : files.error;\""
+    },
+    "description": {
+      "type": "string",
+      "description": "One short line saying what the script does, shown to the user and to hooks."
+    },
+    "timeout_ms": {
+      "type": "number",
+      "description": "Budget for the script's own execution time in milliseconds, not counting time spent inside tool calls (default 60000, maximum 300000)."
+    }
+  },
+  "required": [
+    "script"
+  ]
+}

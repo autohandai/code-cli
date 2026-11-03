@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it, vi } from 'vitest';
-import { runCancellableAgentCommand } from '../../../src/core/agent/AgentCommandRuntime.js';
+import { runCancellableAgentCommand, runAgentSlashCommandWithInput } from '../../../src/core/agent/AgentCommandRuntime.js';
 
 describe('cancellable command runtime', () => {
   function createHost(ink = true) {
@@ -19,6 +19,23 @@ describe('cancellable command runtime', () => {
       setupEscListener: vi.fn(() => cleanup),
     };
   }
+
+  it('enrolls discovery in composer cancellation and releases the command controller', async () => {
+    const host = {
+      ...createHost(),
+      runtime: { options: {}, config: {} },
+      handleSlashCommand: vi.fn(async () => {
+        const signal = host.activeAbortController?.signal;
+        expect(signal).toBeDefined();
+        host.currentInkOnCancel?.();
+        expect(signal?.aborted).toBe(true);
+        return 'Discovery cancelled.';
+      }),
+    };
+    expect(await runAgentSlashCommandWithInput(host, '/discovery', [])).toBe('Discovery cancelled.');
+    expect(host.activeAbortController).toBeNull();
+    expect(host.currentInkOnCancel).toBeNull();
+  });
 
   it('routes Ink cancellation to the operation and restores prior controllers', async () => {
     const host = createHost();

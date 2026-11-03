@@ -126,6 +126,19 @@ describe('formatToolOutputForDisplay', () => {
     expect(result.output).not.toContain('</answer>');
   });
 
+  it.each(['compact', 'full'] as const)('labels unavailable follow-up input as unanswered in %s mode', mode => {
+    const result = formatToolOutputForDisplay({
+      tool: 'ask_followup_question',
+      content: '<unanswered>No user answer was collected because no response channel is available.</unanswered>',
+      charLimit: 300,
+      mode,
+    });
+
+    expect(result.output).toBe('Question unanswered: No user answer was collected because no response channel is available.');
+    expect(result.output).not.toContain('Answer:');
+    expect(result.output).not.toContain('<unanswered>');
+  });
+
   // ── tools_registry summary formatting ──────────────────────────────
 
   describe('tools_registry', () => {

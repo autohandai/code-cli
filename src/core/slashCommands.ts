@@ -81,6 +81,7 @@ import * as renameCmd from '../commands/rename.js';
 import * as whatsnewCmd from '../commands/whatsnew.js';
 import * as changelogCmd from '../commands/changelog.js';
 import * as readinessCmd from '../commands/readiness.js';
+import * as discoveryCmd from '../commands/discovery.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
 export type { SlashCommand } from './slashCommandTypes.js';
@@ -122,6 +123,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   permissions.metadata,
   hooks.metadata,
   skills.metadata,
+  discoveryCmd.metadata,
   skills.useMetadata,
   skills.installMetadata,
   skills.searchMetadata,
