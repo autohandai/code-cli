@@ -517,6 +517,8 @@ export interface FeatureFlagSettings {
   slashGoal?: boolean;
   /** Use compact programmatic tool dispatch by default; false restores direct tool selection. */
   codeMode?: boolean;
+  /** Opt in to bounded local skill discovery and revision-pinned task instructions. */
+  adaptiveSkills?: boolean;
   /** Show real-time token usage (tokens up/down + context window occupancy) in the status line. */
   tokenUsageStatus?: boolean;
   /** Enable experimental provider-native prompt cache affinity. */
@@ -1102,6 +1104,7 @@ export interface AutohandConfig {
   auth?: AuthSettings;
   /** Community skills settings */
   communitySkills?: CommunitySkillsSettings;
+  skills?: import('./skills/types.js').AdaptiveSkillSettings;
   /** Hooks system settings */
   hooks?: HooksSettings;
   /** Auto-mode settings */
@@ -1939,7 +1942,7 @@ export type AgentAction =
   | { type: 'send_peer_message'; to: string; content: string; topic?: string; replyTo?: string }
   | { type: 'peer_messages'; after?: string; from?: string; replyTo?: string; messageId?: string; waitMs?: number }
   | ({ type: 'coordinate_resource' } & import('./session/peers/ResourceCoordinator.js').ResourceOperation)
-  | { type: 'skill'; command: 'list' | 'info' | 'activate' | 'deactivate'; name?: string }
+  | { type: 'skill'; command: 'list' | 'search' | 'info' | 'activate' | 'deactivate'; name?: string }
   | { type: 'sleep'; seconds: number; reason?: string }
   | { type: 'enter_worktree'; name?: string }
   | { type: 'exit_worktree'; keep?: boolean; discard_changes?: boolean }
@@ -2190,6 +2193,9 @@ export interface ToolOutputChunk {
 }
 
 export interface AgentRuntime {
+  goalContinuity?: import('./goals/GoalContinuity.js').GoalRuntimeContinuity;
+  skillTaskId?: string;
+  skillPolicyEpoch?: () => number;
   sessionGitSnapshot?: AutoCommitSnapshot | null;
   sessionGitSnapshotError?: string;
   sessionGitSnapshotFinalized?: boolean;
@@ -2230,7 +2236,8 @@ export interface AgentOutputEvent {
    * model's reply in `content` / `thought` while the completion is still in
    * flight; the whole reply still follows as `message` / `thinking`.
    */
-  type: 'message' | 'message_delta' | 'thinking' | 'thought_delta' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update' | 'peer_update' | 'resource_update' | 'program_status';
+  type: 'message' | 'message_delta' | 'thinking' | 'thought_delta' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update' | 'peer_update' | 'resource_update' | 'program_status' | 'skill_attachment';
+  receipt?: import('./skills/SkillRuntime.js').SkillAttachmentReceipt;
   programStatus?: import('./core/agent/AgentProgramStatus.js').ProgramStatusReport;
   peerEvent?: import('./session/peers/PeerProtocol.js').PeerEvent;
   resourceEvent?: import('./session/peers/PeerProtocol.js').PeerEvent;

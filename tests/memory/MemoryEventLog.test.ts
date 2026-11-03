@@ -13,6 +13,7 @@ import {
   mergeMemoryEventLogContents,
 } from '../../src/memory/MemoryEventLog.js';
 import type { MemoryEntry } from '../../src/memory/types.js';
+import { z } from 'zod';
 
 const temporaryRoots: string[] = [];
 
@@ -41,6 +42,26 @@ afterEach(async () => {
 });
 
 describe('MemoryEventLog', () => {
+  it('keeps activation writes and merged exports readable by a strict older v1 reader', async () => {
+    const { log, logPath } = await createLog();
+    await log.append({ operation: 'capability_used', level: 'project', capability: { kind: 'skill', name: 'tdd', source: 'project' }, origin: 'user', outcome: 'activated' });
+    const oldReader = z.object({ version: z.literal(1), eventId: z.uuid(), operation: z.literal('capability_used'), level: z.literal('project'),
+      capability: z.object({ kind: z.enum(['skill', 'slash_command']), name: z.string(), source: z.string() }).strict(),
+      origin: z.enum(['user', 'agent']), outcome: z.enum(['succeeded', 'failed']), occurredAt: z.string() }).strict();
+    const wire = await fs.readFile(logPath, 'utf8');
+    expect(oldReader.parse(JSON.parse(wire)).outcome).toBe('succeeded');
+    expect((await log.readAll())[0]).toMatchObject({ outcome: 'activated', observation: 'legacy-format-activation' });
+    const merged = mergeMemoryEventLogContents('', wire);
+    expect(oldReader.parse(JSON.parse(merged)).outcome).toBe('succeeded');
+    expect(merged).not.toContain('observation');
+  });
+  it('accepts truthful skill activation outcomes and rejects activated slash commands', async () => {
+    const { log } = await createLog();
+    await log.append({ operation: 'capability_used', level: 'project', capability: { kind: 'skill', name: 'tdd', source: 'project' }, origin: 'user', outcome: 'activated' });
+    expect((await log.readAll())[0]).toMatchObject({ outcome: 'activated' });
+    await expect(log.append({ operation: 'capability_used', level: 'project', capability: { kind: 'slash_command', name: '/release', source: 'project' }, origin: 'user', outcome: 'activated' })).rejects.toThrow(/outcome/i);
+  });
+
   it('records privacy-safe capability usage without command arguments', async () => {
     const { log, logPath } = await createLog();
 

@@ -5,8 +5,12 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
+import fs from 'fs-extra';
+import os from 'node:os';
+import { GoalManager } from '../../../src/goals/GoalManager.js';
 import {
   initializeAgentForRPC,
+  restoreAgentSessionState,
   requestAgentExit,
   runAgentCommandMode,
 } from '../../../src/core/agent/AgentLifecycleRunner.js';
@@ -73,6 +77,30 @@ describe('runAgentCommandMode', () => {
     expect(host.restoreSessionState).toHaveBeenCalledWith('saved-session');
     expect(host.restoreSessionState.mock.invocationCallOrder[0]).toBeLessThan(host.runInstruction.mock.invocationCallOrder[0]);
     expect(host.performAutoCommit).not.toHaveBeenCalled();
+  });
+
+  it('restores saved headless context once before its heartbeat and does not reclaim its newly live goal', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'goal-headless-startup-')); let alive = false;
+    try {
+      const manager = new GoalManager(workspaceRoot, { sessionId: 'saved-owner', isSessionAlive: async () => alive });
+      await manager.createGoal({ objective: 'Approved saved goal' });
+      const saved = { metadata: { sessionId: 'saved-owner', model: 'fixture', projectPath: workspaceRoot },
+        getMessages: () => [{ role: 'user' as const, content: 'SAVED_CONTEXT', timestamp: new Date().toISOString() }] };
+      const base = createHost(true);
+      const host = { ...base, runtime: { ...base.runtime, workspaceRoot, options: { autoCommit: false, resumeSessionId: 'saved-owner' }, config: { ...base.runtime.config, mcp: { enabled: false } } },
+        initializeManagers: vi.fn(async () => {}), skillsRegistry: { setWorkspace: vi.fn(async () => {}) }, activeProvider: 'openrouter', goalActivityManager: manager,
+        sessionManager: { getCurrentSession: () => saved, loadSession: vi.fn(async () => saved) },
+        conversation: { addMessage: vi.fn(), addSystemNote: vi.fn(), history: () => [] }, resetConversationContext: vi.fn(async () => {}), injectSessionBootstrap: vi.fn(async () => {}), injectProjectKnowledge: vi.fn(async () => {}), updateContextUsage: vi.fn(),
+        telemetryManager: { ...base.telemetryManager, startSession: vi.fn(async () => {}) },
+        startActiveAgentHeartbeat: vi.fn(async () => { expect((await manager.getSessionSnapshot()).goal?.status).toBe('paused'); alive = true; }),
+        initializeForRPC: async (signal?: AbortSignal, sessionId?: string): Promise<void> => { await initializeAgentForRPC(host, signal, sessionId); },
+        restoreSessionState: vi.fn(async (sessionId: string): Promise<void> => { await restoreAgentSessionState(host, sessionId); }),
+      };
+      expect(await runAgentCommandMode(host, 'Summarize saved context without resuming the goal.')).toBe(true);
+      expect(host.sessionManager.loadSession).toHaveBeenCalledOnce(); expect(host.restoreSessionState).not.toHaveBeenCalled();
+      expect(host.conversation.addMessage).toHaveBeenCalledWith(expect.objectContaining({ content: 'SAVED_CONTEXT' }));
+      expect(host.startActiveAgentHeartbeat).toHaveBeenCalledOnce(); expect((await manager.getSessionSnapshot()).goal?.status).toBe('paused');
+    } finally { await fs.remove(workspaceRoot); }
   });
 
   const originalStdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
@@ -579,6 +607,7 @@ describe('initializeAgentForRPC', () => {
 
   it('loads a requested persistent session without creating an orphan session', async () => {
     const loadedSession = {
+      getMessages: () => [],
       metadata: {
         sessionId: 'persisted-session-123',
         model: 'openai/gpt-4o-mini',
@@ -601,6 +630,9 @@ describe('initializeAgentForRPC', () => {
       mcpStartupCoordinator: { markSummaryPending: vi.fn() },
       skillsRegistry: { setWorkspace: vi.fn().mockResolvedValue(undefined) },
       resetConversationContext: vi.fn().mockResolvedValue(undefined),
+      injectProjectKnowledge: vi.fn().mockResolvedValue(undefined),
+      updateContextUsage: vi.fn(),
+      conversation: { addSystemNote: vi.fn(), addMessage: vi.fn(), history: () => [] },
       sessionManager: {
         createSession: vi.fn(),
         loadSession: vi.fn().mockResolvedValue(loadedSession),

@@ -4,6 +4,8 @@
 
 ### Added
 
+- Opt-in adaptive skills keep the opening skill catalog small, load complete pinned instructions for each task, show request-backed loading receipts, and preserve skill references in paused goals. Local learning drafts and decision models have separate controls and remain off by default.
+
 - Translate supported Claude Code user and project permission rules during import, with a dry-run preview, and remove raw settings and environment data left by earlier imports.
 
 ### Fixed

@@ -191,6 +191,8 @@ export interface AgentInstructionHost {
   beginTodoActivityTurn?(): void;
   clearActivityForCompletedTurn?(): void;
   scheduleTurnMemoryReflection(outcome: TurnMemoryReflectionOutcome): void;
+  beginSkillLearningTurn?(instruction: string, signal: AbortSignal): Promise<void>;
+  finishSkillLearningTurn?(outcome: { instruction: string; success: boolean; aborted: boolean }, signal: AbortSignal): Promise<void>;
   writeDebugLine?(message: string): void;
 }
 
@@ -281,21 +283,33 @@ export class InstructionRunner {
       host.peerCommunicationRuntime?.setPaused('cancelled', true);
     };
     abortController.signal.addEventListener('abort', pausePeers, { once: true });
-
+    let turnSucceeded = false;
     try {
-      return await this.runWithController(
+      try {
+        await host.beginSkillLearningTurn?.(instruction, abortController.signal);
+      } catch {
+        host.writeDebugLine?.('[Skill learning] Baseline capture unavailable; independent verification remains required.');
+      }
+      const result = await this.runWithController(
         instruction,
         abortController,
         options,
         deepResearch,
         finalizeResearch,
       );
+      turnSucceeded = result === true;
+      return result;
     } finally {
       abortController.signal.removeEventListener('abort', pausePeers);
       host.peerCommunicationRuntime?.endTurn(abortController.signal.aborted);
       options.signal?.removeEventListener('abort', forwardExternalAbort);
       if (deepResearch.runId && !deepResearch.finalized && !deepResearch.deferFinalization) {
         await finalizeResearch(false);
+      }
+      if (host.finishSkillLearningTurn) {
+        const outcome = { instruction, success: turnSucceeded, aborted: abortController.signal.aborted };
+        void Promise.resolve().then(() => host.finishSkillLearningTurn!(outcome, abortController.signal))
+          .catch(() => host.writeDebugLine?.('[Skill learning] Background outcome recording unavailable.'));
       }
     }
   }

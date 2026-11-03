@@ -128,6 +128,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   skills.trendingMetadata,
   skills.removeMetadata,
   skillsNew.metadata,
+  skillsNew.aliasMetadata,
   learn.metadata,
   theme.metadata,
   automode.metadata,

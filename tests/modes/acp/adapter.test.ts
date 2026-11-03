@@ -12,6 +12,7 @@ import type {
   NewSessionRequest,
 } from "@agentclientprotocol/sdk";
 import type { LoadedConfig } from "../../../src/types.js";
+import type { AutohandAgent } from "../../../src/core/agent.js";
 
 const goalExecution = vi.hoisted(() => ({ run: vi.fn() }));
 vi.mock('../../../src/modes/acp/workflowGoal.js', async importOriginal => ({
@@ -74,6 +75,7 @@ const {
     applyAcpConfigOption: vi.fn(),
     cancelCurrentInstruction: vi.fn(),
     getSessionManager: vi.fn().mockReturnValue(mockSessionManager),
+    getGoalContinuity: vi.fn<AutohandAgent["getGoalContinuity"]>().mockReturnValue(undefined),
     getImageManager: vi.fn().mockReturnValue(mockImageManager),
     getHookManager: vi.fn(),
     getPermissionManager: vi.fn().mockReturnValue(mockPermissionManager),

@@ -194,6 +194,28 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'agent.sessionRetryLimit', labelKey: 'commands.settings.agent.sessionRetryLimit', descriptionKey: 'commands.settings.agent.sessionRetryLimitDesc', category: 'agent', type: 'number', defaultValue: 3 },
   { key: 'agent.sessionRetryDelay', labelKey: 'commands.settings.agent.sessionRetryDelay', descriptionKey: 'commands.settings.agent.sessionRetryDelayDesc', category: 'agent', type: 'number', defaultValue: 1000 },
   { key: 'agent.debug', labelKey: 'commands.settings.agent.debug', descriptionKey: 'commands.settings.agent.debugDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'features.adaptiveSkills', labelKey: 'commands.settings.agent.adaptiveSkills', descriptionKey: 'commands.settings.agent.adaptiveSkillsDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.learning.enabled', labelKey: 'commands.settings.agent.skillLearning', descriptionKey: 'commands.settings.agent.skillLearningDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.learning.scope', labelKey: 'commands.settings.agent.skillLearningScope', descriptionKey: 'commands.settings.agent.skillLearningScopeDesc', category: 'agent', type: 'enum', enumValues: ['project', 'user'], defaultValue: 'project' },
+  {
+    key: 'skills.maxInstructionTokens', labelKey: 'commands.settings.agent.skillInstructionBudget',
+    descriptionKey: 'commands.settings.agent.skillInstructionBudgetDesc', category: 'agent', type: 'number',
+    validate: value => Number.isSafeInteger(Number(value)) && Number(value) > 0 || 'Skill instruction budget must be a positive integer.',
+  },
+  { key: 'skills.decisions.enabled', labelKey: 'commands.settings.agent.skillDecisions', descriptionKey: 'commands.settings.agent.skillDecisionsDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.decisions.provider', labelKey: 'commands.settings.agent.skillDecisionProvider', descriptionKey: 'commands.settings.agent.skillDecisionProviderDesc', category: 'agent', type: 'string' },
+  { key: 'skills.decisions.model', labelKey: 'commands.settings.agent.skillDecisionModel', descriptionKey: 'commands.settings.agent.skillDecisionModelDesc', category: 'agent', type: 'string' },
+  { key: 'skills.decisions.selection', labelKey: 'commands.settings.agent.skillSelectionDecision', descriptionKey: 'commands.settings.agent.skillSelectionDecisionDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.decisions.preview', labelKey: 'commands.settings.agent.skillPreviewDecision', descriptionKey: 'commands.settings.agent.skillPreviewDecisionDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.decisions.remotePreview', labelKey: 'commands.settings.agent.skillRemotePreview', descriptionKey: 'commands.settings.agent.skillRemotePreviewDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.decisions.learning', labelKey: 'commands.settings.agent.skillLearningDecision', descriptionKey: 'commands.settings.agent.skillLearningDecisionDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.decisions.compaction', labelKey: 'commands.settings.agent.skillCompactionDecision', descriptionKey: 'commands.settings.agent.skillCompactionDecisionDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  {
+    key: 'skills.decisions.timeoutMs', labelKey: 'commands.settings.agent.skillDecisionTimeout',
+    descriptionKey: 'commands.settings.agent.skillDecisionTimeoutDesc', category: 'agent', type: 'number',
+    validate: value => Number.isSafeInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10_000
+      || 'Decision timeout must be an integer between 1 and 10000 milliseconds.',
+  },
 
   // Concurrent Sessions
   { key: 'sessions.awareness', labelKey: 'commands.settings.sessions.awareness', descriptionKey: 'commands.settings.sessions.awarenessDesc', category: 'sessions', type: 'enum', enumValues: ['passive', 'warn', 'coordinate'], defaultValue: 'warn' },

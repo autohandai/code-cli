@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs-extra';
 import path from 'node:path';
 import type { Session } from 'tuistory';
-import { cancelStalledSessionCompaction, createBackgroundProcessAudit, createSessionLifecycleServer, submitSessionCommand } from '../../src/testing/scenarios/sessionLifecycleScenario.js';
+import { createBackgroundProcessAudit, createSessionLifecycleServer, submitSessionCommand } from '../../src/testing/scenarios/sessionLifecycleScenario.js';
 import { createTempAutohandHome, exitInteractive, launchBuiltAutohand, waitForExit, type TuistoryTempState } from './helpers/autohandTuistory.js';
 
 let session: Session | undefined;
@@ -20,7 +20,7 @@ describe('foreground CLI session lifecycle', () => {
     await waitForExit(session);
     expect(session.readAll()).toContain('--no-daemon');
   });
-  it('compacts through Weka, immediately accepts another turn, then starts an empty new session', async () => {
+  it('compacts locally with zero Weka calls under no-daemon, accepts another turn, then starts an empty new session', async () => {
     server = await createSessionLifecycleServer();
     state = await createTempAutohandHome({ config: {
       provider: 'autohandai',
@@ -41,7 +41,8 @@ describe('foreground CLI session lifecycle', () => {
     const sessionsDir = path.join(state.autohandHome, 'sessions');
     const before = (await fs.readdir(sessionsDir)).filter(name => !name.endsWith('.json'));
     await submitSessionCommand(session, '/clear', 'Context compacted');
-    expect(server.decisions).toHaveLength(1);
+    expect(server.decisions).toHaveLength(0);
+    expect(session.readAll()).toContain('retained (local)');
     expect(await fs.readdir(sessionsDir)).toEqual(expect.arrayContaining(before));
     await submitSessionCommand(session, 'Continue from the retained handoff.', 'HANDOFF_RECEIVED_TWO');
     const continued = JSON.stringify(server.chats[1]?.messages);
@@ -56,7 +57,7 @@ describe('foreground CLI session lifecycle', () => {
     expect(fresh).not.toContain('[Session Handoff]');
     expect(fresh).not.toContain('ORIGINAL_REQUEST_FIX_RETRY');
     expect(fresh).not.toContain('FINAL_ANSWER_ONE');
-    expect(server.decisions).toHaveLength(1);
+    expect(server.decisions).toHaveLength(0);
     const after = (await fs.readdir(sessionsDir)).filter(name => !name.endsWith('.json'));
     expect(after).toHaveLength(before.length + 1);
     const records = (await fs.readFile(audit.log, 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { event: string; command?: string; detached?: boolean; pid?: number; args?: string[] });
@@ -75,21 +76,26 @@ describe('foreground CLI session lifecycle', () => {
     await exitInteractive(session);
   });
 
-  it('cancels a stalled Weka request with Escape and keeps the previous conversation usable', async () => {
+  it('never dispatches Weka for an OpenAI session with stored Autohand credentials and a model override', async () => {
     server = await createSessionLifecycleServer({ stallDecisions: true });
     state = await createTempAutohandHome({ config: {
-      provider: 'autohandai', autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa', baseUrl: server.baseUrl },
+      provider: 'openai', openai: { apiKey: 'fixture', model: 'gpt-6-sol', baseUrl: server.baseUrl },
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa', baseUrl: server.baseUrl },
       features: { autohand_inference: true, automaticSpecialists: false },
       agent: { autoMemory: false }, ui: { promptSuggestions: false },
     } });
     session = await launchBuiltAutohand(['--no-daemon', '--path', state.workspaceRoot, '--config', state.configPath], {
       autohandHome: state.autohandHome, cwd: state.workspaceRoot,
+      env: { AUTOHAND_TYPE_AHEAD_MODEL: 'weka' },
     });
     await submitSessionCommand(session, 'ORIGINAL_REQUEST_FIX_RETRY', 'FINAL_ANSWER_ONE');
-    await cancelStalledSessionCompaction(session, () => vi.waitFor(() => expect(server?.decisions).toHaveLength(1)));
-    await submitSessionCommand(session, 'Continue after cancellation.', 'HANDOFF_RECEIVED_TWO');
+    await submitSessionCommand(session, '/clear', 'Context compacted');
+    expect(server.decisions).toHaveLength(0);
+    expect(session.readAll()).toContain('retained (local)');
+    await submitSessionCommand(session, 'Continue after local compaction.', 'HANDOFF_RECEIVED_TWO');
     expect(JSON.stringify(server.chats[1]?.messages)).toContain('ORIGINAL_REQUEST_FIX_RETRY');
-    expect(JSON.stringify(server.chats[1]?.messages)).not.toContain('[Session Handoff]');
+    expect(JSON.stringify(server.chats[1]?.messages)).toContain('[Session Handoff]');
+    expect(server.decisions).toHaveLength(0);
     await exitInteractive(session);
   });
 });

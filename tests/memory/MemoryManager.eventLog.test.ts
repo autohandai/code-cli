@@ -274,7 +274,7 @@ describe('MemoryManager event log integration', () => {
     expect(events[0]?.entry?.source).toBe('manual');
   });
 
-  it('learns ranked project capabilities from canonical usage events', async () => {
+  it('keeps legacy skill activations inspectable without task-success or preference credit', async () => {
     const { manager, memoryDir } = await createManager();
 
     await manager.recordCapabilityUse({
@@ -303,24 +303,38 @@ describe('MemoryManager event log integration', () => {
     const context = await manager.getContextMemories();
     const events = await new MemoryEventLog(memoryDir).readAll();
 
-    expect(learned[0]).toMatchObject({
+    expect(learned.find((capability) => capability.kind === 'skill')).toMatchObject({
       kind: 'skill',
       name: 'tdd',
       source: 'autohand-project',
       uses: 2,
-      successfulUses: 2,
+      successfulUses: 0,
+      activationObservations: 2,
+      legacyActivationObservations: 2,
+      score: 0,
       userUses: 1,
       agentUses: 1,
     });
-    expect(learned[0]!.score).toBeGreaterThan(learned[1]!.score);
-    expect(context).toContain('## Learned Project Capabilities');
-    expect(context).toContain('Skill `tdd`');
+    expect(context).not.toContain('## Learned Project Capabilities');
+    expect(context).not.toContain('Skill `tdd`');
     expect(context).not.toContain('Slash command `/release`');
     expect(events.map((event) => event.operation)).toEqual([
       'capability_used',
       'capability_used',
       'capability_used',
     ]);
+  });
+
+  it('records activated skill observations while preserving successful slash-command ranking', async () => {
+    const { manager } = await createManager();
+    await manager.recordCapabilityUse({ kind: 'skill', name: 'tdd', source: 'project', origin: 'agent', outcome: 'activated' });
+    await manager.recordCapabilityUse({ kind: 'slash_command', name: '/release', source: 'extension:release-tools', origin: 'user', outcome: 'succeeded' });
+
+    const capabilities = await manager.getLearnedProjectCapabilities();
+    expect(capabilities[0]).toMatchObject({ kind: 'slash_command', successfulUses: 1 });
+    expect(capabilities[1]).toMatchObject({ kind: 'skill', successfulUses: 0, activationObservations: 1, legacyActivationObservations: 1, score: 0 });
+    expect(await manager.getContextMemories()).toContain('Slash command `/release`');
+    expect(await manager.getContextMemories()).not.toContain('Skill `tdd`');
   });
 
 

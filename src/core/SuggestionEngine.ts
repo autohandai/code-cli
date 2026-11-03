@@ -51,6 +51,7 @@ const SUGGESTION_TIMEOUT_MS = 10_000;
 
 export interface SuggestionEngineOptions {
   isEnabled?: () => boolean;
+  suggest?: (messages: readonly LLMMessage[], signal: AbortSignal) => Promise<string | null>;
   /** When provided, constrains suggestions to only actions achievable with these tools. */
   allowedTools?: string[];
   /** Optional sink for debug lines so interactive UIs can render above composers. */
@@ -66,7 +67,7 @@ export class SuggestionEngine {
 
   constructor(
     private readonly llm: LLMProvider,
-    options?: SuggestionEngineOptions,
+    private readonly options?: SuggestionEngineOptions,
   ) {
     this.debugLogger = options?.debugLogger;
     this.isEnabled = options?.isEnabled ?? (() => true);
@@ -180,8 +181,9 @@ export class SuggestionEngine {
         removeAbortListener = () => controller.signal.removeEventListener('abort', onAbort);
       });
 
+      const suggest = this.options?.suggest;
       const response = await Promise.race([
-        this.llm.complete({
+        suggest ? suggest(messages, controller.signal).then(content => ({ content: content ?? '' })) : this.llm.complete({
           messages,
           maxTokens: 60,
           temperature: 0.7,

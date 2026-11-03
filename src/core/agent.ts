@@ -1418,6 +1418,7 @@ export class AutohandAgent {
       set contextWindow(value) { agent.contextWindow = value; },
       get contextPercentLeft() { return agent.contextPercentLeft; },
       conversation: agent.conversation,
+      skillsRegistry: agent.skillsRegistry,
       get inkRenderer() { return agent.inkRenderer as AgentReactLoopHost['inkRenderer']; },
       responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS,
       get lastAssistantResponseForNotification() { return agent.lastAssistantResponseForNotification; },
@@ -2247,6 +2248,10 @@ export class AutohandAgent {
    */
   getSessionManager(): SessionManager {
     return this.sessionManager;
+  }
+
+  getGoalContinuity(): import('../goals/GoalContinuity.js').GoalRuntimeContinuity | undefined {
+    return this.runtime.goalContinuity;
   }
 
   /**

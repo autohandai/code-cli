@@ -33,6 +33,7 @@ import type { CommandUseSurface } from '../../telemetry/types.js';
 import type { ThreadLease } from '../agents/SessionThreadBudget.js';
 import { withProgramStatusWait } from './AgentProgramStatus.js';
 import type { AgentProgramStatus } from './AgentProgramStatus.js';
+import { isAdaptiveSkillsEnabled } from '../../skills/feature.js';
 
 export interface AgentCommandRuntimeHost {
   [key: string]: any;
@@ -791,7 +792,20 @@ export function handleAgentSkillTool(
   host: AgentCommandRuntimeHost,
   action: Extract<AgentAction, { type: 'skill' }>,
 ): ToolActionOutcome {
+    if (action.command === 'search') {
+      const query = action.name?.trim();
+      if (!query) throw new Error('skill search requires a query in the "name" argument.');
+      const matches = host.skillsRegistry.getSkillRuntime().search(query);
+      return { success: true, output: JSON.stringify(matches.map(({ entry, score }: import('../../skills/SkillRuntime.js').SkillSearchMatch) => ({
+        name: entry.name, description: entry.description, reference: entry.reference, source: entry.source, scope: entry.scope, quality: entry.quality, automatic: entry.automatic, score,
+      })), null, 2) };
+    }
     if (action.command === 'list') {
+      if (host.runtime?.config && isAdaptiveSkillsEnabled(host.runtime.config)) {
+        return { success: true, output: JSON.stringify(host.skillsRegistry.getSkillRuntime().list().map((entry: import('../../skills/SkillRuntime.js').SkillCatalogEntry) => ({
+          name: entry.name, description: entry.description, reference: entry.reference, source: entry.source, scope: entry.scope, quality: entry.quality, automatic: entry.automatic,
+        })), null, 2) };
+      }
       const skills = host.skillsRegistry.listSkills().map((skill: SkillSummary) => ({
         name: skill.name,
         description: skill.description,
@@ -827,6 +841,7 @@ export function handleAgentSkillTool(
           source: skill.source,
           path: skill.path,
           active: skill.isActive,
+          reference: host.skillsRegistry.getSkillReference?.(skill),
           allowedTools: skill['allowed-tools'] ?? null,
         }, null, 2),
       };

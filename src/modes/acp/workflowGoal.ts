@@ -1,4 +1,5 @@
-import { GoalManager } from '../../goals/GoalManager.js';
+import { buildGoalContinuationInstruction, GoalManager } from '../../goals/GoalManager.js';
+import { goalManagerContinuityOptions, type GoalRuntimeContinuity } from '../../goals/GoalContinuity.js';
 
 /** Observe native durable state; a model answer alone never completes a workflow goal. */
 export async function continueWorkflowGoal(options: {
@@ -57,6 +58,7 @@ export async function withWorkflowGoalConfig<T>(config: import('../../types.js')
 }
 
 export async function executeWorkflowGoal(options: {
+  goalContinuity?: GoalRuntimeContinuity;
   workspaceRoot: string;
   sessionId: string;
   executionId: string;
@@ -66,7 +68,7 @@ export async function executeWorkflowGoal(options: {
 }): Promise<void> {
   if (!options.sessionId.trim()) throw new Error('A workflow goal requires a persistent session.');
   options.signal.throwIfAborted();
-  const manager = new GoalManager(options.workspaceRoot, { sessionId: options.sessionId });
+  const manager = new GoalManager(options.workspaceRoot, { sessionId: options.sessionId, ...goalManagerContinuityOptions(options.goalContinuity) });
   const marker = `Workflow execution ${options.executionId}:\n`;
   const objective = `${marker}${options.instruction}`;
   const snapshot = await manager.getSessionSnapshot();
@@ -88,6 +90,7 @@ export async function executeWorkflowGoal(options: {
         'An ordinary answer does not complete this workflow step. Do not create or switch to another goal.',
         `Workflow turn ${turn + 1}.`,
         goal.objective.slice(marker.length),
+        ...(goal.checkpoint ? [buildGoalContinuationInstruction(goal.objective, goal.checkpoint)] : []),
       ].join('\n\n'));
     },
   });

@@ -5,6 +5,8 @@
  */
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import chalk from 'chalk';
+import { GoalManager } from '../../goals/GoalManager.js';
+import { goalManagerContinuityOptions } from '../../goals/GoalContinuity.js';
 import { resetSessionGitSnapshot, type SessionGitState } from '../../actions/gitSessionSnapshot.js';
 import { isAxoInput } from '../../ui/axo/axoCommand.js';
 import { isStartupTimingEnabled, startupTimeline } from '../../startup/startupTimeline.js';
@@ -85,6 +87,7 @@ const COMMAND_HOOK_KILL_GRACE_PERIOD_MS = 100;
 const MCP_FIRST_TURN_DEADLINE_MS = 2_000;
 const COMPUTER_CONTROL_FIRST_TURN_DEADLINE_MS = 8_000;
 const STARTUP_WAIT_STATUS = 'Finishing startup...';
+const rpcStartupRestoredSessions = new WeakMap<AgentLifecycleHost, string>();
 
 export interface AgentLifecycleHost {
   [key: string]: any;
@@ -1101,6 +1104,7 @@ export async function initializeAgentForRPC(
   signal?: AbortSignal,
   existingSessionId?: string,
 ): Promise<void> {
+    rpcStartupRestoredSessions.delete(host);
     // Initialize managers in parallel for faster startup
     await awaitLifecycleStep(Promise.resolve(host.initializeManagers()), signal);
     // Start MCP connections concurrently with the remaining initialization.
@@ -1115,7 +1119,9 @@ export async function initializeAgentForRPC(
     }
     // These must run sequentially after the parallel init
     await awaitLifecycleStep(
-      Promise.resolve(host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot)),
+      Promise.resolve(existingSessionId
+        ? host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot, { createIdentity: false })
+        : host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot)),
       signal,
     );
     const providerSettings = getHostProviderSettings(host);
@@ -1123,15 +1129,19 @@ export async function initializeAgentForRPC(
     const providerTelemetryMetadata = buildProviderTelemetryMetadata(providerSettings);
     host.sessionStartedAt = Date.now();
     const [, session] = await awaitLifecycleStep(Promise.all([
-      host.resetConversationContext(),
+      existingSessionId ? Promise.resolve() : host.resetConversationContext(),
       existingSessionId
         ? host.sessionManager.loadSession(existingSessionId)
         : host.sessionManager.createSession(host.runtime.workspaceRoot, configuredModel),
     ]), signal);
     const model = session?.metadata?.model ?? configuredModel;
+    if (existingSessionId) {
+      await awaitLifecycleStep(restoreAgentSessionState(host, session), signal);
+      rpcStartupRestoredSessions.set(host, session.metadata.sessionId);
+    }
     await awaitLifecycleStep(startHostActiveAgentHeartbeat(host), signal);
 
-    await awaitLifecycleStep(Promise.resolve(host.injectSessionBootstrap()), signal);
+    if (!existingSessionId) await awaitLifecycleStep(Promise.resolve(host.injectSessionBootstrap()), signal);
 
     // Do not acknowledge initialization until the first RPC/command turn can
     // advertise every successfully connected MCP tool.
@@ -1262,6 +1272,7 @@ export async function runAgentCommandMode(
       if (signal?.aborted) {
         throw createLifecycleAbortError();
       }
+      rpcStartupRestoredSessions.delete(host);
       await awaitLifecycleStep(
         Promise.resolve(host.runtime.options.resumeSessionId
           ? host.initializeForRPC(signal, host.runtime.options.resumeSessionId)
@@ -1270,7 +1281,10 @@ export async function runAgentCommandMode(
       );
       initialized = true;
 
-      if (host.runtime.options.resumeSessionId) {
+      const startupRestoredSession = rpcStartupRestoredSessions.get(host);
+      rpcStartupRestoredSessions.delete(host);
+      if (host.runtime.options.resumeSessionId && !(startupRestoredSession === host.runtime.options.resumeSessionId
+        && host.sessionManager.getCurrentSession()?.metadata?.sessionId === startupRestoredSession)) {
         await awaitLifecycleStep(host.restoreSessionState(host.runtime.options.resumeSessionId), signal);
       }
 
@@ -1391,12 +1405,26 @@ export async function runAgentCommandMode(
     }
   }
 
+async function restoreHostGoalCheckpoint(host: AgentLifecycleHost, sessionId: string): Promise<void> {
+  if (typeof host.runtime?.workspaceRoot !== 'string' || !sessionId) return;
+  const manager: GoalManager = host.goalActivityManager?.restoreSessionCheckpoint ? host.goalActivityManager : new GoalManager(host.runtime.workspaceRoot, {
+    sessionId, ...goalManagerContinuityOptions(host.runtime.goalContinuity),
+  });
+  const restored = await manager.restoreSessionCheckpoint();
+  if (!restored.ok) throw new Error(restored.message ?? 'Goal checkpoint recovery was refused.');
+}
+
 export async function restoreAgentSessionState(host: AgentLifecycleHost, sessionOrId: string | Session) {
     resetSessionGitSnapshot(host.runtime);
     const session = typeof sessionOrId === 'string'
       ? await host.sessionManager.loadSession(sessionOrId)
       : sessionOrId;
 
+    if (typeof host.runtime?.workspaceRoot === 'string') {
+      await host.skillsRegistry?.setWorkspace?.(host.runtime.workspaceRoot, { createIdentity: false });
+    }
+    const restoredSessionId = session.metadata?.sessionId ?? (typeof sessionOrId === 'string' ? sessionOrId : undefined);
+    if (restoredSessionId) await restoreHostGoalCheckpoint(host, restoredSessionId);
     await host.resetConversationContext();
     await host.injectSessionBootstrap();
     const messages: import('../../session/types.js').SessionMessage[] = session.getMessages();

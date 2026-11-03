@@ -282,6 +282,24 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).toContain('- **alpha-docs**: Documentation helper');
   });
 
+  it('keeps adaptive discovery independent of catalog size and active skill text', async () => {
+    const listSkills = vi.fn(() => Array.from({ length: 10_000 }, (_, index) => ({ name: `private-skill-${index}`, description: 'Private catalog instructions'.repeat(20) })));
+    const getActiveSkills = vi.fn(() => [{ name: 'private-active', description: 'Selected', body: 'Full active instructions live in task context.' }]);
+    const prompt = await createBuilder({
+      runtime: { options: {}, workspaceRoot: process.cwd(), config: { features: { adaptiveSkills: true } } },
+      listSkills, getActiveSkills,
+    }).build();
+    expect(listSkills).not.toHaveBeenCalled();
+    expect(getActiveSkills).not.toHaveBeenCalled();
+    expect(prompt).toContain('command `search`');
+    expect(prompt).toContain('find_agent_skills');
+    expect(prompt).not.toContain('private-skill-');
+    expect(prompt).not.toContain('Full active instructions');
+    const discovery = prompt.split('## Skill Discovery\n')[1]?.split('\n\n')[0];
+    expect(discovery).toBeTruthy();
+    expect(Buffer.byteLength(discovery!)).toBeLessThanOrEqual(512);
+  });
+
   it('lists available skills by name only for ACP clients and points to the skill tool for details', async () => {
     const prompt = await createBuilder({
       compactSkillIndex: true,

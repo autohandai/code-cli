@@ -1492,11 +1492,11 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'skill',
-    description: 'List, inspect, activate, or deactivate a loaded skill. Activating a skill adds its instructions to the active session prompt.',
+    description: 'Search authorized local skills, inspect an exact reference, or select/deactivate task instructions. Activation is selection; loading is confirmed by request receipts.',
     parameters: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: 'Skill operation to perform', enum: ['list', 'info', 'activate', 'deactivate'] },
+        command: { type: 'string', description: 'Skill operation to perform', enum: ['list', 'search', 'info', 'activate', 'deactivate'] },
         name: { type: 'string', description: 'Skill name for info, activate, or deactivate' }
       },
       required: ['command']

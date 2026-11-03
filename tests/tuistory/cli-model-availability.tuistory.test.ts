@@ -8,8 +8,8 @@ it('explains the API, Agent SDK and Console routes when Weka is selected explici
   } });
   const session = await launchBuiltAutohand(['--model', 'weka', '--config', state.configPath], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
   try {
-    await session.waitForText('Weka is available through the Autohand API, the Agent SDKs and the Console, not in the CLI.', { timeout: 20_000 });
-    expect(session.readAll().replace(/\s+/g, ' ')).toContain('Weka is available through the Autohand API, the Agent SDKs and the Console, not in the CLI. Pick another model with /model or --model.');
+    await session.waitForText('Weka cannot run as the main coding model.', { timeout: 20_000 });
+    expect(session.readAll().replace(/\s+/g, ' ')).toContain('Weka cannot run as the main coding model. Eligible Autohand AI Cloud decision features may use Weka. Pick another model with /model or --model.');
   } finally {
     session.close();
     await state.cleanup();

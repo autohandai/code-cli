@@ -117,6 +117,7 @@ import type { ResourceCoordinatorClient } from '../session/peers/ResourceCoordin
 import type { PeerClient } from '../session/peers/PeerMessaging.js';
 import { executePeerTool, PEER_TOOL_NAMES, validatePeerToolAction } from './peerTools.js';
 import { GoalManager } from '../goals/GoalManager.js';
+import { goalManagerContinuityOptions } from '../goals/GoalContinuity.js';
 import { parseGoalStatus, type GoalMutationResult, type GoalState } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../goals/feature.js';
 import { initExperiment, runExperiment, logExperiment } from '../autoresearch/tools.js';
@@ -215,6 +216,7 @@ export interface ActionExecutorOptions {
     attemptId?: string;
     decision?: string;
   }) => Promise<void>;
+  onPrepareGoalActivation?: () => (() => void);
   onGoalActivated?: (goal: GoalState) => void | Promise<void>;
   /** Callback to fire after a goal objective has been created. */
   onGoalWrittenCompleted?: (context: {
@@ -454,6 +456,7 @@ export class ActionExecutor {
   private createGoalManager(): GoalManager {
     return new GoalManager(this.runtime.workspaceRoot, {
       sessionId: this.deps.getCurrentSessionId?.() ?? this.sessionId,
+      ...goalManagerContinuityOptions(this.runtime.goalContinuity),
     });
   }
 
@@ -1713,9 +1716,14 @@ export class ActionExecutor {
             return completed;
           }));
         }
-        const updated = await manager.updateGoal(input);
-        if (action.status === 'active' || updated.started) await this.activateGoal(updated);
-        return formatGoalToolResult(updated);
+        const current = input.status === 'active' ? (await manager.getSessionSnapshot()).goal : undefined;
+        const rollback = current?.checkpoint?.continuity ? this.deps.onPrepareGoalActivation?.() : undefined;
+        try {
+          const updated = await manager.updateGoal({ ...input, ...(current ? { expectedGoalId: current.goalId } : {}) });
+          if (!updated.ok) rollback?.();
+          if (action.status === 'active' || updated.started) await this.activateGoal(updated);
+          return formatGoalToolResult(updated);
+        } catch (error) { rollback?.(); throw error; }
       }
       case 'clear_goal': {
         const manager = this.createGoalManager();

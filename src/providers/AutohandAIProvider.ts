@@ -34,7 +34,7 @@ export function getAutohandAICloudModelCliUnsupportedReason(
   model: string | undefined,
 ): string | undefined {
   const normalized = normalizeAutohandAICloudModelId(model);
-  if (normalized === "weka") return "Weka is available through the Autohand API, the Agent SDKs and the Console, not in the CLI. Pick another model with /model or --model.";
+  if (normalized === "weka") return "Weka cannot run as the main coding model. Eligible Autohand AI Cloud decision features may use Weka. Pick another model with /model or --model.";
   const entry = getProviderModelOptions("autohandai").find(
     (candidate) => candidate.id === normalized,
   );

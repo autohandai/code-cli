@@ -17,6 +17,7 @@ import type { AgentDefinition } from '../agents/AgentRegistry.js';
 import { formatAgentRoster } from '../agents/agentRoster.js';
 import { getShellExecutionProfile } from '../../utils/shellExecution.js';
 import { isCodeModeEnabled } from '../codemode/feature.js';
+import { isAdaptiveSkillsEnabled, SKILL_DISCOVERY_CONTRACT } from '../../skills/feature.js';
 
 interface PromptSkillSummary {
   name: string;
@@ -84,7 +85,7 @@ export function formatSkillNameIndex(skills: readonly PromptSkillSummary[]): str
     .join(', ');
 }
 
-function formatActiveSkillBody(skill: PromptSkillSummary): string {
+export function formatActiveSkillBody(skill: PromptSkillSummary): string {
   const body = skill.body ?? '';
   if (!shouldAddAutohandSkillCompatibilityOverride(skill)) {
     return body;
@@ -443,7 +444,9 @@ export class SystemPromptBuilder {
       parts.push('', ...instructions);
     }
 
-    const allSkills = this.options.listSkills();
+    const adaptiveSkills = isAdaptiveSkillsEnabled(runtime.config);
+    if (adaptiveSkills) parts.push('', '## Skill Discovery', SKILL_DISCOVERY_CONTRACT);
+    const allSkills = adaptiveSkills ? [] : this.options.listSkills();
     if (allSkills.length > 0) {
       parts.push('', '## Available Skills');
       if (this.options.compactSkillIndex ?? isAcpClient()) {
@@ -464,7 +467,7 @@ export class SystemPromptBuilder {
       }
     }
 
-    const activeSkills = this.options.getActiveSkills();
+    const activeSkills = adaptiveSkills ? [] : this.options.getActiveSkills();
     if (activeSkills.length > 0) {
       parts.push('', '## Active Skills');
       parts.push('The following skills are active and provide specialized instructions:');

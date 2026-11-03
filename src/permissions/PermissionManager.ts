@@ -1151,6 +1151,10 @@ export class PermissionManager {
   /**
    * Get current settings (for display)
    */
+  getEffectiveSettings(): PermissionSettings {
+    return structuredClone(this.getMergedSettings());
+  }
+
   getSettings(): PermissionSettings {
     return {
       ...this.settings,

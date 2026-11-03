@@ -13,6 +13,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { SlashCommandHandler } from '../src/core/slashCommandHandler.js';
 import { SLASH_COMMANDS } from '../src/core/slashCommands.js';
+import { SkillsRegistry } from '../src/skills/SkillsRegistry.js';
+import * as skillsNew from '../src/commands/skills-new.js';
 
 
 function createMinimalContext() {
@@ -59,6 +61,35 @@ describe('slash command dispatch – output vs instruction', () => {
     const commands = SLASH_COMMANDS.map(c => c.command);
     expect(commands).toContain('/mcp');
     expect(commands).toContain('/mcp install');
+  });
+
+  it('registers both local skill authoring spellings with the same command metadata', () => {
+    const canonical = SLASH_COMMANDS.find(command => command.command === '/skills new');
+    const alias = SLASH_COMMANDS.find(command => command.command === '/skills-new');
+    expect(canonical).toBeDefined();
+    expect(alias).toEqual({ ...canonical, command: '/skills-new' });
+  });
+
+  it.each([
+    { command: '/skills new', failure: false }, { command: '/skills-new', failure: false },
+    { command: '/skills new', failure: true }, { command: '/skills-new', failure: true },
+  ])('awaits authoring modal ownership and restores it for $command (throw: $failure)', async ({ command, failure }) => {
+    const order: string[] = [];
+    const create = vi.spyOn(skillsNew, 'createSkill').mockImplementation(async () => {
+      order.push('author');
+      if (failure) throw new Error('Authoring fixture failure');
+      return null;
+    });
+    const handler = new SlashCommandHandler({
+      ...createMinimalContext(), skillsRegistry: new SkillsRegistry('/unused-authoring-fixture'),
+      onBeforeModal: async () => { order.push('pause'); await Promise.resolve(); order.push('paused'); },
+      onAfterModal: async () => { order.push('resume'); await Promise.resolve(); order.push('resumed'); },
+    }, SLASH_COMMANDS);
+    try {
+      expect(await handler.handle(command)).toBeNull();
+      expect(order).toEqual(['pause', 'paused', 'author', 'resume', 'resumed']);
+      expect(create).toHaveBeenCalledTimes(1);
+    } finally { create.mockRestore(); }
   });
 
   it('/tools is registered in SLASH_COMMANDS', () => {
@@ -432,11 +463,11 @@ describe('slash command dispatch – output vs instruction', () => {
     expect(mcpResult).toContain('MCP');
   });
 
-  it('/skills new is guarded in non-interactive mode', async () => {
+  it.each(['/skills new', '/skills-new'])('%s is guarded in non-interactive mode', async command => {
     const ctx = { ...createMinimalContext(), isNonInteractive: true };
     const handler = new SlashCommandHandler(ctx, SLASH_COMMANDS);
 
-    const result = await handler.handle('/skills new');
+    const result = await handler.handle(command);
     expect(result).toContain('requires an interactive terminal');
   });
 

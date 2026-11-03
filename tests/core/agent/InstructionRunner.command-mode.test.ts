@@ -123,6 +123,26 @@ function createHost(): AgentInstructionHost {
 }
 
 describe('InstructionRunner command mode UI', () => {
+  it('captures host learning baselines before work and finishes without waiting for extraction', async () => {
+    const host = createHost();
+    const sequence: string[] = [];
+    host.beginSkillLearningTurn = vi.fn(async () => { sequence.push('baseline'); });
+    host.runReactLoop = vi.fn(async () => { sequence.push('work'); return { status: 'completed' }; });
+    host.finishSkillLearningTurn = vi.fn(async () => { sequence.push('finish'); await new Promise(() => {}); });
+    expect(await new InstructionRunner(host).run('check the real output')).toBe(true);
+    expect(sequence).toEqual(['baseline', 'work', 'finish']);
+    expect(host.finishSkillLearningTurn).toHaveBeenCalledWith({ instruction: 'check the real output', success: true, aborted: false }, expect.any(AbortSignal));
+  });
+
+  it('does not fail the user turn when host learning callbacks reject', async () => {
+    const host = createHost();
+    host.beginSkillLearningTurn = vi.fn(async () => { throw new Error('baseline unavailable'); });
+    host.finishSkillLearningTurn = vi.fn(async () => { throw new Error('background unavailable'); });
+    expect(await new InstructionRunner(host).run('check the real output')).toBe(true);
+    await Promise.resolve();
+    expect(host.runReactLoop).toHaveBeenCalledOnce();
+  });
+
   it.each(['finished', 'failed', 'cancelled'] as const)('settles the Computer Use lifecycle once when the turn is %s', async status => {
     const host = createHost();
     const manager = new HookManager({ workspaceRoot: '/tmp', settings: { enabled: false } });

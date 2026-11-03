@@ -25,6 +25,26 @@ function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
 }
 
 describe('feature registry', () => {
+  it('keeps adaptive skills a local default-off experiment that cannot enroll learning', () => {
+    const config = makeConfig();
+    expect(getFeatureState(config, 'adaptive_skills')).toMatchObject({
+      enabled: false, stage: 'experimental', requiresRestart: true, configPath: 'features.adaptiveSkills', source: 'local',
+    });
+    expect(setFeatureState(config, 'adaptive_skills', true).ok).toBe(true);
+    expect(config.features?.adaptiveSkills).toBe(true);
+    expect(config.skills?.learning?.enabled).toBeUndefined();
+    expect(config.skills?.decisions?.enabled).toBeUndefined();
+    expect(formatFeatureList(config)).toContain('adaptive_skills');
+  });
+
+  it('preserves explicit adaptive opt-outs and existing learning settings', () => {
+    const config = makeConfig({ features: { adaptiveSkills: false }, skills: { learning: { enabled: false, scope: 'project' }, decisions: { enabled: false } } });
+    expect(getFeatureState(config, 'adaptive_skills')?.enabled).toBe(false);
+    expect(setFeatureState(config, 'adaptive_skills', true).ok).toBe(true);
+    expect(setFeatureState(config, 'adaptive_skills', false).ok).toBe(true);
+    expect(config.skills).toEqual({ learning: { enabled: false, scope: 'project' }, decisions: { enabled: false } });
+  });
+
   it('defaults to stable full-screen mode and supports a restart-required opt-out', () => {
     const config = makeConfig({ features: {} });
     expect(getFeatureState(config, 'full_screen_mode')).toEqual(expect.objectContaining({ enabled: true, stage: 'stable', requiresRestart: true, configPath: 'features.fullScreenMode' }));

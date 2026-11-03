@@ -95,6 +95,15 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: true,
   },
   {
+    id: 'adaptive_skills',
+    label: 'Adaptive skills',
+    description: 'Discover installed skills on demand and attach complete pinned instructions to the current task. Automatic learning and remote decisions have separate opt-ins.',
+    stage: 'experimental',
+    configPath: 'features.adaptiveSkills',
+    defaultEnabled: false,
+    requiresRestart: true,
+  },
+  {
     id: 'prompt_suggestions',
     label: 'Prompt suggestions',
     description: 'Show generated next-step suggestions in the interactive prompt placeholder.',

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { compactSessionContext } from '../../src/core/context/sessionCompaction.js';
 import type { LLMMessage } from '../../src/types.js';
+import { DecisionDispatcher } from '../../src/decisions/index.js';
+import { eligibleDecisionContext, eligibleDecisionDispatcher } from '../decisions/fixtures.js';
 
 const history: LLMMessage[] = [
   { role: 'system', content: 'Private system prompt must not be sent.' },
@@ -13,6 +15,16 @@ const settings = { plan: 'cloud' as const, authMode: 'api-key' as const, apiKey:
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe('session compaction through Weka decisions', () => {
+  it('never infers permission to dispatch Weka from stored hosted credentials alone', async () => {
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      return Response.json({ answers: Object.fromEntries(Object.keys(body.questions).map(key => [key, { type: 'noul', noul: 1 }])) });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await compactSessionContext({ history, settings });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.source).toBe('local');
+  });
   it('uses one typed Weka API call and retains the selected facts plus the request and answer', async () => {
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body));
@@ -22,7 +34,7 @@ describe('session compaction through Weka decisions', () => {
       return Response.json({ model: 'weka', answers: Object.fromEntries(Object.keys(body.questions).map(key => [key, { type: 'noul', noul: 0.95 }])) });
     });
     vi.stubGlobal('fetch', fetchMock);
-    const result = await compactSessionContext({ history, settings });
+    const result = await compactSessionContext({ history, decisionDispatcher: eligibleDecisionDispatcher(settings) });
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledWith('https://inference.test/v1/decisions', expect.objectContaining({
       headers: expect.objectContaining({ Authorization: 'Bearer test-key' }), signal: expect.any(AbortSignal),
@@ -39,7 +51,7 @@ describe('session compaction through Weka decisions', () => {
       return Response.json({ answers: {} });
     });
     vi.stubGlobal('fetch', fetchMock);
-    const result = await compactSessionContext({ history: longHistory, settings });
+    const result = await compactSessionContext({ history: longHistory, decisionDispatcher: eligibleDecisionDispatcher(settings) });
     expect(result.summary.length).toBeLessThanOrEqual(10_000);
     expect(result.summary).toContain('Implement cancellation');
     expect(result.summary).toContain('8 tests pass');
@@ -49,7 +61,7 @@ describe('session compaction through Weka decisions', () => {
   it.each([401, 429, 503])('discards unread HTTP %i bodies and preserves a local handoff', async status => {
     const cancel = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status, body: { cancel } }));
-    const result = await compactSessionContext({ history, settings });
+    const result = await compactSessionContext({ history, decisionDispatcher: eligibleDecisionDispatcher(settings) });
     expect(cancel).toHaveBeenCalledOnce();
     expect(result.source).toBe('local');
     expect(result.summary).toContain('Changed retry.ts');
@@ -65,7 +77,7 @@ describe('session compaction through Weka decisions', () => {
     vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
       init.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
     })));
-    const task = compactSessionContext({ history, settings });
+    const task = compactSessionContext({ history, decisionDispatcher: eligibleDecisionDispatcher(settings) });
     await vi.advanceTimersByTimeAsync(15_000);
     expect((await task).source).toBe('local');
     expect(vi.getTimerCount()).toBe(baseline);
@@ -73,7 +85,7 @@ describe('session compaction through Weka decisions', () => {
   it('propagates user cancellation instead of replacing context with a fallback', async () => {
     const controller = new AbortController();
     vi.stubGlobal('fetch', vi.fn(async () => { controller.abort(); throw controller.signal.reason; }));
-    await expect(compactSessionContext({ history, settings, signal: controller.signal })).rejects.toThrow();
+    await expect(compactSessionContext({ history, decisionDispatcher: eligibleDecisionDispatcher(settings), signal: controller.signal })).rejects.toThrow();
   });
   it('does not call a cloud service without configured hosted credentials', async () => {
     const fetchMock = vi.fn();
@@ -94,9 +106,33 @@ describe('session compaction through Weka decisions', () => {
       { role: 'system', content: first.summary },
       { role: 'user', content: 'Now check the timeout edge case.' },
       { role: 'assistant', content: 'Timeout edge case verified.' },
-    ], settings });
+    ], decisionDispatcher: eligibleDecisionDispatcher(settings) });
     expect(second.summary).toContain('Implement cancellation');
     expect(second.summary).toContain('aborted retry can race');
     expect(second.summary).toContain('Timeout edge case verified');
+  });
+
+  it.each(['openai', 'anthropic', 'ollama', 'Autohand AI', null])('does not send compaction evidence to Weka when the actual provider is %s', async provider => {
+    const policy = eligibleDecisionContext(settings);
+    policy.execution.provider = provider;
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await compactSessionContext({ history, settings, decisionDispatcher: new DecisionDispatcher({ getContext: () => policy }) });
+    expect(result.source).toBe('local');
+    expect(result.summary).toContain('Learnt that');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('discards a remote compaction selection after a provider switch', async () => {
+    const policy = eligibleDecisionContext(settings);
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      policy.execution.provider = 'anthropic';
+      policy.policyEpoch++;
+      return Response.json({ answers: Object.fromEntries(Object.keys(body.questions).map(key => [key, { type: 'noul', noul: 0 }])) });
+    }));
+    const result = await compactSessionContext({ history, decisionDispatcher: new DecisionDispatcher({ getContext: () => policy }) });
+    expect(result.source).toBe('local');
+    expect(result.summary).toContain('Learnt that');
   });
 });

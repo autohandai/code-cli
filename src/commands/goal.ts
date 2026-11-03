@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import path from 'node:path';
 import { showModal } from '../ui/ink/components/Modal.js';
 import { activateGoalAutoMode } from '../core/agent/GoalActivation.js';
+import { goalManagerContinuityOptions } from '../goals/GoalContinuity.js';
 import { buildGoalContinuationInstruction, GoalManager } from '../goals/GoalManager.js';
 import { parseCompletionEvidence } from '../goals/GoalCompletion.js';
 import { parseGoalCheckpoint, parseGoalProgressCommand } from '../goals/GoalProgress.js';
@@ -55,6 +56,7 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
 
   const manager = new GoalManager(ctx.workspaceRoot, {
     sessionId: ctx.sessionManager?.getCurrentSession()?.metadata.sessionId,
+    ...goalManagerContinuityOptions(ctx.goalContinuity),
   });
   const input = args.join(' ').trim();
   if (!input) {
@@ -63,7 +65,7 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
     if (!snapshot.goal && snapshot.queue.length > 0 && !hasLivePeer) {
       const started = await manager.startQueuedGoal();
       if (started.ok && started.goal) {
-        queueGoalContinuation(ctx, started.goal.objective);
+        queueGoalContinuation(ctx, started.goal);
       }
       return formatMutation(started);
     }
@@ -129,16 +131,18 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
       if (canStartQueued && snapshot.queue.length > 0) {
         const started = await manager.startQueuedGoal();
         if (started.ok && started.goal) {
-          queueGoalContinuation(ctx, started.goal.objective);
+          queueGoalContinuation(ctx, started.goal);
         }
         return formatMutation(started);
       }
-      const resumed = await manager.updateGoal({ status: 'active' });
-      reportGoal(ctx, resumed, 'resumed');
-      if (resumed.ok && resumed.goal) {
-        queueGoalContinuation(ctx, resumed.goal.objective);
-      }
-      return formatMutation(resumed);
+      const rollback = snapshot.goal?.checkpoint?.continuity ? activateGoalAutoMode(ctx) : () => {};
+      try {
+        const resumed = await manager.updateGoal({ status: 'active', expectedGoalId: snapshot.goal?.goalId });
+        if (!resumed.ok) rollback();
+        reportGoal(ctx, resumed, 'resumed');
+        if (resumed.ok && resumed.goal) queueGoalContinuation(ctx, resumed.goal);
+        return formatMutation(resumed);
+      } catch (error) { rollback(); throw error; }
     }
     case 'complete': {
       let completionEvidence;
@@ -152,7 +156,7 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
       const completed = await manager.updateGoal({ status: 'complete', completionEvidence });
       reportGoal(ctx, completed, 'completed');
       if (completed.ok && completed.started && completed.goal?.status === 'active') {
-        queueGoalContinuation(ctx, completed.goal.objective);
+        queueGoalContinuation(ctx, completed.goal);
       }
       return formatMutation(completed);
     }
@@ -188,7 +192,7 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
       // started, or the active goal gets a duplicate continuation each time.
       if (created.ok && !created.queued?.length && created.goal) {
         await emitGoalWrittenCompleted(ctx, created.goal, 'slash');
-        queueGoalContinuation(ctx, created.goal.objective);
+        queueGoalContinuation(ctx, created.goal);
       }
       return formatMutation(created);
     }
@@ -306,9 +310,9 @@ async function handleQueue(manager: GoalManager, rest: string): Promise<string> 
   return formatMutation(await manager.enqueueGoalBlock(rest, 'command'));
 }
 
-function queueGoalContinuation(ctx: GoalCommandContext, objective: string): void {
+function queueGoalContinuation(ctx: GoalCommandContext, goal: GoalState): void {
   activateGoalAutoMode(ctx);
-  ctx.queueInstruction?.(buildGoalContinuationInstruction(objective));
+  ctx.queueInstruction?.(buildGoalContinuationInstruction(goal.objective, goal.checkpoint));
 }
 
 function formatMutation(result: GoalMutationResult): string {

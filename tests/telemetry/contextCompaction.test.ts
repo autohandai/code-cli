@@ -10,7 +10,8 @@
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ExtensionSkillContribution } from '../../src/extensions/types.js';
 import { SkillsRegistry } from '../../src/skills/SkillsRegistry.js';
 import { TelemetryManager } from '../../src/telemetry/TelemetryManager.js';
 import type { ContextCompactionData, TelemetryEventType } from '../../src/telemetry/types.js';
@@ -83,8 +84,26 @@ describe('TelemetryManager.trackContextCompaction', () => {
 });
 
 describe('SkillsRegistry.noteContextCompaction', () => {
+  const directories: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(directories.splice(0).map(directory => fs.remove(directory)));
+  });
+
+  async function extensionSkill(name: string): Promise<ExtensionSkillContribution> {
+    const packageRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cli3-compaction-extension-'));
+    directories.push(packageRoot);
+    const file = path.join(packageRoot, 'skills', name, 'SKILL.md');
+    await fs.outputFile(file, `---\nname: ${name}\ndescription: from an extension\n---\nbody\n`);
+    return {
+      definition: { name, description: 'from an extension', source: 'extension', body: 'body', path: file, isActive: false },
+      provenance: { extensionId: 'ext', extensionVersion: '1.0.0', scope: 'user', packageRoot, file },
+    };
+  }
+
   async function registryWith(names: string[]) {
     const dir = path.join(os.tmpdir(), `cli3-compaction-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    directories.push(dir);
     for (const name of names) {
       await fs.ensureDir(path.join(dir, name));
       await fs.writeFile(
@@ -127,12 +146,7 @@ describe('SkillsRegistry.noteContextCompaction', () => {
 
   it('closes the span of a skill that stopped being injected, and leaves it out of the survivors', async () => {
     const { registry, trackSkillUse } = await registryWith([]);
-    registry.setExtensionSkills([
-      {
-        definition: { name: 'ext-skill', description: 'from an extension', source: 'extension', body: 'body' },
-        provenance: { extensionId: 'ext', extensionVersion: '1.0.0' },
-      } as never,
-    ]);
+    registry.setExtensionSkills([await extensionSkill('ext-skill')]);
     registry.activateSkill('ext-skill');
     const opened = eventsOf(trackSkillUse).find((event) => event.action === 'activate');
     expect(opened?.spanId).toBeDefined();
@@ -151,12 +165,7 @@ describe('SkillsRegistry.noteContextCompaction', () => {
 
   it('does not release the same span twice across repeated compactions', async () => {
     const { registry, trackSkillUse } = await registryWith([]);
-    registry.setExtensionSkills([
-      {
-        definition: { name: 'ext-twice', description: 'from an extension', source: 'extension', body: 'body' },
-        provenance: { extensionId: 'ext', extensionVersion: '1.0.0' },
-      } as never,
-    ]);
+    registry.setExtensionSkills([await extensionSkill('ext-twice')]);
     registry.activateSkill('ext-twice');
     registry.setExtensionSkills([]);
 
@@ -168,12 +177,7 @@ describe('SkillsRegistry.noteContextCompaction', () => {
 
   it('keeps the survivor and drops only the evicted one when both are open', async () => {
     const { registry, trackSkillUse } = await registryWith(['stays']);
-    registry.setExtensionSkills([
-      {
-        definition: { name: 'goes', description: 'from an extension', source: 'extension', body: 'body' },
-        provenance: { extensionId: 'ext', extensionVersion: '1.0.0' },
-      } as never,
-    ]);
+    registry.setExtensionSkills([await extensionSkill('goes')]);
     registry.activateSkill('stays');
     registry.activateSkill('goes');
     const staysSpan = eventsOf(trackSkillUse)

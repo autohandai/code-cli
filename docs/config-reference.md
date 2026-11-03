@@ -1950,6 +1950,78 @@ Load custom agent definitions from external directories.
 
 Skills are instruction packages that provide specialized instructions to the AI agent. They work like on-demand `AGENTS.md` files that can be activated for specific tasks.
 
+### Adaptive Skills Rollout
+
+Adaptive skills is an experimental, local opt-in. Enable it with `autohand experiments enable adaptive_skills` or `autohand config set features.adaptiveSkills true`, then restart the CLI. Disable it with `autohand experiments disable adaptive_skills` and restart to restore the existing skill prompt behavior. The switch does not enable automatic learning, remote decisions, cloud sharing, or a different inference provider.
+
+```json
+{
+  "features": { "adaptiveSkills": true },
+  "skills": {
+    "learning": { "enabled": false, "scope": "project" },
+    "decisions": {
+      "enabled": false,
+      "selection": false,
+      "preview": false,
+      "remotePreview": false,
+      "learning": false,
+      "compaction": false
+    }
+  }
+}
+```
+
+The startup prompt contains a fixed discovery contract. The installed catalog remains available through the `skill` tool's `list`, `search`, and `info` operations. `search` accepts its query in `name`; `activate` selects instructions for task context. In code mode these operations run through `run_tool_script`, while `tool_search` discovers their schemas. Registry discovery (`find_agent_skills`), approved installation (`install_agent_skill`), `/skills install`, and local authoring (`/skills new` or `/skills-new`) remain available. `/skills search <query>` continues to search the community registry.
+
+Use `$skill-name` for an explicit compatible skill, or the exact `skill://` reference reported by discovery to distinguish same-name packages. A reference identifies its authority and package; a pinned reference also includes the complete package revision and optional resource. Paths locate resources and do not define portable identity. `/deep-research` selects the bundled package through the same loader. A skill's instructions and `allowed-tools` metadata do not grant permissions.
+
+Required instructions are attached in full. If a required resource, pinned revision, authorization, or instruction budget is unavailable, loading reports the problem instead of silently omitting or truncating required content. A `Loaded <name> · <source> · this task` status follows submission of the packet at the provider request boundary. The persisted receipt records the task, session, request, source reference, revision, and content digest. Its `submitted` state establishes request submission; it does not establish correct model behavior or task success. External engine handoffs can record `supplied` evidence. Historical receipts do not prove attachment to a later request.
+
+Packages may declare mandatory text resources and exact pinned dependencies in `skill.runtime.json` (`version: 1`, `requiredResources`, and `dependencies`). The complete manifest covers scripts and binary assets as well as instruction text; archived resources are materialized from the pinned revision. Declarations grant no authority and do not execute scripts automatically. Malformed declarations, missing resources, dependency cycles, and oversized packages fail visibly. See [Required Resources and Dependencies](agent-skills.md#required-resources-and-dependencies).
+
+These settings appear under **Agent Behavior** in `/settings` and are accepted by `autohand config set <key> <value>`:
+
+| Key | Default | Behavior |
+| --- | --- | --- |
+| `features.adaptiveSkills` | `false` | Enable adaptive discovery and task attachment; restart required. |
+| `skills.learning.enabled` | `false` | Allow eligible verified work to queue private learning drafts. |
+| `skills.learning.scope` | `"project"` | Draft scope: `project` or explicitly selected `user`. |
+| `skills.maxInstructionTokens` | Unset | Optional positive instruction-token budget; required content is never truncated to fit. |
+| `skills.decisions.enabled` | `false` | Master opt-in for remote decision features. |
+| `skills.decisions.provider` | Unset | Explicit provider ID; must match active execution. |
+| `skills.decisions.model` | Unset | Explicit decision model; configuring it does not enable requests. |
+| `skills.decisions.selection` | `false` | Allow remote reranking of a bounded local shortlist. |
+| `skills.decisions.preview` | `false` | Enable the preview decision feature. |
+| `skills.decisions.remotePreview` | `false` | Additional consent to send typed text before submission. |
+| `skills.decisions.learning` | `false` | Allow eligible decision-model draft extraction. |
+| `skills.decisions.compaction` | `false` | Allow eligible decision-model compaction. |
+| `skills.decisions.timeoutMs` | Unset | Optional request deadline; dispatcher limit is 10,000 ms. |
+
+Remote decision requests also require online operation, background calls enabled, an attested execution provider, and the individual feature opt-in. Weka is available only for eligible Autohand AI Cloud decision requests with valid authentication, account model entitlement, and quota. It cannot run as the main coding model. Stored Autohand credentials, a provider display name, or `AUTOHAND_TYPE_AHEAD_MODEL=weka` cannot authorize Weka while execution uses another provider. Ineligible or stale routes fall back to local behavior. Login alone does not enable remote previews or learning.
+
+### Verified Learning and Recovery
+
+Automatic learning is separate from ordinary skill activation, `/learn` project recommendations, and `agent.autoMemory`. Use `/skills learning status`, `/skills learning on`, or `/skills learning off` to inspect or change the automatic-learning preference. Explicit `/skills learn [outcome-id]` requests a draft from a qualifying completed work outcome while automatic learning remains off.
+
+Automatic drafts require a predeclared `skills.learning.verification` contract with `id`, `inputIds`, `checks`, and `artifacts`. Each check names its `id`, command argument array, frozen input `files`, and optional working directory and timeout. The runtime checks changed artifacts against their prior digests and executes the independent checks. Greetings, cancellations, no-op outcomes, assistant success text, and a clean exit alone are insufficient evidence. Configure real acceptance checks for your workflow; none are inferred from a skill's own claims.
+
+Candidate verification uses a separate `skills.learning.candidateVerification` contract with `id`, `inputIds`, and `checks`. Each candidate command must consume its package through a `{candidate}` argument. Verification is bound to the candidate revision and frozen check inputs; editing either invalidates the evidence. Drafts and upstream packages remain distinct, scoped revisions.
+
+| Command | Purpose |
+| --- | --- |
+| `/skills learning list` | Inspect scoped drafts and jobs. |
+| `/skills inspect <candidate>` | Inspect candidate identity and provenance. |
+| `/skills verify <candidate>` | Run configured independent candidate checks. |
+| `/skills benefit <candidate> <plan-id>` | Declare the benefit evaluation plan before preference. |
+| `/skills prefer <candidate> <plan-id>` | Request preference only when independent benefit evidence qualifies. |
+| `/skills rollback <candidate>` | Remove learned preference while retaining package revisions. |
+| `/skills exclude <candidate>` | Exclude the candidate from future learning and preference. |
+| `/skills forget <candidate>` | Remove learning evidence and queued jobs while retaining package files. |
+
+Preferred promotion requires a benefit evaluator supplied by the embedding host API. The CLI does not include a built-in live held-out evaluation runner; without that evaluator, preference fails closed. Passing candidate checks does not demonstrate improved future task quality. This rollout makes no billed-token savings, statistical task-quality, or learned-transfer claim.
+
+Goal checkpoints retain declared skill pins, intent, artifacts, next action, and evidence across restart. `/goal recover <session-id>` restores an offline goal's conversation and paused state; it does not start work or take ownership from a live session. Inspect recovery with `/goals view` and explicitly use `/goal resume` to continue. Missing pins, changed authorization, and uncertain external side effects require resolution before replaying work.
+
 ### Skill Discovery Locations
 
 Skills are discovered from multiple locations, with later sources taking precedence:
@@ -2017,7 +2089,7 @@ Autohand supports special prefixes in the input prompt:
 - Type `$` followed by characters to see available skills with autocomplete
 - Tab accepts the top suggestion (e.g., `$frontend-design`)
 - Skills are discovered from `~/.autohand/skills/` and `<project>/.autohand/skills/`
-- Activated skills are attached to the prompt as special instructions for the current session
+- Activated skills provide special instructions; adaptive mode attaches pinned packets in task context with request-scoped receipts
 - Preview panel shows skill metadata (name, description, activation state)
 
 **Shell Commands (`!`):**

@@ -9,6 +9,8 @@ import { formatToolObservation } from './AgentToolOutputRuntime.js';
 import type { PermissionManager } from '../../permissions/PermissionManager.js';
 import { getProviderConfig } from '../../config.js';
 import { ensureSearchConfiguration, isSearchConfigured } from '../../actions/web.js';
+import type { SkillsRegistry } from '../../skills/SkillsRegistry.js';
+import { prepareSkillRequest } from './SkillRequestAttachment.js';
 import { normalizePromptRoles, toTextOnlyContent } from '../../providers/messagePayload.js';
 import { ApiError } from '../../providers/errors.js';
 import { DEFAULT_TOOL_OUTPUT_MODE, formatToolOutputForDisplay, type ToolOutputDisplay, type ToolOutputMode } from '../../ui/toolOutput.js';
@@ -158,6 +160,7 @@ class LoopAbortedError extends Error {
 }
 
 export interface ReactLoopInkRenderer {
+  addNotification?(message: string): void;
   startComputerUseStep?(id: string, tool: string, args: Record<string, unknown>): void;
   finishComputerUseStep?(id: string, success: boolean, output: string): void;
   setStatus(status: string): void;
@@ -185,6 +188,7 @@ export interface ReactLoopInkRenderer {
 }
 
 export interface AgentReactLoopHost {
+  skillsRegistry?: SkillsRegistry;
   accountTier?: string;
   createCheckpointAdvisor?(): TurnAdvisor | undefined;
   captureAdvisorDiff?(): Promise<string>;
@@ -939,10 +943,21 @@ export async function runAgentReactLoop(
         ) as 'none' | 'normal' | 'extended' | undefined ?? 'normal';
 
         const requestTools = supportsNativeToolCalling && tools.length > 0 ? tools : undefined;
-        const requestMessages = normalizePromptRoles(messagesWithImages);
+        let requestMessages = normalizePromptRoles(messagesWithImages);
         const maxTokens = host.contextWindow > 0
           ? Math.min(16000, Math.max(1, Math.floor(host.contextWindow * 0.25)))
           : 16000;
+        const baseUsage = calculateContextUsage(
+          requestMessages.map(message => ({ ...message, content: toTextOnlyContent(message.content) })),
+          requestTools ?? [], model, maxTokens, host.contextWindow,
+        );
+        const skillRequest = await prepareSkillRequest({
+          config: host.runtime.config, skillsRegistry: host.skillsRegistry, sessionManager: host.sessionManager,
+          emitOutput: event => host.emitOutput(event), notify: message => host.inkRenderer?.addNotification?.(message),
+          getPolicyEpoch: host.runtime.skillPolicyEpoch,
+          assertTaskPins: references => host.runtime.goalContinuity?.assertTaskPins?.(references) ?? Promise.resolve(),
+        }, requestMessages, Math.min(host.runtime.config.skills?.maxInstructionTokens ?? 16_000, Math.max(0, baseUsage.remainingTokens - 256)), abortController.signal);
+        requestMessages = skillRequest.messages;
         const requestUsage = calculateContextUsage(
           requestMessages.map((message) => ({ ...message, content: toTextOnlyContent(message.content) })),
           requestTools ?? [], model, maxTokens, host.contextWindow,
@@ -972,6 +987,12 @@ export async function runAgentReactLoop(
         const onRetry = relay
           ? (event: LLMRetryEvent) => { retryWait.handle(event); relay.onRetry(event); }
           : retryWait.handle;
+        let skillAcknowledgment: Promise<void> | undefined;
+        const acknowledgeSkills = (): void => {
+          skillAcknowledgment ??= skillRequest.acknowledge().catch((error: unknown) => {
+            if (debugMode) host.writeDebugLine(`[SKILLS] Request receipt unavailable: ${error instanceof Error ? error.message : String(error)}`);
+          });
+        };
         try {
           completion = await host.llm.complete({
             messages: requestMessages,
@@ -984,8 +1005,10 @@ export async function runAgentReactLoop(
             thinkingLevel,
             promptCache: getSessionPromptCacheDirective(host),
             onRetry,
-            ...(supportsStreaming ? { stream: true, onDelta: combineDeltaHandlers(preview?.onDelta, relay?.onDelta) } : {}),
+            ...(supportsStreaming ? { stream: true, onDelta: combineDeltaHandlers(preview?.onDelta, relay?.onDelta, delta => { if (delta.text) acknowledgeSkills(); }) } : {}),
           });
+          acknowledgeSkills();
+          await skillAcknowledgment;
         } finally {
           retryWait.dispose();
           preview?.dispose();

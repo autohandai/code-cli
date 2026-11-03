@@ -48,6 +48,35 @@ describe('/goal command', () => {
     await fs.remove(workspaceRoot);
   });
 
+  it('establishes current automode permissions before resume preflight and rolls back a refused resume', async () => {
+    let mode: 'default' | 'automode' | 'plan' = 'default'; let providerId = 'openrouter';
+    const reference = { authority: 'local:fixture', packageId: 'checks', revision: 'sha256:fixture', resource: 'SKILL.md' };
+    ctx.getInteractionMode = () => mode;
+    ctx.setInteractionMode = next => { mode = next === 'yolo' ? 'automode' : next; return mode; };
+    ctx.goalContinuity = { getPinnedReferences: () => [reference], resolveContext: async () => ({ workspaceId: 'workspace:fixture', runtimeVersion: 'fixture', providerId,
+      permissionEpoch: mode, checkedAt: Date.now(), resolveSkill: async pin => pin }) };
+    await goal(ctx, ['Approved mode-sensitive work']); await goal(ctx, ['checkpoint', JSON.stringify({ summary: 'Saved in current automode' })]); await goal(ctx, ['pause']);
+    mode = 'default'; expect(await goal(ctx, ['resume'])).toContain('status active'); expect(mode).toBe('automode');
+    await goal(ctx, ['pause']); mode = 'plan'; providerId = 'changed'; const before = queued.length;
+    expect(await goal(ctx, ['resume'])).toContain('providerId changed'); expect(mode).toBe('plan'); expect(queued).toHaveLength(before);
+  });
+
+  it('uses live runtime context for pinned checkpoints and resumes only after successful preflight', async () => {
+    const reference = { authority: 'local:fixture', packageId: 'checks', revision: 'sha256:fixture', resource: 'SKILL.md' };
+    let providerId = 'openrouter';
+    ctx.goalContinuity = { getPinnedReferences: () => [reference], resolveContext: async () => ({
+      workspaceId: 'workspace:fixture', runtimeVersion: 'fixture', providerId, permissionEpoch: 'fixture', checkedAt: Date.now(), resolveSkill: async pin => pin,
+    }) };
+    await goal(ctx, ['Approved checkpoint work']);
+    await goal(ctx, ['checkpoint', JSON.stringify({ summary: 'Prepared patch', nextStep: 'Verify artifact' })]);
+    await goal(ctx, ['pause']);
+    const before = queued.length; providerId = 'changed';
+    expect(await goal(ctx, ['resume'])).toContain('providerId changed'); expect(queued).toHaveLength(before);
+    providerId = 'openrouter';
+    expect(await goal(ctx, ['resume'])).toContain('status active');
+    expect(queued.at(-1)).toContain('sha256:fixture'); expect(queued.at(-1)).toContain('Verify artifact');
+  });
+
   it('creates a non-interactive goal when the supplied configuration enables goals', async () => {
     const result = await runGoalCli(workspaceRoot, 'create a reliable CLI goal', ctx.config);
 

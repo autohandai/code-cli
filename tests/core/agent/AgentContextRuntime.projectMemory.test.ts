@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildAgentTurnContext, type AgentContextRuntimeHost } from '../../../src/core/agent/AgentContextRuntime.js';
 import { ConversationManager } from '../../../src/core/conversationManager.js';
+import type { LoadedConfig } from '../../../src/types.js';
 
 const roots: string[] = [];
 
@@ -14,8 +15,12 @@ afterEach(async () => {
 async function hostFor(bare = false): Promise<AgentContextRuntimeHost> {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-project-context-'));
   roots.push(workspaceRoot);
+  const config: LoadedConfig = {
+    configPath: path.join(workspaceRoot, '.autohand', 'config.json'),
+    features: { adaptiveSkills: false },
+  };
   return {
-    runtime: { workspaceRoot, options: { bare } },
+    runtime: { config, workspaceRoot, options: { bare } },
     ignoreFilter: { isIgnored: () => false },
     mentionResolver: { flush: () => null },
     skillsRegistry: { activateMentionedSkills: () => [], getSkill: () => null },
