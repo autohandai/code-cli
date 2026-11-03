@@ -17,6 +17,7 @@ import {
   openChromeContinuation,
   resolveCliLaunchSpec,
   type BrowserPreference,
+  CHROME_WEB_STORE_EXTENSION_ID,
 } from './chrome.js';
 
 interface BrowserInstallOptions {
@@ -65,7 +66,8 @@ function registerBrowserInstallCommand(command: Command, legacy = false): void {
       const config = await loadConfig(undefined, process.cwd());
       const launchSpec = resolveCliLaunchSpec(options.cliPath);
       const browsers = normalizeBrowsers(options.browser);
-      const extensionId = options.extensionId ?? config.chrome?.extensionId;
+      const configuredExtensionId = options.extensionId ?? config.chrome?.extensionId;
+      const extensionId = configuredExtensionId ?? CHROME_WEB_STORE_EXTENSION_ID;
       const preferredBrowser: BrowserPreference = options.browser === 'all'
         ? (config.chrome?.browser ?? 'auto')
         : (browsers[0] ?? 'auto');
@@ -102,9 +104,9 @@ function registerBrowserInstallCommand(command: Command, legacy = false): void {
           }
         );
       }
-      if (!extensionId) {
-        console.log(chalk.yellow('No extension id is configured yet.'));
-        console.log(chalk.gray('Open the extension options page, copy the pairing command, then rerun it to enable direct /browser handoff.'));
+      if (!configuredExtensionId) {
+        console.log(chalk.gray(`  paired with the Chrome Web Store extension (${CHROME_WEB_STORE_EXTENSION_ID}).`));
+        console.log(chalk.gray('  For an unpacked build, rerun with --extension-id <id> from chrome://extensions.'));
       }
       if (detectedProfile) {
         console.log(chalk.gray(`  profile: ${detectedProfile.browser} / ${detectedProfile.profileDirectory}`));

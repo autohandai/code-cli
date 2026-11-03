@@ -455,6 +455,17 @@ describe('browser/chrome', () => {
     expect(manifest.allowed_origins).toContain('chrome-extension://ext123/');
   });
 
+  darwinTest('pairs with the Chrome Web Store extension when no id is configured', async () => {
+    const tempRoot = path.join(os.tmpdir(), `autohand-store-default-${Date.now()}`);
+    tempRoots.push(tempRoot);
+    const chromeTarget = getManifestTarget('chrome', 'darwin', tempRoot);
+
+    await ensureNativeHostInstalled({ homeDir: tempRoot, browserHomeDir: tempRoot });
+
+    const manifest = await readJson(chromeTarget.manifestPath);
+    expect(manifest.allowed_origins).toContain('chrome-extension://lljmbfgiogeolajngfkodakhlglkipbj/');
+  });
+
   darwinTest('preserves origins from both Chrome manifest variants during repair', async () => {
     const tempRoot = path.join(os.tmpdir(), `autohand-cft-origins-${Date.now()}`);
     tempRoots.push(tempRoot);
