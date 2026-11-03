@@ -2059,6 +2059,15 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
         ),
         createSyncService: async (authUser) => {
           const { createSyncService, DEFAULT_SYNC_CONFIG, SyncApiClient } = await import('./sync/index.js');
+          let lastUnavailableCount = 0;
+          const notifySyncNotice = async (message: string): Promise<void> => {
+            if (agentHolder.current) {
+              agentHolder.current.notifyUser(message);
+            } else {
+              const { promptNotify } = await import('./ui/inputPrompt.js');
+              promptNotify(chalk.yellow(message));
+            }
+          };
           return createSyncService({
             controlPlaneConfigPath: config.configPath,
             authToken: config.auth?.token ?? '',
@@ -2071,13 +2080,15 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
             },
             onSyncFailure: async (reason) => {
               const oneLine = reason.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').slice(0, 300).replace(/[.\s]+$/u, '');
-              const message = `Settings sync is paused: ${oneLine}. Run /sync status`;
-              if (agentHolder.current) {
-                agentHolder.current.notifyUser(message);
-              } else {
-                const { promptNotify } = await import('./ui/inputPrompt.js');
-                promptNotify(chalk.yellow(message));
+              await notifySyncNotice(`Settings sync is paused: ${oneLine}. Run /sync status`);
+            },
+            onEvent: (event) => {
+              if (event.type !== 'sync_completed' || !event.result.success) return;
+              const unavailable = event.result.remoteSkipped?.unavailableFiles ?? 0;
+              if (unavailable > 0 && unavailable !== lastUnavailableCount) {
+                void notifySyncNotice('Settings synced with incomplete cloud history. Run /sync status').catch(() => {});
               }
+              lastUnavailableCount = unavailable;
             },
             onControlPlaneMcpApplied: async (mcp) => {
               config.mcp = mcp;

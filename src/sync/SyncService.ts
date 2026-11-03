@@ -16,7 +16,8 @@ import type { McpSettings } from '../types.js';
 import {
   syncCodingAgentControlPlane,
 } from './CodingAgentControlPlane.js';
-import { SyncApiClient, getSyncApiClient } from './SyncApiClient.js';
+import { SyncApiClient, SyncDownloadNotFoundError, getSyncApiClient } from './SyncApiClient.js';
+import { applyAvailableSessionDownloads } from './sessionDownloads.js';
 import { encryptConfig, decryptConfig, computeHash } from './encryption.js';
 import {
   resolveSafeSyncPath,
@@ -52,6 +53,7 @@ import { materializeMemoryProjection } from '../memory/MemoryProjection.js';
 import {
   emptySyncSkippedFiles,
   selectSyncFiles,
+  sessionBudgetBytes,
   SYNC_MAX_MANIFEST_FILES,
   SYNC_MAX_TOTAL_BYTES,
   type SyncSkippedFiles,
@@ -392,17 +394,30 @@ export class SyncService {
       const mutatesLocalState = actions.downloads.length > 0
         || actions.conflicts.length > 0
         || actions.localDeletes.length > 0;
+      const unavailableSessions = new Set<string>();
 
       // 4. Download remote changes first. Canonical memory history is merged.
       if (actions.downloads.length > 0 || actions.conflicts.length > 0) {
         const toDownload = [...actions.downloads, ...actions.conflicts];
         const conflictPaths = new Set(actions.conflicts.map((file) => file.path));
-        await this.downloadFiles(toDownload, enabledRoots, (file) => {
+        const unavailable = await this.downloadFiles(toDownload, enabledRoots, (file) => {
           downloaded++;
           if (conflictPaths.has(file.path)) {
             conflicts++;
           }
-        }, true, conflictPaths, context);
+        }, true, conflictPaths, context, true);
+        for (const id of unavailable) {
+          unavailableSessions.add(id);
+          skippedLocalSessions.add(id);
+        }
+        if (unavailable.size > 0) {
+          for (const file of remoteInventory?.files ?? []) {
+            if (file.path === SESSION_INDEX_SYNC_PATH
+              || unavailable.has(file.path.match(/^sessions\/([^/]+)\//u)?.[1] ?? '')) {
+              remoteEligible.delete(file.path);
+            }
+          }
+        }
         this.assertOperationActive(context);
       }
 
@@ -439,6 +454,12 @@ export class SyncService {
         const remote = remoteFiles.get(file.path);
         if (!remote || (file.hash !== remote.hash && !isRemoteNewer(file, remote))) {
           uploadsByPath.set(file.path, file);
+        }
+      }
+      for (const filePath of uploadsByPath.keys()) {
+        if ((unavailableSessions.size > 0 && filePath === SESSION_INDEX_SYNC_PATH)
+          || unavailableSessions.has(filePath.match(/^sessions\/([^/]+)\//u)?.[1] ?? '')) {
+          uploadsByPath.delete(filePath);
         }
       }
       const uploads = [...uploadsByPath.values()];
@@ -667,7 +688,8 @@ export class SyncService {
     emitEvents: boolean,
     conflictPaths: ReadonlySet<string> = new Set<string>(),
     context?: SyncOperationContext,
-  ): Promise<void> {
+    allowUnavailableSessions = false,
+  ): Promise<Set<string>> {
     for (const file of files) {
       await resolveSafeSyncPath(this.basePath, file.path, enabledRoots);
       if (context) this.assertOperationActive(context);
@@ -682,20 +704,31 @@ export class SyncService {
     if (context) this.assertOperationActive(context);
     const requiredUrls = this.requireTransferUrls(files, downloadUrls, 'download');
 
-    for (const file of files) {
+    const reportDownloadError = (file: SyncFileEntry, error: unknown): void => {
+      if (allowUnavailableSessions && /^sessions\/[^/]+\//u.test(file.path)
+        && error instanceof SyncDownloadNotFoundError) return;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (emitEvents && !this.isAuthError(errorMessage) && (!context || this.isOperationActive(context))) {
+        this.emitEventSafely({ type: 'download_error', path: file.path, error: errorMessage });
+      }
+    };
+    const download = async (file: SyncFileEntry): Promise<Buffer> => {
       try {
         if (context) this.assertOperationActive(context);
         const downloadUrl = requiredUrls.get(file.path);
-        if (!downloadUrl) {
-          throw new Error('Missing download URL for requested sync path');
-        }
+        if (!downloadUrl) throw new Error('Missing download URL for requested sync path');
         await resolveSafeSyncPath(this.basePath, file.path, enabledRoots);
         if (context) this.assertOperationActive(context);
-        const content = await this.client.downloadFile(
-          downloadUrl,
-          this.authToken,
-          context?.signal,
-        );
+        const content = await this.client.downloadFile(downloadUrl, this.authToken, context?.signal);
+        if (context) this.assertOperationActive(context);
+        return content;
+      } catch (error) {
+        reportDownloadError(file, error);
+        throw error;
+      }
+    };
+    const apply = async (file: SyncFileEntry, content: Buffer): Promise<void> => {
+      try {
         if (context) this.assertOperationActive(context);
         let localPath = await resolveSafeSyncPath(this.basePath, file.path, enabledRoots);
         if (context) this.assertOperationActive(context);
@@ -797,17 +830,46 @@ export class SyncService {
           }
         }
       } catch (error) {
-        const errorMessage = (error as Error).message;
-        if (
-          emitEvents
-          && !this.isAuthError(errorMessage)
-          && (!context || this.isOperationActive(context))
-        ) {
-          this.emitEventSafely({ type: 'download_error', path: file.path, error: errorMessage });
-        }
+        reportDownloadError(file, error);
         throw error;
       }
+    };
+    const unavailable = new Set<string>();
+    const groups = new Map<string, SyncFileEntry[]>();
+    if (allowUnavailableSessions) {
+      for (const file of files) {
+        const id = file.path.match(/^sessions\/([^/]+)\//u)?.[1];
+        if (!id) continue;
+        const group = groups.get(id) ?? [];
+        group.push(file);
+        groups.set(id, group);
+      }
     }
+    const processed = new Set<string>();
+    for (const file of files) {
+      if (allowUnavailableSessions && file.path === SESSION_INDEX_SYNC_PATH) continue;
+      const id = file.path.match(/^sessions\/([^/]+)\//u)?.[1];
+      const group = id ? groups.get(id) : undefined;
+      if (id && group) {
+        if (processed.has(id)) continue;
+        processed.add(id);
+        if (!await applyAvailableSessionDownloads(group, download, apply, {
+          maxBytes: Math.min(sessionBudgetBytes(this.config.sessionsBudgetMb), this.client.limits.maxTotalSize),
+        })) {
+          if (context) this.assertOperationActive(context);
+          unavailable.add(id);
+          this.remoteSkipped.incompleteSessions++;
+          this.remoteSkipped.unavailableFiles = (this.remoteSkipped.unavailableFiles ?? 0) + 1;
+        }
+      } else {
+        await apply(file, await download(file));
+      }
+    }
+    if (allowUnavailableSessions && unavailable.size === 0) {
+      const index = files.find(file => file.path === SESSION_INDEX_SYNC_PATH);
+      if (index) await apply(index, await download(index));
+    }
+    return unavailable;
   }
 
   private parseDownloadedSessionIndex(content: Buffer): unknown {
@@ -1050,7 +1112,7 @@ export class SyncService {
       const raw = value[key];
       if (!isJsonObject(raw)) continue;
       const counts = emptySyncSkippedFiles();
-      for (const field of ['olderSessions', 'incompleteSessions', 'oversizedFiles', 'budgetFiles'] as const) {
+      for (const field of ['olderSessions', 'incompleteSessions', 'oversizedFiles', 'budgetFiles', 'unavailableFiles'] as const) {
         const count = raw[field];
         if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) counts[field] = count;
       }

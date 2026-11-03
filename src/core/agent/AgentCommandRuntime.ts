@@ -106,7 +106,7 @@ const INTERACTIVE_SLASH_COMMANDS = new Set([
   '/agents-new', '/agents new', '/resume', '/theme', '/language',
   '/model', '/skills', '/skills install', '/skills-install',
   '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
-  '/squad', '/peers', '/whatityped', '/sync',
+  '/squad', '/peers', '/whatityped', '/status', '/sync',
   '/cloud', '/handoff', '/handoff cloud', '/open',
 ]);
 
@@ -115,7 +115,7 @@ const FIXED_COMPOSER_RESULT_COMMANDS = new Set(['/tasks', '/team', '/teams', '/s
 const MARKDOWN_REPORT_COMMANDS = new Set(['/pr-review', '/deslop', '/tester']);
 
 export function shouldPreserveComposerDraftAfterCommand(command: string): boolean {
-  return command === '/whatityped' || command === '/peers' || command === '/feedback' || command === '/sync';
+  return command === '/whatityped' || command === '/peers' || command === '/feedback' || command === '/status' || command === '/sync';
 }
 
 export function shouldRenderSlashCommandResultInComposer(command: string): boolean {

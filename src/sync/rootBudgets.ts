@@ -17,6 +17,7 @@ export interface SyncSkippedFiles {
   incompleteSessions: number;
   oversizedFiles: number;
   budgetFiles: number;
+  unavailableFiles?: number;
 }
 export const emptySyncSkippedFiles = (): SyncSkippedFiles => ({
   olderSessions: 0, incompleteSessions: 0, oversizedFiles: 0, budgetFiles: 0,

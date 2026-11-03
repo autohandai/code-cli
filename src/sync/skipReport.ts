@@ -11,7 +11,8 @@ export function formatSyncSkippedFiles(skipped: SyncSkippedFiles | undefined, or
   return [
     skipped.olderSessions ? `${origin}: skipped ${skipped.olderSessions} older sessions` : '',
     skipped.oversizedFiles ? `${origin}: skipped ${skipped.oversizedFiles} oversized files` : '',
-    skipped.incompleteSessions ? `${origin}: skipped ${skipped.incompleteSessions} sessions with oversized files` : '',
+    skipped.incompleteSessions ? `${origin}: skipped ${skipped.incompleteSessions} incomplete session${skipped.incompleteSessions === 1 ? '' : 's'}` : '',
     skipped.budgetFiles ? `${origin}: skipped ${skipped.budgetFiles} files beyond a root budget` : '',
+    skipped.unavailableFiles ? `${origin}: ${skipped.unavailableFiles} file${skipped.unavailableFiles === 1 ? '' : 's'} unavailable in storage; history is incomplete` : '',
   ].filter(Boolean);
 }

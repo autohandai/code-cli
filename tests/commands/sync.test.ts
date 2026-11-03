@@ -17,6 +17,80 @@ vi.mock('../../src/config.js', () => ({
 vi.mock('../../src/sync/runtimeSyncService.js', () => ({ getSyncService: vi.fn(() => null), setSyncService: vi.fn() }));
 
 describe('sync screen input ownership', () => {
+  it('clears an incomplete extended-key timer when the panel closes', async () => {
+    vi.useFakeTimers();
+    const baseline = vi.getTimerCount();
+    const input = Object.assign(new PassThrough(), { isTTY: true, isRaw: false, setRawMode: vi.fn(), ref: vi.fn(), unref: vi.fn() });
+    const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as unknown as NodeJS.ReadStream);
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    let panel: Promise<string | null> | undefined;
+    try {
+      panel = sync({ workspaceRoot: '/tmp/fixture' } as SlashCommandContext);
+      await vi.waitFor(() => expect(input.listenerCount('keypress')).toBe(1));
+      input.emit('data', '\u001b[27;');
+      expect(vi.getTimerCount()).toBeGreaterThan(baseline);
+      input.emit('keypress', '', { name: 'escape' });
+      await panel;
+      expect(vi.getTimerCount()).toBe(baseline);
+      expect(input.listenerCount('keypress')).toBe(0);
+    } finally {
+      input.emit('keypress', '', { name: 'escape' });
+      await panel;
+      log.mockRestore(); write.mockRestore(); stdin.mockRestore(); input.destroy(); vi.useRealTimers();
+    }
+  });
+
+  it('ignores extended key releases and cycles tabs once per press', async () => {
+    const input = Object.assign(new PassThrough(), { isTTY: true, isRaw: false, setRawMode: vi.fn(), ref: vi.fn(), unref: vi.fn() });
+    const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as unknown as NodeJS.ReadStream);
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    let panel: Promise<string | null> | undefined;
+    try {
+      panel = sync({ workspaceRoot: '/tmp/fixture' } as SlashCommandContext);
+      await vi.waitFor(() => expect(input.listenerCount('keypress')).toBe(1));
+      const renders = log.mock.calls.length;
+      input.write('\u001b[27;1:3u');
+      expect(input.listenerCount('keypress')).toBe(1);
+      expect(log.mock.calls.length).toBe(renders);
+      input.write('\u001b[9;1:1u');
+      expect(log.mock.calls.slice(renders).flat().join('\n')).toContain('Sync Settings');
+      input.write('\u001b[9;2:1u');
+      expect(log.mock.calls.slice(-15).flat().join('\n')).toContain('Sync Status');
+      input.write('\u001b[27u');
+      await panel;
+    } finally {
+      input.emit('keypress', '', { name: 'escape' });
+      await panel;
+      log.mockRestore(); write.mockRestore(); stdin.mockRestore(); input.destroy();
+    }
+  });
+
+  it.each([
+    ['\u001b[27u'], ['\u001b[27;1:1u'], ['\u001b[99;5u'], ['\u001b[99;5:1u'], ['\u001b[27;', '1:1u'],
+  ])('closes and releases input for extended terminal sequence %j', async (...chunks: string[]) => {
+    const input = Object.assign(new PassThrough(), { isTTY: true, isRaw: false, setRawMode: vi.fn(), ref: vi.fn(), unref: vi.fn() });
+    const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as unknown as NodeJS.ReadStream);
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    let panel: Promise<string | null> | undefined;
+    let closed = false;
+    try {
+      panel = sync({ workspaceRoot: '/tmp/fixture' } as SlashCommandContext);
+      void panel.then(() => { closed = true; }, () => {});
+      await vi.waitFor(() => expect(input.listenerCount('keypress')).toBe(1));
+      for (const chunk of chunks) input.write(chunk);
+      await vi.waitFor(() => expect(closed).toBe(true), { timeout: 200 });
+      expect(input.listenerCount('keypress')).toBe(0);
+      expect(input.unref).toHaveBeenCalledOnce();
+    } finally {
+      input.emit('keypress', '', { name: 'escape' });
+      await panel;
+      log.mockRestore(); write.mockRestore(); stdin.mockRestore(); input.destroy();
+    }
+  });
+
   it('releases stdin when terminal setup fails after taking ownership', async () => {
     const input = Object.assign(new PassThrough(), { isTTY: true, isRaw: false, setRawMode: vi.fn(), ref: vi.fn(), unref: vi.fn() });
     const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as unknown as NodeJS.ReadStream);

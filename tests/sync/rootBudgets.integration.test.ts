@@ -8,16 +8,16 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { SyncService } from '../../src/sync/SyncService.js';
-import { SyncApiClient } from '../../src/sync/SyncApiClient.js';
+import { SyncApiClient, SyncDownloadNotFoundError } from '../../src/sync/SyncApiClient.js';
 import { computeHash } from '../../src/sync/encryption.js';
-import type { SyncFileEntry, SyncManifest } from '../../src/sync/types.js';
+import type { SyncEvent, SyncFileEntry, SyncManifest } from '../../src/sync/types.js';
 import * as atomicFiles from '../../src/utils/atomicFile.js';
 
 let root: string;
 let api: SyncApiClient;
-function service(notify = vi.fn()) {
+function service(notify = vi.fn(), onEvent: (event: SyncEvent) => void = vi.fn()) {
   const sync = new SyncService({ authToken: 'fixture-token', userId: 'fixture-user', apiClient: api,
-    config: { enabled: true, interval: 300000, sessionsBudgetMb: 300 / (1024 * 1024) }, onSyncFailure: notify });
+    config: { enabled: true, interval: 300000, sessionsBudgetMb: 300 / (1024 * 1024) }, onSyncFailure: notify, onEvent });
   Object.defineProperty(sync, 'basePath', { value: root });
   vi.spyOn(sync as unknown as { syncCodingAgentControlPlane(): Promise<undefined> }, 'syncCodingAgentControlPlane').mockResolvedValue(undefined);
   return sync;
@@ -41,6 +41,119 @@ describe('settings sync budget and health integration', () => {
   });
   const remoteFile = (filePath: string, size = 3): SyncFileEntry => ({
     path: filePath, hash: computeHash('cloud content'), size, modifiedAt: '2020-01-01T00:00:00Z', encrypted: false,
+  });
+
+  it('withholds an unavailable cloud session and its index while syncing independent files', async () => {
+    await fs.outputJson(path.join(root, 'config.json'), { provider: 'openrouter' });
+    const localIndex = { sessions: [], byProject: {} };
+    await fs.outputJson(path.join(root, 'sessions/index.json'), localIndex);
+    const retained = [
+      remoteFile('sessions/missing/metadata.json'),
+      remoteFile('sessions/missing/conversation.jsonl'),
+      { ...remoteFile('sessions/index.json'), modifiedAt: '2099-01-01T00:00:00Z' },
+    ];
+    const healthy = remoteFile('skills/healthy/SKILL.md');
+    vi.mocked(api.getRemoteManifest).mockResolvedValue(remoteManifest([...retained, healthy]));
+    vi.mocked(api.initiateDownload).mockImplementation(async (_token, files) => ({
+      downloadUrls: Object.fromEntries(files.map(file => [file, `https://sync.example.invalid/${file}`])),
+    }));
+    vi.mocked(api.downloadFile).mockImplementation(async url => {
+      if (url.endsWith('conversation.jsonl')) throw new SyncDownloadNotFoundError();
+      if (url.endsWith('index.json')) return Buffer.from(JSON.stringify({
+        sessions: [{ id: 'missing', projectPath: '/project', createdAt: '2026-11-03T00:00:00Z' }],
+        byProject: { '/project': ['missing'] },
+      }));
+      return Buffer.from(url.endsWith('metadata.json') ? '{"sessionId":"missing"}' : 'healthy');
+    });
+    const sync = service();
+    const result = await sync.sync();
+    expect(result.success, result.error).toBe(true);
+    expect(result.downloaded).toBe(1);
+    expect(result.remoteSkipped).toMatchObject({ incompleteSessions: 1, unavailableFiles: 1 });
+    expect(await fs.pathExists(path.join(root, 'sessions/missing'))).toBe(false);
+    expect(await fs.readJson(path.join(root, 'sessions/index.json'))).toEqual(localIndex);
+    expect(await fs.readFile(path.join(root, healthy.path), 'utf8')).toBe('healthy');
+    expect(vi.mocked(api.completeUpload).mock.calls[0][1].files).toEqual(expect.arrayContaining(retained));
+    expect(vi.mocked(api.initiateUpload).mock.calls[0][2]).toEqual(['config.json']);
+    expect((await sync.getHealth()).remoteSkipped).toMatchObject({ unavailableFiles: 1 });
+  });
+
+  it('blocks session and index uploads even when a local edit makes the index eligible after downloads', async () => {
+    await fs.outputJson(path.join(root, 'config.json'), { provider: 'openrouter' });
+    const metadata = '{"sessionId":"shared","summary":"local changes"}';
+    await fs.outputFile(path.join(root, 'sessions/shared/metadata.json'), metadata);
+    const index = JSON.stringify({ sessions: [], byProject: {} });
+    await fs.outputFile(path.join(root, 'sessions/index.json'), index + ' '.repeat(350));
+    const retained = [remoteFile('sessions/shared/metadata.json'), remoteFile('sessions/shared/conversation.jsonl'), remoteFile('sessions/index.json')];
+    const healthy = remoteFile('skills/healthy/SKILL.md');
+    vi.mocked(api.getRemoteManifest).mockResolvedValue(remoteManifest([...retained, healthy]));
+    vi.mocked(api.initiateDownload).mockImplementation(async (_token, files) => ({
+      downloadUrls: Object.fromEntries(files.map(file => [file, `https://sync.example.invalid/${file}`])),
+    }));
+    vi.mocked(api.downloadFile).mockImplementation(async url => {
+      if (url.endsWith('conversation.jsonl')) throw new SyncDownloadNotFoundError();
+      await fs.outputFile(path.join(root, 'sessions/index.json'), index);
+      return Buffer.from('healthy');
+    });
+    const result = await service().sync();
+    expect(result.success, result.error).toBe(true);
+    expect(await fs.readFile(path.join(root, 'sessions/shared/metadata.json'), 'utf8')).toBe(metadata);
+    expect(await fs.readFile(path.join(root, 'sessions/index.json'), 'utf8')).toBe(index);
+    expect(vi.mocked(api.initiateUpload).mock.calls[0][2]).toEqual(['config.json']);
+    expect(vi.mocked(api.completeUpload).mock.calls[0][1].files).toEqual(expect.arrayContaining(retained));
+  });
+
+  it.each([
+    ['forceDownload', 'sessions/missing/conversation.jsonl', new SyncDownloadNotFoundError()],
+    ['sync', 'skills/missing/SKILL.md', new SyncDownloadNotFoundError()],
+    ['sync', 'sessions/missing/conversation.jsonl', new Error('Download failed: 403')],
+    ['sync', 'sessions/missing/conversation.jsonl', new Error('Download failed: 500')],
+  ] as const)('keeps %s strict for %s with %s', async (mode, filePath, error) => {
+    vi.mocked(api.getRemoteManifest).mockResolvedValue(remoteManifest([remoteFile(filePath)]));
+    vi.mocked(api.initiateDownload).mockResolvedValue({ downloadUrls: { [filePath]: 'https://sync.example.invalid/file' } });
+    vi.mocked(api.downloadFile).mockRejectedValue(error);
+    const result = await service()[mode]();
+    expect(result.success).toBe(false);
+    expect(result.error).toContain(error.message);
+    expect(api.completeUpload).not.toHaveBeenCalled();
+    expect(await fs.pathExists(path.join(root, filePath))).toBe(false);
+  });
+
+  it('does not apply staged session metadata when a later sibling fails with a server error', async () => {
+    const files = [remoteFile('sessions/missing/metadata.json'), remoteFile('sessions/missing/conversation.jsonl')];
+    vi.mocked(api.getRemoteManifest).mockResolvedValue(remoteManifest(files));
+    vi.mocked(api.initiateDownload).mockImplementation(async (_token, paths) => ({
+      downloadUrls: Object.fromEntries(paths.map(file => [file, `https://sync.example.invalid/${file}`])),
+    }));
+    vi.mocked(api.downloadFile).mockImplementation(async url => {
+      if (url.endsWith('conversation.jsonl')) throw new Error('Download failed: 500');
+      return Buffer.from('{"sessionId":"missing"}');
+    });
+    const events = vi.fn();
+    const result = await service(vi.fn(), events).sync();
+    expect(result.success).toBe(false);
+    expect(result.downloaded).toBe(0);
+    expect(await fs.pathExists(path.join(root, 'sessions/missing'))).toBe(false);
+    expect(events).toHaveBeenCalledWith({ type: 'download_error', path: files[1].path, error: 'Download failed: 500' });
+  });
+
+  it('discards a staged session when the service stops during its last download', async () => {
+    const files = [remoteFile('sessions/stopped/metadata.json'), remoteFile('sessions/stopped/conversation.jsonl')];
+    vi.mocked(api.getRemoteManifest).mockResolvedValue(remoteManifest(files));
+    vi.mocked(api.initiateDownload).mockImplementation(async (_token, paths) => ({
+      downloadUrls: Object.fromEntries(paths.map(file => [file, `https://sync.example.invalid/${file}`])),
+    }));
+    const sync = service();
+    vi.mocked(api.downloadFile).mockImplementation(async url => {
+      if (url.endsWith('conversation.jsonl')) sync.stop();
+      return Buffer.from('content');
+    });
+    const result = await sync.sync();
+    expect(result.success).toBe(false);
+    expect(result.downloaded).toBe(0);
+    expect(await fs.pathExists(path.join(root, 'sessions/stopped'))).toBe(false);
+    expect(api.completeUpload).not.toHaveBeenCalled();
+    expect((await sync.getHealth()).lastSync).toBeNull();
   });
 
   it.each(['sync', 'forceUpload'] as const)('preserves cloud descriptors for locally omitted session groups during %s', async mode => {

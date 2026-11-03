@@ -5,6 +5,7 @@
  */
 import { t } from '../i18n/index.js';
 import readline from 'node:readline';
+import { StdinBuffer } from '../ui/StdinBuffer.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { loadConfig, saveConfig } from '../config.js';
 import type { AutohandConfig } from '../types.js';
@@ -128,6 +129,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
     const wasRaw = (input as any).isRaw;
     const wasPaused = input.readableFlowing !== true;
     let ownsRawMode = false;
+    const extendedKeys = new StdinBuffer({ timeout: 50 });
 
     const render = () => {
       if (closed) return;
@@ -211,9 +213,28 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
       }
     };
 
+    extendedKeys.on('data', (sequence: string) => {
+      const encoded = /^\u001b\[(\d+)(?:;(\d+)(?::([123]))?)?u$/u.exec(sequence);
+      if (!encoded || encoded[3] === '3' || closed) return;
+      const code = Number(encoded[1]);
+      const modifiers = Number(encoded[2] ?? 1);
+      if (!Number.isSafeInteger(modifiers) || modifiers < 1) return;
+      const key: readline.Key = { sequence, shift: ((modifiers - 1) & 1) !== 0, ctrl: ((modifiers - 1) & 4) !== 0 };
+      let text = '';
+      if (code === 27) key.name = 'escape';
+      else if (code === 9) key.name = 'tab';
+      else if ((code === 99 || code === 67) && key.ctrl) key.name = 'c';
+      else if (modifiers <= 2 && [69, 83, 101, 115].includes(code)) text = String.fromCharCode(code);
+      else return;
+      void handler(text, key).catch(error => { cleanup(); reject(error); });
+    });
+    const receiveExtendedKeys = (chunk: Buffer | string): void => extendedKeys.process(chunk.toString());
+
     const cleanup = () => {
       if (closed) return;
       closed = true;
+      input.off('data', receiveExtendedKeys);
+      extendedKeys.destroy();
       input.off('keypress', handler as any);
       if (ownsRawMode) {
         try { input.setRawMode(false); } catch { /* TTY may be gone */ }
@@ -235,6 +256,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
         }
         if (typeof input.setEncoding === 'function') input.setEncoding('utf8');
       }
+      input.prependListener('data', receiveExtendedKeys);
       input.on('keypress', handler as any);
       input.resume();
       render();

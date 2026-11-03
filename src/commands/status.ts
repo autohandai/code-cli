@@ -22,6 +22,7 @@ import {
 import { formatAccount } from './accountDisplay.js';
 import type { AccountEntitlement } from '../auth/AuthClient.js';
 import { getSyncService } from '../sync/runtimeSyncService.js';
+import { formatSyncSkippedFiles } from '../sync/skipReport.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export const metadata = {
@@ -49,6 +50,7 @@ interface StatusData {
     config: AutohandConfig | undefined;
     contextCompactionEnabled: boolean;
     syncPausedReason?: string;
+    syncWarnings: string[];
 }
 
 export async function status(ctx: SlashCommandContext): Promise<string | null> {
@@ -79,6 +81,7 @@ async function gatherStatusData(ctx: SlashCommandContext): Promise<StatusData> {
     return {
         version: packageJson.version,
         syncPausedReason: syncHealth?.lastError,
+        syncWarnings: formatSyncSkippedFiles(syncHealth?.remoteSkipped, 'Cloud'),
         sessionId: currentSession?.metadata.sessionId ?? null,
         cwd: ctx.workspaceRoot,
         provider: ctx.provider ?? 'openrouter',
@@ -317,6 +320,7 @@ function renderStatusTab(data: StatusData): void {
     console.log(theme.bold(`${t('commands.status.model')}:`), data.model);
     console.log(theme.bold('Account:'), data.account);
     if (data.syncPausedReason) console.log(theme.muted(`Settings sync: sync paused (${data.syncPausedReason})`));
+    for (const warning of data.syncWarnings) console.log(theme.muted(warning));
     if (data.accountEntitlement) {
         console.log(theme.bold('Plan:'), formatAccountPlanName(data.accountEntitlement));
         const allowance = formatAccountPlanAllowance(data.accountEntitlement);
