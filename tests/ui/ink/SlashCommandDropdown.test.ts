@@ -8,7 +8,9 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import stripAnsi from 'strip-ansi';
+import stringWidth from 'string-width';
 import {
   SlashCommandDropdown,
   matchSlashCommand,
@@ -65,6 +67,31 @@ describe('SlashCommandDropdown utilities', () => {
     );
     expect(source).toContain('isSelected ? theme.selected(');
     expect(source).not.toContain("color={isSelected ? 'cyan'");
+  });
+
+  it('re-renders with the new terminal width after a resize', async () => {
+    const description = 'D'.repeat(60);
+    const view = render(
+      React.createElement(
+        ThemeProvider,
+        null,
+        React.createElement(SlashCommandDropdown, {
+          visible: true,
+          activeIndex: 0,
+          suggestions: [{ command: '/theme', description }],
+        })
+      )
+    );
+    expect(view.lastFrame()).toContain('D'.repeat(40));
+
+    Object.defineProperty(view.stdout, 'columns', { configurable: true, value: 40 });
+    view.stdout.emit('resize');
+
+    await vi.waitFor(() => expect(view.lastFrame()).not.toContain('D'.repeat(40)));
+    const rows = stripAnsi(view.lastFrame() ?? '').split('\n').filter(Boolean);
+    expect(rows.every(row => stringWidth(row) <= 40)).toBe(true);
+    expect(rows.find(row => row.includes('/theme'))).toContain('…');
+    view.unmount();
   });
 
   describe('matchSlashCommand', () => {

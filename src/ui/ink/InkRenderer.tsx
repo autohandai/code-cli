@@ -402,50 +402,65 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
  * is safe to enable unconditionally.
  */
 function patchStdoutForSyncOutput(framePrefix: (paint: string) => string): () => void {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  let syncActive = false;
-  let pendingEnd = false;
+  const originalWrite = process.stdout.write;
+  const chunks: Buffer[] = [];
+  let pendingBytes = 0;
+  let callbacks: Array<(error?: Error | null) => void> = [];
+  let flushQueued = false;
   let inkFrameActive = false;
 
-  const endSync = () => {
-    if (pendingEnd) {
-      pendingEnd = false;
-      syncActive = false;
-      originalWrite('\x1b[?2026l');
-    }
+  const flush = (): boolean => {
+    flushQueued = false;
+    if (chunks.length === 0 && callbacks.length === 0) return true;
+    const content = chunks.length === 0 ? Buffer.alloc(0)
+      : Buffer.concat([Buffer.from('\x1b[?2026h'), ...chunks, Buffer.from('\x1b[?2026l')]);
+    chunks.length = 0;
+    pendingBytes = 0;
+    const completed = callbacks;
+    callbacks = [];
+    return originalWrite.call(process.stdout, content, undefined, (error?: Error | null) => {
+      for (const callback of completed) callback(error);
+    });
   };
 
   const patchedWrite = function (
     chunk: string | Uint8Array,
-    encoding?: BufferEncoding,
-    cb?: (err?: Error) => void
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void
   ): boolean {
     const str = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
-    if (!str || str.length === 0) {
-      return originalWrite.call(process.stdout, chunk, encoding as any, cb as any);
-    }
-
-    if (!syncActive) {
-      syncActive = true;
-      originalWrite('\x1b[?2026h');
-    }
-    pendingEnd = true;
-
     if (str === '\x1b[?2026h') inkFrameActive = true;
-    if (str === '\x1b[?2026l') inkFrameActive = false;
-    const prefix = inkFrameActive ? framePrefix(str) : '';
-    const content = prefix ? prefix + str : chunk;
-    const result = originalWrite.call(process.stdout, content, encoding as any, cb as any);
-    queueMicrotask(endSync);
-    return result;
+    else if (str === '\x1b[?2026l') inkFrameActive = false;
+    else {
+      const prefix = inkFrameActive ? framePrefix(str) : '';
+      const content = typeof chunk === 'string'
+        ? Buffer.from(chunk, typeof encodingOrCallback === 'string' ? encodingOrCallback : 'utf8')
+        : Buffer.from(chunk);
+      if (prefix) {
+        const origin = Buffer.from(prefix);
+        chunks.push(origin);
+        pendingBytes += origin.length;
+      }
+      chunks.push(content);
+      pendingBytes += content.length;
+    }
+    const complete = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
+    if (complete) callbacks.push(complete);
+    if (pendingBytes >= process.stdout.writableHighWaterMark) return flush();
+    if (!flushQueued) {
+      flushQueued = true;
+      queueMicrotask(flush);
+    }
+    return !process.stdout.writableNeedDrain;
   };
 
-  process.stdout.write = patchedWrite as any;
+  process.stdout.write = patchedWrite as typeof process.stdout.write;
 
   return () => {
-    process.stdout.write = originalWrite;
-    if (syncActive) {
-      originalWrite('\x1b[?2026l');
+    try {
+      flush();
+    } finally {
+      process.stdout.write = originalWrite;
     }
   };
 }

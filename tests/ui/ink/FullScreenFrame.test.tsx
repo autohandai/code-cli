@@ -101,6 +101,21 @@ describe('full-screen frame', () => {
     expect(line).not.toContain('Esc');
   });
 
+  it('never emits a row wider than the terminal while its size props are stale', async () => {
+    const theme = new Theme('user-background-test', { ...loadTheme('dark').colors, userMessageBg: '#654321' }, 'truecolor');
+    const model = new FullScreenTranscript();
+    const view = render(<ThemeProvider theme={theme}><FullScreenFrame model={model} messages={[
+      { role: 'user', content: 'thanks' },
+      { role: 'assistant', content: 'You are welcome.' },
+    ]} rows={24} columns={120} footer={<Text>{'▔'.repeat(119)}</Text>} /></ThemeProvider>);
+    await flush();
+    const rows = (view.lastFrame() ?? '').split('\n');
+    const terminalColumns = view.stdout.columns;
+    expect(terminalColumns).toBeLessThan(120);
+    expect(rows.map(row => stringWidth(stripAnsi(row)))).toSatisfy((widths: number[]) => widths.every(width => width <= terminalColumns));
+    expect(stringWidth(stripAnsi(rows.find(row => row.includes('thanks')) ?? ''))).toBe(terminalColumns - 1);
+  });
+
   it('keeps the composer visible with thousands of transcript rows and a narrow resize', async () => {
     const model = new FullScreenTranscript();
     const messages = [{ role: 'assistant' as const, content: Array.from({ length: 5000 }, (_, i) => `Long output row ${i}`).join('\n\n') }];

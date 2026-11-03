@@ -3912,64 +3912,67 @@ const FixedBottom = memo(function FixedBottom({
 
   return (
     <>
-      <Box flexDirection="column" flexShrink={fullScreen ? 1 : 0} overflow={fullScreen ? 'hidden' : 'visible'}>
-        {announcement ? (
-          <AnnouncementLine
-            text={announcement.text}
-            hint={announcement.hint}
-            visible={announcement.visible}
-            columns={terminalColumns}
-          />
-        ) : null}
-        {feedbackSurvey ? (
-          <FeedbackSurveyLine survey={feedbackSurvey} columns={terminalColumns} />
-        ) : null}
-        <StatusSection
-          fullScreen={fullScreen}
-          terminalRows={terminalRows}
-          onWorkingSpinnerFrame={onWorkingSpinnerFrame}
-          isWorking={isWorking}
-          status={status}
-          elapsed={elapsed}
-          tokens={tokens}
-          queuedInstructions={queuedInstructions}
-          queueSteeringEnabled={queueSteeringEnabled}
-          selectedQueueIndex={selectedQueueIndex}
-          completionStats={completionStats}
-          activityItems={activityItems}
-          teamActivity={teamActivity}
-          teamShortcut={actionShortcutHint(keybindings, 'toggleTeamPanel', '/team view')}
-          teamPanelVisible={teamPanelVisible}
-          goalActivity={goalActivity}
-          goalPanelVisible={goalPanelVisible}
-          selectedGoalIndex={selectedGoalIndex}
-          onGoalRowLayoutChange={onGoalRowLayoutChange}
-          commandResult={commandResult}
-          tip={tip}
-          columns={terminalColumns}
-          contextPercent={contextPercent}
-          contextTokens={contextTokens}
-          provider={provider}
-          model={model}
-          taskListPosition={taskListPosition}
-          lineExtension={mergeLineExtensions(
-            configuredLineExtensions?.status,
-            lineExtensions?.status,
-            runtimeLineExtensions?.status,
-          )}
-        />
-        {axo && onAxoGone && shouldShowAxo(axo.enabled, terminalColumns, terminalRows) ? (
-          <AxoBuddy
-            axo={axo}
+      <Box flexDirection="column" flexShrink={fullScreen ? 1 : 0} overflow={fullScreen ? 'hidden' : 'visible'} justifyContent={fullScreen ? 'flex-end' : undefined}>
+        {/* Rows keep their height when the full-screen footer runs out of room; the box clips its top instead of letting Yoga squash rows onto each other. */}
+        <Box flexDirection="column" flexShrink={0}>
+          {announcement ? (
+            <AnnouncementLine
+              text={announcement.text}
+              hint={announcement.hint}
+              visible={announcement.visible}
+              columns={terminalColumns}
+            />
+          ) : null}
+          {feedbackSurvey ? (
+            <FeedbackSurveyLine survey={feedbackSurvey} columns={terminalColumns} />
+          ) : null}
+          <StatusSection
+            fullScreen={fullScreen}
+            terminalRows={terminalRows}
+            onWorkingSpinnerFrame={onWorkingSpinnerFrame}
             isWorking={isWorking}
-            turnStatus={lastTurnOutcome}
-            input={input}
+            status={status}
+            elapsed={elapsed}
+            tokens={tokens}
+            queuedInstructions={queuedInstructions}
+            queueSteeringEnabled={queueSteeringEnabled}
+            selectedQueueIndex={selectedQueueIndex}
+            completionStats={completionStats}
+            activityItems={activityItems}
+            teamActivity={teamActivity}
+            teamShortcut={actionShortcutHint(keybindings, 'toggleTeamPanel', '/team view')}
+            teamPanelVisible={teamPanelVisible}
+            goalActivity={goalActivity}
+            goalPanelVisible={goalPanelVisible}
+            selectedGoalIndex={selectedGoalIndex}
+            onGoalRowLayoutChange={onGoalRowLayoutChange}
+            commandResult={commandResult}
+            tip={tip}
             columns={terminalColumns}
-            rows={terminalRows}
-            onGone={onAxoGone}
+            contextPercent={contextPercent}
+            contextTokens={contextTokens}
+            provider={provider}
+            model={model}
+            taskListPosition={taskListPosition}
+            lineExtension={mergeLineExtensions(
+              configuredLineExtensions?.status,
+              lineExtensions?.status,
+              runtimeLineExtensions?.status,
+            )}
           />
-        ) : null}
-        {fullScreen && menus}
+          {axo && onAxoGone && shouldShowAxo(axo.enabled, terminalColumns, terminalRows) ? (
+            <AxoBuddy
+              axo={axo}
+              isWorking={isWorking}
+              turnStatus={lastTurnOutcome}
+              input={input}
+              columns={terminalColumns}
+              rows={terminalRows}
+              onGone={onAxoGone}
+            />
+          ) : null}
+          {fullScreen && menus}
+        </Box>
         <ShortcutsHelpPanel visible={showShortcuts && !isWorking} keybindings={keybindings} columns={terminalColumns} fullScreen={fullScreen} />
       </Box>
       {goalEditUnavailable ? <Box flexShrink={0}><Text color={colors.warning}>Goal is unavailable. Draft kept; Esc cancels.</Text></Box> : null}
