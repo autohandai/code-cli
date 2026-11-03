@@ -21,6 +21,7 @@ import {
 } from './usage.js';
 import { formatAccount } from './accountDisplay.js';
 import type { AccountEntitlement } from '../auth/AuthClient.js';
+import { getSyncService } from '../sync/runtimeSyncService.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export const metadata = {
@@ -47,6 +48,7 @@ interface StatusData {
     usageV2Dashboard: string | null;
     config: AutohandConfig | undefined;
     contextCompactionEnabled: boolean;
+    syncPausedReason?: string;
 }
 
 export async function status(ctx: SlashCommandContext): Promise<string | null> {
@@ -72,9 +74,11 @@ async function gatherStatusData(ctx: SlashCommandContext): Promise<StatusData> {
     }
 
     const accountEntitlement = await resolveAccountEntitlement(ctx);
+    const syncHealth = await getSyncService()?.getHealth?.();
 
     return {
         version: packageJson.version,
+        syncPausedReason: syncHealth?.lastError,
         sessionId: currentSession?.metadata.sessionId ?? null,
         cwd: ctx.workspaceRoot,
         provider: ctx.provider ?? 'openrouter',
@@ -312,6 +316,7 @@ function renderStatusTab(data: StatusData): void {
     console.log(theme.bold(`${t('commands.status.provider')}:`), data.provider);
     console.log(theme.bold(`${t('commands.status.model')}:`), data.model);
     console.log(theme.bold('Account:'), data.account);
+    if (data.syncPausedReason) console.log(theme.muted(`Settings sync: sync paused (${data.syncPausedReason})`));
     if (data.accountEntitlement) {
         console.log(theme.bold('Plan:'), formatAccountPlanName(data.accountEntitlement));
         const allowance = formatAccountPlanAllowance(data.accountEntitlement);

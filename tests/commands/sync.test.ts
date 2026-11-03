@@ -5,6 +5,8 @@
  */
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
+import { getSyncService } from '../../src/sync/runtimeSyncService.js';
+import { SyncService } from '../../src/sync/SyncService.js';
 import { sync } from '../../src/commands/sync.js';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
 
@@ -12,7 +14,7 @@ vi.mock('../../src/config.js', () => ({
   loadConfig: vi.fn().mockResolvedValue({ auth: { token: 'fixture-token', user: { id: 'fixture-user' } } }),
   saveConfig: vi.fn(),
 }));
-vi.mock('../../src/sync/runtimeSyncService.js', () => ({ getSyncService: () => null, setSyncService: vi.fn() }));
+vi.mock('../../src/sync/runtimeSyncService.js', () => ({ getSyncService: vi.fn(() => null), setSyncService: vi.fn() }));
 
 describe('sync screen input ownership', () => {
   it('releases stdin when terminal setup fails after taking ownership', async () => {
@@ -53,5 +55,27 @@ describe('sync screen input ownership', () => {
       await screen;
       log.mockRestore(); write.mockRestore(); stdin.mockRestore(); input.destroy();
     }
+  });
+});
+
+
+describe('/sync status', () => {
+  it('prints the persisted failure and skipped-session count without opening an input modal', async () => {
+    const service = new SyncService({ authToken: 'fixture', userId: 'fixture', config: { enabled: true, interval: 300000 } });
+    vi.spyOn(service, 'getStatus').mockResolvedValue({ enabled: true, syncing: false, lastSync: '2026-11-02T23:00:00Z',
+      fileCount: 4, totalSize: 100, lastError: '413 Payload too large', failingSince: '2026-11-02T23:00:00Z',
+      skipped: { olderSessions: 5, oversizedFiles: 1, incompleteSessions: 0, budgetFiles: 0 } });
+    vi.mocked(getSyncService).mockReturnValue(service);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const input = Object.assign(new PassThrough(), { isTTY: false });
+    const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as unknown as NodeJS.ReadStream);
+    try {
+      await sync({ workspaceRoot: '/tmp/fixture' } as SlashCommandContext, ['status']);
+      const output = log.mock.calls.flat().join('\n');
+      expect(output).toContain('413 Payload too large');
+      expect(output).toContain('Failing since 2026-11-02T23:00:00Z');
+      expect(output).toContain('skipped 5 older sessions');
+      expect(input.listenerCount('keypress')).toBe(0);
+    } finally { vi.mocked(getSyncService).mockReturnValue(null); stdin.mockRestore(); log.mockRestore(); input.destroy(); }
   });
 });

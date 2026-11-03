@@ -2061,8 +2061,9 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
               ...config.sync,
               enabled: true,
             },
-            onAuthFailure: async () => {
-              const message = 'Session sync failed. Run /logout and /login if you continue to see this message.';
+            onSyncFailure: async (reason) => {
+              const oneLine = reason.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').slice(0, 300).replace(/[.\s]+$/u, '');
+              const message = `Settings sync is paused: ${oneLine}. Run /sync status`;
               if (agentHolder.current) {
                 agentHolder.current.notifyUser(message);
               } else {

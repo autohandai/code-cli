@@ -7,6 +7,8 @@ import { t } from '../i18n/index.js';
 import readline from 'node:readline';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { loadConfig, saveConfig } from '../config.js';
+import type { AutohandConfig } from '../types.js';
+import type { SyncSkippedFiles } from '../sync/rootBudgets.js';
 import type { SyncService } from '../sync/SyncService.js';
 import {
   getSyncService as getRuntimeSyncService,
@@ -26,6 +28,10 @@ interface SyncData {
   enabled: boolean;
   isRunning: boolean;
   lastSync: string | null;
+  lastError?: string;
+  failingSince?: string;
+  skipped?: SyncSkippedFiles;
+  remoteSkipped?: SyncSkippedFiles;
   fileCount: number;
   totalSize: number;
   interval: number;
@@ -33,6 +39,7 @@ interface SyncData {
   isLoggedIn: boolean;
   includeTelemetry: boolean;
   includeFeedback: boolean;
+  sessionsBudgetMb: number;
 }
 
 export function setSyncService(service: SyncService | null): void {
@@ -43,7 +50,7 @@ export function getSyncService(): SyncService | null {
   return getRuntimeSyncService();
 }
 
-export async function sync(ctx: SlashCommandContext): Promise<string | null> {
+export async function sync(ctx: SlashCommandContext, args: string[] = []): Promise<string | null> {
   const config = await loadConfig();
   const isLoggedIn = Boolean(config.auth?.token && config.auth?.user);
 
@@ -57,15 +64,20 @@ export async function sync(ctx: SlashCommandContext): Promise<string | null> {
   // Gather sync data
   const data = await gatherSyncData(ctx, config);
 
+  if (args[0] === 'status') {
+    renderStatusTab(data);
+    return null;
+  }
+
   // Render interactive UI
   await renderSyncUI(data, ctx);
 
   return null;
 }
 
-async function gatherSyncData(ctx: SlashCommandContext, config: any): Promise<SyncData> {
+async function gatherSyncData(ctx: SlashCommandContext, config: AutohandConfig): Promise<SyncData> {
   const syncService = getRuntimeSyncService();
-  let status = {
+  let status: Awaited<ReturnType<SyncService['getStatus']>> = {
     enabled: false,
     syncing: false,
     lastSync: null as string | null,
@@ -85,6 +97,10 @@ async function gatherSyncData(ctx: SlashCommandContext, config: any): Promise<Sy
     enabled: config.sync?.enabled !== false,
     isRunning: syncService?.isRunning ?? false,
     lastSync: status.lastSync,
+    lastError: status.lastError,
+    failingSince: status.failingSince,
+    skipped: status.skipped,
+    remoteSkipped: status.remoteSkipped,
     fileCount: status.fileCount,
     totalSize: status.totalSize,
     interval: config.sync?.interval ?? 300000,
@@ -92,6 +108,7 @@ async function gatherSyncData(ctx: SlashCommandContext, config: any): Promise<Sy
     isLoggedIn: Boolean(config.auth?.token),
     includeTelemetry: config.sync?.includeTelemetry ?? false,
     includeFeedback: config.sync?.includeFeedback ?? false,
+    sessionsBudgetMb: config.sync?.sessionsBudgetMb ?? 100,
   };
 }
 
@@ -263,6 +280,17 @@ function renderStatusTab(data: SyncData): void {
   console.log(`  ${theme.accent('Files Tracked'.padEnd(20))} ${data.fileCount}`);
   console.log(`  ${theme.accent('Total Size'.padEnd(20))} ${formatSize(data.totalSize)}`);
   console.log(`  ${theme.accent('Sync Interval'.padEnd(20))} ${formatInterval(data.interval)}`);
+  if (data.lastError) {
+    console.log(theme.warning(`  Settings sync is paused: ${data.lastError}`));
+    if (data.failingSince) console.log(theme.muted(`  Failing since ${data.failingSince}`));
+  }
+  for (const [origin, skipped] of [['Local', data.skipped], ['Cloud', data.remoteSkipped]] as const) {
+    if (!skipped) continue;
+    if (skipped.olderSessions) console.log(theme.muted(`  ${origin}: skipped ${skipped.olderSessions} older sessions`));
+    if (skipped.oversizedFiles) console.log(theme.muted(`  ${origin}: skipped ${skipped.oversizedFiles} oversized files`));
+    if (skipped.incompleteSessions) console.log(theme.muted(`  ${origin}: skipped ${skipped.incompleteSessions} sessions with oversized files`));
+    if (skipped.budgetFiles) console.log(theme.muted(`  ${origin}: skipped ${skipped.budgetFiles} files beyond a root budget`));
+  }
 }
 
 function renderSettingsTab(data: SyncData): void {
@@ -271,6 +299,7 @@ function renderSettingsTab(data: SyncData): void {
 
   console.log(`  ${theme.accent('Enabled'.padEnd(25))} ${data.enabled ? theme.success('true') : theme.muted('false')}`);
   console.log(`  ${theme.accent('Interval'.padEnd(25))} ${formatInterval(data.interval)}`);
+  console.log(`  ${theme.accent('Session budget'.padEnd(25))} ${data.sessionsBudgetMb} MiB`);
   console.log(`  ${theme.accent('Include Telemetry'.padEnd(25))} ${data.includeTelemetry ? theme.success('true') : theme.muted('false')}`);
   console.log(`  ${theme.accent('Include Feedback'.padEnd(25))} ${data.includeFeedback ? theme.success('true') : theme.muted('false')}`);
 

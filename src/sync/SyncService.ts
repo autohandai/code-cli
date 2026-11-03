@@ -49,6 +49,10 @@ import {
   mergeMemoryEventLogContents,
 } from '../memory/MemoryEventLog.js';
 import { materializeMemoryProjection } from '../memory/MemoryProjection.js';
+import { emptySyncSkippedFiles, selectSyncFiles, type SyncSkippedFiles } from './rootBudgets.js';
+import { resolveSyncHealth, type SyncHealth, type SyncState } from './syncHealth.js';
+
+const hasSkippedFiles = (skipped: SyncSkippedFiles): boolean => Object.values(skipped).some(count => count > 0);
 
 const MANIFEST_VERSION = 1;
 const SYNC_STATE_FILE = '.sync-state.json';
@@ -61,7 +65,6 @@ const SESSION_INDEX_LOCK_OPTIONS = {
   waitTimeoutMs: 10 * 1000,
   retryDelayMs: 10,
 } as const;
-const MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100MB default
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2500;
 
 interface SyncOperationContext {
@@ -91,13 +94,10 @@ export interface SyncServiceOptions {
   onEvent?: (event: SyncEvent) => void;
   /** Callback when authentication fails (401 error) */
   onAuthFailure?: () => void;
+  /** Notify once per CLI run when settings sync fails. */
+  onSyncFailure?: (reason: string) => Promise<void> | void;
   /** Refresh live MCP clients after Console-managed connector changes are applied. */
   onControlPlaneMcpApplied?: (mcp: McpSettings | undefined) => Promise<void> | void;
-}
-
-interface SyncState {
-  lastSync: string;
-  lastManifestHash: string;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -138,6 +138,10 @@ export class SyncService {
   private readonly config: SyncConfig;
   private readonly client: SyncApiClient;
   private readonly onEvent: (event: SyncEvent) => void;
+  private readonly onSyncFailure: ((reason: string) => Promise<void> | void) | undefined;
+  private failureNotified = false;
+  private skipped = emptySyncSkippedFiles();
+  private remoteSkipped = emptySyncSkippedFiles();
   private readonly onAuthFailure: (() => void) | undefined;
   private readonly onControlPlaneMcpApplied: ((mcp: McpSettings | undefined) => Promise<void> | void) | undefined;
   private readonly basePath: string;
@@ -161,6 +165,7 @@ export class SyncService {
     this.client = options.apiClient || getSyncApiClient();
     this.onEvent = options.onEvent || (() => {});
     this.onAuthFailure = options.onAuthFailure;
+    this.onSyncFailure = options.onSyncFailure;
     this.onControlPlaneMcpApplied = options.onControlPlaneMcpApplied;
     this.basePath = AUTOHAND_HOME;
     this.controlPlaneConfigPath = options.controlPlaneConfigPath ?? path.join(this.basePath, 'config.json');
@@ -304,6 +309,7 @@ export class SyncService {
     let downloaded = 0;
     let uploaded = 0;
     let conflicts = 0;
+    this.remoteSkipped = emptySyncSkippedFiles();
 
     try {
       this.assertOperationActive(context);
@@ -326,26 +332,15 @@ export class SyncService {
       const localManifest = await this.buildLocalManifest(enabledRoots);
       this.assertOperationActive(context);
 
-      // 1.5. Check total size limit
-      const totalSize = localManifest.files.reduce((sum, f) => sum + f.size, 0);
-      if (totalSize > MAX_TOTAL_SIZE) {
-        return {
-          success: false,
-          uploaded: 0,
-          downloaded: 0,
-          conflicts: 0,
-          error: `Total sync size (${Math.round(totalSize / 1024 / 1024)}MB) exceeds limit (${Math.round(MAX_TOTAL_SIZE / 1024 / 1024)}MB)`,
-        };
-      }
-
       // 2. Get remote manifest
-      const remoteManifest = await this.client.getRemoteManifest(
+      let remoteManifest = await this.client.getRemoteManifest(
         this.authToken,
         context.signal,
       );
       this.assertOperationActive(context);
       if (remoteManifest) {
         await this.validateManifestDestinations(remoteManifest, enabledRoots);
+        remoteManifest = this.selectRemoteManifest(remoteManifest);
         this.assertOperationActive(context);
       }
 
@@ -375,17 +370,6 @@ export class SyncService {
         ? await this.buildLocalManifest(enabledRoots)
         : localManifest;
       this.assertOperationActive(context);
-      const authoritativeTotalSize = authoritativeManifest.files.reduce(
-        (sum, file) => sum + file.size,
-        0,
-      );
-      if (authoritativeTotalSize > MAX_TOTAL_SIZE) {
-        throw new Error(
-          `Total sync size (${Math.round(authoritativeTotalSize / 1024 / 1024)}MB) `
-          + `exceeds limit (${Math.round(MAX_TOTAL_SIZE / 1024 / 1024)}MB)`,
-        );
-      }
-
       const authoritativeFiles = new Map(
         authoritativeManifest.files.map((file) => [file.path, file]),
       );
@@ -420,6 +404,8 @@ export class SyncService {
       const state: SyncState = {
         lastSync: new Date().toISOString(),
         lastManifestHash: computeHash(JSON.stringify(authoritativeManifest)),
+        ...(hasSkippedFiles(this.skipped) ? { skipped: this.skipped } : {}),
+        ...(hasSkippedFiles(this.remoteSkipped) ? { remoteSkipped: this.remoteSkipped } : {}),
       };
       this.assertOperationActive(context);
       await atomicWriteJson(stateFile, state, {
@@ -429,6 +415,8 @@ export class SyncService {
 
       const result: SyncResult = {
         success: !accountSkillError,
+        ...(hasSkippedFiles(this.skipped) ? { skipped: this.skipped } : {}),
+        ...(hasSkippedFiles(this.remoteSkipped) ? { remoteSkipped: this.remoteSkipped } : {}),
         ...(accountSkillError ? { error: accountSkillError } : {}),
         uploaded,
         downloaded,
@@ -436,6 +424,10 @@ export class SyncService {
         duration: Date.now() - startTime,
       };
 
+      if (accountSkillError) {
+        await this.recordFailure(accountSkillError, context);
+        this.assertOperationActive(context);
+      }
       this.emitOperationEvent(context, { type: 'sync_completed', result });
       return result;
     } catch (error) {
@@ -443,6 +435,9 @@ export class SyncService {
         return this.stoppedResult(downloaded, uploaded, conflicts);
       }
       const errorMessage = (error as Error).message;
+
+      await this.recordFailure(errorMessage, context);
+      if (!this.isOperationActive(context)) return this.stoppedResult(downloaded, uploaded, conflicts);
 
       // Check for authentication errors (401)
       if (this.isAuthError(errorMessage)) {
@@ -456,8 +451,6 @@ export class SyncService {
           duration: Date.now() - startTime,
         };
       }
-
-      this.emitOperationEvent(context, { type: 'sync_failed', error: errorMessage });
 
       return {
         success: false,
@@ -597,13 +590,6 @@ export class SyncService {
     validateSyncManifestPaths(manifest, enabledRoots);
     if (manifest.userId !== this.userId) {
       throw new Error('Invalid sync manifest: userId does not match the authenticated user');
-    }
-    const totalSize = manifest.files.reduce((sum, file) => sum + file.size, 0);
-    if (manifest.files.some((file) => file.size > this.client.limits.maxFileSize)) {
-      throw new Error('Invalid sync manifest: file exceeds the configured size limit');
-    }
-    if (totalSize > this.client.limits.maxTotalSize) {
-      throw new Error('Invalid sync manifest: files exceed the configured aggregate size limit');
     }
     const excludePatterns = [...SYNC_EXCLUDE_ALWAYS, ...(this.config.exclude || [])];
     for (const file of manifest.files) {
@@ -926,11 +912,77 @@ export class SyncService {
     }
   }
 
+  private async readState(): Promise<SyncState> {
+    const value: unknown = await fs.readJson(path.join(this.basePath, SYNC_STATE_FILE)).catch(() => null);
+    if (!isJsonObject(value)) return {};
+    const state: SyncState = {};
+    for (const key of ['lastSync', 'failingSince'] as const) {
+      const date = value[key];
+      if (typeof date === 'string' && Number.isFinite(Date.parse(date))) state[key] = date;
+    }
+    for (const key of ['lastManifestHash', 'lastError'] as const) {
+      if (typeof value[key] === 'string') state[key] = value[key];
+    }
+    for (const key of ['skipped', 'remoteSkipped'] as const) {
+      const raw = value[key];
+      if (!isJsonObject(raw)) continue;
+      const counts = emptySyncSkippedFiles();
+      for (const field of ['olderSessions', 'incompleteSessions', 'oversizedFiles', 'budgetFiles'] as const) {
+        const count = raw[field];
+        if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) counts[field] = count;
+      }
+      if (hasSkippedFiles(counts)) state[key] = counts;
+    }
+    return state;
+  }
+
+  async getHealth(): Promise<SyncHealth> {
+    const stateFile = path.join(this.basePath, SYNC_STATE_FILE);
+    const [state, stat] = await Promise.all([
+      this.readState(),
+      fs.stat(stateFile).catch(() => undefined),
+    ]);
+    return resolveSyncHealth(state, stat?.mtimeMs, this.config.interval);
+  }
+
+  private async recordFailure(reason: string, context: SyncOperationContext): Promise<void> {
+    if (!this.isOperationActive(context)) return;
+    const stateFile = path.join(this.basePath, SYNC_STATE_FILE);
+    const state = await this.readState();
+    if (!this.isOperationActive(context)) return;
+    try {
+      await atomicWriteJson(stateFile, {
+        ...state,
+        lastError: reason,
+        failingSince: state.failingSince ?? state.lastSync ?? new Date().toISOString(),
+      }, { beforeCommit: () => this.assertOperationActive(context) });
+    } catch {
+      // An unwritable health record must not hide the original sync failure.
+    }
+    if (!this.isOperationActive(context)) return;
+    this.emitOperationEvent(context, { type: 'sync_failed', error: reason });
+    if (!this.failureNotified) {
+      this.failureNotified = true;
+      try { await this.onSyncFailure?.(reason); } catch { /* Keep the original sync error. */ }
+    }
+  }
+
+  private selectRemoteManifest(manifest: SyncManifest): SyncManifest {
+    const selection = selectSyncFiles(manifest.files, {
+      ...this.client.limits,
+      sessionsBudgetMb: this.config.sessionsBudgetMb,
+    });
+    this.remoteSkipped = selection.skipped;
+    return { ...manifest, files: selection.files,
+      checksum: computeHash(JSON.stringify({ ...manifest, files: selection.files, checksum: '' })) };
+  }
+
   /**
    * Build manifest from local ~/.autohand/ files
    */
   private async buildLocalManifest(enabledRoots?: readonly string[]): Promise<SyncManifest> {
     const files: SyncFileEntry[] = [];
+    const sessionActivity = new Map<string, number>();
 
     // Get list of files to sync
     const includePaths = enabledRoots || await this.getIncludePaths();
@@ -954,6 +1006,10 @@ export class SyncService {
             relativePath,
             includePaths,
           );
+          if (stat.size > this.client.limits.maxFileSize) {
+            files.push({ path: relativePath, size: stat.size, hash: '', modifiedAt: stat.mtime.toISOString() });
+            continue;
+          }
           const content = await this.readManifestContent(relativePath, safeFullPath);
           files.push({
             path: relativePath,
@@ -964,17 +1020,23 @@ export class SyncService {
           });
         } else if (stat.isDirectory()) {
           // Recursively add files from directory
-          const dirFiles = await this.getFilesInDirectory(relativePath, includePaths);
+          const dirFiles = await this.getFilesInDirectory(relativePath, includePaths, sessionActivity);
           files.push(...dirFiles);
         }
       }
     }
 
+    const selection = selectSyncFiles(files, {
+      ...this.client.limits,
+      sessionsBudgetMb: this.config.sessionsBudgetMb,
+      sessionActivity,
+    });
+    this.skipped = selection.skipped;
     const manifest: SyncManifest = {
       version: MANIFEST_VERSION,
       userId: this.userId,
       lastModified: new Date().toISOString(),
-      files,
+      files: selection.files,
       checksum: '', // Will be set below
     };
 
@@ -1012,6 +1074,7 @@ export class SyncService {
   private async getFilesInDirectory(
     dirPath: string,
     enabledRoots: readonly string[],
+    sessionActivity = new Map<string, number>(),
   ): Promise<SyncFileEntry[]> {
     const files: SyncFileEntry[] = [];
     const fullDirPath = path.resolve(this.basePath, ...dirPath.split('/'));
@@ -1044,7 +1107,20 @@ export class SyncService {
             enabledRoots,
           );
           const stat = await fs.stat(safeFullPath);
+          if (stat.size > this.client.limits.maxFileSize) {
+            // Selection reports this file without reading an oversized artifact.
+            files.push({ path: relativePath, size: stat.size, hash: '', modifiedAt: stat.mtime.toISOString() });
+            continue;
+          }
           const content = await this.readManifestContent(relativePath, safeFullPath);
+          const sessionId = relativePath.match(/^sessions\/([^/]+)\/metadata\.json$/u)?.[1];
+          if (sessionId) {
+            try {
+              const metadata = JSON.parse(content.toString('utf8'));
+              const activity = Date.parse(metadata.lastActiveAt ?? metadata.updatedAt ?? metadata.createdAt);
+              if (Number.isFinite(activity)) sessionActivity.set(sessionId, activity);
+            } catch { /* Fall back to the session files' modification times. */ }
+          }
 
           files.push({
             path: relativePath,
@@ -1058,7 +1134,7 @@ export class SyncService {
         }
       } else if (entry.isDirectory()) {
         // Recurse into subdirectory
-        const subFiles = await this.getFilesInDirectory(relativePath, enabledRoots);
+        const subFiles = await this.getFilesInDirectory(relativePath, enabledRoots, sessionActivity);
         files.push(...subFiles);
       }
     }
@@ -1158,7 +1234,7 @@ export class SyncService {
     try {
       const enabledRoots = await this.getIncludePaths();
       this.assertOperationActive(context);
-      const remoteManifest = await this.client.getRemoteManifest(
+      let remoteManifest = await this.client.getRemoteManifest(
         this.authToken,
         context.signal,
       );
@@ -1175,6 +1251,7 @@ export class SyncService {
       }
 
       await this.validateManifestDestinations(remoteManifest, enabledRoots);
+      remoteManifest = this.selectRemoteManifest(remoteManifest);
       this.assertOperationActive(context);
       return this.forceDownloadFiles(remoteManifest.files, enabledRoots, context);
     } catch (error) {
@@ -1207,7 +1284,7 @@ export class SyncService {
     try {
       const enabledRoots = await this.getIncludePaths();
       this.assertOperationActive(context);
-      const remoteManifest = await this.client.getRemoteManifest(
+      let remoteManifest = await this.client.getRemoteManifest(
         this.authToken,
         context.signal,
       );
@@ -1224,6 +1301,7 @@ export class SyncService {
       }
 
       await this.validateManifestDestinations(remoteManifest, enabledRoots);
+      remoteManifest = this.selectRemoteManifest(remoteManifest);
       this.assertOperationActive(context);
       for (const requestedPath of paths) {
         await resolveSafeSyncPath(this.basePath, requestedPath, enabledRoots);
@@ -1395,21 +1473,19 @@ export class SyncService {
     syncing: boolean;
     fileCount: number;
     totalSize: number;
+    lastError?: string;
+    failingSince?: string;
+    skipped?: SyncSkippedFiles;
+    remoteSkipped?: SyncSkippedFiles;
   }> {
-    const stateFile = path.join(this.basePath, SYNC_STATE_FILE);
-    let lastSync: string | null = null;
-
-    if (await fs.pathExists(stateFile)) {
-      const state: SyncState = await fs.readJson(stateFile).catch(() => ({}));
-      lastSync = state.lastSync || null;
-    }
+    const health = await this.getHealth();
 
     const manifest = await this.buildLocalManifest();
     const totalSize = manifest.files.reduce((sum, f) => sum + f.size, 0);
 
     return {
       enabled: this.config.enabled,
-      lastSync,
+      ...health,
       syncing: this.syncing,
       fileCount: manifest.files.length,
       totalSize,
