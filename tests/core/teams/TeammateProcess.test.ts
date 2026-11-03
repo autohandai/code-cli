@@ -36,6 +36,15 @@ describe('TeammateProcess', () => {
     vi.useRealTimers();
   });
 
+  it('launches teammates through the running executable, never a runtime or script path', () => {
+    const child = createChild();
+    vi.mocked(spawn).mockReturnValue(child);
+    const teammate = createTeammate();
+    teammate.spawn(() => {}, () => {});
+    expect(vi.mocked(spawn).mock.calls[0][0]).toBe(process.execPath);
+    child.emit('exit', 0); child.emit('close', 0);
+  });
+
   it('terminates a teammate whose input exceeds the bounded protocol frame', async () => {
     const child = createChild();
     vi.mocked(spawn).mockReturnValue(child);

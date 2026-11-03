@@ -118,7 +118,14 @@ describe('SlashCommandHandler', () => {
     const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
     await handler.handle('/sync');
     expect(events).toEqual(['pause', 'sync', 'resume']);
-    expect(mockSync).toHaveBeenCalledWith(ctx);
+    expect(mockSync).toHaveBeenCalledWith(ctx, []);
+  });
+
+  it('forwards the status subcommand to settings sync', async () => {
+    const ctx = createContext();
+    const handler = new SlashCommandHandler(ctx, DEFAULT_COMMANDS);
+    await handler.handle('/sync', ['status']);
+    expect(mockSync).toHaveBeenCalledWith(ctx, ['status']);
   });
 
   it.each([false, true])('gives export dialogs exclusive input and restores the composer after failure: %s', async fails => {

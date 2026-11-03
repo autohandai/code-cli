@@ -822,6 +822,8 @@ export interface SyncSettings {
   enabled?: boolean;
   /** Sync interval in milliseconds (default: 300000 = 5 min) */
   interval?: number;
+  /** Session history budget in MiB (default 100, maximum 1024). */
+  sessionsBudgetMb?: number;
   /** Glob patterns to exclude from sync */
   exclude?: string[];
   /** Include telemetry data in sync (requires user consent, default: false) */

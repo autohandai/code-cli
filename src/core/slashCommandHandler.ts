@@ -635,7 +635,7 @@ export class SlashCommandHandler {
           const { sync } = await import('../commands/sync.js');
           await this.ctx.onBeforeModal?.();
           try {
-            return await sync(this.ctx);
+            return await sync(this.ctx, args);
           } finally {
             await this.ctx.onAfterModal?.();
           }

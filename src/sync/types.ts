@@ -14,6 +14,8 @@ export interface SyncConfig {
   enabled: boolean;
   /** Sync interval in ms (default: 300000 = 5 min) */
   interval: number;
+  /** Session history budget in MiB (default 100, maximum 1024). */
+  sessionsBudgetMb?: number;
   /** Last successful sync timestamp (ISO 8601) */
   lastSync?: string;
   /** Glob patterns to exclude from sync */
@@ -80,6 +82,9 @@ export interface SyncResult {
   conflicts: number;
   /** Error message if sync failed */
   error?: string;
+  /** Files omitted by per-root or per-file bounds; local history is retained. */
+  skipped?: import('./rootBudgets.js').SyncSkippedFiles;
+  remoteSkipped?: import('./rootBudgets.js').SyncSkippedFiles;
   /** Duration of sync in ms */
   duration?: number;
 }
@@ -110,7 +115,7 @@ export interface SyncApiConfig {
   timeout?: number;
   /** Max file size to sync in bytes (default: 10MB) */
   maxFileSize?: number;
-  /** Max total sync size in bytes (default: 100MB) */
+  /** Max total sync size in bytes (default: 2 GiB) */
   maxTotalSize?: number;
   /** Max retry attempts for failed requests (default: 3) */
   maxRetries?: number;
