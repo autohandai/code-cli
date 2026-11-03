@@ -146,6 +146,28 @@ describe("model catalog distribution automation", () => {
     expect(source).toContain('`revision=${revision}`');
   });
 
+  it("publishes catalog-only changes without creating a CLI release, while preserving runtime and manual releases", () => {
+    const release = parseYaml(readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8")) as {
+      on: { push: { branches: string[]; "paths-ignore"?: string[] }; workflow_dispatch: unknown };
+    };
+    const ignored = release.on.push["paths-ignore"] || [];
+    const automaticRelease = (files: string[]) => files.some(file => !ignored.includes(file));
+
+    expect(automaticRelease(["src/providers/models.json"])).toBe(false);
+    expect(automaticRelease([
+      "src/providers/models.json", ".github/workflows/release.yml",
+      "tests/github/modelCatalogDistributionWorkflow.test.ts",
+    ])).toBe(false);
+    expect(automaticRelease(["src/providers/models.json", "src/core/agent.ts"])).toBe(true);
+    expect(automaticRelease(["src/providers/modelCatalog.ts"])).toBe(true);
+    const publication = parseYaml(readFileSync(PUBLISH_WORKFLOW, "utf8")) as {
+      on: { push: { paths: string[] } };
+    };
+    expect(automaticRelease(publication.on.push.paths)).toBe(false);
+    expect(release.on.push.branches).toContain("main");
+    expect(release.on.workflow_dispatch).toBeDefined();
+  });
+
   it("reports a clear error when a required flag's value is empty, e.g. an unset GitHub secret", () => {
     let error: (Error & { stderr?: string }) | undefined;
     try {

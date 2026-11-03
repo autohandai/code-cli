@@ -15,7 +15,7 @@
         {
           "id": "moa",
           "displayName": "Moa (Thinking)",
-          "description": "Reasoning model with medium, high, and xhigh effort and 1M input context",
+          "description": "Pro and above. Reasoning model with medium, high and xhigh effort and 1M input context.",
           "contextWindow": 1000000,
           "maxTokens": 262144,
           "toolCalls": true,

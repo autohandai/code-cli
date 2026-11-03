@@ -4,6 +4,16 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - src/providers/models.json
+      - .github/scripts/generate-model-catalog.mjs
+      - .github/scripts/publish-model-catalog.mjs
+      - .github/scripts/apply-model-catalog-draft.mjs
+      - .github/workflows/publish-model-catalog.yml
+      - .github/workflows/model-catalog-admin-pr.yml
+      - .github/workflows/release.yml
+      - tests/github/modelCatalogDistributionWorkflow.test.ts
+      - docs/model-catalog.md
   workflow_dispatch:
     inputs:
       version:
