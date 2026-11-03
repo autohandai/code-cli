@@ -16,6 +16,8 @@
 
 ### Changed
 
+- `--bare` help: Minimal mode: skip hooks, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery
+
 - Persistent goals (`/goal`, `/goals` and `--goal`) are enabled by default for 0.9.9. Existing explicit settings are preserved; `/experiments disable slash_goal` turns them off.
 
 ### Breaking
