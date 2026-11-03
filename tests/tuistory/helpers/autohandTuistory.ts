@@ -453,7 +453,8 @@ export async function createMockAutohandAINativeSequenceServer(
 
 export async function createMockOpenRouterSequenceServer(
   responseContents: string[],
-  delayMs = 0
+  delayMs = 0,
+  options: { responseGate?: Promise<void> } = {}
 ): Promise<MockOpenRouterServer & { requests: Array<Record<string, unknown>> }> {
   let completionCalls = 0;
   const requests: Array<Record<string, unknown>> = [];
@@ -468,7 +469,8 @@ export async function createMockOpenRouterSequenceServer(
           requests.push({});
         }
       });
-      setTimeout(() => {
+      const send = (): void => {
+        if (response.destroyed) return;
         const index = Math.min(completionCalls, responseContents.length - 1);
         completionCalls += 1;
         response.writeHead(200, { 'content-type': 'application/json' });
@@ -491,7 +493,12 @@ export async function createMockOpenRouterSequenceServer(
             total_tokens: 54,
           },
         }));
+      };
+      const timer = setTimeout(() => {
+        if (options.responseGate) void options.responseGate.then(send, () => response.destroy());
+        else send();
       }, delayMs);
+      response.once('close', () => clearTimeout(timer));
       return;
     }
 

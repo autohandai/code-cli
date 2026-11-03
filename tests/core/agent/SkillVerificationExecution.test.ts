@@ -12,13 +12,45 @@ import * as coordination from '../../../src/session/peers/CommandCoordinationGat
 import type { ChildProcess } from 'node:child_process';
 
 const roots: string[] = [];
+const spawned = vi.hoisted(() => ({ child: undefined as ChildProcess | undefined, closed: undefined as Promise<void> | undefined }));
+vi.mock('node:child_process', async original => {
+  const actual = await original<typeof import('node:child_process')>();
+  return { ...actual, spawn: (...args: Parameters<typeof actual.spawn>) => {
+    const child = actual.spawn(...args);
+    spawned.child = child;
+    spawned.closed = new Promise<void>(resolve => child.once('close', () => resolve()));
+    return child;
+  } };
+});
+const nativeSetTimeout = globalThis.setTimeout;
+async function waitForProcessState(predicate: () => boolean | Promise<boolean>, timeoutMs: number): Promise<void> {
+  const deadline = process.hrtime.bigint() + BigInt(timeoutMs) * 1_000_000n;
+  while (!await predicate()) {
+    if (process.hrtime.bigint() >= deadline) throw new Error('Verification fixture did not reach its expected process state.');
+    await new Promise<void>(resolve => nativeSetTimeout(resolve, 10));
+  }
+}
 async function setup(decision: PermissionDecision = { allowed: true, reason: 'allow_list' }) {
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'skill-verifier-'));
   roots.push(workspaceRoot);
   return { workspaceRoot, permissionManager: { checkPermission: vi.fn(() => decision) }, signal: new AbortController().signal };
 }
 const check = (code: string, extra: string[] = []): SkillLearningCheck => ({ id: 'frozen-check', command: [process.execPath, '-e', code, ...extra], files: ['independent.cjs'], timeoutMs: 3_000 });
-afterEach(async () => { vi.restoreAllMocks(); vi.useRealTimers(); await Promise.all(roots.splice(0).map(root => fs.remove(root))); });
+afterEach(async () => {
+  try {
+    const child = spawned.child;
+    if (child?.pid) {
+      try { process.kill(process.platform === 'win32' ? child.pid : -child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+    }
+    await spawned.closed;
+  } finally {
+    spawned.child = undefined;
+    spawned.closed = undefined;
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    await Promise.all(roots.splice(0).map(root => fs.remove(root)));
+  }
+});
 
 describe('permission-bound skill check execution', () => {
   it.each<PermissionDecision>([{ allowed: false, reason: 'deny_list' }, { allowed: false, reason: 'default' },
@@ -60,13 +92,40 @@ describe('permission-bound skill check execution', () => {
     const options = await setup();
     const marker = path.join(options.workspaceRoot, 'pids.json');
     const controller = new AbortController();
-    const code = 'const{spawn}=require("node:child_process");process.on("SIGTERM",()=>{});const c=spawn(process.execPath,["-e",\'process.on("SIGTERM",()=>{});setInterval(()=>{},1000)\'],{stdio:"ignore"});c.once("spawn",()=>require("node:fs").writeFileSync(process.argv[1],JSON.stringify([process.pid,c.pid])));setInterval(()=>{},1000);';
-    const pending = runSkillVerificationCheck({ ...options, signal: controller.signal, check: { ...check(code, [marker]), timeoutMs: mode === 'deadline' ? 600 : 5_000 } });
-    await vi.waitFor(async () => expect(await fs.pathExists(marker)).toBe(true), { timeout: 3_000 });
-    const pids = await fs.readJson(marker) as number[];
-    if (mode === 'cancel') controller.abort();
-    expect(await pending).toMatchObject({ executed: true, exitCode: null });
-    await vi.waitFor(() => { for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow(); }, { timeout: 3_000 });
+    const code = 'const{spawn}=require("node:child_process");process.on("SIGTERM",()=>{});const c=spawn(process.execPath,["-e",\'process.on("SIGTERM",()=>{});setTimeout(()=>process.exit(1),20000).unref();process.stdout.write("READY");setInterval(()=>{},1000)\'],{stdio:["ignore","pipe","ignore"]});c.stdout.once("data",()=>require("node:fs").writeFileSync(process.argv[1],JSON.stringify([process.pid,c.pid])));setInterval(()=>{},1000);';
+    const timeoutMs = mode === 'deadline' ? 600 : 5_000;
+    const nativeDeadline = new AbortController();
+    const originalTimeout = AbortSignal.timeout.bind(AbortSignal);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    const timers = vi.getTimerCount();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(ms => ms === timeoutMs ? nativeDeadline.signal : originalTimeout(ms));
+    const pending = runSkillVerificationCheck({ ...options, signal: controller.signal, check: { ...check(code, [marker]), timeoutMs } });
+    let pids: number[] = [];
+    try {
+      await waitForProcessState(() => fs.pathExists(marker), 15_000);
+      pids = await fs.readJson(marker) as number[];
+      expect(pids).toHaveLength(2);
+      for (const pid of pids) expect(() => process.kill(pid, 0)).not.toThrow();
+      expect(timeout).toHaveBeenCalledWith(timeoutMs);
+      if (mode === 'cancel') controller.abort();
+      else {
+        await vi.advanceTimersByTimeAsync(600);
+        nativeDeadline.abort(new DOMException('Fixture deadline', 'TimeoutError'));
+      }
+      await vi.advanceTimersByTimeAsync(250);
+      expect(await pending).toMatchObject({ executed: true, exitCode: null });
+      await waitForProcessState(() => pids.every(pid => {
+        try { process.kill(pid, 0); return false; } catch { return true; }
+      }), 3_000);
+      expect(vi.getTimerCount()).toBe(timers);
+    } finally {
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(1000);
+      for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+      await pending;
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('bounds output and never accepts a noisy check as a passed acceptance check', async () => {

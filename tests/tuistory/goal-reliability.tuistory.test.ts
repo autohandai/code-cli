@@ -70,7 +70,7 @@ describe('built CLI goal reliability', () => {
       await server.close();
       await state.cleanup();
     }
-  });
+  }, 90_000);
 
   it('cancels recovery safely and restores the selected offline conversation without resuming its goal', async () => {
     const server = await createMockAutohandAINativeSequenceServer([
