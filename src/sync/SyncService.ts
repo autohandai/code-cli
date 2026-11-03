@@ -304,7 +304,13 @@ export class SyncService {
       if (this.isOperationActive(context)) {
         if (!result.success && result.error && !this.operationFailureRecorded
           && result.error !== 'No remote data to download') await this.recordFailure(result.error, context);
-        await this.saveSkipReport(context);
+        try {
+          await this.saveSkipReport(context);
+        } catch (error) {
+          // Supplemental reporting must not replace the original failed result.
+          // Cancellation still propagates so shutdown cannot commit late state.
+          if (result.success || this.isStoppedError(error) || !this.isOperationActive(context)) throw error;
+        }
       }
       return this.resultWithSkips(result);
     } catch (error) {

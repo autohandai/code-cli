@@ -76,6 +76,7 @@ describe('settings sync budget and health integration', () => {
 
   it('keeps the error visible when its health record cannot be written', async () => {
     await fs.ensureDir(path.join(root, '.sync-state.json'));
+    await fs.outputFile(path.join(root, 'skills/large/SKILL.md'), 'x'.repeat(2048));
     vi.mocked(api.getRemoteManifest).mockRejectedValue(new Error('413 Payload too large'));
     const sync = service();
     expect((await sync.sync()).error).toBe('413 Payload too large');
