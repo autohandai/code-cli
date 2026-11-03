@@ -131,6 +131,7 @@ interface OnboardingState {
     braveApiKey?: string;
     parallelApiKey?: string;
     exaApiKey?: string;
+    keenableApiKey?: string;
   };
   mcpEnabled?: boolean;
   agentSettings?: {
@@ -2401,9 +2402,9 @@ export class SetupWizard {
     if (!choice) { this.state.skipped.push('search'); return; }
     const provider = choice.value;
     const searchState: OnboardingState['search'] = { provider };
-    const keyField = provider === 'brave' ? 'braveApiKey' : provider === 'parallel' ? 'parallelApiKey' : provider === 'exa' ? 'exaApiKey' : undefined;
+    const keyField = provider === 'brave' ? 'braveApiKey' : provider === 'parallel' ? 'parallelApiKey' : provider === 'exa' ? 'exaApiKey' : provider === 'keenable' ? 'keenableApiKey' : undefined;
     if (keyField) {
-      const environment = provider === 'brave' ? process.env.BRAVE_SEARCH_API_KEY : provider === 'parallel' ? process.env.PARALLEL_API_KEY : process.env.EXA_API_KEY;
+      const environment = provider === 'brave' ? process.env.BRAVE_SEARCH_API_KEY : provider === 'parallel' ? process.env.PARALLEL_API_KEY : provider === 'keenable' ? process.env.KEENABLE_API_KEY : process.env.EXA_API_KEY;
       const existing = this.existingConfig?.search?.[keyField];
       const key = existing ?? environment ?? await showPassword({ title: `Enter ${choice.label} API key:`, placeholder: t('ui.apiKeyPlaceholder') });
       if (!key?.trim()) {

@@ -243,6 +243,7 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'search.provider', labelKey: 'commands.settings.search.provider', descriptionKey: 'commands.settings.search.providerDesc', category: 'search', type: 'enum', enumValues: [...SEARCH_PROVIDERS], defaultValue: 'browser-profile' },
   { key: 'search.braveApiKey', labelKey: 'commands.settings.search.braveApiKey', descriptionKey: 'commands.settings.search.braveApiKeyDesc', category: 'search', type: 'password' },
   { key: 'search.parallelApiKey', labelKey: 'commands.settings.search.parallelApiKey', descriptionKey: 'commands.settings.search.parallelApiKeyDesc', category: 'search', type: 'password' },
+  { key: 'search.keenableApiKey', labelKey: 'commands.settings.search.keenableApiKey', descriptionKey: 'commands.settings.search.keenableApiKeyDesc', category: 'search', type: 'password' },
   { key: 'search.exaApiKey', labelKey: 'commands.settings.search.exaApiKey', descriptionKey: 'commands.settings.search.exaApiKeyDesc', category: 'search', type: 'password' },
 ];
 

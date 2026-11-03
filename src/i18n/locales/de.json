@@ -275,7 +275,9 @@
         "braveApiKey": "Brave API-Schlüssel",
         "braveApiKeyDesc": "API-Schlüssel für Brave Search",
         "parallelApiKey": "Parallel API-Schlüssel",
-        "parallelApiKeyDesc": "API-Schlüssel für Parallel.ai"
+        "parallelApiKeyDesc": "API-Schlüssel für Parallel.ai",
+        "keenableApiKey": "Keenable API key",
+        "keenableApiKeyDesc": "API key for Keenable"
       }
     },
     "status": {

@@ -30,10 +30,12 @@ export async function search(ctx: SearchContext): Promise<string | null> {
   const braveKeySet = !!(currentConfig.braveApiKey || process.env.BRAVE_SEARCH_API_KEY);
   const parallelKeySet = !!(currentConfig.parallelApiKey || process.env.PARALLEL_API_KEY);
   const exaKeySet = !!(currentConfig.exaApiKey || process.env.EXA_API_KEY);
+  const keenableKeySet = !!(currentConfig.keenableApiKey || process.env.KEENABLE_API_KEY);
 
   console.log(chalk.gray(`Brave API key: ${braveKeySet ? chalk.green('configured') : chalk.yellow('not set')}`));
   console.log(chalk.gray(`Parallel API key: ${parallelKeySet ? chalk.green('configured') : chalk.yellow('not set')}`));
   console.log(chalk.gray(`Exa API key: ${exaKeySet ? chalk.green('configured') : chalk.yellow('not set')}`));
+  console.log(chalk.gray(`Keenable API key: ${keenableKeySet ? chalk.green('configured') : chalk.yellow('not set')}`));
   console.log();
 
   // Provider selection
@@ -69,6 +71,7 @@ export async function search(ctx: SearchContext): Promise<string | null> {
     let braveApiKey = currentConfig.braveApiKey;
     let parallelApiKey = currentConfig.parallelApiKey;
     let exaApiKey = currentConfig.exaApiKey;
+    let keenableApiKey = currentConfig.keenableApiKey;
 
     if (provider === 'exa' && !exaKeySet) {
       console.log(chalk.gray('\nGet your Exa.ai API key at: https://exa.ai\n'));
@@ -115,12 +118,28 @@ export async function search(ctx: SearchContext): Promise<string | null> {
       }
     }
 
+    if (provider === 'keenable' && !keenableKeySet) {
+      console.log(chalk.gray('\nGet your Keenable API key at: https://keenable.ai\n'));
+
+      const apiKey = await showPassword({
+        title: 'Enter Keenable API key:'
+      });
+
+      if (apiKey?.trim()) {
+        keenableApiKey = apiKey.trim();
+      } else {
+        console.log(chalk.yellow('No API key entered. Keenable Search will not work without an API key.'));
+        return null;
+      }
+    }
+
     // Update runtime configuration
     configureSearch({
       provider,
       braveApiKey,
       parallelApiKey,
       exaApiKey,
+      keenableApiKey,
     });
 
     // Save to config file
@@ -130,6 +149,7 @@ export async function search(ctx: SearchContext): Promise<string | null> {
         braveApiKey,
         parallelApiKey,
         exaApiKey,
+        keenableApiKey,
       };
       await saveConfig(config);
       await configureSearchFromAccount(config, provider);
