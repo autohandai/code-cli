@@ -401,10 +401,11 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
  * On unsupported terminals the CSI sequences are silently ignored, so this
  * is safe to enable unconditionally.
  */
-function patchStdoutForSyncOutput(): () => void {
+function patchStdoutForSyncOutput(framePrefix: (paint: string) => string): () => void {
   const originalWrite = process.stdout.write.bind(process.stdout);
   let syncActive = false;
   let pendingEnd = false;
+  let inkFrameActive = false;
 
   const endSync = () => {
     if (pendingEnd) {
@@ -430,7 +431,11 @@ function patchStdoutForSyncOutput(): () => void {
     }
     pendingEnd = true;
 
-    const result = originalWrite.call(process.stdout, chunk, encoding as any, cb as any);
+    if (str === '\x1b[?2026h') inkFrameActive = true;
+    if (str === '\x1b[?2026l') inkFrameActive = false;
+    const prefix = inkFrameActive ? framePrefix(str) : '';
+    const content = prefix ? prefix + str : chunk;
+    const result = originalWrite.call(process.stdout, content, encoding as any, cb as any);
     queueMicrotask(endSync);
     return result;
   };
@@ -473,16 +478,10 @@ export class InkRenderer {
 
   private static readonly DUPLICATE_INSTRUCTION_SUPPRESSION_MS = 1000;
 
-  /** Resize handler reference for cleanup */
-  private resizeHandler: (() => void) | null = null;
-
-  /** Debounce timer for drag-resize events */
-  private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Terminal size last painted by the full-screen frame; a resize that keeps it leaves the screen alone. */
+  private paintedViewport: { columns: number | undefined; rows: number | undefined } | null = null;
 
   private tipTimer: ReturnType<typeof setInterval> | null = null;
-
-  /** Debounce time for resize events (ms) - longer to batch drag-resize */
-  private static readonly RESIZE_DEBOUNCE_MS = 150;
 
   /** Cleanup function for stdout sync-output patch */
   private unpatchedStdout: (() => void) | null = null;
@@ -510,19 +509,18 @@ export class InkRenderer {
     this.state = { ...this.state, currentInput: input, peerInputMetadata: metadata, peerDraft: undefined };
   };
 
-/**
-   * Handle resize events with debouncing to prevent flickering during drag-resize.
-   * Ink handles re-renders naturally - we just need to debounce rapid events.
+  /**
+   * A resize may reflow the previous frame. Reset its origin in the same write
+   * as Ink's next paint, since its resize listener can defer the actual output.
+   * Clearing from a resize listener would publish an empty intermediate frame.
    */
-  private onResize = () => {
-    // Debounce rapid events during drag-resize to prevent multiple re-renders
-    if (this.resizeDebounceTimer) {
-      clearTimeout(this.resizeDebounceTimer);
-    }
-    this.resizeDebounceTimer = setTimeout(() => {
-      this.resizeDebounceTimer = null;
-      // Let Ink handle the re-render naturally - no screen clear needed
-    }, InkRenderer.RESIZE_DEBOUNCE_MS);
+  private resizeFramePrefix = (paint: string): string => {
+    if (!this.fullScreenTranscript) return '';
+    const viewport = { columns: process.stdout.columns, rows: process.stdout.rows };
+    if (this.paintedViewport?.columns === viewport.columns && this.paintedViewport.rows === viewport.rows) return '';
+    if (!stripAnsiCodes(paint).trim()) return '';
+    this.paintedViewport = viewport;
+    return '\x1b[2J\x1b[H';
   };
 
   /**
@@ -535,13 +533,14 @@ export class InkRenderer {
 
     if (shouldUseFullScreen(this.options.fullScreenMode, process.stdin.isTTY, process.stdout.isTTY, process.env.TERM)) {
       this.fullScreenTranscript = new FullScreenTranscript();
+      this.paintedViewport = { columns: process.stdout.columns, rows: process.stdout.rows };
       this.releaseScreen = acquireAlternateScreen(process.stdout);
     }
 
     try {
       // Enable synchronized output wrapping to eliminate flicker from partial
       // frame updates. Must happen before Ink starts writing to stdout.
-      this.unpatchedStdout = patchStdoutForSyncOutput();
+      this.unpatchedStdout = patchStdoutForSyncOutput(this.resizeFramePrefix);
 
       // Shift+Enter, Alt+Enter and Esc are only distinguishable when the
       // terminal encodes modified keys. Ink parses the kitty CSI u form; iTerm2,
@@ -549,13 +548,6 @@ export class InkRenderer {
       if (process.stdout.isTTY) {
         enableKittyProtocol(process.stdout, KITTY_DISAMBIGUATE_FLAG);
         this.keyboardProtocolEnabled = true;
-      }
-
-      // Install our resize guard BEFORE Ink registers its own handler.
-      // Node.js event listeners fire in registration order.
-      this.resizeHandler = this.onResize;
-      if (typeof process.stdout.on === 'function') {
-        process.stdout.on('resize', this.resizeHandler);
       }
 
       this.syncTips();
@@ -664,19 +656,6 @@ export class InkRenderer {
         }
       }
     } finally {
-      if (
-        this.resizeHandler &&
-        typeof process.stdout.off === 'function'
-      ) {
-        process.stdout.off('resize', this.resizeHandler);
-        this.resizeHandler = null;
-      }
-
-      if (this.resizeDebounceTimer) {
-        clearTimeout(this.resizeDebounceTimer);
-        this.resizeDebounceTimer = null;
-      }
-
       this.stopTips();
       if (this.liveOutputFlushTimer) {
         clearTimeout(this.liveOutputFlushTimer);
@@ -696,6 +675,7 @@ export class InkRenderer {
       this.releaseScreen?.();
       this.releaseScreen = undefined;
       this.fullScreenTranscript = undefined;
+      this.paintedViewport = null;
     }
   }
 
