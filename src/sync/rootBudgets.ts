@@ -10,6 +10,7 @@ export const SYNC_ROOT_BUDGET_BYTES = 100 * MIB;
 // All non-session roots at 100 MiB plus 1 GiB of sessions fit below 2 GiB.
 export const SYNC_MAX_TOTAL_BYTES = 2 * 1024 * MIB;
 export const DEFAULT_SESSIONS_BUDGET_MB = 100;
+export const SYNC_MAX_MANIFEST_FILES = 5000;
 
 export interface SyncSkippedFiles {
   olderSessions: number;
@@ -57,21 +58,25 @@ export function selectSyncFiles(files: readonly SyncFileEntry[], options: Budget
     group.push(file);
     groups.set(key, group);
   }
-  // Non-session roots always get their own allowance before session history.
-  for (const [root, entries] of roots) {
-    const limit = root === 'sessions'
-      ? sessionBudgetBytes(options.sessionsBudgetMb) : SYNC_ROOT_BUDGET_BYTES;
-    let used = 0;
-    for (const entry of entries) {
-      if (used + entry.size > limit || total + entry.size > options.maxTotalSize) {
+  // Reserve settings before history and share file-count capacity across roots.
+  const queues = [...roots].map(([root, entries]) => ({ entries, next: 0, used: 0,
+    limit: root === 'sessions' ? sessionBudgetBytes(options.sessionsBudgetMb) : SYNC_ROOT_BUDGET_BYTES }));
+  while (selected.size < SYNC_MAX_MANIFEST_FILES && queues.some(queue => queue.next < queue.entries.length)) {
+    for (const queue of queues) {
+      if (selected.size >= SYNC_MAX_MANIFEST_FILES) break;
+      if (queue.next >= queue.entries.length) continue;
+      const entry = queue.entries[queue.next++];
+      if (!entry) continue;
+      if (queue.used + entry.size > queue.limit || total + entry.size > options.maxTotalSize) {
         skipped.budgetFiles += 1;
         continue;
       }
       selected.add(entry.path);
-      used += entry.size;
+      queue.used += entry.size;
       total += entry.size;
     }
   }
+  for (const queue of queues) skipped.budgetFiles += Math.max(0, queue.entries.length - queue.next);
   let sessionBytes = files.filter(file => selected.has(file.path) && file.path.startsWith('sessions/'))
     .reduce((sum, file) => sum + file.size, 0);
   const activity = (id: string, entries: SyncFileEntry[]): number => options.sessionActivity?.get(id)
@@ -81,7 +86,8 @@ export function selectSyncFiles(files: readonly SyncFileEntry[], options: Budget
   for (const [id, entries] of ordered) {
     if (oversizedSessions.has(id)) continue;
     const size = entries.reduce((sum, file) => sum + file.size, 0);
-    if (sessionBytes + size > sessionBudgetBytes(options.sessionsBudgetMb) || total + size > options.maxTotalSize) {
+    if (sessionBytes + size > sessionBudgetBytes(options.sessionsBudgetMb) || total + size > options.maxTotalSize
+      || selected.size + entries.length > SYNC_MAX_MANIFEST_FILES) {
       skipped.olderSessions += 1;
       continue;
     }

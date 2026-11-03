@@ -140,6 +140,8 @@ export class SyncService {
   private readonly onEvent: (event: SyncEvent) => void;
   private readonly onSyncFailure: ((reason: string) => Promise<void> | void) | undefined;
   private failureNotified = false;
+  private operationFailureRecorded = false;
+  private liveFailure: { lastError: string; failingSince: string } | undefined;
   private skipped = emptySyncSkippedFiles();
   private remoteSkipped = emptySyncSkippedFiles();
   private readonly onAuthFailure: (() => void) | undefined;
@@ -251,6 +253,9 @@ export class SyncService {
       });
     }
 
+    this.skipped = emptySyncSkippedFiles();
+    this.remoteSkipped = emptySyncSkippedFiles();
+    this.operationFailureRecorded = false;
     const controller = new AbortController();
     const context: SyncOperationContext = {
       generation: this.generation,
@@ -278,6 +283,7 @@ export class SyncService {
 
     this.syncing = true;
     let lock: Awaited<ReturnType<typeof acquireFileLock>> = null;
+    let result: SyncResult | undefined;
     try {
       const lockPath = path.join(this.basePath, SYNC_LOCK_FILE);
       lock = await acquireFileLock(lockPath, { staleMs: 5 * 60 * 1000 });
@@ -294,7 +300,20 @@ export class SyncService {
         };
       }
 
-      return await operation(context);
+      result = await operation(context);
+      if (this.isOperationActive(context)) {
+        if (!result.success && result.error && !this.operationFailureRecorded
+          && result.error !== 'No remote data to download') await this.recordFailure(result.error, context);
+        await this.saveSkipReport(context);
+      }
+      return this.resultWithSkips(result);
+    } catch (error) {
+      if (this.isStoppedError(error) || !this.isOperationActive(context)) return this.stoppedResult(result?.downloaded ?? 0, result?.uploaded ?? 0, result?.conflicts ?? 0);
+      const reason = error instanceof Error ? error.message : String(error);
+      await this.recordFailure(reason, context);
+      if (!this.isOperationActive(context)) return this.stoppedResult(result?.downloaded ?? 0, result?.uploaded ?? 0, result?.conflicts ?? 0);
+      return this.resultWithSkips({ success: false, uploaded: result?.uploaded ?? 0,
+        downloaded: result?.downloaded ?? 0, conflicts: result?.conflicts ?? 0, error: reason });
     } finally {
       try {
         await lock?.release();
@@ -329,7 +348,8 @@ export class SyncService {
       // 1. Build local manifest
       const enabledRoots = await this.getIncludePaths();
       this.assertOperationActive(context);
-      const localManifest = await this.buildLocalManifest(enabledRoots);
+      const localInventory = new Map<string, SyncFileEntry>();
+      const localManifest = await this.buildLocalManifest(enabledRoots, { inventory: localInventory });
       this.assertOperationActive(context);
 
       // 2. Get remote manifest
@@ -338,6 +358,7 @@ export class SyncService {
         context.signal,
       );
       this.assertOperationActive(context);
+      const remoteInventory = remoteManifest;
       if (remoteManifest) {
         await this.validateManifestDestinations(remoteManifest, enabledRoots);
         remoteManifest = this.selectRemoteManifest(remoteManifest);
@@ -345,7 +366,17 @@ export class SyncService {
       }
 
       // 3. Compare and determine actions
-      const actions = this.compareManifests(localManifest, remoteManifest);
+      // Compare full inventories before restricting transfers. Omitted local data
+      // still exists and must never look like a missing path to reconciliation.
+      const actions = this.compareManifests({ ...localManifest, files: [...localInventory.values()] }, remoteInventory);
+      const localEligible = new Set(localManifest.files.map(file => file.path));
+      const remoteEligible = new Set(remoteManifest?.files.map(file => file.path) ?? []);
+      const skippedLocalSessions = new Set([...localInventory.keys()].filter(file => !localEligible.has(file))
+        .flatMap(file => { const id = file.match(/^sessions\/([^/]+)\//u)?.[1]; return id ? [id] : []; }));
+      actions.uploads = actions.uploads.filter(file => localEligible.has(file.path));
+      actions.downloads = actions.downloads.filter(file => remoteEligible.has(file.path)
+        && !skippedLocalSessions.has(file.path.match(/^sessions\/([^/]+)\//u)?.[1] ?? ''));
+      actions.conflicts = actions.conflicts.filter(file => localEligible.has(file.path) && remoteEligible.has(file.path));
       const mutatesLocalState = actions.downloads.length > 0
         || actions.conflicts.length > 0
         || actions.localDeletes.length > 0;
@@ -408,9 +439,13 @@ export class SyncService {
         ...(hasSkippedFiles(this.remoteSkipped) ? { remoteSkipped: this.remoteSkipped } : {}),
       };
       this.assertOperationActive(context);
-      await atomicWriteJson(stateFile, state, {
-        beforeCommit: () => this.assertOperationActive(context),
-      });
+      if (accountSkillError) await this.recordFailure(accountSkillError, context);
+      else {
+        await atomicWriteJson(stateFile, state, {
+          beforeCommit: () => this.assertOperationActive(context),
+        });
+        this.liveFailure = undefined;
+      }
       this.assertOperationActive(context);
 
       const result: SyncResult = {
@@ -424,10 +459,6 @@ export class SyncService {
         duration: Date.now() - startTime,
       };
 
-      if (accountSkillError) {
-        await this.recordFailure(accountSkillError, context);
-        this.assertOperationActive(context);
-      }
       this.emitOperationEvent(context, { type: 'sync_completed', result });
       return result;
     } catch (error) {
@@ -912,6 +943,26 @@ export class SyncService {
     }
   }
 
+  private resultWithSkips(result: SyncResult): SyncResult {
+    return { ...result,
+      ...(hasSkippedFiles(this.skipped) ? { skipped: this.skipped } : {}),
+      ...(hasSkippedFiles(this.remoteSkipped) ? { remoteSkipped: this.remoteSkipped } : {}) };
+  }
+
+  private async saveSkipReport(context: SyncOperationContext): Promise<void> {
+    const state = await this.readState();
+    this.assertOperationActive(context);
+    const previous = JSON.stringify([state.skipped, state.remoteSkipped]);
+    if (hasSkippedFiles(this.skipped)) state.skipped = this.skipped;
+    else delete state.skipped;
+    if (hasSkippedFiles(this.remoteSkipped)) state.remoteSkipped = this.remoteSkipped;
+    else delete state.remoteSkipped;
+    if (previous === JSON.stringify([state.skipped, state.remoteSkipped])) return;
+    await atomicWriteJson(path.join(this.basePath, SYNC_STATE_FILE), state, {
+      beforeCommit: () => this.assertOperationActive(context),
+    });
+  }
+
   private async readState(): Promise<SyncState> {
     const value: unknown = await fs.readJson(path.join(this.basePath, SYNC_STATE_FILE)).catch(() => null);
     if (!isJsonObject(value)) return {};
@@ -942,19 +993,23 @@ export class SyncService {
       this.readState(),
       fs.stat(stateFile).catch(() => undefined),
     ]);
-    return resolveSyncHealth(state, stat?.mtimeMs, this.config.interval);
+    return { ...resolveSyncHealth(state, stat?.mtimeMs, this.config.interval), ...this.liveFailure };
   }
 
   private async recordFailure(reason: string, context: SyncOperationContext): Promise<void> {
     if (!this.isOperationActive(context)) return;
+    this.operationFailureRecorded = true;
     const stateFile = path.join(this.basePath, SYNC_STATE_FILE);
     const state = await this.readState();
     if (!this.isOperationActive(context)) return;
+    this.liveFailure = { lastError: reason,
+      failingSince: this.liveFailure?.failingSince ?? state.failingSince ?? state.lastSync ?? new Date().toISOString() };
     try {
       await atomicWriteJson(stateFile, {
         ...state,
-        lastError: reason,
-        failingSince: state.failingSince ?? state.lastSync ?? new Date().toISOString(),
+        ...this.liveFailure,
+        skipped: hasSkippedFiles(this.skipped) ? this.skipped : undefined,
+        remoteSkipped: hasSkippedFiles(this.remoteSkipped) ? this.remoteSkipped : undefined,
       }, { beforeCommit: () => this.assertOperationActive(context) });
     } catch {
       // An unwritable health record must not hide the original sync failure.
@@ -980,7 +1035,7 @@ export class SyncService {
   /**
    * Build manifest from local ~/.autohand/ files
    */
-  private async buildLocalManifest(enabledRoots?: readonly string[]): Promise<SyncManifest> {
+  private async buildLocalManifest(enabledRoots?: readonly string[], options: { inventory?: Map<string, SyncFileEntry>; recordSkips?: boolean } = {}): Promise<SyncManifest> {
     const files: SyncFileEntry[] = [];
     const sessionActivity = new Map<string, number>();
 
@@ -1011,10 +1066,16 @@ export class SyncService {
             continue;
           }
           const content = await this.readManifestContent(relativePath, safeFullPath);
+          // Budget the actual encrypted transfer while preserving the canonical
+          // plaintext hash used to compare config across devices.
+          const canonical: unknown = relativePath === 'config.json' ? JSON.parse(content.toString('utf8')) : null;
+          const transferSize = relativePath === 'config.json'
+            ? Buffer.byteLength(JSON.stringify(encryptConfig(isJsonObject(canonical) ? canonical : {}, this.authToken), null, 2), 'utf8')
+            : content.length;
           files.push({
             path: relativePath,
             hash: computeHash(content),
-            size: content.length,
+            size: transferSize,
             modifiedAt: stat.mtime.toISOString(),
             encrypted: relativePath === 'config.json',
           });
@@ -1031,7 +1092,8 @@ export class SyncService {
       sessionsBudgetMb: this.config.sessionsBudgetMb,
       sessionActivity,
     });
-    this.skipped = selection.skipped;
+    for (const file of files) options.inventory?.set(file.path, file);
+    if (options.recordSkips !== false) this.skipped = selection.skipped;
     const manifest: SyncManifest = {
       version: MANIFEST_VERSION,
       userId: this.userId,
@@ -1301,7 +1363,6 @@ export class SyncService {
       }
 
       await this.validateManifestDestinations(remoteManifest, enabledRoots);
-      remoteManifest = this.selectRemoteManifest(remoteManifest);
       this.assertOperationActive(context);
       for (const requestedPath of paths) {
         await resolveSafeSyncPath(this.basePath, requestedPath, enabledRoots);
@@ -1309,7 +1370,8 @@ export class SyncService {
       }
 
       const requestedPaths = new Set(paths);
-      const files = remoteManifest.files.filter((file) => requestedPaths.has(file.path));
+      remoteManifest = this.selectRemoteManifest({ ...remoteManifest, files: remoteManifest.files.filter(file => requestedPaths.has(file.path)) });
+      const files = remoteManifest.files;
       return this.forceDownloadFiles(files, enabledRoots, context);
     } catch (error) {
       if (this.isStoppedError(error) || !this.isOperationActive(context)) {
@@ -1473,6 +1535,7 @@ export class SyncService {
     syncing: boolean;
     fileCount: number;
     totalSize: number;
+    inventoryError?: string;
     lastError?: string;
     failingSince?: string;
     skipped?: SyncSkippedFiles;
@@ -1480,16 +1543,20 @@ export class SyncService {
   }> {
     const health = await this.getHealth();
 
-    const manifest = await this.buildLocalManifest();
-    const totalSize = manifest.files.reduce((sum, f) => sum + f.size, 0);
+    if (health.lastError) return { enabled: this.config.enabled, ...health, syncing: this.syncing,
+      fileCount: 0, totalSize: 0, inventoryError: health.lastError };
 
-    return {
-      enabled: this.config.enabled,
-      ...health,
-      syncing: this.syncing,
-      fileCount: manifest.files.length,
-      totalSize,
-    };
+    try {
+      const manifest = await this.buildLocalManifest(undefined, { recordSkips: false });
+      return { enabled: this.config.enabled, ...health, syncing: this.syncing,
+        fileCount: manifest.files.length, totalSize: manifest.files.reduce((sum, file) => sum + file.size, 0) };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return { enabled: this.config.enabled, ...health, syncing: this.syncing,
+        fileCount: 0, totalSize: 0, inventoryError: reason,
+        lastError: health.lastError ?? reason,
+        failingSince: health.failingSince ?? health.lastSync ?? new Date().toISOString() };
+    }
   }
 }
 

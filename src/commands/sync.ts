@@ -8,6 +8,7 @@ import readline from 'node:readline';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { loadConfig, saveConfig } from '../config.js';
 import type { AutohandConfig } from '../types.js';
+import { formatSyncSkippedFiles } from '../sync/skipReport.js';
 import type { SyncSkippedFiles } from '../sync/rootBudgets.js';
 import type { SyncService } from '../sync/SyncService.js';
 import {
@@ -29,6 +30,7 @@ interface SyncData {
   isRunning: boolean;
   lastSync: string | null;
   lastError?: string;
+  inventoryError?: string;
   failingSince?: string;
   skipped?: SyncSkippedFiles;
   remoteSkipped?: SyncSkippedFiles;
@@ -98,6 +100,7 @@ async function gatherSyncData(ctx: SlashCommandContext, config: AutohandConfig):
     isRunning: syncService?.isRunning ?? false,
     lastSync: status.lastSync,
     lastError: status.lastError,
+    inventoryError: status.inventoryError,
     failingSince: status.failingSince,
     skipped: status.skipped,
     remoteSkipped: status.remoteSkipped,
@@ -277,19 +280,15 @@ function renderStatusTab(data: SyncData): void {
   console.log(`  ${theme.accent('Enabled'.padEnd(20))} ${statusIcon} ${data.enabled ? 'Yes' : 'No'}`);
   console.log(`  ${theme.accent('Service Running'.padEnd(20))} ${runningIcon} ${data.isRunning ? 'Yes' : 'No'}`);
   console.log(`  ${theme.accent('Last Sync'.padEnd(20))} ${data.lastSync ? formatDate(data.lastSync) : theme.muted('Never')}`);
-  console.log(`  ${theme.accent('Files Tracked'.padEnd(20))} ${data.fileCount}`);
-  console.log(`  ${theme.accent('Total Size'.padEnd(20))} ${formatSize(data.totalSize)}`);
+  console.log(`  ${theme.accent('Files Tracked'.padEnd(20))} ${data.inventoryError ? theme.muted('Unavailable') : data.fileCount}`);
+  console.log(`  ${theme.accent('Total Size'.padEnd(20))} ${data.inventoryError ? theme.muted('Unavailable') : formatSize(data.totalSize)}`);
   console.log(`  ${theme.accent('Sync Interval'.padEnd(20))} ${formatInterval(data.interval)}`);
   if (data.lastError) {
     console.log(theme.warning(`  Settings sync is paused: ${data.lastError}`));
     if (data.failingSince) console.log(theme.muted(`  Failing since ${data.failingSince}`));
   }
   for (const [origin, skipped] of [['Local', data.skipped], ['Cloud', data.remoteSkipped]] as const) {
-    if (!skipped) continue;
-    if (skipped.olderSessions) console.log(theme.muted(`  ${origin}: skipped ${skipped.olderSessions} older sessions`));
-    if (skipped.oversizedFiles) console.log(theme.muted(`  ${origin}: skipped ${skipped.oversizedFiles} oversized files`));
-    if (skipped.incompleteSessions) console.log(theme.muted(`  ${origin}: skipped ${skipped.incompleteSessions} sessions with oversized files`));
-    if (skipped.budgetFiles) console.log(theme.muted(`  ${origin}: skipped ${skipped.budgetFiles} files beyond a root budget`));
+    for (const line of formatSyncSkippedFiles(skipped, origin)) console.log(theme.muted(`  ${line}`));
   }
 }
 
@@ -329,8 +328,8 @@ function renderActivityTab(data: SyncData): void {
   }
 
   console.log(`  ${theme.accent('Last successful sync:')} ${formatDate(data.lastSync)}`);
-  console.log(`  ${theme.accent('Files synced:')} ${data.fileCount}`);
-  console.log(`  ${theme.accent('Data transferred:')} ${formatSize(data.totalSize)}`);
+  console.log(`  ${theme.accent('Files synced:')} ${data.inventoryError ? theme.muted('Unavailable') : data.fileCount}`);
+  console.log(`  ${theme.accent('Data transferred:')} ${data.inventoryError ? theme.muted('Unavailable') : formatSize(data.totalSize)}`);
 
   console.log(theme.bold('\nTips\n'));
   console.log(theme.muted('  - Sync runs automatically every 5 minutes'));

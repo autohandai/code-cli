@@ -58,6 +58,28 @@ describe('per-root sync budgets', () => {
     expect(result.skipped.budgetFiles).toBe(2);
   });
 
+  it('fits the API file-count cap while keeping settings ahead of newest complete sessions', () => {
+    const core = [file('config.json', 10), file('skills/review/SKILL.md', 10), file('memory/events/LOG.jsonl', 10)];
+    const sessions = Array.from({ length: 5001 }, (_, i) => file(`sessions/session-${i}/messages.jsonl`, 100));
+    const result = selectSyncFiles([...sessions, ...core], limits);
+    expect(result.files.length).toBeLessThanOrEqual(5000);
+    for (const entry of core) expect(result.files).toContain(entry);
+    expect(result.skipped.olderSessions).toBe(4);
+  });
+
+  it('skips a whole session that would exceed the file-count cap', () => {
+    const result = selectSyncFiles([file('config.json', 10), ...Array.from({ length: 5001 }, (_, i) => file(`sessions/one/artifact-${i}.txt`, 1))], limits);
+    expect(result.files.map(entry => entry.path)).toEqual(['config.json']);
+    expect(result.skipped.olderSessions).toBe(1);
+  });
+
+  it('keeps each settings root represented when another root contains thousands of tiny files', () => {
+    const result = selectSyncFiles([...Array.from({ length: 5001 }, (_, i) => file(`community-skills/${i}/SKILL.md`, 1)), file('config.json', 10), file('memory/events/LOG.jsonl', 10)], limits);
+    expect(result.files).toHaveLength(5000);
+    expect(result.files.some(entry => entry.path === 'config.json')).toBe(true);
+    expect(result.files.some(entry => entry.path === 'memory/events/LOG.jsonl')).toBe(true);
+  });
+
   it.each([undefined, -1, 0, NaN, Infinity])('uses a safe default for invalid session budget %s', value => {
     expect(sessionBudgetBytes(value)).toBe(100 * mb);
   });
