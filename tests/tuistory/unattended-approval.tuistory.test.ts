@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import type { Session } from 'tuistory';
 import { runUnattendedApprovalProbe } from '../../src/testing/scenarios/unattendedApprovalScenario.js';
 import { createTempAutohandHome, createMockSubAgentCatalogFetchPreload, createMockOpenRouterSequenceServer, launchBuiltAutohand, repoRoot, waitForExit } from './helpers/autohandTuistory.js';
 
@@ -39,15 +40,16 @@ describe('unattended approval boundary', () => {
       permissions: { mode: 'interactive' }, agent: { maxIterations: 4, sessionRetryLimit: 0 },
     } });
     const nodeOptions = [process.env.NODE_OPTIONS, `--import ${preload.importSpecifier}`].filter(Boolean).join(' ');
-    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '-p', 'Bring a team of ui and security agents to inspect this repo.'], {
-      autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { NODE_OPTIONS: nodeOptions },
-    });
+    let session: Session | undefined;
     try {
+      session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '-p', 'Bring a team of ui and security agents to inspect this repo.'], {
+        autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { NODE_OPTIONS: nodeOptions },
+      });
       await waitForExit(session, 20_000);
       expect(session.exitInfo?.exitCode, session.readAll()).toBe(77);
       expect(session.readAll()).toContain('--allowed-tools install_specialist_roster');
       expect(server.requests).toHaveLength(0);
-    } finally { session.close(); await server.close(); await preload.cleanup(); await state.cleanup(); }
+    } finally { session?.close(); await server.close(); await preload.cleanup(); await state.cleanup(); }
   }, 30_000);
 
   it.each([['--yes'], ['--allowed-tools', 'write_file,run_command']])('runs the approved task with %j', async (...flags) => {
