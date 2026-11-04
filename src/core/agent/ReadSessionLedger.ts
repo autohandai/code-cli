@@ -16,7 +16,7 @@ const MAX_LEDGER_ENTRIES = 128;
 const MAX_VIEWS_PER_ENTRY = 16;
 const MAX_COVERAGE_RANGES_PER_ENTRY = 256;
 
-export type StatefulReadMode = 'off' | 'ledger' | 'dedup' | 'enforce';
+export type StatefulReadMode = 'off' | 'changed' | 'ledger' | 'dedup' | 'enforce';
 
 export interface ReadStateSession {
   metadata: { sessionId: string };
@@ -67,7 +67,7 @@ export function resolveStatefulReadMode(
   if (config.features?.readStateLedger === true) {
     return 'ledger';
   }
-  return 'off';
+  return 'changed';
 }
 
 export class ReadSessionLedger {
