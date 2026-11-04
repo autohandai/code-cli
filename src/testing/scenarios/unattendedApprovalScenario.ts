@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { killAfter } from '../../utils/processTimeout.js';
 
 export async function runUnattendedApprovalProbe(entry: string, args: string[], cwd: string, autohandHome: string): Promise<{ stdout: string; stderr: string; exitCode: number | null; elapsedMs: number }> {
   const started = Date.now();
@@ -11,9 +12,9 @@ export async function runUnattendedApprovalProbe(entry: string, args: string[], 
   let stderr = '';
   child.stdout.on('data', data => { stdout = (stdout + data.toString()).slice(-100_000); });
   child.stderr.on('data', data => { stderr = (stderr + data.toString()).slice(-100_000); });
-  const timeout = setTimeout(() => child.kill('SIGKILL'), 20_000);
-  try {
+  killAfter(child, 20_000, () => child.kill('SIGKILL'));
+  {
     const exitCode = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
     return { stdout, stderr, exitCode, elapsedMs: Date.now() - started };
-  } finally { clearTimeout(timeout); }
+  }
 }
