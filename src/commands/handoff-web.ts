@@ -10,7 +10,7 @@ import type { Session, SessionManager } from '../session/SessionManager.js';
 import { getAssistantChatLogContent } from '../session/chatLog.js';
 import { SessionTransferClient, isDivergedOrigin, isOriginRejection, type TransferOrigin } from '../session/transfer/transfer-client.js';
 import { captureTransferRepository } from '../session/transfer/transfer-workspace.js';
-import { parseSessionTransfer, parseTransferContent, parseTransferReceipt, transferWebUrl, TRANSFER_VERSION, type SessionTransfer, type TransferMessage } from '../session/transfer/session-transfer.js';
+import { parseSessionTransfer, parseTransferContent, parseTransferReceipt, transferWebUrl, TRANSFER_VERSION, TRANSFER_MAX_MESSAGES, type SessionTransfer, type TransferMessage } from '../session/transfer/session-transfer.js';
 
 export const metadata: SlashCommand = {
   command: '/handoff web',
@@ -53,6 +53,12 @@ export function conversationSnapshot(session: Session, ctx: HandoffWebContext): 
       ? getAssistantChatLogContent(parsed.content) ?? '' : parsed.content;
     if (!content.trim() && !parsed.images?.length) continue;
     messages.push({ role: message.role, content, createdAt: message.timestamp, ...(parsed.images?.length ? { images: parsed.images } : {}) });
+  }
+  if (messages.length === 0) {
+    throw new Error('There is no saved conversation to continue in Web yet.\nSend a message here, wait for the reply, then run /handoff web again.');
+  }
+  if (messages.length > TRANSFER_MAX_MESSAGES) {
+    throw new Error(`This conversation is too long to hand off to Web (${messages.length} messages; limit ${TRANSFER_MAX_MESSAGES}).\nStart a new session with a summary of the work, then run /handoff web there.`);
   }
   return parseSessionTransfer({
     version: TRANSFER_VERSION, source: 'cli', sourceSessionId: session.metadata.sessionId,

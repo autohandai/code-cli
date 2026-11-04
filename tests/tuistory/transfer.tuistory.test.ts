@@ -15,6 +15,21 @@ async function launch(args: string[]) {
   }); sessions.push(session); return { state, session };
 }
 describe('standalone transfer terminal flow', () => {
+  it('explains how to hand off an empty conversation without exposing validation rules', async () => {
+    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false } } }); states.push(state);
+    const preload = await seedTransferScenario(state.autohandHome);
+    const session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { NODE_OPTIONS: `--import=${preload}` },
+    }); sessions.push(session);
+    await session.waitForText('Plan, search, build anything');
+    await session.type('/handoff web --no-open'); await session.press('enter');
+    await session.waitForText('There is no saved conversation to continue in Web yet.');
+    await session.waitForText('Send a message here, wait for the reply');
+    expect(await session.readAll()).not.toContain('between 1 and 500');
+    await expect(fs.stat(path.join(state.autohandHome, 'handoff-upload.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await exitInteractive(session);
+  });
+
   it('resumes imported history with an explicit provider instead of the destination default', async () => {
     const { state, session: importer } = await launch(['--accept', '--import-only']);
     await waitForExit(importer);
