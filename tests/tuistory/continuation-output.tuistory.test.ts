@@ -22,7 +22,7 @@ describe('continuation and command output release regressions', () => {
   it('shows a visible final answer after seq 1 400000 with a bounded provider observation', async () => {
     const server = await createMockOpenRouterSequenceServer([
       JSON.stringify({ toolCalls: [{ tool: 'run_command', args: { command: 'seq 1 400000' } }] }),
-      JSON.stringify({ finalResponse: '400000' }),
+      JSON.stringify({ finalResponse: 'VISIBLE_FINAL: 400000' }),
     ]);
     const state = await createTempAutohandHome({ config: { openrouter: { baseUrl: server.baseUrl },
       features: { automaticSpecialists: false }, agent: { autoMemory: false, maxIterations: 3, sessionRetryLimit: 0 }, ui: { promptSuggestions: false } } });
@@ -31,7 +31,7 @@ describe('continuation and command output release regressions', () => {
         { autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { AUTOHAND_STREAM_TOOL_OUTPUT: '1' } });
       try {
         await waitForExit(session, 30000);
-        expect(session.getRawOutput()).toContain('400000'); expect(session.exitInfo?.exitCode).toBe(0);
+        expect(session.getRawOutput()).toContain('VISIBLE_FINAL: 400000'); expect(session.exitInfo?.exitCode).toBe(0);
         const request = server.requests.at(-1)!;
         const messages = request.messages as Array<{ role: string; content: string }>;
         const observations = messages.filter(message => message.role === 'tool');
