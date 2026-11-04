@@ -72,6 +72,8 @@ function createRuntime(overrides: Partial<AgentRuntime> = {}): AgentRuntime {
 function createFiles(overrides: Partial<FileActionManager> = {}): Partial<FileActionManager> {
   return {
     root: '/repo',
+    // These filesystem doubles have no real on-disk revision to inspect.
+    inspectPath: vi.fn().mockResolvedValue({ kind: 'missing' }),
     readFile: vi.fn().mockResolvedValue('console.log("ok")'),
     writeFile: vi.fn().mockResolvedValue(undefined),
     appendFile: vi.fn().mockResolvedValue(undefined),
