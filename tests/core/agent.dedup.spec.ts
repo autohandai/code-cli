@@ -25,6 +25,23 @@ function makeStubAgent(): any {
   agent.workspaceFileCollector = {
     collectWorkspaceFiles: vi.fn().mockResolvedValue(undefined),
   };
+  agent.mcpStartupCoordinator = {
+    prepareForInteractiveStartup: vi.fn(),
+    markConnectStarted: vi.fn(),
+    markSummaryPending: vi.fn(),
+    describePendingConnections: vi.fn().mockReturnValue(null),
+  };
+  agent.mcpManager = {
+    connectAll: vi.fn().mockResolvedValue(undefined),
+  };
+  agent.mcpReady = null;
+  agent.runtime = {
+    config: { mcp: { enabled: true, servers: [] } },
+  };
+  agent.initDone = false;
+  agent.initReady = null;
+  agent.installExitSignalHandlers = vi.fn();
+  agent.removeExitSignalHandlers = vi.fn();
 
   return agent;
 }

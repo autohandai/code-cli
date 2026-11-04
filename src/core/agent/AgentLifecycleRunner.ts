@@ -1513,6 +1513,46 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
     // Initialize managers and pre-load files in parallel
     await host.initializeManagers();
 
+    // Prepare MCP startup coordinator so auto-connect servers are identified
+    // before the interactive loop begins (mirrors runAgentInteractive).
+    host.mcpStartupCoordinator.prepareForInteractiveStartup();
+
+    // Start MCP connections in background (non-blocking, like fresh session startup).
+    // Guarded on mcpManager existence so a missing manager or a synchronous
+    // connectAll throw cannot escape before the try/finally below installs and
+    // removes the exit signal handlers.
+    if (host.mcpManager && host.runtime.config.mcp?.enabled !== false) {
+      try {
+        host.mcpStartupCoordinator.markConnectStarted();
+        host.mcpReady = host.mcpManager
+          .connectAll(host.runtimeMcpServers ?? host.runtime.config.mcp?.servers ?? [])
+          .then(() => { if (!isRuntimeResourceShutdownStarted(host)) host.syncMcpTools(); })
+          .catch(() => { /* individual server errors already captured by connectAll */ })
+          .finally(() => { if (!isRuntimeResourceShutdownStarted(host)) host.mcpStartupCoordinator.markSummaryPending(); });
+      } catch {
+        // A synchronous connectAll throw must not escape before the try/finally
+        // below installs and removes the exit signal handlers.
+      }
+    }
+
+    // Mark init as complete BEFORE the try so both the success path and the
+    // fallback path (which creates a new session) leave initDone true and
+    // initReady awaitable. Without this, describeStartupWait() returns
+    // STARTUP_WAIT_STATUS and ensureInitComplete() hangs, freezing the composer.
+    //
+    // initReady is a resolved promise rather than performBackgroundInit() on
+    // purpose: the resumed session is already restored, and the background-init
+    // pipeline calls resetConversationContext() and sessionManager.createSession(),
+    // which would wipe the restored conversation and double-create a session.
+    host.initDone = true;
+    host.initReady = Promise.resolve();
+
+    // Install exit signal handlers to stop queue processing immediately on SIGINT/SIGTERM.
+    // Installed before the try so both the success path and the fallback path
+    // (which creates a new session) have handlers active during the interactive
+    // loop. Removed in the finally block after the loop exits.
+    host.installExitSignalHandlers();
+
     try {
       const session = await host.restoreSessionState(sessionId);
       host.sessionStartedAt = Date.now();
@@ -1554,6 +1594,10 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
         buildProviderTelemetryMetadata(providerSettings)
       );
       await host.runInteractiveLoop();
+    } finally {
+      // Clean up signal handlers on success, error, or fallback path.
+      // They are re-installed by runAgentInteractive on the next fresh session.
+      host.removeExitSignalHandlers();
     }
   }
 

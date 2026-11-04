@@ -3279,7 +3279,9 @@ Type `/` in the REPL to browse commands with Up/Down. The menu scrolls through e
 
 From the shell, `autohand resume` opens a picker scoped to the current working directory. Use `--path <path>` to select another workspace, `--all` to browse every project, or `--last` to resume the most recently active session. `--last --all` selects the most recently active session across projects. Older metadata without a valid activity timestamp falls back to creation time.
 
-`autohand resume <reference>` accepts a saved session name (set with `/rename` or `--rename`, matched case-insensitively), a full session ID, a unique ID prefix, or a saved session directory/file. A name wins over an ID prefix. Ambiguous or missing references exit with an error, and a name shared by several sessions lists their ID prefixes. Explicit references cannot be combined with `--last` or `--all`. `--config`, `--model`, and `--offline` remain available; `-c` continues to mean auto-commit.
+`autohand resume <reference>` accepts a saved session name (set with `/rename` or `--rename`, matched case-insensitively), a full session ID, a unique ID prefix, or a saved session directory/file. A name wins over an ID prefix. Ambiguous or missing references exit with an error, and a name shared by several sessions lists their ID prefixes. Explicit references cannot be combined with `--last` or `--all`. `--config`, `--model`, and `--offline` remain available. `-c` continues the latest session; use `--auto-commit` for automatic commits.
+
+Restored sessions become ready for input without repeating fresh-session initialization. Configured MCP servers connect in the background; a slow or failed server does not prevent the restored composer from accepting input.
 
 The picker loads twenty sessions per page and provides **More sessions** and **Previous sessions** navigation. Escape or Ctrl+C cancels without starting an agent. Non-interactive invocations require `--last` or an explicit reference when saved sessions exist. Empty history exits successfully without starting a session.
 

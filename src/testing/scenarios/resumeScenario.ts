@@ -4,7 +4,7 @@ import type { Session as TerminalSession } from 'tuistory';
 import { Session, SessionManager } from '../../session/SessionManager.js';
 import type { SessionMessage, SessionMetadata } from '../../session/types.js';
 import type { PtyDriver } from '../drivers/pty-driver.js';
-import { waitForExit } from '../drivers/tuistory-driver.js';
+import { waitForExit, waitForTerminalScreen } from '../drivers/tuistory-driver.js';
 
 interface RpcTranscriptMessage {
   jsonrpc?: string;
@@ -174,4 +174,14 @@ export async function chooseOlderResumeSession(session: TerminalSession): Promis
     }
   }
   await session.press('enter');
+}
+
+export async function runResumedTurnScenario(session: TerminalSession): Promise<string> {
+  await session.waitForText('Added a vitest case that resizes', { timeout: 15_000 });
+  await session.waitForText('❯', { timeout: 5_000 });
+  await session.type('Continue the saved caret investigation and preserve its history.');
+  await session.press('enter');
+  return waitForTerminalScreen(session, { timeout: 15_000, waitFor: screen =>
+    screen.includes('RESUME_TURN_ACCEPTED') && screen.includes('Completed in'),
+  });
 }
