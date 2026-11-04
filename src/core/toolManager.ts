@@ -1,3 +1,4 @@
+import { describeUnattendedApproval, summarizeUnattendedApprovals, UnattendedApprovalTracker } from '../permissions/unattended.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -159,6 +160,7 @@ export interface PermissionRequestHookContext extends PreToolHookContext {
 }
 
 export interface ToolAuthorizationOptions {
+  unattendedApprovals?: UnattendedApprovalTracker;
   permissionManager: PermissionManager;
   /** Resolve specialized contexts, such as the expanded shell command for a meta-tool. */
   resolvePermissionContext?: (action: AgentAction) => PermissionContext | undefined;
@@ -2524,6 +2526,12 @@ export const EXIT_PLAN_MODE_TOOL_DEFINITION: ToolDefinition = {
 };
 
 export class ToolManager {
+  private readonly unattendedApprovals: UnattendedApprovalTracker;
+
+  getUnattendedDenials(): string[] { return this.unattendedApprovals.tools; }
+
+  resetUnattendedDenials(): void { this.unattendedApprovals.reset(); }
+
   private readonly getActiveProvider?: () => string;
   private readonly definitions = new Map<AgentAction['type'], ToolDefinition>();
   private readonly runtimeMetaToolNames = new Set<AgentAction['type']>();
@@ -2538,6 +2546,7 @@ export class ToolManager {
   private readonly onAdditionalContext?: ToolAuthorizationOptions['onAdditionalContext'];
 
   constructor(options: ToolManagerOptions) {
+    this.unattendedApprovals = options.authorization?.unattendedApprovals ?? new UnattendedApprovalTracker();
     this.getActiveProvider = options.getActiveProvider;
     this.executor = options.executor;
     this.confirmApproval = options.confirmApproval;
@@ -2782,6 +2791,11 @@ export class ToolManager {
         results.set(i, result);
         onToolComplete?.(i, result);
       };
+      if (this.unattendedApprovals.hasDenials) {
+        reject(summarizeUnattendedApprovals(this.getUnattendedDenials()));
+        continue;
+      }
+
 
       try {
         call = this.repairReadFileInput(call);
@@ -3016,7 +3030,13 @@ export class ToolManager {
           }
 
           if (!isAllowedPermissionPrompt(decision)) {
-            reject('Tool execution skipped by user.', 'authorization', 'Tool execution skipped by user.');
+            if (decision.reason === 'non_interactive') {
+              this.unattendedApprovals.record(call.tool);
+              const message = describeUnattendedApproval(call.tool);
+              reject(message, 'authorization', message);
+            } else {
+              reject('Tool execution skipped by user.', 'authorization', 'Tool execution skipped by user.');
+            }
             continue;
           }
 
@@ -3517,6 +3537,13 @@ export class ToolManager {
         const taskIndex = cursor++;
         const { call, index } = tasks[taskIndex];
         let result: ToolExecutionResult;
+        if (this.unattendedApprovals.hasDenials) {
+          const error = summarizeUnattendedApprovals(this.getUnattendedDenials());
+          result = { tool: call.tool, success: false, kind: 'authorization', error, output: error };
+          results.set(index, result);
+          onToolComplete?.(index, result);
+          continue;
+        }
         try {
           if (!this.isProviderAllowed(call.tool)) throw new Error('Lifecycle hook tools are available only with the Autohand AI provider.');
           const action = this.toAction(call);

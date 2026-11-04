@@ -1353,6 +1353,25 @@ describe('SubAgent', () => {
     }
   });
 
+  it('stops after a nested unattended denial without another provider request or a synthetic success', async () => {
+    const executeForTool = vi.fn().mockResolvedValue({ success: true, output: 'must not run' });
+    const complete = vi.fn().mockResolvedValueOnce({ id: 'denied', created: 1, raw: {},
+      content: 'I will write the file.', toolCalls: [nativeToolCall('write_file', { path: '/tmp/denied.txt', contents: 'no' })],
+    }).mockResolvedValue({ id: 'unexpected', created: 2, raw: {}, content: 'I finished successfully.' });
+    const agent = new SubAgent({ name: 'writer', description: 'Writer', systemPrompt: 'Write a file.',
+      tools: ['write_file'], path: '/tmp/writer.md', source: 'external' }, {
+      getName: () => 'openai', complete, getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+      authorization: { permissionManager: new PermissionManager({ mode: 'interactive' }) },
+      confirmApproval: async () => ({ decision: 'deny_once', reason: 'non_interactive' }),
+    });
+    await expect(agent.run('Write the file')).rejects.toMatchObject({ name: 'UnattendedApprovalError', tools: ['write_file'] });
+    expect(complete).toHaveBeenCalledOnce();
+    expect(executeForTool).not.toHaveBeenCalled();
+  });
+
   it('runs parent pre-tool hooks for nested calls and fails closed on a block', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const executeForTool = vi.fn().mockResolvedValue({ success: true, output: 'should not run' });

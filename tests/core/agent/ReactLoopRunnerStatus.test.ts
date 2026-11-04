@@ -55,6 +55,25 @@ describe('ReactLoopRunner composer status', () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
+  it('stops before a lead request when specialist preparation already denied unattended approval', async () => {
+    const llmComplete = vi.fn().mockResolvedValue({ id: 'unexpected', created: 1, raw: {}, content: '{"finalResponse":"Should not run"}' });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    host.toolManager.getUnattendedDenials = vi.fn().mockReturnValue(['install_specialist_roster']);
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'approval_required' });
+    expect(llmComplete).not.toHaveBeenCalled();
+    expect(host.conversation.addSystemNote).toHaveBeenCalledWith(expect.stringContaining('install_specialist_roster'));
+  });
+
+  it('ends the turn after missing unattended approval without another model request or completion review', async () => {
+    const llmComplete = vi.fn().mockResolvedValueOnce({ id: 'tool', created: 1, raw: {}, content: JSON.stringify({ toolCalls: [{ tool: 'write_file', args: { path: 'hello.txt', contents: 'hi' } }] }) }).mockResolvedValueOnce({ id: 'retry', created: 2, raw: {}, content: '{"finalResponse":"Retrying"}' });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    host.toolManager.execute = vi.fn().mockResolvedValue([{ tool: 'write_file', success: false, kind: 'authorization', error: 'Needs approval' }]);
+    host.toolManager.getUnattendedDenials = vi.fn().mockReturnValueOnce([]).mockReturnValue(['write_file']);
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'approval_required' });
+    expect(llmComplete).toHaveBeenCalledOnce();
+    expect(host.conversation.addSystemNote).toHaveBeenCalledWith(expect.stringContaining("this run can't ask"));
+  });
+
   it('stops before the model request that would exceed the run budget and records usage', async () => {
     const { RunBudget, RunBudgetExceededError } = await import('../../../src/core/agent/RunBudget.js');
     const llmComplete = vi.fn()

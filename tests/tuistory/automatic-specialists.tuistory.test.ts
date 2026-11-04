@@ -13,6 +13,7 @@ import {
   createTempAutohandHome,
   createMockSubAgentCatalogFetchPreload,
   launchBuiltAutohand,
+  exitInteractive,
   waitForExit,
   type MockOllamaServer,
   type TuistoryTempState,
@@ -202,6 +203,7 @@ describe('automatic specialist orchestration', () => {
         openrouter: { baseUrl: server.baseUrl },
         agent: { maxIterations: 5, sessionRetryLimit: 0 },
         features: { automaticSpecialists: true },
+        ui: { defaultInteractionMode: 'default' },
       },
     });
     tempStates.push(state);
@@ -212,7 +214,6 @@ describe('automatic specialist orchestration', () => {
     const session = await launchBuiltAutohand([
       '--path', state.workspaceRoot,
       '--config', state.configPath,
-      '-p', 'Bring a team of ui and security agents to inspect this repo.',
     ], {
       autohandHome: state.autohandHome,
       cwd: state.workspaceRoot,
@@ -220,12 +221,16 @@ describe('automatic specialist orchestration', () => {
       waitForDataTimeout: 15_000,
     });
     sessions.push(session);
+    await session.waitForText('❯', { timeout: 20_000 });
+    await session.type('Bring a team of ui and security agents to inspect this repo.');
+    await session.press('enter');
 
     await session.waitForText('Install these resolved specialists from the default Autohand catalog?', {
       timeout: 20_000,
     });
     await session.press('enter');
-    await waitForExit(session, 60_000);
+    await session.waitForText('AGGREGATE_APPROVAL_OK', { timeout: 60_000 });
+    await exitInteractive(session);
     const output = session.readAll();
 
     expect(session.exitInfo?.exitCode, output).toBe(0);

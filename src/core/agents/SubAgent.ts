@@ -5,6 +5,7 @@
  */
 
 import chalk from 'chalk';
+import { UnattendedApprovalError } from '../../permissions/unattended.js';
 import { getProviderConfig } from '../../config.js';
 import { formatToolObservation } from '../agent/AgentToolOutputRuntime.js';
 import { randomUUID } from 'node:crypto';
@@ -426,7 +427,13 @@ export class SubAgent {
         finally { options.signal?.removeEventListener('abort', aborted); await runtime?.close(); }
     }
 
+    private throwIfUnattendedApprovalDenied(): void {
+        const tools = this.toolManager.getUnattendedDenials();
+        if (tools.length > 0) throw new UnattendedApprovalError(tools);
+    }
+
     private async runTask(task: string, options: SubAgentRunOptions, peerRuntime?: PeerCommunicationRuntime): Promise<string> {
+        this.throwIfUnattendedApprovalDenied();
         options.signal?.throwIfAborted();
         console.log(chalk.cyan(`\nSub-agent '${this.name}' starting task... (depth ${this.options.depth}/${this.options.maxDepth})`));
 
@@ -486,6 +493,7 @@ export class SubAgent {
             }
             this.options.runBudget?.assertRequestAllowed();
             this.options.runBudget?.recordRequest();
+            this.throwIfUnattendedApprovalDenied();
             const completion = await this.llm.complete({
                 messages: requestMessages,
                 // A definition's model is a suggestion resolved by the team policy; never send it raw.
@@ -640,6 +648,7 @@ export class SubAgent {
                     signal: options.signal,
                     registerToolImages: (images, signal) => this.toolImages.register(images, signal),
                 });
+                this.throwIfUnattendedApprovalDenied();
                 options.signal?.throwIfAborted();
 
                 for (let j = 0; j < results.length; j++) {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { UNATTENDED_APPROVAL_EXIT_CODE } from './permissions/unattended.js';
 process.title = 'Autohand Code';
 // Set terminal window/icon title (OSC 0 - works in Ghostty, iTerm2, and most terminals)
 const requestsStructuredCommandOutput = process.argv.some((arg) => (
@@ -2292,7 +2293,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       commandOutputCompleted = true;
       agent.setOutputListener(undefined);
       if (!commandLifecycleController.signal.aborted) {
-        process.exitCode = succeeded ? 0 : 1;
+        process.exitCode = succeeded ? 0 : agent.getUnattendedToolDenials().length > 0 ? UNATTENDED_APPROVAL_EXIT_CODE : 1;
       }
     } else if (agentLaunchMode === 'resume' && options.resumeSessionId) {
       await agent.resumeSession(options.resumeSessionId);
@@ -2826,7 +2827,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
       // Run the instruction (changes will be batched in preview mode)
       const succeeded = await agent.runCommandMode(opts.prompt);
       if (!succeeded) {
-        exitCode = 1;
+        exitCode = agent.getUnattendedToolDenials().length > 0 ? UNATTENDED_APPROVAL_EXIT_CODE : 1;
       } else {
         // Get all pending changes
         const changes = files.getPendingChanges();

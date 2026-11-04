@@ -1,3 +1,4 @@
+import { summarizeUnattendedApprovals } from '../../permissions/unattended.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -226,7 +227,7 @@ export interface AgentReactLoopHost {
   toolManager: Pick<
     ToolManager,
     'execute' | 'listToolNames' | 'register' | 'registerMetaTools' | 'replaceRuntimeMetaTools' | 'toFunctionDefinitions' | 'unregister'
-  >;
+  > & Partial<Pick<ToolManager, 'getUnattendedDenials'>>;
   toolsRegistry?: ToolsRegistry;
   contextWindow: number;
   totalTokensUsed: number;
@@ -281,7 +282,7 @@ export interface ReactLoopControl {
 
 export type ReactLoopResult =
   | { status: 'completed' }
-  | { status: 'incomplete'; reason: 'iteration_limit' | 'pending_todos' | 'advisor_review' | 'goal_completion' }
+  | { status: 'incomplete'; reason: 'iteration_limit' | 'pending_todos' | 'advisor_review' | 'goal_completion' | 'approval_required' }
   | { status: 'stopped'; stepNumber: number }
   | { status: 'aborted' };
 
@@ -805,6 +806,17 @@ export async function runAgentReactLoop(
       }
       return steered.length > 0;
     };
+
+    const stopForUnattendedApproval = (): ReactLoopResult | undefined => {
+      const denied = host.toolManager.getUnattendedDenials?.() ?? [];
+      if (denied.length === 0) return undefined;
+      const summary = summarizeUnattendedApprovals(denied);
+      host.conversation.addSystemNote(`${summary} Stop this turn without retrying tools.`);
+      renderFinalResponse(summary);
+      return { status: 'incomplete', reason: 'approval_required' };
+    };
+    const preparationFailure = stopForUnattendedApproval();
+    if (preparationFailure) return preparationFailure;
 
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
@@ -1836,6 +1848,9 @@ export async function runAgentReactLoop(
             `[Search Summary] Recent searches: ${recentSearches}. Avoid repeating similar searches - analyze existing results first.`
           );
         }
+
+        const approvalFailure = stopForUnattendedApproval();
+        if (approvalFailure) return approvalFailure;
 
         const stepNumber = iteration + 1;
         const shouldStop = await control.onStepFinish?.({

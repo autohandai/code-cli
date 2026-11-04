@@ -541,6 +541,13 @@ export class PermissionManager {
       return ruleDecision;
     }
 
+    // Explicit CLI tool selection is consent for this run. Denials, safety
+    // modes, plan checkpoints and rules above retain their precedence; an
+    // internal additional scope alone never grants approval.
+    if (this.runToolScope && this.runToolScope.allowed.length > 0 && this.checkRunToolScope(context).allowed) {
+      return { allowed: true, reason: 'user_approved' };
+    }
+
     // Default: needs prompt (interactive mode)
     return { allowed: false, reason: 'default' };
   }

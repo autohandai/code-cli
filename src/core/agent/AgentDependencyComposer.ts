@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { UnattendedApprovalTracker } from '../../permissions/unattended.js';
 import { resolveRunToolScope } from '../../permissions/runToolScope.js';
 import { RunBudget } from './RunBudget.js';
 import { SessionAutoNamer } from './SessionAutoNamer.js';
@@ -944,6 +945,7 @@ export function initializeAgentDependencies(
     });
 
     const toolAuthorization = {
+      unattendedApprovals: new UnattendedApprovalTracker(),
       permissionManager: host.permissionManager,
       resolvePermissionContext: (action) => {
         const context = host.actionExecutor.getPermissionContext(action);

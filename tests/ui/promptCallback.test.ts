@@ -52,6 +52,15 @@ describe('permission confirm prompt', () => {
     vi.unstubAllEnvs();
   });
 
+  it.each([['1', 'allow_once'], ['true', 'deny_once']] as const)('keeps CI=%s behavior in an unattended run', async (ci, expected) => {
+    vi.stubEnv('CI', ci);
+    const { confirm } = await import('../../src/ui/promptCallback.js');
+    const result = await confirm('Write?', { tool: 'write_file' }, { nonInteractive: true });
+    expect(result.decision).toBe(expected);
+    expect(showModal).not.toHaveBeenCalled();
+    if (expected === 'deny_once') expect(result).toMatchObject({ reason: 'non_interactive' });
+  });
+
   it('offers an always-allow prefix option for command prompts and stores it in the chosen scope', async () => {
     const { confirm } = await import('../../src/ui/promptCallback.js');
     showModal

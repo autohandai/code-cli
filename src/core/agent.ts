@@ -1580,7 +1580,7 @@ export class AutohandAgent {
       }
       signal?.throwIfAborted();
     }
-    if (plan.selectedAgents.length === 0) {
+    if (this.toolManager.getUnattendedDenials().length > 0 || plan.selectedAgents.length === 0) {
       return {
         results: formatSpecialistResults({ plan, batches: [], completed: false }),
         completed: false,
@@ -2257,6 +2257,10 @@ export class AutohandAgent {
   /**
    * The most recent final assistant response, e.g. to summarise a session.
    */
+  getUnattendedToolDenials(): string[] {
+    return this.toolManager.getUnattendedDenials();
+  }
+
   getLastAssistantResponse(): string {
     return this.lastAssistantResponseForNotification;
   }
