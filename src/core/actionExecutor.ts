@@ -3863,7 +3863,8 @@ export class ActionExecutor {
   }
 
   private async readBeforeMutationFailure(filePath: string): Promise<string | undefined> {
-    if (resolveStatefulReadMode(this.runtime.config) !== 'enforce') {
+    const mode = resolveStatefulReadMode(this.runtime.config);
+    if (mode === 'off') {
       return undefined;
     }
     const inspection = await this.files.inspectPath(filePath);
@@ -3872,15 +3873,18 @@ export class ActionExecutor {
     }
     const current = await this.files.hashInspectedFile(inspection);
     if (!current.revisionStable) {
-      return this.formatReadBeforeMutationFailure(filePath, 'changed');
+      return mode === 'enforce'
+        ? this.formatReadBeforeMutationFailure(filePath, 'changed')
+        : undefined;
     }
     const authorization = await this.readSessionLedger.authorizeMutation(
       inspection.resolvedPath,
       current.sha256,
     );
-    return authorization.allowed
-      ? undefined
-      : this.formatReadBeforeMutationFailure(filePath, authorization.reason);
+    if (authorization.allowed || (mode !== 'enforce' && authorization.reason !== 'changed')) {
+      return undefined;
+    }
+    return this.formatReadBeforeMutationFailure(filePath, authorization.reason);
   }
 
   private async enforceReadBeforeMutation(
