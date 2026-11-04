@@ -390,7 +390,7 @@
     "nextSteps": "Prossimi passi:",
     "tryCommand": "Prova: autohand",
     "network": {
-      "timeout": "Timeout in millisecondi (5000-600000; vuoto = valore del provider):"
+      "timeout": "Lascia vuoto per il valore predefinito del provider, oppure inserisci 5000-600000 ms"
     }
   },
   "errors": {

@@ -115,7 +115,7 @@ describe('SETTINGS_REGISTRY', () => {
   });
   it('shows provider defaults for an unset network timeout', () => {
     const setting = SETTINGS_REGISTRY.find(setting => setting.key === 'network.timeout')!;
-    expect(resolveSettingFallback(setting, { provider: 'autohandai', configPath: 'unused' })).toBe('provider default (300 s Autohand, 600 s Anthropic)');
+    expect(resolveSettingFallback(setting, { provider: 'autohandai', configPath: 'unused' })).toBe('provider default');
   });
 
   it('shows the startup mode that applies to the configured screen', () => {

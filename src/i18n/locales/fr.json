@@ -464,7 +464,7 @@
     "nextSteps": "Étapes suivantes:",
     "tryCommand": "Essayer: autohand",
     "network": {
-      "timeout": "Délai en millisecondes (5000-600000 ; vide = valeur du fournisseur) :"
+      "timeout": "Laissez vide pour la valeur par défaut du fournisseur, ou saisissez 5000-600000 ms"
     }
   },
   "errors": {

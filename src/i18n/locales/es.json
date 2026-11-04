@@ -354,7 +354,7 @@
     "nextSteps": "Próximos pasos:",
     "tryCommand": "Prueba: autohand",
     "network": {
-      "timeout": "Tiempo de espera en milisegundos (5000-600000; vacío = predeterminado del proveedor):"
+      "timeout": "Deja en blanco para usar el valor predeterminado del proveedor, o introduce 5000-600000 ms"
     }
   },
   "errors": {

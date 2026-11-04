@@ -78,7 +78,7 @@
       "changed": "Bahasa diubah ke {{language}}"
     },
     "network": {
-      "timeout": "Batas waktu dalam milidetik (5000-600000; kosong = bawaan penyedia):"
+      "timeout": "Biarkan kosong untuk nilai bawaan penyedia, atau masukkan 5000-600000 ms"
     }
   },
   "languages": {

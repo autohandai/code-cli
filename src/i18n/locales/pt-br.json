@@ -464,7 +464,7 @@
     "nextSteps": "Próximos passos:",
     "tryCommand": "Experimente: autohand",
     "network": {
-      "timeout": "Tempo limite em milissegundos (5000-600000; em branco = padrão do provedor):"
+      "timeout": "Deixe em branco para usar o padrão do provedor, ou digite 5000-600000 ms"
     }
   },
   "errors": {
