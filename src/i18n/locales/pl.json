@@ -462,7 +462,10 @@
     "configFile": "~/.autohand/config.json (twoje ustawienia)",
     "agentsFile": "AGENTS.md (instrukcje projektu dla Autohand)",
     "nextSteps": "Następne kroki:",
-    "tryCommand": "Wypróbuj: autohand"
+    "tryCommand": "Wypróbuj: autohand",
+    "network": {
+      "timeout": "Limit czasu w milisekundach (5000-600000; puste = domyślny limit dostawcy):"
+    }
   },
   "errors": {
     "generic": "Wystąpił błąd: {{message}}",

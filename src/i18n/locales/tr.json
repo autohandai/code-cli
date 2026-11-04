@@ -462,7 +462,10 @@
     "configFile": "~/.autohand/config.json (ayarlarınız)",
     "agentsFile": "AGENTS.md (Autohand için proje talimatları)",
     "nextSteps": "Sonraki adımlar:",
-    "tryCommand": "Deneyin: autohand"
+    "tryCommand": "Deneyin: autohand",
+    "network": {
+      "timeout": "İstek zaman aşımı, milisaniye (5000-600000; boş = sağlayıcı varsayılanı):"
+    }
   },
   "errors": {
     "generic": "Bir hata oluştu: {{message}}",

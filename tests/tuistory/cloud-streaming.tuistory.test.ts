@@ -3,6 +3,7 @@ import { createServer, type ServerResponse } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Session } from 'tuistory';
 import { scriptToolCall } from '../../src/testing/scenarios/codeModeScenario.js';
 import { createMockAuthServer, createTempAutohandHome, exitInteractive, launchBuiltAutohand } from './helpers/autohandTuistory.js';
@@ -287,9 +288,18 @@ describe('built cloud token streaming', () => {
       network: { timeout: 1_000, maxRetries: 1, retryDelay: 2_000 },
     } });
     cleanupTasks.push(state.cleanup);
+    // Advance only the new five-minute provider deadline; keep timeout/replay coverage fast.
+    const clockPreload = path.join(state.autohandHome, 'provider-timeout-clock.mjs');
+    await writeFile(clockPreload, `globalThis.setTimeout = new Proxy(globalThis.setTimeout, {
+      apply(target, receiver, args) {
+        if (args[1] === 300_000) args[1] = 1_000;
+        return Reflect.apply(target, receiver, args);
+      },
+    });`);
+    const nodeOptions = [process.env.NODE_OPTIONS, `--import ${pathToFileURL(clockPreload).href}`].filter(Boolean).join(' ');
     const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
       autohandHome: state.autohandHome, cwd: state.workspaceRoot,
-      env: { AUTOHAND_AUTH_API_URL: `${auth.baseUrl}/api/auth` },
+      env: { AUTOHAND_AUTH_API_URL: `${auth.baseUrl}/api/auth`, NODE_OPTIONS: nodeOptions },
     });
     cleanupTasks.push(() => exitInteractive(session));
     await session.text({ timeout: 20_000, waitFor: (text) => text.includes('❯') });

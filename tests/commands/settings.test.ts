@@ -11,6 +11,7 @@ import {
   setNestedValue,
   setConfigSetting,
   parseConfigSetArgs,
+  parseSettingValue,
   formatConfigSetResult,
   getSettingsForCategory,
   formatSettingValue,
@@ -103,6 +104,18 @@ describe('SETTINGS_REGISTRY', () => {
     expect(() => setConfigSetting(config, 'skills.maxInstructionTokens', '0')).toThrow(/positive integer/i);
     expect(() => setConfigSetting(config, 'skills.learning.scope', 'public')).toThrow();
     expect(config.skills?.decisions?.enabled).toBeUndefined();
+  });
+
+  it('lets timeout editing retain provider defaults and validates explicit budgets', () => {
+    const setting = SETTINGS_REGISTRY.find(setting => setting.key === 'network.timeout')!;
+    expect(setting.defaultValue).toBeUndefined();
+    expect(parseSettingValue(setting, '')).toBeUndefined();
+    expect(parseSettingValue(setting, '600000')).toBe(600000);
+    expect(() => parseSettingValue(setting, '600001')).toThrow();
+  });
+  it('shows provider defaults for an unset network timeout', () => {
+    const setting = SETTINGS_REGISTRY.find(setting => setting.key === 'network.timeout')!;
+    expect(resolveSettingFallback(setting, { provider: 'autohandai', configPath: 'unused' })).toBe('provider default (300 s Autohand, 600 s Anthropic)');
   });
 
   it('shows the startup mode that applies to the configured screen', () => {

@@ -53,6 +53,7 @@ import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
 import { getProviderDefaultModel, getProviderModelOptions, getProviderRuntimeDefaultModel, normalizeOpenRouterModelId } from "./providers/modelCatalog.js";
 import { MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from "./core/agents/SessionThreadBudget.js";
+import { atomicWriteFile, withFileLock, type AtomicCommitOptions } from './utils/atomicFile.js';
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
 const TOML_CONFIG_PATH = AUTOHAND_FILES.configToml;
@@ -494,6 +495,10 @@ async function parseConfigFile(
   configPath: string,
 ): Promise<AutohandConfig | LegacyConfigShape> {
   const rawContent = await fs.readFile(configPath, "utf8");
+  return parseConfigContent(configPath, rawContent);
+}
+
+function parseConfigContent(configPath: string, rawContent: string): AutohandConfig | LegacyConfigShape {
   const content = rawContent.charCodeAt(0) === 0xfeff
     ? rawContent.slice(1)
     : rawContent;
@@ -517,6 +522,26 @@ async function parseConfigFile(
   }
 
   return JSON.parse(content) as AutohandConfig | LegacyConfigShape;
+}
+
+async function persistLegacyNetworkTimeoutMigration(configPath: string): Promise<void> {
+  try {
+    await fs.access(configPath, fs.constants.W_OK);
+    await withFileLock(`${configPath}.lock`, async () => {
+      const original = await fs.readFile(configPath, 'utf8');
+      const current = parseConfigContent(configPath, original);
+      if (!isPlainRecord(current) || !isPlainRecord(current.network) || current.network.timeout !== 30_000) return;
+      const network = { ...current.network };
+      delete network.timeout;
+      await writeConfigData(configPath, { ...current, network }, {
+        beforeCommit: () => {
+          if (fs.readFileSync(configPath, 'utf8') !== original) throw new Error('Configuration changed during timeout migration');
+        },
+      });
+    }, { waitTimeoutMs: 250, retryDelayMs: 10 });
+  } catch {
+    // A readable configuration remains usable when optional migration cannot persist.
+  }
 }
 
 export async function loadConfig(
@@ -571,7 +596,18 @@ export async function loadConfig(
       );
     }
   }
+  const originalNetwork = isPlainRecord(parsed.network) ? parsed.network : undefined;
+  const legacyTimeout = originalNetwork?.timeout === 30_000;
+  if (legacyTimeout && originalNetwork) {
+    const network = { ...originalNetwork };
+    delete network.timeout;
+    parsed = { ...parsed, network };
+  }
   const normalized = normalizeConfig(parsed);
+  if (legacyTimeout && createIfMissing && !isNewConfig) {
+    await persistLegacyNetworkTimeoutMigration(configPath);
+  }
+
 
   // Load workspace-specific overlays if workspaceRoot is provided. Two layers
   // apply, lowest precedence first:
@@ -2124,6 +2160,17 @@ async function readPersistedAuth(
   }
 }
 
+async function writeConfigData(configPath: string, data: Record<string, unknown>, options: AtomicCommitOptions = {}): Promise<void> {
+  if (isYamlFile(configPath)) {
+    const yamlContent = YAML.stringify(data, { indent: 2 });
+    await atomicWriteFile(configPath, yamlContent, options);
+  } else if (isTomlFile(configPath)) {
+    await atomicWriteFile(configPath, stringifyTomlObject(data), options);
+  } else {
+    await atomicWriteFile(configPath, `${JSON.stringify(data, null, 2)}\n`, options);
+  }
+}
+
 export async function saveConfig(
   config: LoadedConfig,
   options: SaveConfigOptions = {},
@@ -2180,14 +2227,7 @@ export async function saveConfig(
 
   await fs.ensureDir(path.dirname(configPath));
 
-  if (isYamlFile(configPath)) {
-    const yamlContent = YAML.stringify(data, { indent: 2 });
-    await fs.writeFile(configPath, yamlContent, "utf8");
-  } else if (isTomlFile(configPath)) {
-    await fs.writeFile(configPath, stringifyTomlObject(data as Record<string, unknown>), "utf8");
-  } else {
-    await fs.writeJson(configPath, data, { spaces: 2 });
-  }
+  await writeConfigData(configPath, data as Record<string, unknown>);
 
   // A signed-in client synchronizes its account-managed MCP connectors and the
   // safe settings snapshot after user-level configuration changes. The import is

@@ -369,7 +369,10 @@
     "configFile": "~/.autohand/config.json (ваши настройки)",
     "agentsFile": "AGENTS.md (инструкции проекта для Autohand)",
     "nextSteps": "Следующие шаги:",
-    "tryCommand": "Попробуйте: autohand"
+    "tryCommand": "Попробуйте: autohand",
+    "network": {
+      "timeout": "Тайм-аут в миллисекундах (5000-600000; пусто = значение провайдера):"
+    }
   },
   "errors": {
     "generic": "Произошла ошибка: {{message}}",
