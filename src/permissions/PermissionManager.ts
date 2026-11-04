@@ -302,6 +302,7 @@ export class PermissionManager {
     };
   }
 
+  private autoApprovalExpired = false;
   private autoApproval: { timer: YoloTimer; baseline: PermissionSettings; onExpire?: () => void } | undefined;
 
   /**
@@ -315,6 +316,7 @@ export class PermissionManager {
     onExpire?: () => void,
   ): void {
     if (!timeoutSeconds || timeoutSeconds <= 0) return;
+    this.autoApprovalExpired = false;
     this.autoApproval = { timer: new YoloTimer(timeoutSeconds), baseline: baseline ?? {}, onExpire };
   }
 
@@ -322,6 +324,7 @@ export class PermissionManager {
     if (!this.autoApproval || this.autoApproval.timer.isActive()) return;
     const { baseline, onExpire } = this.autoApproval;
     this.autoApproval = undefined;
+    this.autoApprovalExpired = true;
     this.settings = this.normalizeSettings(baseline);
     this.setMode(this.settings.mode || 'interactive');
     onExpire?.();
@@ -535,6 +538,13 @@ export class PermissionManager {
     const ruleDecision = this.checkRules(context);
     if (ruleDecision) {
       return ruleDecision;
+    }
+
+    // Explicit CLI tool selection is consent for this run. Denials, safety
+    // modes, plan checkpoints and rules above retain their precedence; an
+    // internal additional scope alone never grants approval.
+    if (!this.autoApprovalExpired && this.runToolScope && this.runToolScope.allowed.length > 0 && this.checkRunToolScope(context).allowed) {
+      return { allowed: true, reason: 'user_approved' };
     }
 
     // Default: needs prompt (interactive mode)

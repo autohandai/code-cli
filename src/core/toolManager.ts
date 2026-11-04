@@ -1,3 +1,4 @@
+import { describeUnattendedApproval, summarizeUnattendedApprovals } from '../permissions/unattended.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -2515,6 +2516,12 @@ export const EXIT_PLAN_MODE_TOOL_DEFINITION: ToolDefinition = {
 };
 
 export class ToolManager {
+  private readonly unattendedDenials = new Set<string>();
+
+  getUnattendedDenials(): string[] { return [...this.unattendedDenials]; }
+
+  resetUnattendedDenials(): void { this.unattendedDenials.clear(); }
+
   private readonly getActiveProvider?: () => string;
   private readonly definitions = new Map<AgentAction['type'], ToolDefinition>();
   private readonly runtimeMetaToolNames = new Set<AgentAction['type']>();
@@ -2773,6 +2780,11 @@ export class ToolManager {
         results.set(i, result);
         onToolComplete?.(i, result);
       };
+      if (this.unattendedDenials.size > 0) {
+        reject(summarizeUnattendedApprovals(this.getUnattendedDenials()));
+        continue;
+      }
+
 
       try {
         call = this.repairReadFileInput(call);
@@ -3007,7 +3019,13 @@ export class ToolManager {
           }
 
           if (!isAllowedPermissionPrompt(decision)) {
-            reject('Tool execution skipped by user.', 'authorization', 'Tool execution skipped by user.');
+            if (decision.reason === 'non_interactive') {
+              this.unattendedDenials.add(call.tool);
+              const message = describeUnattendedApproval(call.tool);
+              reject(message, 'authorization', message);
+            } else {
+              reject('Tool execution skipped by user.', 'authorization', 'Tool execution skipped by user.');
+            }
             continue;
           }
 
@@ -3508,6 +3526,13 @@ export class ToolManager {
         const taskIndex = cursor++;
         const { call, index } = tasks[taskIndex];
         let result: ToolExecutionResult;
+        if (this.unattendedDenials.size > 0) {
+          const error = summarizeUnattendedApprovals(this.getUnattendedDenials());
+          result = { tool: call.tool, success: false, kind: 'authorization', error, output: error };
+          results.set(index, result);
+          onToolComplete?.(index, result);
+          continue;
+        }
         try {
           if (!this.isProviderAllowed(call.tool)) throw new Error('Lifecycle hook tools are available only with the Autohand AI provider.');
           const action = this.toAction(call);

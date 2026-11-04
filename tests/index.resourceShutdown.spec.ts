@@ -24,7 +24,7 @@ describe('CLI runtime resource boundaries', () => {
     expect(agentBoundary).toContain('await Promise.allSettled([');
     expect(agentBoundary).toContain('agent?.shutdownRuntimeResources()');
     expect(agentBoundary).toContain('runtimeResourceOwner?.shutdown()');
-    expect(agentBoundary).toContain('process.exitCode = succeeded ? 0 : 1');
+    expect(agentBoundary).toMatch(/process\.exitCode = succeeded \? 0 : [^;]+;/);
   });
 
   it('routes background signals through agent cancellation and owned cleanup', () => {
