@@ -934,8 +934,9 @@ export class ActionExecutor {
     }
     const withImages = (outcome: ToolActionOutcome): ToolActionOutcome => {
       if (capture.commandOutput) {
-        const modelOutput = capture.commandOutput.finish(formatToolObservation({ tool: action.type, ...outcome }));
-        outcome = { ...outcome, modelOutput };
+        const observation = formatToolObservation({ tool: action.type, ...outcome });
+        const modelOutput = capture.commandOutput.finish(observation);
+        if (modelOutput !== observation) outcome = { ...outcome, modelOutput };
       }
       return capture.imagePaths?.length ? { ...outcome, imagePaths: capture.imagePaths } : outcome;
     };

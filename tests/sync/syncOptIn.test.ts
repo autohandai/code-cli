@@ -5,6 +5,15 @@ import { scheduleBackgroundSync, setBackgroundSyncEnabled, setSyncService } from
 
 afterEach(() => { setSyncService(null); vi.useRealTimers(); vi.restoreAllMocks(); });
 describe('opt-in background sync', () => {
+  it('does not mutate the caller configuration when the running service is toggled', () => {
+    vi.useFakeTimers();
+    const config = { ...DEFAULT_SYNC_CONFIG };
+    const service = new SyncService({ authToken: 'fixture', userId: 'fixture', config });
+    vi.spyOn(service, 'sync').mockResolvedValue({ success: true, uploaded: 0, downloaded: 0, conflicts: 0 });
+    try { service.setEnabled(true); expect(config.enabled).toBe(false); }
+    finally { service.stop(); }
+  });
+
   it('applies an explicit choice made before startup has registered the service', () => {
     vi.useFakeTimers();
     const service = new SyncService({ authToken: 'fixture', userId: 'fixture', config: { ...DEFAULT_SYNC_CONFIG } });

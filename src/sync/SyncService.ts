@@ -171,7 +171,7 @@ export class SyncService {
   constructor(options: SyncServiceOptions) {
     this.authToken = options.authToken;
     this.userId = options.userId;
-    this.config = options.config;
+    this.config = { ...options.config };
     this.client = options.apiClient || getSyncApiClient();
     this.onEvent = options.onEvent || (() => {});
     this.onAuthFailure = options.onAuthFailure;
