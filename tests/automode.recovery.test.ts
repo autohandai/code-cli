@@ -18,8 +18,8 @@ describe('auto-mode explicit review and recovery', () => {
   }).trim();
 
   beforeEach(async () => {
-    root = await fs.mkdtemp(path.join(os.tmpdir(), 'automode-recovery-'));
-    workspace = path.join(root, "reviewer's project");
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'automode-recovery-D-'));
+    workspace = path.join(root, "reviewer's -D --force project");
     await fs.ensureDir(workspace);
     vi.stubEnv('AUTOHAND_HOME', path.join(root, 'private-state'));
     git(workspace, 'init', '--initial-branch=main');
@@ -99,8 +99,8 @@ describe('auto-mode explicit review and recovery', () => {
     run(command('Switch:'));
     run(command('Merge:'));
     expect(await fs.readFile(path.join(workspace, 'task.txt'), 'utf8')).toBe('reviewed\n');
-    expect(command('Cleanup worktree:')).not.toContain('--force');
-    expect(command('Cleanup branch:')).not.toContain('-D');
+    expect(command('Cleanup worktree:')).toContain(' worktree remove -- ');
+    expect(command('Cleanup branch:')).toContain(' branch -d -- ');
     run(command('Cleanup worktree:'));
     run(command('Cleanup branch:'));
     expect(await fs.pathExists(worktree)).toBe(false);
@@ -121,7 +121,7 @@ describe('auto-mode explicit review and recovery', () => {
     expect(output.join('\n')).toContain(`Branch: ${manager.getBranchName()}`);
     expect(output.join('\n')).toContain(`Worktree: ${worktree}`);
     expect(command('Merge:')).toContain('git');
-    expect(command('Cleanup worktree:')).not.toContain('--force');
+    expect(command('Cleanup worktree:')).toContain(' worktree remove -- ');
     expect(await fs.pathExists(worktree)).toBe(true);
     expect(git(workspace, 'status', '--porcelain')).toBe('');
   });
