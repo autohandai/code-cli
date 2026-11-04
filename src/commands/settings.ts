@@ -270,10 +270,7 @@ function normalizeProviderName(input: string): BuiltInProviderName | null {
   if (normalized === 'vertex') {
     return 'vertexai';
   }
-  if (CONFIG_PROVIDER_NAMES.includes(normalized as BuiltInProviderName)) {
-    return normalized as BuiltInProviderName;
-  }
-  return null;
+  return CONFIG_PROVIDER_NAMES.find(provider => provider === normalized) ?? null;
 }
 
 function normalizeProviderConfigKey(input: string): { provider: BuiltInProviderName; field: 'apiKey' | 'baseUrl' | 'model' } | null {
