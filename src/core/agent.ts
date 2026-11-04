@@ -1517,6 +1517,7 @@ export class AutohandAgent {
   }
 
   private async prepareSpecialists(instruction: string): Promise<string | undefined> {
+    this.specialistOrchestrator?.beginTurn();
     if (getFeatureState(this.runtime.config, 'automatic_specialists')?.enabled !== true) {
       return undefined;
     }
@@ -1525,15 +1526,19 @@ export class AutohandAgent {
     }
     if (this.permissionManager.isReadOnlyReview()) return undefined;
 
-    this.specialistOrchestrator.beginTurn();
     const request = detectSpecialistRequest(instruction);
     if (!request) {
       const continuation = await this.specialistOrchestrator.continueInterview(instruction, { signal: this.activeAbortController?.signal });
-      return continuation ? formatSpecialistResults(continuation) : undefined;
+      if (!continuation) return undefined;
+      const results = formatSpecialistResults(continuation);
+      if (continuation.completed && continuation.plan.unresolvedRoles.length === 0) {
+        this.specialistOrchestrator.rememberTurnResult(continuation.plan.requestedRoles, results);
+      }
+      return results;
     }
 
     const { results, completed } = await this.runSpecialistOrchestration(request);
-    // Only a roster that fully ran is worth reusing; a partial one may be retried.
+    // Role-level reuse requires a complete roster; agent outcomes are cached as each batch runs.
     if (completed) {
       this.specialistOrchestrator.rememberTurnResult(request.requestedRoles, results);
     }

@@ -79,6 +79,7 @@ describe('automatic specialist orchestration', () => {
       JSON.stringify({ finalResponse: 'UI_SPECIALIST_OK', toolCalls: [] }),
       JSON.stringify({ finalResponse: 'UX_SPECIALIST_OK', toolCalls: [] }),
       JSON.stringify({ finalResponse: 'SECURITY_SPECIALIST_OK', toolCalls: [] }),
+      JSON.stringify({ toolCalls: [{ tool: 'delegate_task', args: { agent_name: 'ui-designer', task: 'Inspect the user interface again.' } }] }),
       JSON.stringify({ finalResponse: 'LEAD_SYNTHESIS_OK', toolCalls: [] }),
     ]);
     mockServers.push(server);
@@ -125,6 +126,8 @@ describe('automatic specialist orchestration', () => {
     expect(output).toContain("Sub-agent 'ui-designer' starting task");
     expect(output).toContain("Sub-agent 'ux-researcher' starting task");
     expect(output).toContain("Sub-agent 'security-auditor' starting task");
+    expect(output.match(/Sub-agent 'ui-designer' starting task/g)).toHaveLength(1);
+    expect(output).toContain('already ran for this turn');
     expect(output).toContain('LEAD_SYNTHESIS_OK');
   }, 90_000);
 

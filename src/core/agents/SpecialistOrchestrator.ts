@@ -251,6 +251,7 @@ export function formatSpecialistRoster(plan: SpecialistPlan): string {
 export function formatSpecialistResults(result: SpecialistExecutionResult): string {
   return [
     'Specialist results for lead synthesis:',
+    'Do not delegate these agents again this turn. Reuse the results below.',
     JSON.stringify({
       objective: result.plan.objective,
       executionMode: result.plan.executionMode,
@@ -283,6 +284,7 @@ export class SpecialistOrchestrator {
   private readonly stagedInstallations = new Map<string, SpecialistPlan>();
   private activeInterview?: ActiveSpecialistInterview;
   /** The roster that already ran for the current turn, and what it reported. */
+  private readonly turnAgentResults = new Map<string, ToolActionOutcome>();
   private turnResult?: { roles: ReadonlySet<string>; results: string };
 
   constructor(
@@ -523,16 +525,31 @@ export class SpecialistOrchestrator {
     this.activeInterview = undefined;
     this.stagedInstallations.clear();
     this.turnResult = undefined;
+    this.turnAgentResults.clear();
   }
 
   /** Starts a new lead turn: results remembered for the previous one no longer apply. */
   beginTurn(): void {
     this.turnResult = undefined;
+    this.turnAgentResults.clear();
   }
 
   /** Records what a roster that completed during this turn reported to the lead. */
   rememberTurnResult(roles: readonly string[], results: string): void {
     this.turnResult = { roles: new Set(roles), results };
+  }
+
+  rememberAgentResults(batches: readonly SpecialistExecutionBatch[]): void {
+    for (const batch of batches) {
+      for (const agentName of batch.agents) this.turnAgentResults.set(agentName, batch.outcome);
+    }
+  }
+
+  turnResultForAgent(agentName: string): ToolActionOutcome | undefined {
+    const outcome = this.turnAgentResults.get(agentName);
+    if (!outcome) return undefined;
+    const output = outcome.output ?? (outcome.success ? '' : outcome.error);
+    return { ...outcome, output: `These specialists already ran for this turn. Use their results below instead of running them again.\n${output}` };
   }
 
   /**
@@ -590,6 +607,7 @@ export class SpecialistOrchestrator {
         const outcome = await this.delegator.delegateParallelForTool(batch, options);
         options.signal?.throwIfAborted();
         batches.push({ agents: batch.map((task) => task.agent_name), outcome });
+        this.rememberAgentResults(batches.slice(-1));
       }
     } else {
       for (const task of tasks) {
@@ -597,6 +615,7 @@ export class SpecialistOrchestrator {
         const outcome = await this.delegator.delegateTaskForTool(task.agent_name, task.task, options);
         options.signal?.throwIfAborted();
         batches.push({ agents: [task.agent_name], outcome });
+        this.rememberAgentResults(batches.slice(-1));
       }
     }
 
