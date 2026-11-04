@@ -95,6 +95,13 @@ function isArgumentObject(value: unknown): value is NonNullable<ToolCallRequest[
 }
 
 function toOutcome(result: ToolExecutionResult): SandboxToolOutcome {
+  if (result.modelOutput !== undefined) {
+    return result.success
+      ? { ok: true, output: result.modelOutput,
+          ...(result.imagePaths?.length || result.imageRefs?.length ? { images: true } : {}) }
+      : { ok: false, kind: result.kind, error: 'Command failed.', output: result.modelOutput };
+  }
+
   if (result.success) {
     return {
       ok: true, output: result.output ?? '',
