@@ -1763,7 +1763,6 @@ By default, macOS/Linux use `SHELL` or `/bin/sh`. Native Windows uses `ComSpec` 
 {
   "network": {
     "maxRetries": 3,
-    "timeout": 30000,
     "retryDelay": 1000
   }
 }
@@ -1772,8 +1771,10 @@ By default, macOS/Linux use `SHELL` or `/bin/sh`. Native Windows uses `ComSpec` 
 | Field        | Type   | Default | Max | Description                            |
 | ------------ | ------ | ------- | --- | -------------------------------------- |
 | `maxRetries` | number | `3`     | `5` | Retry attempts for failed API requests |
-| `timeout`    | number | `30000` | -   | Request timeout in milliseconds        |
+| `timeout`    | number | Provider default | - | Request deadline in milliseconds; Autohand AI has a 300 s minimum and Anthropic a 600 s minimum |
 | `retryDelay` | number | `1000`  | -   | Delay between retries in milliseconds  |
+
+Leave `network.timeout` unset to use the provider's default. Settings show **provider default** rather than a misleading 30-second value. An explicit value such as `60000` remains stored; provider minimums still apply. On startup, the old generated `30000` value is removed while other settings are retained. Migration uses a file lock and atomic replacement, checks for intervening edits, and can proceed in memory when the file is read-only. JSON, YAML, and TOML retain their formats. Normal configuration saves also use atomic replacement so readers do not observe partially written JSON. Symlinked configurations retain their link and update its real target.
 
 ### Required Ports and Agent Transports
 
@@ -2366,6 +2367,11 @@ Autohand can sync your configuration across devices for logged-in users. Setting
 | `exclude`          | string[] | `[]`            | Glob patterns to exclude from sync                 |
 | `includeTelemetry` | boolean  | `false`         | Sync telemetry data (requires user consent)        |
 | `includeFeedback`  | boolean  | `false`         | Sync feedback data (requires user consent)         |
+| `sessionsBudgetMb` | number | `100` | Session-history budget in MiB, capped at `1024`; complete sessions are selected within the budget |
+
+Open `/status` or `/sync` to inspect state and sync actions. Press Esc to return to the conversation. These panels retain visible output when launched through `bun run dev`, including after a renderer handoff.
+
+A normal sync can continue transferring healthy settings when a remote saved-session object returns HTTP 404. It withholds the affected session's requested files, the session index, and uploads for that session; existing local files and the remote manifest records remain intact. The panel retains an incomplete-history warning. This does not recover missing cloud bytes or establish that the conversation was downloaded successfully. Retry from a device that still has the complete session, or restore its backup. Force operations, missing download URLs, non-session 404s, authentication failures, and other download failures remain errors. Session downloads are staged privately on disk with bounded storage before publication. Other sync roots have a 100 MiB budget; the aggregate limit is 2 GiB and 5,000 manifest files.
 
 ### CLI Flag
 
@@ -2792,7 +2798,6 @@ autohand --no-browser       # Start with browser bridge disabled
   },
   "network": {
     "maxRetries": 3,
-    "timeout": 30000,
     "retryDelay": 1000
   },
   "telemetry": {
@@ -2887,7 +2892,6 @@ permissions:
 
 network:
   maxRetries: 3
-  timeout: 30000
   retryDelay: 1000
 
 telemetry:
@@ -3081,6 +3085,8 @@ These flags override config file settings:
 | `--max-tokens <n>`            | Stop the run once reported token usage reaches this total, sub-agents included                  |
 | `--max-duration <seconds>`    | Stop the run after this much wall time; checked before each model request                       |
 
+When a noninteractive task needs approval, it stops at the first missing authorization, prints the denied tool names and explicit-consent options to stderr, and exits with status `77`. This applies to delegated agents and automatic specialists; later specialist batches and lead synthesis do not continue after the denial. Grant the intended tool with `--allowed-tools` or use `--yes` only when you intend blanket approval. Tool denial rules, restricted modes, and review boundaries retain precedence. An expired `--yolo --timeout` restores normal prompting even for explicitly selected tools. Existing CI auto-approval recognizes `CI=1`; `CI=true` does not grant consent by itself.
+
 ### Git & Worktree
 
 | Flag                          | Description                                                                                    |
@@ -3144,6 +3150,8 @@ Inspect the result with `zit status` and `zit show <change>`; accepting the chan
 | `--learn-update`              | Re-analyze project and regenerate outdated LLM-generated skills non-interactively              |
 | `--skill-install [name]`      | Install a community skill (opens browser if no name provided)                                  |
 | `--project`                   | Install skill to project level (with --skill-install)                                          |
+
+Claude imports count both flat skill files and folders containing `SKILL.md`. Default `~/.claude/skills/<name>/` packages are discovered in place and reported as skipped, avoiding duplicate copies. Folder skills from an alternate `CLAUDE_CONFIG_DIR` or importer `sourceHome` are copied with their scripts and resources to `skills/imported-claude/`; existing imported packages are retained. Imports stage the complete package outside skill discovery before publication, and a resource-copy failure leaves the package available for a later retry. Global `--dry-run` and the import command's `--dry-run` both preview without copying files.
 
 ### Authentication & Account
 
@@ -3237,9 +3245,11 @@ Use `/usage --text`, `/usage weekly --text`, or `/usage monthly --text` for the 
 
 `prompt_caching` is an experimental feature switch (config path `features.promptCaching`, default off) that sends an opaque session-affinity hint on eligible provider requests. The initial candidate is the ChatGPT OAuth Responses transport; standard OpenAI Chat Completions and other providers remain unchanged. Enable it with `autohand experiments enable prompt_caching`. The OAuth transport remains unverified until a current two-turn live probe confirms accepted controls and provider-reported cache usage, so an independent remote kill switch and exact-field fallback remain active.
 
-`automatic_specialists` is an experimental feature switch (config path `features.automaticSpecialists`, default on, restart required after an override) that resolves explicit specialist-team requests before the lead ReAct loop. It renders the selected roster, runs bounded read-only work in parallel, serializes workspace-mutating specialist tasks, and feeds structured results back to the lead. Missing exact catalog matches use one aggregate approval and fail soft to valid local specialists. Disable it with `autohand experiments disable automatic_specialists`. This switch never starts or queues `/squad` automatically.
+`automatic_specialists` is an experimental feature switch (config path `features.automaticSpecialists`, default on, restart required after an override) that resolves explicit specialist-team requests before the lead ReAct loop. It renders the selected roster, runs bounded read-only work in parallel, serializes workspace-mutating specialist tasks, and feeds structured results back to the lead. Missing exact catalog matches use one aggregate approval and fail soft to valid local specialists. Disable it with `autohand experiments disable automatic_specialists`. The lead reuses the actual pre-run specialist outcomes for the current turn, including partial and failed outcomes. Every accepted instruction clears that reuse, including commands that skip specialist preparation. This switch never starts or queues `/squad` automatically.
 
-The restart-required stateful-read experiments are ordered and disabled by default:
+By default, direct mutation tools refuse to overwrite a fully observed regular file whose content changed after its read, including an unstable revision detected while hashing. Read the file again, incorporate the user edit, and retry. New, unread, and partially read files keep their existing default write policy.
+
+The restart-required stateful-read experiments add stricter behavior and are disabled by default:
 
 | Feature | Config path | Behavior |
 | --- | --- | --- |
@@ -3247,7 +3257,7 @@ The restart-required stateful-read experiments are ordered and disabled by defau
 | `read_state_dedup` | `features.readStateDedup` | Implies the ledger and returns a consume-on-hit stub for an eligible repeated unchanged read. |
 | `read_before_write` | `features.readBeforeWrite` | Implies both earlier increments and requires a complete unchanged read before direct tools mutate an existing regular file. |
 
-Enable an increment with `autohand experiments enable <feature>`. Partial, clamped, invalid-UTF-8, and stale views never authorize a write. Set `AUTOHAND_DISABLE_STATEFUL_READ=1` for a process-local emergency rollback without changing the stored flags.
+Enable an increment with `autohand experiments enable <feature>`. With `read_before_write` enabled, partial, clamped, invalid-UTF-8, and stale views never authorize a write. Set `AUTOHAND_DISABLE_STATEFUL_READ=1` for a process-local emergency rollback without changing the stored flags.
 
 ---
 
