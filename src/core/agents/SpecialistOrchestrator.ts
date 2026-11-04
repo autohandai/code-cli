@@ -251,6 +251,7 @@ export function formatSpecialistRoster(plan: SpecialistPlan): string {
 export function formatSpecialistResults(result: SpecialistExecutionResult): string {
   return [
     'Specialist results for lead synthesis:',
+    'Do not delegate these agents again this turn. Reuse the results below.',
     JSON.stringify({
       objective: result.plan.objective,
       executionMode: result.plan.executionMode,
@@ -283,7 +284,7 @@ export class SpecialistOrchestrator {
   private readonly stagedInstallations = new Map<string, SpecialistPlan>();
   private activeInterview?: ActiveSpecialistInterview;
   /** The roster that already ran for the current turn, and what it reported. */
-  private turnResult?: { roles: ReadonlySet<string>; results: string };
+  private turnResult?: { roles: ReadonlySet<string>; agentNames: ReadonlySet<string>; results: string };
 
   constructor(
     private readonly delegator: AgentDelegator,
@@ -531,8 +532,12 @@ export class SpecialistOrchestrator {
   }
 
   /** Records what a roster that completed during this turn reported to the lead. */
-  rememberTurnResult(roles: readonly string[], results: string): void {
-    this.turnResult = { roles: new Set(roles), results };
+  rememberTurnResult(roles: readonly string[], results: string, agentNames: readonly string[] = []): void {
+    this.turnResult = { roles: new Set(roles), agentNames: new Set(agentNames), results };
+  }
+
+  turnResultForAgent(agentName: string): string | undefined {
+    return this.turnResult?.agentNames.has(agentName) ? this.turnResult.results : undefined;
   }
 
   /**

@@ -1453,9 +1453,24 @@ export function initializeAgentDependencies(
               }),
             }, context?.signal);
           } else if (action.type === 'delegate_task') {
-            outcome = await host.delegator.delegateTaskForTool(action.agent_name, action.task, { signal: context?.signal });
+            const cached = host.specialistOrchestrator.turnResultForAgent(action.agent_name);
+            outcome = cached === undefined
+              ? await host.delegator.delegateTaskForTool(action.agent_name, action.task, { signal: context?.signal })
+              : { success: true, output: `These specialists already ran for this turn. Use their results below instead of running them again.\n${cached}` };
           } else if (action.type === 'delegate_parallel') {
-            outcome = await host.delegator.delegateParallelForTool(action.tasks, { signal: context?.signal });
+            const cached = new Set<string>();
+            const pending = action.tasks.filter(task => {
+              const result = host.specialistOrchestrator.turnResultForAgent(task.agent_name);
+              if (result === undefined) return true;
+              cached.add(result);
+              return false;
+            });
+            outcome = pending.length > 0
+              ? await host.delegator.delegateParallelForTool(pending, { signal: context?.signal })
+              : { success: true, output: '' };
+            if (cached.size > 0) {
+              outcome = { ...outcome, output: [`These specialists already ran for this turn. Use their results below instead of running them again.`, ...cached, outcome.output].filter(Boolean).join('\n') };
+            }
           } else if (action.type === 'orchestrate_specialists') {
             result = await host.orchestrateSpecialistsFromTool(action.objective, action.requested_roles, context?.signal);
           } else if (action.type === 'install_specialist_roster') {
