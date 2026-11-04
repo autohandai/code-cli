@@ -274,7 +274,7 @@
         "maxRetries": "Max retries",
         "maxRetriesDesc": "Maximum retry attempts for failed requests",
         "timeout": "Timeout (ms)",
-        "timeoutDesc": "Request timeout in milliseconds",
+        "timeoutDesc": "Leave blank to use each provider's default, for example 300 s for Autohand and at least 600 s for Anthropic.",
         "retryDelay": "Retry delay (ms)",
         "retryDelayDesc": "Delay between retries in milliseconds"
       },
@@ -676,7 +676,7 @@
       "description": "Configure retry and timeout behavior for API requests.",
       "needCustom": "Configure custom network settings? (retries, timeouts)",
       "maxRetries": "Maximum retry attempts (1-5):",
-      "timeout": "Request timeout in milliseconds (5000-120000):"
+      "timeout": "Leave blank for the provider default, or enter 5000-600000 ms"
     },
     "search": {
       "title": "Web Search Provider",

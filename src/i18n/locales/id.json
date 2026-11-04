@@ -76,6 +76,9 @@
       "prompt": "Pilih bahasa yang Anda inginkan:",
       "detected": "Bahasa terdeteksi: {{language}}",
       "changed": "Bahasa diubah ke {{language}}"
+    },
+    "network": {
+      "timeout": "Biarkan kosong untuk nilai bawaan penyedia, atau masukkan 5000-600000 ms"
     }
   },
   "languages": {

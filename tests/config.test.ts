@@ -20,6 +20,20 @@ afterEach(() => {
 });
 
 describe('getProviderConfig', () => {
+  it('migrates only the legacy default timeout and preserves the rest of the saved config', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-timeout-'));
+    const configPath = path.join(tempDir, 'config.json');
+    try {
+      const original = { provider: 'openrouter', openrouter: { model: 'openrouter/auto' }, network: { timeout: 30000, maxRetries: 2, retryDelay: 777 } };
+      await fs.writeJson(configPath, original);
+      const loaded = await loadConfig(configPath);
+      expect(loaded.network).toEqual({ maxRetries: 2, retryDelay: 777 });
+      expect(await fs.readJson(configPath)).toEqual({ ...original, network: { maxRetries: 2, retryDelay: 777 } });
+      await fs.writeJson(configPath, { ...original, network: { timeout: 60000 } });
+      expect((await loadConfig(configPath)).network?.timeout).toBe(60000);
+    } finally { await fs.remove(tempDir); }
+  });
+
   it('creates new configs with local and cloud trace collection disabled', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');

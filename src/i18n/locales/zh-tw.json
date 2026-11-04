@@ -462,7 +462,10 @@
     "configFile": "~/.autohand/config.json（您的設定）",
     "agentsFile": "AGENTS.md（Autohand 的專案指令）",
     "nextSteps": "後續步驟：",
-    "tryCommand": "嘗試：autohand"
+    "tryCommand": "嘗試：autohand",
+    "network": {
+      "timeout": "留空以使用供應商預設值，或輸入 5000-600000 ms"
+    }
   },
   "errors": {
     "generic": "發生錯誤：{{message}}",

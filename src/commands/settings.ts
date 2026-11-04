@@ -1,3 +1,4 @@
+import { PROVIDER_TIMEOUT_DEFAULTS } from '../utils/networkTimeout.js';
 import { configureSearchFromAccount } from '../actions/web.js';
 import { SEARCH_PROVIDERS } from '../search/providers.js';
 /**
@@ -204,7 +205,7 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
 
   // Network
   { key: 'network.maxRetries', labelKey: 'commands.settings.network.maxRetries', descriptionKey: 'commands.settings.network.maxRetriesDesc', category: 'network', type: 'number', defaultValue: 3 },
-  { key: 'network.timeout', labelKey: 'commands.settings.network.timeout', descriptionKey: 'commands.settings.network.timeoutDesc', category: 'network', type: 'number', defaultValue: 30000 },
+  { key: 'network.timeout', labelKey: 'commands.settings.network.timeout', descriptionKey: 'commands.settings.network.timeoutDesc', category: 'network', type: 'number', resolveCurrent: () => PROVIDER_TIMEOUT_DEFAULTS, validate: value => value.trim() === '' || (Number.isInteger(Number(value)) && Number(value) >= 5000 && Number(value) <= 600000) || 'Enter 5000-600000 milliseconds, or leave blank for the provider default' },
   { key: 'network.retryDelay', labelKey: 'commands.settings.network.retryDelay', descriptionKey: 'commands.settings.network.retryDelayDesc', category: 'network', type: 'number', defaultValue: 1000 },
 
   // Telemetry & Reporting
@@ -330,6 +331,7 @@ function parseBooleanSetting(value: string): boolean {
 }
 
 export function parseSettingValue(setting: SettingDef, rawValue: string): unknown {
+  if (setting.key === 'network.timeout' && rawValue.trim() === '') return undefined;
   const validation = setting.validate?.(rawValue);
   if (validation !== undefined && validation !== true) {
     throw new Error(typeof validation === 'string' ? validation : `Invalid value for ${setting.key}.`);

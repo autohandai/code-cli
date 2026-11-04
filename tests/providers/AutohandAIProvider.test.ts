@@ -152,7 +152,7 @@ describe("AutohandAIProvider", () => {
     expect(provider.getCapabilities()).toEqual({ nativeToolCalling: true, streaming: true });
   });
 
-  it.each([undefined, 5_000])('preserves the completion header budget unless timeout is explicitly %s', async (timeout) => {
+  it.each([undefined, 5_000, 30_000, 600_000])('keeps the provider header floor with configured timeout %s', async (timeout) => {
     const timer = vi.spyOn(globalThis, 'setTimeout');
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: 'Inspected response' }, finish_reason: 'stop' }],
@@ -161,7 +161,23 @@ describe("AutohandAIProvider", () => {
       plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'fantail',
     }, timeout === undefined ? undefined : { timeout });
     await provider.complete({ messages: [], stream: true });
-    expect(timer).toHaveBeenCalledWith(expect.any(Function), timeout ?? 300_000);
+    expect(timer).toHaveBeenCalledWith(expect.any(Function), Math.max(timeout ?? 300_000, 300_000));
+  });
+
+  it('accepts Moa headers after forty seconds with the legacy thirty-second setting', async () => {
+    vi.useFakeTimers();
+    try {
+      globalThis.fetch = vi.fn((_url, init) => new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(Response.json({ choices: [{ message: { content: 'Long reasoning completed' }, finish_reason: 'stop' }] })), 40_000);
+        init?.signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); }, { once: true });
+      })) as typeof fetch;
+      const provider = new AutohandAIProvider({ plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa' }, { timeout: 30_000 });
+      const completion = expect(provider.complete({ messages: [{ role: 'user', content: 'Reason carefully' }], stream: true })).resolves.toMatchObject({ content: 'Long reasoning completed' });
+      await vi.advanceTimersByTimeAsync(40_000);
+      await completion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([undefined, false])('does not replay a buffered completion after an ambiguous 300-second timeout with stream=%s', async (stream) => {

@@ -571,7 +571,18 @@ export async function loadConfig(
       );
     }
   }
+  const originalNetwork = isPlainRecord(parsed.network) ? parsed.network : undefined;
+  const legacyTimeout = originalNetwork?.timeout === 30_000;
+  if (legacyTimeout && originalNetwork) {
+    const network = { ...originalNetwork };
+    delete network.timeout;
+    parsed = { ...parsed, network };
+  }
   const normalized = normalizeConfig(parsed);
+  if (legacyTimeout && createIfMissing && !isNewConfig) {
+    await writeConfigData(configPath, parsed as Record<string, unknown>);
+  }
+
 
   // Load workspace-specific overlays if workspaceRoot is provided. Two layers
   // apply, lowest precedence first:
@@ -2124,6 +2135,17 @@ async function readPersistedAuth(
   }
 }
 
+async function writeConfigData(configPath: string, data: Record<string, unknown>): Promise<void> {
+  if (isYamlFile(configPath)) {
+    const yamlContent = YAML.stringify(data, { indent: 2 });
+    await fs.writeFile(configPath, yamlContent, "utf8");
+  } else if (isTomlFile(configPath)) {
+    await fs.writeFile(configPath, stringifyTomlObject(data as Record<string, unknown>), "utf8");
+  } else {
+    await fs.writeJson(configPath, data, { spaces: 2 });
+  }
+}
+
 export async function saveConfig(
   config: LoadedConfig,
   options: SaveConfigOptions = {},
@@ -2180,14 +2202,7 @@ export async function saveConfig(
 
   await fs.ensureDir(path.dirname(configPath));
 
-  if (isYamlFile(configPath)) {
-    const yamlContent = YAML.stringify(data, { indent: 2 });
-    await fs.writeFile(configPath, yamlContent, "utf8");
-  } else if (isTomlFile(configPath)) {
-    await fs.writeFile(configPath, stringifyTomlObject(data as Record<string, unknown>), "utf8");
-  } else {
-    await fs.writeJson(configPath, data, { spaces: 2 });
-  }
+  await writeConfigData(configPath, data as Record<string, unknown>);
 
   // A signed-in client synchronizes its account-managed MCP connectors and the
   // safe settings snapshot after user-level configuration changes. The import is

@@ -1,3 +1,4 @@
+import { AUTOHAND_PROVIDER_TIMEOUT_MS } from '../utils/networkTimeout.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -196,10 +197,10 @@ export class AutohandAIProvider implements LLMProvider {
     };
     // Streamed completions only need the budget to cover time to headers, but
     // reasoning and gateway inspection can hold headers back; keep the old
-    // completion budget unless the user set an explicit network timeout.
+    // completion budget as a floor, even when older configuration saved 30 seconds.
     this.cloudClient = new LLMGatewayClient(effectiveConfig, {
       ...networkSettings,
-      timeout: networkSettings?.timeout ?? 300_000,
+      timeout: Math.max(networkSettings?.timeout ?? AUTOHAND_PROVIDER_TIMEOUT_MS, AUTOHAND_PROVIDER_TIMEOUT_MS),
     }, {
       serviceName: "Autohand AI",
       credentialName: "Autohand AI API key",
