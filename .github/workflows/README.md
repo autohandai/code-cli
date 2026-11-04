@@ -85,6 +85,7 @@ Managed CTO/Nikita branches use PR validation to avoid duplicate push and PR mat
 Add the `full-proof` label to a pull request to run the complete `bun run proof`
 command on a fresh Ubuntu runner. The job uses the declared Bun version, Node.js
 24, frozen dependencies, ripgrep, and full Git history for terminal version assertions.
+The opt-in job uses two isolated terminal workers and a 90-minute job budget; cases inside each file remain serial and individual test deadlines are unchanged. Normal terminal runs stay serial. Only `AUTOHAND_TUISTORY_WORKERS=2` enables the bounded parallel mode; other values retain one worker.
 It reruns when the labeled pull request changes and cancels its superseded run.
 The regular sharded CI jobs remain available for faster feedback.
 

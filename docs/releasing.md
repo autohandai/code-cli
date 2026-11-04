@@ -6,7 +6,7 @@ The release pipeline is `.github/workflows/release.yml`. Use Node.js 24 and the 
 
 1. Commit the intended source changes and run focused tests, lint, typecheck, build, and `bun run proof`. Verify the real terminal scenarios for changed interactive behavior. An interrupted proof or a focused replay does not establish a passing complete proof.
 2. After the health check passes, set the package version, update `CHANGELOG.md`, and add curated notes at `docs/changelog/whats-new-<version>.md`. Generate and inspect the final notes with `.github/generate-release-notes.mjs`.
-3. Open the release pull request and satisfy the repository's Main ruleset and required review. Preserve linear main history using an allowed merge method. The optional `full-proof` PR label runs the complete proof on a clean GitHub runner.
+3. Open the release pull request and satisfy the repository's Main ruleset and required review. Preserve linear main history using an allowed merge method. The optional `full-proof` PR label runs the complete proof on a clean GitHub runner with two isolated terminal workers and a 90-minute job budget. Ordinary terminal runs remain serial; test assertions and individual deadlines are unchanged.
 4. Dispatch the stable release from the approved commit on main:
 
 ```sh

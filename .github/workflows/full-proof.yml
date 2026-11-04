@@ -16,7 +16,9 @@ jobs:
   proof:
     if: contains(github.event.pull_request.labels.*.name, 'full-proof')
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    env:
+      AUTOHAND_TUISTORY_WORKERS: '2'
     steps:
       - uses: actions/checkout@v7
         with:

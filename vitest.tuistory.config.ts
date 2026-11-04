@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
+const workerCount = process.env.AUTOHAND_TUISTORY_WORKERS === '2' ? 2 : 1;
 const distEntry = path.resolve(import.meta.dirname, 'dist/index.js');
 
 if (!existsSync(distEntry)) {
@@ -19,15 +20,16 @@ export default defineConfig({
     hookTimeout: 60_000,
     maxConcurrency: 1,
     pool: 'forks',
-    minWorkers: 1,
-    maxWorkers: 1,
+    minWorkers: workerCount,
+    maxWorkers: workerCount,
+    fileParallelism: workerCount > 1,
     sequence: {
       concurrent: false,
     },
   },
   poolOptions: {
     forks: {
-      singleFork: true,
+      singleFork: workerCount === 1,
       execArgv: ['--max-old-space-size=4096'],
     },
   },

@@ -2140,8 +2140,8 @@ export interface SaveConfigOptions {
    * The config file is shared by every terminal tab, and a long-lived tab still
    * holds the credential it loaded at startup. Without this, an incidental save
    * — a model switch, a settings change — rewrites the file with that stale
-   * credential and signs the newer tab out. Only sign-in, sign-out, and startup
-   * validation actually mean to change auth, so only they pass `writeAuth`.
+   * credential and signs the newer tab out. Sign-in and sign-out pass `writeAuth`;
+   * startup validation uses `saveValidatedAuth` to update only the checked token.
    */
   writeAuth?: boolean;
 }
