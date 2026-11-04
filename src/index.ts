@@ -465,7 +465,7 @@ program
     .conflicts('tracesOn'))
   .option('--login', 'Sign in to your Autohand account', false)
   .option('--logout', 'Sign out of your Autohand account', false)
-  .option('--sync-settings [bool]', 'Enable/disable settings sync (default: true for logged users)')
+  .option('--sync-settings [bool]', 'Enable/disable settings sync (default: false)')
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default), rpc, or acp', 'interactive')
@@ -2053,11 +2053,8 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
         onVersionResult: (versionResult) => {
           agentHolder.current?.setVersionCheckResult(versionResult);
         },
-        shouldStartSync: () => Boolean(
-          config.auth?.token
-          && options.syncSettings !== false
-          && config.sync?.enabled !== false
-        ),
+        shouldCreateSync: () => Boolean(config.auth?.token),
+        shouldStartSync: () => Boolean(config.auth?.token && (options.syncSettings ?? config.sync?.enabled ?? false)),
         createSyncService: async (authUser) => {
           const { createSyncService, DEFAULT_SYNC_CONFIG, SyncApiClient } = await import('./sync/index.js');
           let lastUnavailableCount = 0;
@@ -2077,7 +2074,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
             config: {
               ...DEFAULT_SYNC_CONFIG,
               ...config.sync,
-              enabled: true,
+              enabled: options.syncSettings ?? config.sync?.enabled ?? false,
             },
             onSyncFailure: async (reason) => {
               const oneLine = reason.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').slice(0, 300).replace(/[.\s]+$/u, '');

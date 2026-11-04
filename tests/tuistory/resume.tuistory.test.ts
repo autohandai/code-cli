@@ -95,7 +95,7 @@ describe('resume startup Tuistory', () => {
   });
 
   it.each([
-    { args: ['--last'], expected: 'resume-active' },
+    { args: ['--last'], expected: 'resume-newer' },
     { args: ['--last', '--all'], expected: 'elsewhere-session' },
   ])('resumes the latest active session for $args', async ({ args, expected }) => {
     const { session, state } = await launch(args);

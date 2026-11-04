@@ -854,6 +854,7 @@ export function initializeAgentDependencies(
       toolsRegistry: host.toolsRegistry,
       getRegisteredTools: () => host.toolManager?.listDefinitions() ?? [],
       getCurrentSessionId: () => host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
+      getCommandOutputDirectory: () => host.sessionManager?.getCurrentSession?.()?.getArtifactDirectory?.(),
       memoryManager: host.memoryManager,
       permissionManager: host.permissionManager,
       onFileModified: (filePath, changeType, toolCallId) => {

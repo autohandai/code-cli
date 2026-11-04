@@ -7,6 +7,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { getSyncService } from '../../src/sync/runtimeSyncService.js';
 import { SyncService } from '../../src/sync/SyncService.js';
+import { loadConfig, saveConfig } from '../../src/config.js';
 import { sync } from '../../src/commands/sync.js';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
 
@@ -14,7 +15,10 @@ vi.mock('../../src/config.js', () => ({
   loadConfig: vi.fn().mockResolvedValue({ auth: { token: 'fixture-token', user: { id: 'fixture-user' } } }),
   saveConfig: vi.fn(),
 }));
-vi.mock('../../src/sync/runtimeSyncService.js', () => ({ getSyncService: vi.fn(() => null), setSyncService: vi.fn() }));
+vi.mock('../../src/sync/runtimeSyncService.js', () => {
+  const getSyncService = vi.fn<() => SyncService | null>(() => null);
+  return { getSyncService, setSyncService: vi.fn(), setBackgroundSyncEnabled: vi.fn((enabled: boolean) => getSyncService()?.setEnabled(enabled)) };
+});
 
 describe('sync screen input ownership', () => {
   it('clears an incomplete extended-key timer when the panel closes', async () => {
@@ -151,5 +155,22 @@ describe('/sync status', () => {
       expect(output).toContain('skipped 5 older sessions');
       expect(input.listenerCount('keypress')).toBe(0);
     } finally { vi.mocked(getSyncService).mockReturnValue(null); stdin.mockRestore(); log.mockRestore(); input.destroy(); }
+  });
+});
+
+
+describe('/sync on and off', () => {
+  it('stops the live service before saving off, even without valid authentication', async () => {
+    vi.mocked(loadConfig).mockResolvedValueOnce({ configPath: '/fixture/config.json', sync: { enabled: true } });
+    const service = new SyncService({ authToken: 'fixture', userId: 'fixture', config: { enabled: true, interval: 300000 } });
+    const toggle = vi.spyOn(service, 'setEnabled');
+    vi.mocked(getSyncService).mockReturnValueOnce(service);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await sync({} as SlashCommandContext, ['off']);
+      expect(toggle).toHaveBeenCalledWith(false);
+      expect(saveConfig).toHaveBeenCalledWith(expect.objectContaining({ sync: { enabled: false } }));
+      expect(toggle.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(saveConfig).mock.invocationCallOrder.at(-1)!);
+    } finally { service.stop(); log.mockRestore(); toggle.mockRestore(); }
   });
 });

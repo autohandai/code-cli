@@ -391,6 +391,21 @@ describe('SessionManager', () => {
     expect(await manager.getLastSession('/empty')).toBeNull();
   });
 
+  it('continues a conversation instead of a newer empty session, within the current project', async () => {
+    const manager = new SessionManager(tmpDir);
+    const conversation = await manager.createSession('/project', 'test-model');
+    await conversation.append({ role: 'user', content: 'Remember BANANA-42', timestamp: new Date().toISOString() });
+    Object.assign(conversation.metadata, { lastActiveAt: '2026-01-01' });
+    await conversation.save();
+    const empty = await manager.createSession('/project', 'test-model');
+    Object.assign(empty.metadata, { lastActiveAt: '2026-01-03' });
+    await empty.save();
+    const elsewhere = await manager.createSession('/other', 'test-model');
+    await elsewhere.append({ role: 'user', content: 'Other conversation', timestamp: new Date().toISOString() });
+    expect((await manager.getLastSession('/project'))?.sessionId).toBe(conversation.metadata.sessionId);
+    expect((await manager.getLastSession('/other'))?.sessionId).toBe(elsewhere.metadata.sessionId);
+  });
+
   it('loads only the newest indexed metadata page for the resume picker', async () => {
     const projectPath = '/workspace/recent-sessions';
     const entries = [
