@@ -29,6 +29,7 @@ describe('full-screen terminal', () => {
     session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], {
       autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 180, rows: 30,
     });
+    await session.text({ timeout: 15_000, waitFor: () => /█[░█]{9}/u.test(outputViewport(session!)) });
     const screens = await inspectFullScreenStatusBar(session);
     for (const screen of Object.values(screens)) {
       const footer = screen.trimEnd().split('\n').at(-1);

@@ -35,7 +35,7 @@ export async function startFullScreenHeaderProbe(session: TerminalSession): Prom
 }
 
 export async function inspectFullScreenStatusBar(session: TerminalSession) {
-  await session.waitForText('░░░░░░░░░░');
+  await session.text({ timeout: 5_000, waitFor: () => /[░█]{10}/u.test(outputViewport(session)) });
   await session.waitIdle();
   const initial = outputViewport(session);
   await session.type('?');
