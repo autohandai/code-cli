@@ -464,7 +464,7 @@
     "nextSteps": "Nächste Schritte:",
     "tryCommand": "Probieren Sie: autohand",
     "network": {
-      "timeout": "Zeitlimit in Millisekunden (5000-600000; leer = Anbieterstandard):"
+      "timeout": "Für den Anbieterstandard leer lassen oder 5000-600000 ms eingeben"
     }
   },
   "errors": {

@@ -464,7 +464,7 @@
     "nextSteps": "Další kroky:",
     "tryCommand": "Zkuste: autohand",
     "network": {
-      "timeout": "Časový limit v milisekundách (5000-600000; prázdné = výchozí hodnota poskytovatele):"
+      "timeout": "Pro výchozí hodnotu poskytovatele nechte prázdné, nebo zadejte 5000-600000 ms"
     }
   },
   "errors": {

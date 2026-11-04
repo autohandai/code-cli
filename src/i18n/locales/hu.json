@@ -464,7 +464,7 @@
     "nextSteps": "Következő lépések:",
     "tryCommand": "Próbálja ki: autohand",
     "network": {
-      "timeout": "Időkorlát ezredmásodpercben (5000-600000; üres = szolgáltatói alapérték):"
+      "timeout": "A szolgáltatói alapértékhez hagyja üresen, vagy adjon meg 5000-600000 ms értéket"
     }
   },
   "errors": {

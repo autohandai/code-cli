@@ -464,7 +464,7 @@
     "nextSteps": "Sonraki adımlar:",
     "tryCommand": "Deneyin: autohand",
     "network": {
-      "timeout": "İstek zaman aşımı, milisaniye (5000-600000; boş = sağlayıcı varsayılanı):"
+      "timeout": "Sağlayıcı varsayılanı için boş bırakın veya 5000-600000 ms girin"
     }
   },
   "errors": {

@@ -464,7 +464,7 @@
     "nextSteps": "後續步驟：",
     "tryCommand": "嘗試：autohand",
     "network": {
-      "timeout": "請求逾時毫秒數（5000-600000；留空使用供應商預設值）："
+      "timeout": "留空以使用供應商預設值，或輸入 5000-600000 ms"
     }
   },
   "errors": {
