@@ -82,7 +82,7 @@ async function sendExternalRequest(request: ExternalPromptRequest): Promise<Exte
 export async function confirm(
   message: string,
   context?: PermissionContext,
-  options: { forcePrompt?: boolean } = {},
+  options: { forcePrompt?: boolean; nonInteractive?: boolean } = {},
 ): Promise<PermissionPromptResult> {
   // External callback mode
   if (isExternalCallbackEnabled()) {
@@ -110,7 +110,9 @@ export async function confirm(
     return { decision: 'allow_once' };
   }
 
-  if (options.forcePrompt && !process.stdin.isTTY) return { decision: 'deny_once' };
+  if (options.nonInteractive || (options.forcePrompt && !process.stdin.isTTY)) {
+    return { decision: 'deny_once', reason: 'non_interactive' };
+  }
 
   // Interactive mode - use Modal
   const commandPrefix = getCommandPrefix(context?.command);

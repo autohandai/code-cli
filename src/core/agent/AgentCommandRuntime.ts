@@ -385,7 +385,7 @@ export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost,
     if (host.confirmationCallback) {
       decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => host.confirmationCallback(message, context)));
     } else if (isExternalCallbackEnabled()) {
-      decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => unifiedConfirm(message, promptContext, { forcePrompt })));
+      decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => unifiedConfirm(message, promptContext, { forcePrompt, nonInteractive: host.runtime.isCommandMode === true || Boolean(host.runtime.options.prompt) || !process.stdin.isTTY })));
     } else {
       host.notificationService.notify(
         { body: message, reason: 'confirmation' },
@@ -398,7 +398,7 @@ export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost,
         if (wasRaw) {
           safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
         }
-        return unifiedConfirm(message, promptContext, { forcePrompt });
+        return unifiedConfirm(message, promptContext, { forcePrompt, nonInteractive: host.runtime.isCommandMode === true || Boolean(host.runtime.options.prompt) || !process.stdin.isTTY });
       }));
     }
 

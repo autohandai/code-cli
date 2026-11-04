@@ -1,3 +1,4 @@
+import { summarizeUnattendedApprovals } from '../../permissions/unattended.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -42,6 +43,7 @@ import {
 } from '../../deepResearch/session.js';
 
 const INCOMPLETE_LOOP_REASONS: Record<Extract<ReactLoopResult, { status: 'incomplete' }>['reason'], string> = {
+  approval_required: 'The run requires tool approval that cannot be requested unattended',
   iteration_limit: 'The agent loop reached its iteration limit before completion',
   pending_todos: 'The turn ended with unfinished todo items',
   advisor_review: 'The turn ended before its Moa checkpoint review was resolved',
@@ -98,6 +100,7 @@ function readCompletedTurnUsage(host: AgentInstructionHost): TurnUsage {
 }
 
 export interface AgentInstructionHost {
+  toolManager?: { resetUnattendedDenials?(): void; getUnattendedDenials?(): string[] };
   extensionReloadController?: Pick<import('../../extensions/ExtensionReloadController.js').ExtensionReloadController, 'withStableExtensions'>;
   repositoryReadiness?: Pick<import('./RepositoryReadiness.js').RepositoryReadiness, 'markTurnCompleted'> | null;
   programStatus?: AgentProgramStatus;
@@ -413,6 +416,7 @@ export class InstructionRunner {
     // Initialize task-level tracking
     host.taskStartedAt = Date.now();
     host.beginTodoActivityTurn?.();
+    host.toolManager?.resetUnattendedDenials?.();
     host.totalTokensUsed = 0;
     host.currentTurnActualUsage = {
       kind: 'unavailable',
@@ -468,6 +472,9 @@ export class InstructionRunner {
     };
     const recordIncompleteLoop = (result: Extract<ReactLoopResult, { status: 'incomplete' }>): false => {
       success = false;
+      if (result.reason === 'approval_required') {
+        console.error(summarizeUnattendedApprovals(host.toolManager?.getUnattendedDenials?.() ?? []));
+      }
       recordReflectionFailure('incomplete', INCOMPLETE_LOOP_REASONS[result.reason]);
       host.stopUI(true);
       host.clearActivityForCompletedTurn?.();

@@ -1,3 +1,4 @@
+import { summarizeUnattendedApprovals } from '../../permissions/unattended.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -218,7 +219,7 @@ export interface AgentReactLoopHost {
   toolManager: Pick<
     ToolManager,
     'execute' | 'listToolNames' | 'register' | 'registerMetaTools' | 'replaceRuntimeMetaTools' | 'toFunctionDefinitions' | 'unregister'
-  >;
+  > & Partial<Pick<ToolManager, 'getUnattendedDenials'>>;
   toolsRegistry?: ToolsRegistry;
   contextWindow: number;
   totalTokensUsed: number;
@@ -273,7 +274,7 @@ export interface ReactLoopControl {
 
 export type ReactLoopResult =
   | { status: 'completed' }
-  | { status: 'incomplete'; reason: 'iteration_limit' | 'pending_todos' | 'advisor_review' | 'goal_completion' }
+  | { status: 'incomplete'; reason: 'iteration_limit' | 'pending_todos' | 'advisor_review' | 'goal_completion' | 'approval_required' }
   | { status: 'stopped'; stepNumber: number }
   | { status: 'aborted' };
 
@@ -1760,6 +1761,14 @@ export async function runAgentReactLoop(
           host.conversation.addSystemNote(
             `[Search Summary] Recent searches: ${recentSearches}. Avoid repeating similar searches - analyze existing results first.`
           );
+        }
+
+        const unattendedDenials = host.toolManager.getUnattendedDenials?.() ?? [];
+        if (unattendedDenials.length > 0) {
+          const summary = summarizeUnattendedApprovals(unattendedDenials);
+          host.conversation.addSystemNote(`${summary} Stop this turn without retrying tools.`);
+          renderFinalResponse(summary);
+          return { status: 'incomplete', reason: 'approval_required' };
         }
 
         const stepNumber = iteration + 1;

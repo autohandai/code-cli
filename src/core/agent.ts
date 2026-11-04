@@ -2236,6 +2236,10 @@ export class AutohandAgent {
   /**
    * The most recent final assistant response, e.g. to summarise a session.
    */
+  getUnattendedToolDenials(): string[] {
+    return this.toolManager.getUnattendedDenials();
+  }
+
   getLastAssistantResponse(): string {
     return this.lastAssistantResponseForNotification;
   }
