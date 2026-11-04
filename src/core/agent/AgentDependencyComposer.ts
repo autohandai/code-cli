@@ -1456,20 +1456,24 @@ export function initializeAgentDependencies(
             const cached = host.specialistOrchestrator.turnResultForAgent(action.agent_name);
             outcome = cached === undefined
               ? await host.delegator.delegateTaskForTool(action.agent_name, action.task, { signal: context?.signal })
-              : { success: true, output: `These specialists already ran for this turn. Use their results below instead of running them again.\n${cached}` };
+              : cached;
           } else if (action.type === 'delegate_parallel') {
-            const cached = new Set<string>();
+            const cached: ToolActionOutcome[] = [];
             const pending = action.tasks.filter(task => {
               const result = host.specialistOrchestrator.turnResultForAgent(task.agent_name);
               if (result === undefined) return true;
-              cached.add(result);
+              cached.push(result);
               return false;
             });
-            outcome = pending.length > 0
+            const freshOutcome: ToolActionOutcome = pending.length > 0
               ? await host.delegator.delegateParallelForTool(pending, { signal: context?.signal })
               : { success: true, output: '' };
-            if (cached.size > 0) {
-              outcome = { ...outcome, output: [`These specialists already ran for this turn. Use their results below instead of running them again.`, ...cached, outcome.output].filter(Boolean).join('\n') };
+            if (cached.length > 0) {
+              const failure = [...cached, freshOutcome].find(result => !result.success);
+              const output = [...new Set([...cached.map(result => result.output), freshOutcome.output])].filter(Boolean).join('\n');
+              outcome = { ...(failure ?? freshOutcome), output };
+            } else {
+              outcome = freshOutcome;
             }
           } else if (action.type === 'orchestrate_specialists') {
             result = await host.orchestrateSpecialistsFromTool(action.objective, action.requested_roles, context?.signal);

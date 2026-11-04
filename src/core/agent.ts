@@ -1532,15 +1532,15 @@ export class AutohandAgent {
       if (!continuation) return undefined;
       const results = formatSpecialistResults(continuation);
       if (continuation.completed && continuation.plan.unresolvedRoles.length === 0) {
-        this.specialistOrchestrator.rememberTurnResult(continuation.plan.requestedRoles, results, continuation.batches.flatMap(batch => batch.agents));
+        this.specialistOrchestrator.rememberTurnResult(continuation.plan.requestedRoles, results);
       }
       return results;
     }
 
-    const { results, completed, agentNames } = await this.runSpecialistOrchestration(request);
-    // Only a roster that fully ran is worth reusing; a partial one may be retried.
+    const { results, completed } = await this.runSpecialistOrchestration(request);
+    // Role-level reuse requires a complete roster; agent outcomes are cached as each batch runs.
     if (completed) {
-      this.specialistOrchestrator.rememberTurnResult(request.requestedRoles, results, agentNames);
+      this.specialistOrchestrator.rememberTurnResult(request.requestedRoles, results);
     }
     return results;
   }
@@ -1561,7 +1561,7 @@ export class AutohandAgent {
   private async runSpecialistOrchestration(
     request: SpecialistRequest,
     signal = this.activeAbortController?.signal,
-  ): Promise<{ results: string; completed: boolean; agentNames: string[] }> {
+  ): Promise<{ results: string; completed: boolean }> {
     signal?.throwIfAborted();
     const plan = await this.specialistOrchestrator.resolve(request);
     signal?.throwIfAborted();
@@ -1584,7 +1584,6 @@ export class AutohandAgent {
       return {
         results: formatSpecialistResults({ plan, batches: [], completed: false }),
         completed: false,
-        agentNames: [],
       };
     }
 
@@ -1592,7 +1591,6 @@ export class AutohandAgent {
     return {
       results: formatSpecialistResults(result),
       completed: result.completed && plan.unresolvedRoles.length === 0,
-      agentNames: result.batches.flatMap(batch => batch.agents),
     };
   }
 

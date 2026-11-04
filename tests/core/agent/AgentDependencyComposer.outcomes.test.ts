@@ -373,7 +373,7 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     const { internals } = createAgent();
     internals.delegator.delegateTaskForTool = vi.fn().mockResolvedValue({ success: true, output: 'new task' });
     internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
-    internals.specialistOrchestrator.rememberTurnResult(['review'], 'cached review', ['reviewer']);
+    internals.specialistOrchestrator.rememberAgentResults([{ agents: ['reviewer'], outcome: { success: true, output: 'cached review' } }]);
     const call = { tool: 'delegate_task', args: { agent_name: 'reviewer', task: 'Review again' } };
     const [cached] = await internals.toolManager.execute([call]);
     expect(cached).toMatchObject({ success: true, output: expect.stringContaining('already ran for this turn') });
@@ -387,12 +387,26 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     const { internals } = createAgent();
     internals.delegator.delegateParallelForTool = vi.fn().mockResolvedValue({ success: true, output: 'fresh security result' });
     internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
-    internals.specialistOrchestrator.rememberTurnResult(['review'], 'cached review', ['reviewer']);
+    internals.specialistOrchestrator.rememberAgentResults([{ agents: ['reviewer'], outcome: { success: true, output: 'cached review' } }]);
     const fresh = { agent_name: 'security-auditor', task: 'Inspect security' };
     const [result] = await internals.toolManager.execute([{ tool: 'delegate_parallel', args: { tasks: [{ agent_name: 'reviewer', task: 'Review' }, fresh] } }]);
     expect(internals.delegator.delegateParallelForTool).toHaveBeenCalledWith([fresh], { signal: undefined });
     expect(result).toMatchObject({ success: true, output: expect.stringContaining('cached review') });
     expect(result.success && result.output).toContain('fresh security result');
+  });
+
+  it.each(['delegate_task', 'delegate_parallel'])('reuses a failed partial pre-run without converting it to success via %s', async tool => {
+    const { internals } = createAgent();
+    internals.delegator.delegateTaskForTool = vi.fn();
+    internals.delegator.delegateParallelForTool = vi.fn();
+    internals.hookManager.executeHooks = vi.fn().mockResolvedValue([]);
+    internals.specialistOrchestrator.rememberAgentResults([{ agents: ['reviewer'], outcome: { success: false, kind: 'operational', error: 'Review failed', output: 'Partial evidence' } }]);
+    const args = tool === 'delegate_task' ? { agent_name: 'reviewer', task: 'Retry' } : { tasks: [{ agent_name: 'reviewer', task: 'Retry' }] };
+    const [result] = await internals.toolManager.execute([{ tool, args }]);
+    expect(result).toMatchObject({ success: false, kind: 'operational', error: 'Review failed', output: expect.stringContaining('already ran for this turn') });
+    expect(result.output).toContain('Partial evidence');
+    expect(internals.delegator.delegateTaskForTool).not.toHaveBeenCalled();
+    expect(internals.delegator.delegateParallelForTool).not.toHaveBeenCalled();
   });
 
   it('preserves a typed delegation failure without inspecting its display text', async () => {
