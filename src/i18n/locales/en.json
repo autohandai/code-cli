@@ -676,7 +676,7 @@
       "description": "Configure retry and timeout behavior for API requests.",
       "needCustom": "Configure custom network settings? (retries, timeouts)",
       "maxRetries": "Maximum retry attempts (1-5):",
-      "timeout": "Request timeout in milliseconds (5000-120000):"
+      "timeout": "Request timeout in milliseconds (5000-600000; blank = provider default):"
     },
     "search": {
       "title": "Web Search Provider",

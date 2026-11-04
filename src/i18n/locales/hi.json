@@ -384,7 +384,10 @@
     "configFile": "~/.autohand/config.json (आपकी सेटिंग्स)",
     "agentsFile": "AGENTS.md (Autohand के लिए परियोजना निर्देश)",
     "nextSteps": "अगले कदम:",
-    "tryCommand": "आज़माएँ: autohand"
+    "tryCommand": "आज़माएँ: autohand",
+    "network": {
+      "timeout": "अनुरोध समय-सीमा मिलीसेकंड में (5000-600000; खाली = प्रदाता का डिफ़ॉल्ट):"
+    }
   },
   "errors": {
     "generic": "एक त्रुटि हुई: {{message}}",

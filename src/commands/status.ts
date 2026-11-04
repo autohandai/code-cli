@@ -1,3 +1,4 @@
+import { describeNetworkTimeout } from '../utils/networkTimeout.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -351,7 +352,7 @@ function renderConfigTab(data: StatusData): void {
         ['Permission mode', config?.permissions?.mode ?? 'interactive'],
         ['Telemetry', config?.telemetry?.enabled === true ? 'true' : 'false'],
         ['Network retries', String(config?.network?.maxRetries ?? 3)],
-        ['Network timeout', `${config?.network?.timeout ?? 30000}ms`],
+        ['Network timeout', describeNetworkTimeout(config)],
     ];
 
     for (const [name, value] of settings) {

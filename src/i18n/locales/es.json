@@ -352,7 +352,10 @@
     "configFile": "~/.autohand/config.json (tu configuración)",
     "agentsFile": "AGENTS.md (instrucciones del proyecto para Autohand)",
     "nextSteps": "Próximos pasos:",
-    "tryCommand": "Prueba: autohand"
+    "tryCommand": "Prueba: autohand",
+    "network": {
+      "timeout": "Tiempo de espera en milisegundos (5000-600000; vacío = predeterminado del proveedor):"
+    }
   },
   "errors": {
     "generic": "Ocurrió un error: {{message}}",

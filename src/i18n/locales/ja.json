@@ -462,7 +462,10 @@
     "configFile": "~/.autohand/config.json（あなたの設定）",
     "agentsFile": "AGENTS.md（Autohand用のプロジェクト指示）",
     "nextSteps": "次のステップ:",
-    "tryCommand": "試してみてください: autohand"
+    "tryCommand": "試してみてください: autohand",
+    "network": {
+      "timeout": "タイムアウト（ミリ秒、5000-600000。空欄はプロバイダーの既定値）:"
+    }
   },
   "errors": {
     "generic": "エラーが発生しました: {{message}}",

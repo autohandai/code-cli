@@ -462,7 +462,10 @@
     "configFile": "~/.autohand/config.json (vaše nastavení)",
     "agentsFile": "AGENTS.md (instrukce projektu pro Autohand)",
     "nextSteps": "Další kroky:",
-    "tryCommand": "Zkuste: autohand"
+    "tryCommand": "Zkuste: autohand",
+    "network": {
+      "timeout": "Časový limit v milisekundách (5000-600000; prázdné = výchozí hodnota poskytovatele):"
+    }
   },
   "errors": {
     "generic": "Vyskytla se chyba: {{message}}",
