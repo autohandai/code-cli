@@ -111,6 +111,43 @@ describe('terminal resize painting', () => {
     });
   });
 
+  it('writes external panel clears before native console output while the renderer is paused', async () => {
+    await withInteractiveTerminal(async writes => {
+      const renderer = new InkRenderer({ onInstruction() {}, onEscape() {}, onCtrlC() {} });
+      try {
+        renderer.start();
+        await Promise.resolve();
+        renderer.pause();
+        await Promise.resolve();
+        writes.length = 0;
+        process.stdout.write('\x1b[2J\x1b[H');
+        writes.push('native console panel');
+        await Promise.resolve();
+        expect(writes[0]).toContain('\x1b[2J\x1b[H');
+        expect(writes[1]).toBe('native console panel');
+      } finally { await renderer.stop(); }
+    });
+  });
+
+  it('keeps explicit Ink frames atomic while the agent renderer is paused', async () => {
+    await withInteractiveTerminal(async writes => {
+      const renderer = new InkRenderer({ onInstruction() {}, onEscape() {}, onCtrlC() {} });
+      try {
+        renderer.start();
+        await Promise.resolve();
+        renderer.pause();
+        await Promise.resolve();
+        writes.length = 0;
+        process.stdout.write('\x1b[?2026h');
+        process.stdout.write('modal Ink frame');
+        process.stdout.write('\x1b[?2026l');
+        expect(writes).toEqual([]);
+        await Promise.resolve();
+        expect(writes).toEqual(['\x1b[?2026hmodal Ink frame\x1b[?2026l']);
+      } finally { await renderer.stop(); }
+    });
+  });
+
   it('preserves write callbacks and flushes pending output before restoring stdout', async () => {
     await withInteractiveTerminal(async writes => {
       const renderer = new InkRenderer({ fullScreenMode: false, onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });

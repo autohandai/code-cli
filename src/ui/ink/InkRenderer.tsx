@@ -401,7 +401,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
  * On unsupported terminals the CSI sequences are silently ignored, so this
  * is safe to enable unconditionally.
  */
-function patchStdoutForSyncOutput(framePrefix: (paint: string) => string): () => void {
+function patchStdoutForSyncOutput(framePrefix: (paint: string) => string, shouldBatchOutput: () => boolean): () => void {
   const originalWrite = process.stdout.write;
   const chunks: Buffer[] = [];
   let pendingBytes = 0;
@@ -429,6 +429,12 @@ function patchStdoutForSyncOutput(framePrefix: (paint: string) => string): () =>
     callback?: (error?: Error | null) => void
   ): boolean {
     const str = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
+    if (!shouldBatchOutput() && !inkFrameActive && str !== '\x1b[?2026h' && str !== '\x1b[?2026l') {
+      flush();
+      return originalWrite.call(process.stdout, chunk,
+        typeof encodingOrCallback === 'string' ? encodingOrCallback : undefined,
+        typeof encodingOrCallback === 'function' ? encodingOrCallback : callback);
+    }
     if (str === '\x1b[?2026h') inkFrameActive = true;
     else if (str === '\x1b[?2026l') inkFrameActive = false;
     else {
@@ -555,7 +561,7 @@ export class InkRenderer {
     try {
       // Enable synchronized output wrapping to eliminate flicker from partial
       // frame updates. Must happen before Ink starts writing to stdout.
-      this.unpatchedStdout = patchStdoutForSyncOutput(this.resizeFramePrefix);
+      this.unpatchedStdout = patchStdoutForSyncOutput(this.resizeFramePrefix, () => this.instance !== null);
 
       // Shift+Enter, Alt+Enter and Esc are only distinguishable when the
       // terminal encodes modified keys. Ink parses the kitty CSI u form; iTerm2,

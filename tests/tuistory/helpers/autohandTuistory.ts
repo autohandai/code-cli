@@ -30,6 +30,8 @@ export interface TuistoryTempState {
 }
 
 export interface LaunchBuiltAutohandOptions {
+  runtimeCommand?: string;
+  runtimeArgs?: string[];
   inputCommand?: string[];
   entrypoint?: string;
   autohandHome?: string;
@@ -1283,8 +1285,8 @@ export async function launchBuiltAutohand(
     ? (launchOptions: Parameters<typeof launchTuistorySession>[0]) => launchPipedTuistorySession(options.inputCommand!, launchOptions)
     : launchTuistorySession;
   return await launch({
-    command: process.execPath,
-    args: [options.entrypoint ?? path.join(root, 'dist/index.js'), ...args],
+    command: options.runtimeCommand ?? process.execPath,
+    args: [...options.runtimeArgs ?? [], options.entrypoint ?? path.join(root, 'dist/index.js'), ...args],
     cwd: options.cwd ?? root,
     env,
     cols: options.cols ?? 120,

@@ -8,6 +8,7 @@ import type { Session } from 'tuistory';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readFile, access } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { prepareMissingSettingsSyncDownloadScenario, prepareSettingsSyncFailureScenario } from '../../src/testing/scenarios/settingsSyncScenario.js';
 import { waitForTerminalScreen } from '../../src/testing/drivers/tuistory-driver.js';
 import { createTempAutohandHome, exitInteractive, launchBuiltAutohand, type TuistoryTempState } from './helpers/autohandTuistory.js';
@@ -43,8 +44,9 @@ describe('built settings sync health', () => {
   });
 
   it.each([
-    ['/status', 'legacy'], ['/sync', 'legacy'], ['/status', 'CSI-u'], ['/sync', 'CSI-u'],
-  ] as const)('restores the full-screen transcript and composer after %s displays a download 404 (%s Escape)', async (command, encoding) => {
+    ['/status', 'legacy', 'node'], ['/sync', 'legacy', 'node'], ['/status', 'CSI-u', 'node'], ['/sync', 'CSI-u', 'node'],
+    ['/status', 'CSI-u', 'bun'], ['/sync', 'CSI-u', 'bun'],
+  ] as const)('restores the full-screen transcript and composer after %s displays a download 404 (%s Escape; runtime: %s)', async (command, encoding, runtime) => {
     state = await createTempAutohandHome({ config: {
       features: { fullScreenMode: true },
       sync: { enabled: true, interval: 60000 },
@@ -53,16 +55,30 @@ describe('built settings sync health', () => {
     } });
     const preload = await prepareMissingSettingsSyncDownloadScenario(state.autohandHome);
     session = await launchBuiltAutohand(['--config', state.configPath], {
+      ...(runtime === 'bun' ? {
+        runtimeCommand: 'bun', runtimeArgs: ['--preload', fileURLToPath(preload)],
+        entrypoint: path.resolve(import.meta.dirname, '../../src/index.ts'),
+      } : {}),
       autohandHome: state.autohandHome, cwd: state.workspaceRoot,
       env: { NODE_OPTIONS: `--import=${preload}` }, cols: 120, rows: 40,
     });
     await session.waitForText('Settings sync is paused:', { timeout: 30000 });
     await session.type('hello'); await session.press('enter');
     await session.waitForText('SYNC_UI_TRANSCRIPT_MARKER', { timeout: 20000 });
+    await waitForTerminalScreen(session, {
+      timeout: 5000,
+      waitFor: screen => screen.includes('Completed in') && screen.includes('Plan, search, build anything'),
+    });
     await session.type(command); await session.press('enter');
     await session.waitForText(command === '/status' ? 'Settings:' : 'Settings Sync:');
     await session.waitForText('Download failed: 404');
     await delay(3000);
+    const panel = await waitForTerminalScreen(session, {
+      timeout: 1500,
+      waitFor: screen => screen.includes(command === '/status' ? 'Settings:' : 'Settings Sync:')
+        && screen.includes('Download failed: 404') && screen.includes('Esc to exit'),
+    });
+    expect(panel).not.toContain('Plan, search, build anything');
     expect(session.exitInfo).toBeNull();
     if (encoding === 'CSI-u') session.writeRaw('\u001b[27u');
     else await session.press('escape');
