@@ -462,7 +462,10 @@
     "configFile": "~/.autohand/config.json (설정)",
     "agentsFile": "AGENTS.md (Autohand용 프로젝트 지침)",
     "nextSteps": "다음 단계:",
-    "tryCommand": "시도해보세요: autohand"
+    "tryCommand": "시도해보세요: autohand",
+    "network": {
+      "timeout": "제공자 기본값을 사용하려면 비워 두거나 5000-600000 ms를 입력하세요"
+    }
   },
   "errors": {
     "generic": "오류 발생: {{message}}",

@@ -29,6 +29,19 @@ async function context() {
 }
 
 describe('/handoff web', () => {
+  it('explains how to hand off a session that has no saved conversation yet', async () => {
+    const ctx = await context();
+    vi.spyOn(ctx.currentSession, 'getMessages').mockReturnValue([]);
+    try {
+      const result = await handoffWeb(ctx);
+      expect(result).toContain('There is no saved conversation to continue in Web yet.');
+      expect(result).toContain('Send a message here, wait for the reply, then run /handoff web again.');
+      expect(result).not.toContain('between 1 and 500');
+      expect(ctx.client.upload).not.toHaveBeenCalled();
+      expect(ctx.openBrowser).not.toHaveBeenCalled();
+    } finally { vi.restoreAllMocks(); }
+  });
+
   it('uploads the conversation to its account and opens only an opaque transfer link', async () => {
     const ctx = await context();
     const result = await handoffWeb(ctx);
@@ -165,7 +178,11 @@ describe('/handoff web', () => {
   it('does not silently truncate large conversations or open a mismatched receipt', async () => {
     const ctx = await context();
     vi.spyOn(ctx.currentSession, 'getMessages').mockReturnValue(Array.from({ length: 501 }, () => ({ role: 'user', content: 'Message', timestamp: '2026-09-10T00:00:00.000Z' })));
-    expect(await handoffWeb(ctx)).toContain('500');
+    const result = await handoffWeb(ctx);
+    expect(result).toContain('This conversation is too long to hand off to Web (501 messages; limit 500).');
+    expect(result).toContain('Start a new session with a summary of the work, then run /handoff web there.');
+    expect(result).toContain('Your local conversation is still available.');
+    expect(result).not.toContain('between 1 and 500');
     expect(ctx.client.upload).not.toHaveBeenCalled();
     vi.restoreAllMocks();
     ctx.client.upload.mockResolvedValue({ ...receipt, accountId: 'different-account' });

@@ -1,3 +1,4 @@
+import { PROVIDER_TIMEOUT_DEFAULTS } from '../utils/networkTimeout.js';
 import { configureSearchFromAccount } from '../actions/web.js';
 import { SEARCH_PROVIDERS } from '../search/providers.js';
 /**
@@ -16,7 +17,7 @@ import { getTheme, initTheme, isThemeInitialized, listAvailableThemes, themedFgI
 import { getDefaultThemeName } from '../ui/theme/themes.js';
 import { showModal, showInput, showConfirm, showPassword, type ModalOption } from '../ui/ink/components/Modal.js';
 import { saveConfig } from '../config.js';
-import type { BuiltInProviderName, LoadedConfig } from '../types.js';
+import { BUILT_IN_PROVIDER_NAMES, type BuiltInProviderName, type LoadedConfig } from '../types.js';
 import { DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION, MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from '../core/agents/SessionThreadBudget.js';
 import { TRACE_CONSENT_VERSION } from '../integrations/ahtraces/consent.js';
 
@@ -98,23 +99,7 @@ const SETTING_KEY_ALIASES: Record<string, string> = {
   ui_verbs_activity: 'ui.activityVerbsEnabled',
 };
 
-const CONFIG_PROVIDER_NAMES: readonly BuiltInProviderName[] = [
-  'openrouter',
-  'anthropic',
-  'ollama',
-  'llamacpp',
-  'openai',
-  'mlx',
-  'llmgateway',
-  'azure',
-  'zai',
-  'vertexai',
-  'xai',
-  'cerebras',
-  'nvidia',
-  'deepseek',
-  'bedrock',
-];
+const CONFIG_PROVIDER_NAMES = BUILT_IN_PROVIDER_NAMES.filter(provider => provider !== 'autohandai');
 
 const PROVIDER_CONFIG_FIELD_ALIASES: Record<string, 'apiKey' | 'baseUrl' | 'model'> = {
   apiKey: 'apiKey',
@@ -194,6 +179,28 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: 'agent.sessionRetryLimit', labelKey: 'commands.settings.agent.sessionRetryLimit', descriptionKey: 'commands.settings.agent.sessionRetryLimitDesc', category: 'agent', type: 'number', defaultValue: 3 },
   { key: 'agent.sessionRetryDelay', labelKey: 'commands.settings.agent.sessionRetryDelay', descriptionKey: 'commands.settings.agent.sessionRetryDelayDesc', category: 'agent', type: 'number', defaultValue: 1000 },
   { key: 'agent.debug', labelKey: 'commands.settings.agent.debug', descriptionKey: 'commands.settings.agent.debugDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'features.adaptiveSkills', labelKey: 'commands.settings.agent.adaptiveSkills', descriptionKey: 'commands.settings.agent.adaptiveSkillsDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.learning.enabled', labelKey: 'commands.settings.agent.skillLearning', descriptionKey: 'commands.settings.agent.skillLearningDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.learning.scope', labelKey: 'commands.settings.agent.skillLearningScope', descriptionKey: 'commands.settings.agent.skillLearningScopeDesc', category: 'agent', type: 'enum', enumValues: ['project', 'user'], defaultValue: 'project' },
+  {
+    key: 'skills.maxInstructionTokens', labelKey: 'commands.settings.agent.skillInstructionBudget',
+    descriptionKey: 'commands.settings.agent.skillInstructionBudgetDesc', category: 'agent', type: 'number',
+    validate: value => Number.isSafeInteger(Number(value)) && Number(value) > 0 || 'Skill instruction budget must be a positive integer.',
+  },
+  { key: 'skills.decisions.enabled', labelKey: 'commands.settings.agent.skillDecisions', descriptionKey: 'commands.settings.agent.skillDecisionsDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.decisions.provider', labelKey: 'commands.settings.agent.skillDecisionProvider', descriptionKey: 'commands.settings.agent.skillDecisionProviderDesc', category: 'agent', type: 'string' },
+  { key: 'skills.decisions.model', labelKey: 'commands.settings.agent.skillDecisionModel', descriptionKey: 'commands.settings.agent.skillDecisionModelDesc', category: 'agent', type: 'string' },
+  { key: 'skills.decisions.selection', labelKey: 'commands.settings.agent.skillSelectionDecision', descriptionKey: 'commands.settings.agent.skillSelectionDecisionDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.decisions.preview', labelKey: 'commands.settings.agent.skillPreviewDecision', descriptionKey: 'commands.settings.agent.skillPreviewDecisionDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.decisions.remotePreview', labelKey: 'commands.settings.agent.skillRemotePreview', descriptionKey: 'commands.settings.agent.skillRemotePreviewDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.decisions.learning', labelKey: 'commands.settings.agent.skillLearningDecision', descriptionKey: 'commands.settings.agent.skillLearningDecisionDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  { key: 'skills.decisions.compaction', labelKey: 'commands.settings.agent.skillCompactionDecision', descriptionKey: 'commands.settings.agent.skillCompactionDecisionDesc', category: 'agent', type: 'boolean', defaultValue: false },
+  {
+    key: 'skills.decisions.timeoutMs', labelKey: 'commands.settings.agent.skillDecisionTimeout',
+    descriptionKey: 'commands.settings.agent.skillDecisionTimeoutDesc', category: 'agent', type: 'number',
+    validate: value => Number.isSafeInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10_000
+      || 'Decision timeout must be an integer between 1 and 10000 milliseconds.',
+  },
 
   // Concurrent Sessions
   { key: 'sessions.awareness', labelKey: 'commands.settings.sessions.awareness', descriptionKey: 'commands.settings.sessions.awarenessDesc', category: 'sessions', type: 'enum', enumValues: ['passive', 'warn', 'coordinate'], defaultValue: 'warn' },
@@ -204,7 +211,7 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
 
   // Network
   { key: 'network.maxRetries', labelKey: 'commands.settings.network.maxRetries', descriptionKey: 'commands.settings.network.maxRetriesDesc', category: 'network', type: 'number', defaultValue: 3 },
-  { key: 'network.timeout', labelKey: 'commands.settings.network.timeout', descriptionKey: 'commands.settings.network.timeoutDesc', category: 'network', type: 'number', defaultValue: 30000 },
+  { key: 'network.timeout', labelKey: 'commands.settings.network.timeout', descriptionKey: 'commands.settings.network.timeoutDesc', category: 'network', type: 'number', resolveCurrent: () => PROVIDER_TIMEOUT_DEFAULTS, validate: value => value.trim() === '' || (Number.isInteger(Number(value)) && Number(value) >= 5000 && Number(value) <= 600000) || 'Enter 5000-600000 milliseconds, or leave blank for the provider default' },
   { key: 'network.retryDelay', labelKey: 'commands.settings.network.retryDelay', descriptionKey: 'commands.settings.network.retryDelayDesc', category: 'network', type: 'number', defaultValue: 1000 },
 
   // Telemetry & Reporting
@@ -286,10 +293,7 @@ function normalizeProviderName(input: string): BuiltInProviderName | null {
   if (normalized === 'vertex') {
     return 'vertexai';
   }
-  if (CONFIG_PROVIDER_NAMES.includes(normalized as BuiltInProviderName)) {
-    return normalized as BuiltInProviderName;
-  }
-  return null;
+  return CONFIG_PROVIDER_NAMES.find(provider => provider === normalized) ?? null;
 }
 
 function normalizeProviderConfigKey(input: string): { provider: BuiltInProviderName; field: 'apiKey' | 'baseUrl' | 'model' } | null {
@@ -330,6 +334,7 @@ function parseBooleanSetting(value: string): boolean {
 }
 
 export function parseSettingValue(setting: SettingDef, rawValue: string): unknown {
+  if (setting.key === 'network.timeout' && rawValue.trim() === '') return undefined;
   const validation = setting.validate?.(rawValue);
   if (validation !== undefined && validation !== true) {
     throw new Error(typeof validation === 'string' ? validation : `Invalid value for ${setting.key}.`);

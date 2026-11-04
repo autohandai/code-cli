@@ -3,7 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   chmod,
@@ -17,6 +17,7 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { CUA_DRIVER_VERSION, inspectCuaDriver, resolveCuaDriverPath } from './cuaDriver.js';
 import { killAfter } from '../utils/processTimeout.js';
 import { discardResponseBody } from '../utils/responseBody.js';
@@ -31,6 +32,9 @@ export { CUA_DRIVER_VERSION } from './cuaDriver.js';
 export const COMPUTER_USE_RELEASE_BASE_URL =
   'https://github.com/autohandai/computer-use/releases/download';
 export const COMPUTER_USE_RELEASE_TAG = `computer-use-v${CUA_DRIVER_VERSION}`;
+export const COMPUTER_USE_MACOS_RELEASE_TAG = `computer-use-v${CUA_DRIVER_VERSION}-autohand.1`;
+
+const execFileAsync = promisify(execFile);
 
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 const INSTALL_TIMEOUT_MS = 10 * 60_000;
@@ -47,12 +51,12 @@ interface ComputerUseReleaseDefinition {
 const RELEASE_ASSETS: Readonly<Record<string, ComputerUseReleaseDefinition>> = {
   'darwin/arm64': {
     name: `cua-driver-rs-${CUA_DRIVER_VERSION}-darwin-universal-binary.tar.gz`,
-    sha256: 'e1c859785107914c3432acda574f627a028a00704ce2bb6c37b2075e6ad16512',
+    sha256: '3b7a4a1a8730379145c195f4413c47ad0e4f50612ff1e8ae005bed514f49361c',
     format: 'tar.gz',
   },
   'darwin/x64': {
     name: `cua-driver-rs-${CUA_DRIVER_VERSION}-darwin-universal-binary.tar.gz`,
-    sha256: 'e1c859785107914c3432acda574f627a028a00704ce2bb6c37b2075e6ad16512',
+    sha256: '3b7a4a1a8730379145c195f4413c47ad0e4f50612ff1e8ae005bed514f49361c',
     format: 'tar.gz',
   },
   'linux/arm64': {
@@ -138,7 +142,7 @@ export function resolveComputerUseReleaseAsset(
   }
   return {
     ...definition,
-    url: `${COMPUTER_USE_RELEASE_BASE_URL}/${COMPUTER_USE_RELEASE_TAG}/${definition.name}`,
+    url: `${COMPUTER_USE_RELEASE_BASE_URL}/${platform === 'darwin' ? COMPUTER_USE_MACOS_RELEASE_TAG : COMPUTER_USE_RELEASE_TAG}/${definition.name}`,
   };
 }
 
@@ -316,12 +320,28 @@ export interface InstallCuaDriverOptions {
   buildPlan?: (options: BuildCuaInstallerPlanOptions) => CuaInstallerPlan;
   resolveDriverPath?: typeof resolveCuaDriverPath;
   inspectDriver?: typeof inspectCuaDriver;
+  isManagedMacOSRuntimeSigned?: (driverPath: string) => Promise<boolean>;
   prepareComputerUse?: (options: PrepareComputerUseOptions) => Promise<ComputerUsePreparationResult>;
 }
 
 export type InstallCuaDriverResult =
   | { status: 'reused'; path: string; version: string; computerUse?: ComputerUsePreparationResult }
   | { status: 'installed'; path: string; version: string; computerUse?: ComputerUsePreparationResult };
+
+export async function isManagedMacOSRuntimeSigned(driverPath: string): Promise<boolean> {
+  try {
+    const names = ['cua-driver', 'cua-cursor-theme', 'cua_driver_node_runtime.node', 'libcua_driver_sdk.dylib'];
+    for (const name of names) {
+      const file = path.join(path.dirname(driverPath), name);
+      await execFileAsync('/usr/bin/codesign', ['--verify', '--strict', file], { timeout: 5_000, killSignal: 'SIGKILL' });
+      const { stderr } = await execFileAsync('/usr/bin/codesign', ['-dv', '--verbose=4', file], { timeout: 5_000, killSignal: 'SIGKILL' });
+      if (!stderr.includes('TeamIdentifier=J59GX2DRN2') || !stderr.includes('Authority=Developer ID Application:')) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function withComputerUseHost(
   result: InstallCuaDriverResult,
@@ -356,7 +376,10 @@ export async function installCuaDriver(
   );
   if (existingPath && mayReuseExisting && options.force !== true) {
     const existing = await inspectDriver(existingPath);
-    if (existing.status === 'ready' && existing.supported) {
+    const requiresSignedRuntime = platform === 'darwin' && process.env.AUTOHAND_CUA_DRIVER_PATH === undefined;
+    const signedRuntime = !requiresSignedRuntime
+      || await (options.isManagedMacOSRuntimeSigned ?? isManagedMacOSRuntimeSigned)(existingPath);
+    if (existing.status === 'ready' && existing.supported && signedRuntime) {
       return withComputerUseHost(
         { status: 'reused', path: existing.path, version: existing.version },
         platform,

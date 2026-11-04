@@ -35,7 +35,7 @@ export async function startFullScreenHeaderProbe(session: TerminalSession): Prom
 }
 
 export async function inspectFullScreenStatusBar(session: TerminalSession) {
-  await session.waitForText('░░░░░░░░░░');
+  await session.text({ timeout: 5_000, waitFor: () => /[░█]{10}/u.test(outputViewport(session)) });
   await session.waitIdle();
   const initial = outputViewport(session);
   await session.type('?');
@@ -111,9 +111,11 @@ export async function runFullScreenLiveOutputScenario(session: TerminalSession) 
   await session.press('pagedown');
   await session.text();
   const paged = outputViewport(session);
+  const resizeOffset = session.getRawOutput().length;
   session.resize({ cols: 48, rows: 24 });
-  await session.text();
+  await session.text({ timeout: 5_000, waitFor: screen => /^>_ Autohand Code/mu.test(screen) && screen.includes('❯ preserved draft') });
   const resized = outputViewport(session);
+  const resizeOutput = session.getRawOutput().slice(resizeOffset);
   await session.press(['ctrl', 'o']);
   await session.waitForText('Ctrl+O expand');
   await session.waitForText('live-row-60');
@@ -124,7 +126,7 @@ export async function runFullScreenLiveOutputScenario(session: TerminalSession) 
   await session.press('esc');
   await session.waitForText('❯ thanks');
   const highlightedAfter = await session.text({ only: { background: '#44475a' }, trimEnd: true });
-  return { expanded, paged, resized, collapsed, highlightedBefore, highlightedAfter };
+  return { expanded, paged, resized, resizeOutput, collapsed, highlightedBefore, highlightedAfter };
 }
 
 export async function runFullScreenLiveOutputPtyScenario(terminal: PtyDriver): Promise<void> {

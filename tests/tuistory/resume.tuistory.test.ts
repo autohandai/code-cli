@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import type { Session } from 'tuistory';
-import { chooseOlderResumeSession, chooseResumeSession, runMarkdownResumeScenario, seedMarkdownResumeScenario, seedResumeScenario } from '../../src/testing/scenarios/resumeScenario.js';
+import { chooseOlderResumeSession, chooseResumeSession, runMarkdownResumeScenario, runResumedTurnScenario, seedMarkdownResumeScenario, seedResumeScenario } from '../../src/testing/scenarios/resumeScenario.js';
 import {
-  createTempAutohandHome, exitInteractive, launchBuiltAutohand, waitForExit,
+  createTempAutohandHome, createMockOpenRouterSequenceServer, exitInteractive, launchBuiltAutohand, waitForExit,
   type TuistoryTempState,
 } from './helpers/autohandTuistory.js';
 
@@ -37,6 +37,37 @@ async function launch(args: string[], seed = true, olderSessionCount = 0) {
 }
 
 describe('resume startup Tuistory', () => {
+  it.each([false, true])('accepts the first resumed turn while MCP remains silent, fullscreen=%s', async fullScreenMode => {
+    const server = await createMockOpenRouterSequenceServer([JSON.stringify({ finalResponse: 'RESUME_TURN_ACCEPTED' })]);
+    const state = await createTempAutohandHome({ config: {
+      features: { fullScreenMode, automaticSpecialists: false },
+      openrouter: { baseUrl: server.baseUrl }, ui: { promptSuggestions: false },
+      agent: { autoMemory: false, maxIterations: 3, sessionRetryLimit: 0 },
+    } });
+    states.push(state);
+    await seedResumeScenario(state.autohandHome, state.workspaceRoot);
+    const marker = path.join(state.autohandHome, 'resume-mcp.started');
+    const script = path.join(state.autohandHome, 'silent-resume-mcp.cjs');
+    await fs.writeFile(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started'); process.stdin.resume(); setInterval(() => {}, 1000);`);
+    const config = await fs.readJson(state.configPath);
+    await fs.writeJson(state.configPath, { ...config, mcp: { enabled: true, servers: [
+      { name: 'silent-resume', transport: 'stdio', command: process.execPath, args: [script], autoConnect: true },
+    ] } });
+    const session = await launchBuiltAutohand(['resume', 'resume-newer', '--config', state.configPath, '--yes'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 120, rows: 36,
+    });
+    sessions.push(session);
+    try {
+      expect(await runResumedTurnScenario(session)).toContain('RESUME_TURN_ACCEPTED');
+      await vi.waitFor(async () => expect(await fs.pathExists(marker)).toBe(true), { timeout: 5_000 });
+      expect(server.requests).toHaveLength(1);
+      expect(JSON.stringify(server.requests[0])).toContain('Investigate why the terminal caret disappears');
+      await exitInteractive(session);
+      expect((await fs.readJson(path.join(state.autohandHome, 'sessions', 'index.json'))).sessions).toHaveLength(3);
+      expect(session.exitInfo?.exitCode).toBe(0);
+    } finally { session.close(); await server.close(); }
+  }, 45_000);
+
   it('restores long markdown history without resize warnings and keeps the resized composer usable', async () => {
     const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false } } });
     states.push(state);

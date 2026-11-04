@@ -5,8 +5,12 @@
  */
 import { t } from '../i18n/index.js';
 import readline from 'node:readline';
+import { StdinBuffer } from '../ui/StdinBuffer.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { loadConfig, saveConfig } from '../config.js';
+import type { AutohandConfig } from '../types.js';
+import { formatSyncSkippedFiles } from '../sync/skipReport.js';
+import type { SyncSkippedFiles } from '../sync/rootBudgets.js';
 import type { SyncService } from '../sync/SyncService.js';
 import {
   getSyncService as getRuntimeSyncService,
@@ -26,6 +30,11 @@ interface SyncData {
   enabled: boolean;
   isRunning: boolean;
   lastSync: string | null;
+  lastError?: string;
+  inventoryError?: string;
+  failingSince?: string;
+  skipped?: SyncSkippedFiles;
+  remoteSkipped?: SyncSkippedFiles;
   fileCount: number;
   totalSize: number;
   interval: number;
@@ -33,6 +42,7 @@ interface SyncData {
   isLoggedIn: boolean;
   includeTelemetry: boolean;
   includeFeedback: boolean;
+  sessionsBudgetMb: number;
 }
 
 export function setSyncService(service: SyncService | null): void {
@@ -43,7 +53,7 @@ export function getSyncService(): SyncService | null {
   return getRuntimeSyncService();
 }
 
-export async function sync(ctx: SlashCommandContext): Promise<string | null> {
+export async function sync(ctx: SlashCommandContext, args: string[] = []): Promise<string | null> {
   const config = await loadConfig();
   const isLoggedIn = Boolean(config.auth?.token && config.auth?.user);
 
@@ -57,15 +67,20 @@ export async function sync(ctx: SlashCommandContext): Promise<string | null> {
   // Gather sync data
   const data = await gatherSyncData(ctx, config);
 
+  if (args[0] === 'status') {
+    renderStatusTab(data);
+    return null;
+  }
+
   // Render interactive UI
   await renderSyncUI(data, ctx);
 
   return null;
 }
 
-async function gatherSyncData(ctx: SlashCommandContext, config: any): Promise<SyncData> {
+async function gatherSyncData(ctx: SlashCommandContext, config: AutohandConfig): Promise<SyncData> {
   const syncService = getRuntimeSyncService();
-  let status = {
+  let status: Awaited<ReturnType<SyncService['getStatus']>> = {
     enabled: false,
     syncing: false,
     lastSync: null as string | null,
@@ -85,6 +100,11 @@ async function gatherSyncData(ctx: SlashCommandContext, config: any): Promise<Sy
     enabled: config.sync?.enabled !== false,
     isRunning: syncService?.isRunning ?? false,
     lastSync: status.lastSync,
+    lastError: status.lastError,
+    inventoryError: status.inventoryError,
+    failingSince: status.failingSince,
+    skipped: status.skipped,
+    remoteSkipped: status.remoteSkipped,
     fileCount: status.fileCount,
     totalSize: status.totalSize,
     interval: config.sync?.interval ?? 300000,
@@ -92,6 +112,7 @@ async function gatherSyncData(ctx: SlashCommandContext, config: any): Promise<Sy
     isLoggedIn: Boolean(config.auth?.token),
     includeTelemetry: config.sync?.includeTelemetry ?? false,
     includeFeedback: config.sync?.includeFeedback ?? false,
+    sessionsBudgetMb: config.sync?.sessionsBudgetMb ?? 100,
   };
 }
 
@@ -108,6 +129,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
     const wasRaw = (input as any).isRaw;
     const wasPaused = input.readableFlowing !== true;
     let ownsRawMode = false;
+    const extendedKeys = new StdinBuffer({ timeout: 50 });
 
     const render = () => {
       if (closed) return;
@@ -191,9 +213,28 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
       }
     };
 
+    extendedKeys.on('data', (sequence: string) => {
+      const encoded = /^\u001b\[(\d+)(?:;(\d+)(?::([123]))?)?u$/u.exec(sequence);
+      if (!encoded || encoded[3] === '3' || closed) return;
+      const code = Number(encoded[1]);
+      const modifiers = Number(encoded[2] ?? 1);
+      if (!Number.isSafeInteger(modifiers) || modifiers < 1) return;
+      const key: readline.Key = { sequence, shift: ((modifiers - 1) & 1) !== 0, ctrl: ((modifiers - 1) & 4) !== 0 };
+      let text = '';
+      if (code === 27) key.name = 'escape';
+      else if (code === 9) key.name = 'tab';
+      else if ((code === 99 || code === 67) && key.ctrl) key.name = 'c';
+      else if (modifiers <= 2 && [69, 83, 101, 115].includes(code)) text = String.fromCharCode(code);
+      else return;
+      void handler(text, key).catch(error => { cleanup(); reject(error); });
+    });
+    const receiveExtendedKeys = (chunk: Buffer | string): void => extendedKeys.process(chunk.toString());
+
     const cleanup = () => {
       if (closed) return;
       closed = true;
+      input.off('data', receiveExtendedKeys);
+      extendedKeys.destroy();
       input.off('keypress', handler as any);
       if (ownsRawMode) {
         try { input.setRawMode(false); } catch { /* TTY may be gone */ }
@@ -215,6 +256,7 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
         }
         if (typeof input.setEncoding === 'function') input.setEncoding('utf8');
       }
+      input.prependListener('data', receiveExtendedKeys);
       input.on('keypress', handler as any);
       input.resume();
       render();
@@ -260,9 +302,16 @@ function renderStatusTab(data: SyncData): void {
   console.log(`  ${theme.accent('Enabled'.padEnd(20))} ${statusIcon} ${data.enabled ? 'Yes' : 'No'}`);
   console.log(`  ${theme.accent('Service Running'.padEnd(20))} ${runningIcon} ${data.isRunning ? 'Yes' : 'No'}`);
   console.log(`  ${theme.accent('Last Sync'.padEnd(20))} ${data.lastSync ? formatDate(data.lastSync) : theme.muted('Never')}`);
-  console.log(`  ${theme.accent('Files Tracked'.padEnd(20))} ${data.fileCount}`);
-  console.log(`  ${theme.accent('Total Size'.padEnd(20))} ${formatSize(data.totalSize)}`);
+  console.log(`  ${theme.accent('Files Tracked'.padEnd(20))} ${data.inventoryError ? theme.muted('Unavailable') : data.fileCount}`);
+  console.log(`  ${theme.accent('Total Size'.padEnd(20))} ${data.inventoryError ? theme.muted('Unavailable') : formatSize(data.totalSize)}`);
   console.log(`  ${theme.accent('Sync Interval'.padEnd(20))} ${formatInterval(data.interval)}`);
+  if (data.lastError) {
+    console.log(theme.warning(`  Settings sync is paused: ${data.lastError}`));
+    if (data.failingSince) console.log(theme.muted(`  Failing since ${data.failingSince}`));
+  }
+  for (const [origin, skipped] of [['Local', data.skipped], ['Cloud', data.remoteSkipped]] as const) {
+    for (const line of formatSyncSkippedFiles(skipped, origin)) console.log(theme.muted(`  ${line}`));
+  }
 }
 
 function renderSettingsTab(data: SyncData): void {
@@ -271,6 +320,7 @@ function renderSettingsTab(data: SyncData): void {
 
   console.log(`  ${theme.accent('Enabled'.padEnd(25))} ${data.enabled ? theme.success('true') : theme.muted('false')}`);
   console.log(`  ${theme.accent('Interval'.padEnd(25))} ${formatInterval(data.interval)}`);
+  console.log(`  ${theme.accent('Session budget'.padEnd(25))} ${data.sessionsBudgetMb} MiB`);
   console.log(`  ${theme.accent('Include Telemetry'.padEnd(25))} ${data.includeTelemetry ? theme.success('true') : theme.muted('false')}`);
   console.log(`  ${theme.accent('Include Feedback'.padEnd(25))} ${data.includeFeedback ? theme.success('true') : theme.muted('false')}`);
 
@@ -300,8 +350,8 @@ function renderActivityTab(data: SyncData): void {
   }
 
   console.log(`  ${theme.accent('Last successful sync:')} ${formatDate(data.lastSync)}`);
-  console.log(`  ${theme.accent('Files synced:')} ${data.fileCount}`);
-  console.log(`  ${theme.accent('Data transferred:')} ${formatSize(data.totalSize)}`);
+  console.log(`  ${theme.accent('Files synced:')} ${data.inventoryError ? theme.muted('Unavailable') : data.fileCount}`);
+  console.log(`  ${theme.accent('Data transferred:')} ${data.inventoryError ? theme.muted('Unavailable') : formatSize(data.totalSize)}`);
 
   console.log(theme.bold('\nTips\n'));
   console.log(theme.muted('  - Sync runs automatically every 5 minutes'));

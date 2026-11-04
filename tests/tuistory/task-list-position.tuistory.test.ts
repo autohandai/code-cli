@@ -4,7 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import fs from 'fs-extra';
-import { afterEach, describe, expect, it } from 'vitest';
+import { createServer, type ServerResponse } from 'node:http';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import {
   setTaskListPositionDirectly,
@@ -26,6 +27,7 @@ const servers: MockOpenRouterServer[] = [];
 
 async function launchTaskListPositionSession(
   initialPosition: 'up' | 'above-composer',
+  env?: Record<string, string>,
 ): Promise<{ session: Session; state: TuistoryTempState }> {
   const server = await createMockOpenRouterSequenceServer([
     JSON.stringify({
@@ -68,6 +70,7 @@ async function launchTaskListPositionSession(
     cols: 90,
     rows: 24,
     waitForDataTimeout: 15_000,
+    env,
   });
   sessions.push(session);
   return { session, state };
@@ -103,6 +106,36 @@ afterEach(async () => {
 });
 
 describe('task list position setting', () => {
+  it('retains a saved position after a delayed startup authentication rejection', async () => {
+    let pendingValidation: ServerResponse | undefined;
+    const auth = createServer((request, response) => {
+      if (request.url?.endsWith('/me')) pendingValidation = response;
+      else { response.writeHead(404); response.end(); }
+    });
+    await new Promise<void>(resolve => auth.listen(0, '127.0.0.1', resolve));
+    const address = auth.address();
+    if (!address || typeof address === 'string') throw new Error('Missing fixture address');
+    try {
+      const { session, state } = await launchTaskListPositionSession('above-composer', {
+        AUTOHAND_AUTH_API_URL: `http://127.0.0.1:${address.port}/api/auth`,
+      });
+      await vi.waitFor(() => expect(pendingValidation).toBeDefined(), { timeout: 10_000 });
+      await setTaskListPositionDirectly(session, 'up');
+      expect((await fs.readJson(state.configPath)).ui.taskListPosition).toBe('up');
+      pendingValidation!.writeHead(401, { 'Content-Type': 'application/json' });
+      pendingValidation!.end(JSON.stringify({ error: 'Unauthorized' }));
+      await vi.waitFor(async () => {
+        const saved = await fs.readJson(state.configPath);
+        expect(saved.auth).toBeUndefined();
+        expect(saved.ui.taskListPosition).toBe('up');
+      }, { timeout: 10_000 });
+      await exitInteractive(session);
+    } finally {
+      auth.closeAllConnections();
+      await new Promise<void>((resolve, reject) => auth.close(error => error ? reject(error) : resolve()));
+    }
+  }, 60_000);
+
   it('isolates the composer for the direct position picker and restores input', async () => {
     const { session, state } = await launchTaskListPositionSession('above-composer');
 

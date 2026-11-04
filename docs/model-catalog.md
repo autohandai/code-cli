@@ -77,6 +77,8 @@ GitHub is the source of truth for every release:
 
 The workflow also runs every four hours and can be dispatched manually. Scheduled runs republish only validated data from `main`; they do not discover or invent model definitions.
 
+Changes limited to the catalog source and its publication tooling do not start a CLI release. A push that also changes CLI runtime files still follows the normal release workflow, and manual CLI releases remain available.
+
 The website admin uses a review-first path:
 
 1. An administrator edits a copy of the current GitHub catalog.

@@ -47,7 +47,7 @@ $TRACES_BINARY_NAME = "ahtraces.exe"
 $COMPAT_BINARY_NAME = "autohand-code.cmd"
 $AGENT_ALIAS_NAME = "agent.cmd"
 $SHORT_ALIAS_NAME = "ah.cmd"
-$FIRST_RUN_MESSAGE = "hello world"
+$FIRST_RUN_MESSAGE = "What can you do in this folder? Give me 3 quick ideas."
 
 function Write-Logo {
     $logo = @"

@@ -53,6 +53,7 @@ import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
 import { getProviderDefaultModel, getProviderModelOptions, getProviderRuntimeDefaultModel, normalizeOpenRouterModelId } from "./providers/modelCatalog.js";
 import { MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from "./core/agents/SessionThreadBudget.js";
+import { atomicWriteFile, withFileLock, type AtomicCommitOptions } from './utils/atomicFile.js';
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
 const TOML_CONFIG_PATH = AUTOHAND_FILES.configToml;
@@ -494,6 +495,10 @@ async function parseConfigFile(
   configPath: string,
 ): Promise<AutohandConfig | LegacyConfigShape> {
   const rawContent = await fs.readFile(configPath, "utf8");
+  return parseConfigContent(configPath, rawContent);
+}
+
+function parseConfigContent(configPath: string, rawContent: string): AutohandConfig | LegacyConfigShape {
   const content = rawContent.charCodeAt(0) === 0xfeff
     ? rawContent.slice(1)
     : rawContent;
@@ -517,6 +522,27 @@ async function parseConfigFile(
   }
 
   return JSON.parse(content) as AutohandConfig | LegacyConfigShape;
+}
+
+async function persistLegacyNetworkTimeoutMigration(configPath: string): Promise<void> {
+  try {
+    const writePath = await resolveConfigWritePath(configPath);
+    await fs.access(writePath, fs.constants.W_OK);
+    await withFileLock(`${writePath}.lock`, async () => {
+      const original = await fs.readFile(writePath, 'utf8');
+      const current = parseConfigContent(configPath, original);
+      if (!isPlainRecord(current) || !isPlainRecord(current.network) || current.network.timeout !== 30_000) return;
+      const network = { ...current.network };
+      delete network.timeout;
+      await writeConfigData(configPath, { ...current, network }, {
+        beforeCommit: () => {
+          if (fs.readFileSync(writePath, 'utf8') !== original) throw new Error('Configuration changed during timeout migration');
+        },
+      }, writePath);
+    }, { waitTimeoutMs: 250, retryDelayMs: 10 });
+  } catch {
+    // A readable configuration remains usable when optional migration cannot persist.
+  }
 }
 
 export async function loadConfig(
@@ -571,7 +597,18 @@ export async function loadConfig(
       );
     }
   }
+  const originalNetwork = isPlainRecord(parsed.network) ? parsed.network : undefined;
+  const legacyTimeout = originalNetwork?.timeout === 30_000;
+  if (legacyTimeout && originalNetwork) {
+    const network = { ...originalNetwork };
+    delete network.timeout;
+    parsed = { ...parsed, network };
+  }
   const normalized = normalizeConfig(parsed);
+  if (legacyTimeout && createIfMissing && !isNewConfig) {
+    await persistLegacyNetworkTimeoutMigration(configPath);
+  }
+
 
   // Load workspace-specific overlays if workspaceRoot is provided. Two layers
   // apply, lowest precedence first:
@@ -2103,8 +2140,8 @@ export interface SaveConfigOptions {
    * The config file is shared by every terminal tab, and a long-lived tab still
    * holds the credential it loaded at startup. Without this, an incidental save
    * — a model switch, a settings change — rewrites the file with that stale
-   * credential and signs the newer tab out. Only sign-in, sign-out, and startup
-   * validation actually mean to change auth, so only they pass `writeAuth`.
+   * credential and signs the newer tab out. Sign-in and sign-out pass `writeAuth`;
+   * startup validation uses `saveValidatedAuth` to update only the checked token.
    */
   writeAuth?: boolean;
 }
@@ -2115,7 +2152,7 @@ async function readPersistedAuth(
 ): Promise<{ present: boolean; auth?: LoadedConfig["auth"] }> {
   try {
     const parsed = await parseConfigFile(configPath);
-    if (parsed && typeof parsed === "object" && "auth" in parsed) {
+    if (parsed && typeof parsed === "object") {
       return { present: true, auth: (parsed as AutohandConfig).auth };
     }
     return { present: false };
@@ -2124,9 +2161,54 @@ async function readPersistedAuth(
   }
 }
 
-export async function saveConfig(
+async function resolveConfigWritePath(configPath: string): Promise<string> {
+  let candidate = configPath;
+  for (let depth = 0; depth < 40; depth++) {
+    try { return await fs.realpath(candidate); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    try { candidate = path.resolve(path.dirname(candidate), await fs.readlink(candidate)); } catch (error) {
+      if (['ENOENT', 'EINVAL'].includes((error as NodeJS.ErrnoException).code ?? '')) return candidate;
+      throw error;
+    }
+  }
+  throw new Error('Configuration symlink chain exceeds the supported depth');
+}
+
+async function writeConfigData(configPath: string, data: Record<string, unknown>, options: AtomicCommitOptions = {}, targetPath?: string): Promise<void> {
+  const writePath = targetPath ?? await resolveConfigWritePath(configPath);
+  if (isYamlFile(configPath)) {
+    const yamlContent = YAML.stringify(data, { indent: 2 });
+    await atomicWriteFile(writePath, yamlContent, options);
+  } else if (isTomlFile(configPath)) {
+    await atomicWriteFile(writePath, stringifyTomlObject(data), options);
+  } else {
+    await atomicWriteFile(writePath, `${JSON.stringify(data, null, 2)}\n`, options);
+  }
+}
+
+export async function saveValidatedAuth(config: LoadedConfig, validatedToken: string): Promise<void> {
+  const writePath = await resolveConfigWritePath(config.configPath);
+  await fs.ensureDir(path.dirname(writePath));
+  await withFileLock(`${writePath}.lock`, async () => {
+    const persisted = await parseConfigFile(config.configPath);
+    if (!isPlainRecord(persisted.auth) || persisted.auth.token !== validatedToken) return;
+    if (config.auth) persisted.auth = config.auth;
+    else delete persisted.auth;
+    await writeConfigData(config.configPath, persisted as Record<string, unknown>, {}, writePath);
+  });
+}
+
+export async function saveConfig(config: LoadedConfig, options: SaveConfigOptions = {}): Promise<void> {
+  const writePath = await resolveConfigWritePath(config.configPath);
+  await fs.ensureDir(path.dirname(writePath));
+  await withFileLock(`${writePath}.lock`, () => saveConfigSnapshot(config, options, writePath));
+}
+
+async function saveConfigSnapshot(
   config: LoadedConfig,
-  options: SaveConfigOptions = {},
+  options: SaveConfigOptions,
+  writePath: string,
 ): Promise<void> {
   const { configPath, workspaceOverlay, runOverlay, [runtimeProviderOverride]: override, ...data } =
     config as LoadedConfig & { [runtimeProviderOverride]?: RuntimeProviderOverride };
@@ -2180,14 +2262,7 @@ export async function saveConfig(
 
   await fs.ensureDir(path.dirname(configPath));
 
-  if (isYamlFile(configPath)) {
-    const yamlContent = YAML.stringify(data, { indent: 2 });
-    await fs.writeFile(configPath, yamlContent, "utf8");
-  } else if (isTomlFile(configPath)) {
-    await fs.writeFile(configPath, stringifyTomlObject(data as Record<string, unknown>), "utf8");
-  } else {
-    await fs.writeJson(configPath, data, { spaces: 2 });
-  }
+  await writeConfigData(configPath, data as Record<string, unknown>, {}, writePath);
 
   // A signed-in client synchronizes its account-managed MCP connectors and the
   // safe settings snapshot after user-level configuration changes. The import is

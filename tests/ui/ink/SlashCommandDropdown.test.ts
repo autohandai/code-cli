@@ -8,7 +8,9 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import stripAnsi from 'strip-ansi';
+import stringWidth from 'string-width';
 import {
   SlashCommandDropdown,
   matchSlashCommand,
@@ -36,6 +38,18 @@ const mockSlashCommands: SlashCommand[] = [
 ];
 
 describe('SlashCommandDropdown utilities', () => {
+  it('keeps the selected command visible while scrolling beyond the first five options', () => {
+    const suggestions = Array.from({ length: 12 }, (_, index) => ({ command: `/command-${index}`, description: `Command ${index}` }));
+    const view = render(React.createElement(ThemeProvider, null,
+      React.createElement(SlashCommandDropdown, { visible: true, activeIndex: 8, suggestions })));
+    try {
+      const frame = stripAnsi(view.lastFrame() ?? '');
+      expect(frame).toContain('▸ /command-8');
+      expect(frame).not.toContain('/command-0');
+      expect(frame.split('\n').filter(line => /\/command-/u.test(line))).toHaveLength(5);
+    } finally { view.unmount(); }
+  });
+
   afterEach(() => {
     initTheme('dark');
   });
@@ -65,6 +79,31 @@ describe('SlashCommandDropdown utilities', () => {
     );
     expect(source).toContain('isSelected ? theme.selected(');
     expect(source).not.toContain("color={isSelected ? 'cyan'");
+  });
+
+  it('re-renders with the new terminal width after a resize', async () => {
+    const description = 'D'.repeat(60);
+    const view = render(
+      React.createElement(
+        ThemeProvider,
+        null,
+        React.createElement(SlashCommandDropdown, {
+          visible: true,
+          activeIndex: 0,
+          suggestions: [{ command: '/theme', description }],
+        })
+      )
+    );
+    expect(view.lastFrame()).toContain('D'.repeat(40));
+
+    Object.defineProperty(view.stdout, 'columns', { configurable: true, value: 40 });
+    view.stdout.emit('resize');
+
+    await vi.waitFor(() => expect(view.lastFrame()).not.toContain('D'.repeat(40)));
+    const rows = stripAnsi(view.lastFrame() ?? '').split('\n').filter(Boolean);
+    expect(rows.every(row => stringWidth(row) <= 40)).toBe(true);
+    expect(rows.find(row => row.includes('/theme'))).toContain('…');
+    view.unmount();
   });
 
   describe('matchSlashCommand', () => {
@@ -109,6 +148,11 @@ describe('SlashCommandDropdown utilities', () => {
   });
 
   describe('buildSlashSuggestions', () => {
+    it('retains every matching command for keyboard navigation by default', () => {
+      const commands = Array.from({ length: 12 }, (_, index) => ({ command: `/command-${index}`, description: `Command ${index}`, implemented: true }));
+      expect(buildSlashSuggestions('', commands)).toHaveLength(commands.length);
+      expect(buildSlashSuggestions('command', commands)).toHaveLength(commands.length);
+    });
     const fuzzySlashCommands: SlashCommand[] = [
       { command: '/clear', description: 'Clear screen', implemented: true },
       { command: '/formatters', description: 'List formatters', implemented: true },
@@ -187,6 +231,11 @@ describe('SlashCommandDropdown utilities', () => {
   });
 
   describe('buildSubcommandSuggestions', () => {
+    it('retains every matching subcommand for keyboard navigation by default', () => {
+      const commands = [{ command: '/skills', description: 'Skills', implemented: true,
+        subcommands: Array.from({ length: 8 }, (_, index) => ({ name: `option-${index}`, description: `Option ${index}` })) }];
+      expect(buildSubcommandSuggestions('/skills ', commands)).toHaveLength(8);
+    });
     const commandsWithRegisteredMultiword: SlashCommand[] = [
       ...mockSlashCommands,
       {

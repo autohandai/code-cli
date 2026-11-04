@@ -17,6 +17,7 @@ async function selectModalOption(session: Session, label: string): Promise<void>
 export async function openConfiguredOpenAIModelPicker(session: Session): Promise<string> {
   await session.waitForText('❯');
   await session.type('/model');
+  await session.text({ timeout: 10_000, waitFor: text => text.includes('❯ /model') });
   await session.press('enter');
   await session.waitForText('What would you like to change?');
   await selectModalOption(session, 'Change provider');

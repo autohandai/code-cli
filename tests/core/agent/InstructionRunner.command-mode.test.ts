@@ -8,6 +8,8 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import * as computerUse from '../../../src/computer/autohandComputerUse.js';
+import { SpecialistOrchestrator } from '../../../src/core/agents/SpecialistOrchestrator.js';
+import type { AgentDelegator } from '../../../src/core/agents/AgentDelegator.js';
 import { GoalManager } from '../../../src/goals/GoalManager.js';
 import { InstructionRunner, type AgentInstructionHost } from '../../../src/core/agent/InstructionRunner.js';
 import { startDeepResearchRun } from '../../../src/deepResearch/session.js';
@@ -17,7 +19,7 @@ import {
 } from '../../../src/core/agent/InputTurnCoordinator.js';
 import { HookManager } from '../../../src/core/HookManager.js';
 import { ComputerUseLifecycle } from '../../../src/computer/ComputerUseLifecycle.js';
-import { ApiError, classifyApiError } from '../../../src/providers/errors.js';
+import { ApiError, classifyApiError, waitForProviderRetry } from '../../../src/providers/errors.js';
 import { getPlanModeManager } from '../../../src/commands/plan.js';
 import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
 import { ProviderNotConfiguredError } from '../../../src/providers/ProviderFactory.js';
@@ -123,6 +125,26 @@ function createHost(): AgentInstructionHost {
 }
 
 describe('InstructionRunner command mode UI', () => {
+  it('captures host learning baselines before work and finishes without waiting for extraction', async () => {
+    const host = createHost();
+    const sequence: string[] = [];
+    host.beginSkillLearningTurn = vi.fn(async () => { sequence.push('baseline'); });
+    host.runReactLoop = vi.fn(async () => { sequence.push('work'); return { status: 'completed' }; });
+    host.finishSkillLearningTurn = vi.fn(async () => { sequence.push('finish'); await new Promise(() => {}); });
+    expect(await new InstructionRunner(host).run('check the real output')).toBe(true);
+    expect(sequence).toEqual(['baseline', 'work', 'finish']);
+    expect(host.finishSkillLearningTurn).toHaveBeenCalledWith({ instruction: 'check the real output', success: true, aborted: false }, expect.any(AbortSignal));
+  });
+
+  it('does not fail the user turn when host learning callbacks reject', async () => {
+    const host = createHost();
+    host.beginSkillLearningTurn = vi.fn(async () => { throw new Error('baseline unavailable'); });
+    host.finishSkillLearningTurn = vi.fn(async () => { throw new Error('background unavailable'); });
+    expect(await new InstructionRunner(host).run('check the real output')).toBe(true);
+    await Promise.resolve();
+    expect(host.runReactLoop).toHaveBeenCalledOnce();
+  });
+
   it.each(['finished', 'failed', 'cancelled'] as const)('settles the Computer Use lifecycle once when the turn is %s', async status => {
     const host = createHost();
     const manager = new HookManager({ workspaceRoot: '/tmp', settings: { enabled: false } });
@@ -798,6 +820,60 @@ describe('InstructionRunner command mode UI', () => {
     }
   });
 
+  it('retains the complete quota failure in active Ink without duplicating stderr', async () => {
+    const host = createHost();
+    host.useInkRenderer = true;
+    const addNotification = vi.fn();
+    host.inkRenderer = { addNotification };
+    host.runtime.isCommandMode = false;
+    host.runtime.options = {};
+    const message = [
+      'Autohand AI 24-hour request quota reached.',
+      "You've used all your requests in this 24-hour window.",
+      'Resets 3 Nov 2026, 6:00 pm (Pacific/Auckland) · in 2h 30m.',
+      'Upgrade your Autohand Code plan for more usage: https://console.autohand.ai/upgrade/?from=cli&tier=pro',
+    ].join('\n');
+    const error = new ApiError(message, 'rate_limited', 429, false);
+    host.runReactLoop = vi.fn(async () => { throw error; });
+    host.getDisplayErrorMessage = vi.fn(() => message);
+    host.notifySessionFailure = vi.fn();
+    host.recordTurnFailure = vi.fn();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await new InstructionRunner(host).run('call the provider')).toBe(false);
+      expect(host.stopUI).toHaveBeenCalledWith(true, 'Session failed');
+      expect(addNotification).toHaveBeenCalledExactlyOnceWith(message, { placement: 'transcript' });
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(host.emitOutput).toHaveBeenCalledWith({ type: 'error', content: message });
+      expect(host.recordTurnFailure).toHaveBeenCalledWith(message);
+      expect(host.notifySessionFailure).toHaveBeenCalledExactlyOnceWith(error);
+      expect(host.submitSessionFailureBugReport).toHaveBeenCalledWith(error, 0, 3, { autoReport: true });
+      expect(host.printCompletionSummary).not.toHaveBeenCalled();
+      expect(host.cleanupUI).toHaveBeenCalledWith(true);
+    } finally { consoleError.mockRestore(); }
+  });
+
+  it.each([false, true])('preserves stderr details when Ink display ownership is %s but no renderer is active', async useInkRenderer => {
+    const host = createHost();
+    host.useInkRenderer = useInkRenderer;
+    host.inkRenderer = null;
+    const message = 'Cloud request timed out after being accepted.';
+    const error = new ApiError(message, 'timeout', 504, false);
+    host.runReactLoop = vi.fn(async () => { throw error; });
+    host.getDisplayErrorMessage = vi.fn(() => message);
+    host.notifySessionFailure = vi.fn();
+    host.recordTurnFailure = vi.fn();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await new InstructionRunner(host).run('call the provider')).toBe(false);
+      expect(host.stopUI).toHaveBeenCalledWith(true, 'Session failed');
+      expect(consoleError).toHaveBeenCalledExactlyOnceWith(expect.stringContaining(message));
+      expect(host.emitOutput).toHaveBeenCalledWith({ type: 'error', content: message });
+      expect(host.recordTurnFailure).toHaveBeenCalledWith(message);
+      expect(host.notifySessionFailure).toHaveBeenCalledExactlyOnceWith(error);
+    } finally { consoleError.mockRestore(); }
+  });
+
   it('continues retrying provider outages until a later retry succeeds', async () => {
     const host = createHost();
     host.runtime = {
@@ -850,7 +926,36 @@ describe('InstructionRunner command mode UI', () => {
     }
   });
 
-  it('bounds the backoff delay when a retryable outage advertises an hours-long Retry-After', async () => {
+  it('cancels a session recovery wait immediately without another request or a retained timer', async () => {
+    vi.useFakeTimers();
+    const host = createHost();
+    const waiting = Promise.withResolvers<void>();
+    let controller: AbortController | undefined;
+    host.isRetryableSessionError = vi.fn(() => true);
+    host.runReactLoop = vi.fn(async (activeController: AbortController) => {
+      controller = activeController;
+      throw new ApiError('Busy', 'server_error', 503, true, 120_000);
+    });
+    host.sleep = vi.fn((ms: number, signal?: AbortSignal) => {
+      waiting.resolve();
+      return waitForProviderRetry(ms, signal);
+    });
+    const pending = new InstructionRunner(host).run('continue the research job');
+    try {
+      await waiting.promise;
+      controller!.abort();
+      expect(vi.getTimerCount()).toBe(0);
+      await expect(pending).resolves.toBe(false);
+      expect(host.runReactLoop).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      await vi.advanceTimersByTimeAsync(120_000);
+      await pending;
+      vi.useRealTimers();
+    }
+  });
+
+  it('honors an hours-long Retry-After rather than retrying before the server permits it', async () => {
     const host = createHost();
     host.runtime = {
       ...host.runtime,
@@ -884,12 +989,11 @@ describe('InstructionRunner command mode UI', () => {
       const result = await new InstructionRunner(host).run('call the flaky provider');
 
       expect(result).toBe(false);
-      // Initial attempt + 3 retries, all completing rather than stalling on
-      // an hours-long sleep for the first retry.
       expect(host.runReactLoop).toHaveBeenCalledTimes(4);
       expect(sleepDelays).toHaveLength(3);
       for (const delay of sleepDelays) {
-        expect(delay).toBeLessThanOrEqual(60_000);
+        expect(delay).toBeGreaterThan(4 * 60 * 60 * 1000 - 2000);
+        expect(delay).toBeLessThanOrEqual(4 * 60 * 60 * 1000);
       }
     } finally {
       consoleLogSpy.mockRestore();
@@ -1152,6 +1256,19 @@ describe('incomplete turn status', () => {
   });
 });
 
+
+it('clears the previous specialist results when the next turn skips preparation', async () => {
+  const host = createHost();
+  const orchestrator = new SpecialistOrchestrator({} as AgentDelegator);
+  orchestrator.rememberAgentResults([{ agents: ['reviewer'], outcome: { success: true, output: 'Previous turn review' } }]);
+  expect(orchestrator.turnResultForAgent('reviewer')).toBeDefined();
+  Object.assign(host, { beginSpecialistTurn: () => orchestrator.beginTurn() });
+  host.runReactLoop = vi.fn(async () => {
+    expect(orchestrator.turnResultForAgent('reviewer')).toBeUndefined();
+    return { status: 'completed' };
+  });
+  expect(await new InstructionRunner(host).run('Inspect the next diff', { specialistPreparation: 'skip' })).toBe(true);
+});
 
 it('skips automatic specialists for an explicitly scoped native instruction', async () => {
   const host = createHost();

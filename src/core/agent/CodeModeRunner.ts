@@ -3,7 +3,6 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { COMPUTER_USE_TOOL_PREFIX } from '../../computer/computerUseOutput.js';
 import type {
   SandboxRunOptions,
   SandboxRunResult,
@@ -11,10 +10,10 @@ import type {
   SandboxToolOutcome,
 } from '../codemode/QuickJsSandbox.js';
 import { CODE_MODE_TOOL_NAME, isCodeModeEnabled } from '../codemode/feature.js';
-import { getToolCategory, type ToolCategory } from '../toolFilter.js';
 import { CODE_MODE_TOOL_DEFINITION, type ToolDefinition } from '../toolManager.js';
 import type {
   LoadedConfig,
+  FunctionDefinition,
   ToolActionOutcome,
   ToolCallRequest,
   ToolExecutionContext,
@@ -68,21 +67,20 @@ export interface CodeModeRunInput {
   context?: ToolExecutionContext;
 }
 
-/**
- * A script can do what the model can do with its work tools, and nothing that
- * steers the session: no delegation, planning, questions, hook or tool
- * authoring, desktop control, or another script.
- */
-const SCRIPT_CALLABLE_CATEGORIES: ReadonlySet<ToolCategory> = new Set([
-  'read', 'write', 'create', 'delete', 'git_read', 'git_write', 'shell',
-]);
-const SCRIPT_CALLABLE_META_TOOLS: ReadonlySet<string> = new Set(['recall_memory']);
-
 export function isScriptCallableTool(tool: string): boolean {
-  if (tool.startsWith('mcp__')) {
-    return !tool.startsWith(COMPUTER_USE_TOOL_PREFIX);
-  }
-  return SCRIPT_CALLABLE_CATEGORIES.has(getToolCategory(tool)) || SCRIPT_CALLABLE_META_TOOLS.has(tool);
+  return tool !== CODE_MODE_TOOL_NAME
+    && tool !== 'ask_followup_question';
+}
+
+/** Discovery returns schemas as data; it never changes the provider's tool envelope. */
+export function selectCodeModeTools(tools: readonly FunctionDefinition[], maxTools?: number): FunctionDefinition[] | undefined {
+  if (!tools.some((tool) => tool.name === CODE_MODE_TOOL_NAME)) return undefined;
+  if (maxTools !== undefined && (!Number.isSafeInteger(maxTools) || maxTools < 1)) throw new Error('Invalid provider tool limit');
+  const byName = new Map(tools.map(tool => [tool.name, tool]));
+  return [CODE_MODE_TOOL_NAME, 'tool_search', 'ask_followup_question']
+    .flatMap(name => byName.get(name) ?? [])
+    .slice(0, maxTools)
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
 }
 
 function resolveTimeout(requested: number | undefined): number {
@@ -98,7 +96,10 @@ function isArgumentObject(value: unknown): value is NonNullable<ToolCallRequest[
 
 function toOutcome(result: ToolExecutionResult): SandboxToolOutcome {
   if (result.success) {
-    return { ok: true, output: result.output ?? '' };
+    return {
+      ok: true, output: result.output ?? '',
+      ...(result.imagePaths?.length || result.imageRefs?.length ? { images: true } : {}),
+    };
   }
   return {
     ok: false,
@@ -166,6 +167,12 @@ export async function runCodeModeScript(
   let nested = 0;
   let failed = 0;
   let stopped: ScriptStopped | undefined;
+  const imagePaths = new Set<string>();
+  const imageRefs = new Set<string>();
+  const imageEvidence = () => ({
+    ...(imagePaths.size ? { imagePaths: [...imagePaths] } : {}),
+    ...(imageRefs.size ? { imageRefs: [...imageRefs] } : {}),
+  });
 
   const executeToolCalls = async (calls: SandboxToolCall[]): Promise<SandboxToolOutcome[]> => {
     const outcomes: SandboxToolOutcome[] = new Array<SandboxToolOutcome>(calls.length);
@@ -186,8 +193,13 @@ export async function runCodeModeScript(
     });
 
     if (batch.length > 0) {
-      const results = await tools.execute(batch, undefined, nestedContext);
+      const execute = () => tools.execute(batch, undefined, nestedContext);
+      const results = input.context?.executeNestedToolCalls
+        ? await input.context.executeNestedToolCalls(batch, execute)
+        : await execute();
       results.forEach((result, index) => {
+        result.imagePaths?.forEach(path => imagePaths.add(path));
+        result.imageRefs?.forEach(ref => imageRefs.add(ref));
         outcomes[batchSlots[index]] = toOutcome(result);
       });
       const blocking = results.find((result) => !result.success && (result.kind === 'authorization' || result.kind === 'aborted'));
@@ -223,11 +235,13 @@ export async function runCodeModeScript(
       kind: stopped?.kind ?? (run.errorKind ? FAILURE_KINDS[run.errorKind] : 'operational'),
       error,
       output: run.logs ? `${error}\n\nLogs:\n${run.logs}` : error,
+      ...imageEvidence(),
     };
   }
 
   return {
     success: true,
+    ...imageEvidence(),
     output: JSON.stringify({
       ok: true,
       result: parseResult(run.result),

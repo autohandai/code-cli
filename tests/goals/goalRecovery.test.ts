@@ -67,6 +67,27 @@ describe('offline goal session recovery', () => {
     expect((await recovering.prepareSessionRecovery(sessionId)).ok).toBe(false);
   });
 
+  it.each(['paused', 'blocked', 'waiting'] as const)('rejects live or uncertain ownership for a saved %s goal without changing it', async status => {
+    await owner.updateGoal({ status, ...(status === 'paused' ? {} : { stopReason: 'Waiting for the approved dependency', resumeWhen: 'Dependency is available' }) });
+    await owner.enqueueGoal({ objective: 'Keep queued', source: 'command' });
+    const filename = path.join(workspaceRoot, '.autohand/goals.local.json'); const before = await fs.readFile(filename, 'utf8');
+    for (const isSessionAlive of [async () => true, async () => { throw new Error('Unknown owner'); }]) {
+      const recovering = new GoalManager(workspaceRoot, { sessionId: 'offline-owner', isSessionAlive });
+      expect((await recovering.restoreSessionCheckpoint()).ok).toBe(false);
+      expect(await fs.readFile(filename, 'utf8')).toBe(before);
+    }
+    const offline = new GoalManager(workspaceRoot, { sessionId: 'offline-owner', isSessionAlive: async () => false });
+    expect((await offline.restoreSessionCheckpoint()).ok).toBe(true);
+    expect((await offline.getSessionSnapshot()).goal?.status).toBe(status);
+    expect(await fs.readFile(filename, 'utf8')).toBe(before);
+  });
+
+  it.each(['complete', 'budgetLimited'] as const)('does not claim terminal %s history or require an owner probe', async status => {
+    await owner.updateGoal({ status }); const alive = vi.fn(async () => true);
+    const recovering = new GoalManager(workspaceRoot, { sessionId: 'offline-owner', isSessionAlive: alive });
+    expect((await recovering.restoreSessionCheckpoint()).ok).toBe(true); expect(alive).not.toHaveBeenCalled();
+  });
+
   it('retains a recovered blocked goal and its explanation', async () => {
     await owner.updateGoal({ status: 'blocked', stopReason: 'Need approval', resumeWhen: 'Approved' });
     const recovering = new GoalManager(workspaceRoot, { sessionId: 'new-session', isSessionAlive: async () => false });

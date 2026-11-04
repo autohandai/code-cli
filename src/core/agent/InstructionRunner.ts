@@ -1,3 +1,4 @@
+import { describeUnattendedApproval, summarizeUnattendedApprovals } from '../../permissions/unattended.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -42,6 +43,7 @@ import {
 } from '../../deepResearch/session.js';
 
 const INCOMPLETE_LOOP_REASONS: Record<Extract<ReactLoopResult, { status: 'incomplete' }>['reason'], string> = {
+  approval_required: 'The run requires tool approval that cannot be requested unattended',
   iteration_limit: 'The agent loop reached its iteration limit before completion',
   pending_todos: 'The turn ended with unfinished todo items',
   advisor_review: 'The turn ended before its Moa checkpoint review was resolved',
@@ -83,7 +85,9 @@ interface InstructionPersistentInput {
   setStatusLine(statusLine: string | { left: string; right?: string }): void;
 }
 
-type InstructionInkRenderer = object;
+interface InstructionInkRenderer {
+  addNotification?(message: string, options?: { placement: 'transcript' }): void;
+}
 
 interface EnvironmentBootstrapResult {
   success: boolean;
@@ -98,6 +102,7 @@ function readCompletedTurnUsage(host: AgentInstructionHost): TurnUsage {
 }
 
 export interface AgentInstructionHost {
+  toolManager?: { resetUnattendedDenials?(): void; getUnattendedDenials?(): string[] };
   extensionReloadController?: Pick<import('../../extensions/ExtensionReloadController.js').ExtensionReloadController, 'withStableExtensions'>;
   repositoryReadiness?: Pick<import('./RepositoryReadiness.js').RepositoryReadiness, 'markTurnCompleted'> | null;
   programStatus?: AgentProgramStatus;
@@ -149,6 +154,7 @@ export interface AgentInstructionHost {
   installPersistentConsoleBridge(): () => void;
   formatStatusLine(): { left: string; right?: string };
   printUserInstructionToChatLog(instruction: string): void;
+  beginSpecialistTurn?(): void;
   prepareSpecialists?(instruction: string): Promise<string | undefined>;
   setupPersistentInputInterruptHandlers(
     abortController: AbortController,
@@ -178,7 +184,7 @@ export interface AgentInstructionHost {
     maxRetries: number,
     options?: SessionFailureBugReportOptions
   ): Promise<void>;
-  sleep(ms: number): Promise<void>;
+  sleep(ms: number, signal?: AbortSignal): Promise<void>;
   shouldUsePassiveSessionRetry(error: Error): boolean;
   injectContinuationMessage(error: Error, attempt: number): void;
   getDisplayErrorMessage(error: unknown): string;
@@ -191,6 +197,8 @@ export interface AgentInstructionHost {
   beginTodoActivityTurn?(): void;
   clearActivityForCompletedTurn?(): void;
   scheduleTurnMemoryReflection(outcome: TurnMemoryReflectionOutcome): void;
+  beginSkillLearningTurn?(instruction: string, signal: AbortSignal): Promise<void>;
+  finishSkillLearningTurn?(outcome: { instruction: string; success: boolean; aborted: boolean }, signal: AbortSignal): Promise<void>;
   writeDebugLine?(message: string): void;
 }
 
@@ -281,21 +289,33 @@ export class InstructionRunner {
       host.peerCommunicationRuntime?.setPaused('cancelled', true);
     };
     abortController.signal.addEventListener('abort', pausePeers, { once: true });
-
+    let turnSucceeded = false;
     try {
-      return await this.runWithController(
+      try {
+        await host.beginSkillLearningTurn?.(instruction, abortController.signal);
+      } catch {
+        host.writeDebugLine?.('[Skill learning] Baseline capture unavailable; independent verification remains required.');
+      }
+      const result = await this.runWithController(
         instruction,
         abortController,
         options,
         deepResearch,
         finalizeResearch,
       );
+      turnSucceeded = result === true;
+      return result;
     } finally {
       abortController.signal.removeEventListener('abort', pausePeers);
       host.peerCommunicationRuntime?.endTurn(abortController.signal.aborted);
       options.signal?.removeEventListener('abort', forwardExternalAbort);
       if (deepResearch.runId && !deepResearch.finalized && !deepResearch.deferFinalization) {
         await finalizeResearch(false);
+      }
+      if (host.finishSkillLearningTurn) {
+        const outcome = { instruction, success: turnSucceeded, aborted: abortController.signal.aborted };
+        void Promise.resolve().then(() => host.finishSkillLearningTurn!(outcome, abortController.signal))
+          .catch(() => host.writeDebugLine?.('[Skill learning] Background outcome recording unavailable.'));
       }
     }
   }
@@ -413,6 +433,8 @@ export class InstructionRunner {
     // Initialize task-level tracking
     host.taskStartedAt = Date.now();
     host.beginTodoActivityTurn?.();
+    host.toolManager?.resetUnattendedDenials?.();
+    host.beginSpecialistTurn?.();
     host.totalTokensUsed = 0;
     host.currentTurnActualUsage = {
       kind: 'unavailable',
@@ -468,6 +490,11 @@ export class InstructionRunner {
     };
     const recordIncompleteLoop = (result: Extract<ReactLoopResult, { status: 'incomplete' }>): false => {
       success = false;
+      if (result.reason === 'approval_required') {
+        const denied = host.toolManager?.getUnattendedDenials?.() ?? [];
+        for (const tool of new Set(denied)) console.error(describeUnattendedApproval(tool));
+        console.error(summarizeUnattendedApprovals(denied));
+      }
       recordReflectionFailure('incomplete', INCOMPLETE_LOOP_REASONS[result.reason]);
       host.stopUI(true);
       host.clearActivityForCompletedTurn?.();
@@ -560,6 +587,14 @@ export class InstructionRunner {
       if (abortController.signal.aborted) {
         success = false;
         return false;
+      }
+
+      const preparationDenials = host.toolManager?.getUnattendedDenials?.() ?? [];
+      if (preparationDenials.length > 0) {
+        host.conversation.addMessage({ role: 'user', content: instruction });
+        await host.saveUserMessage(instruction);
+        host.conversation.addSystemNote(`${summarizeUnattendedApprovals(preparationDenials)} Stop this turn without retrying tools.`);
+        return recordIncompleteLoop({ status: 'incomplete', reason: 'approval_required' });
       }
 
       stopPreparation = host.startPreparationStatus(instruction);
@@ -673,7 +708,12 @@ export class InstructionRunner {
           // Show retry message to user
           console.log(chalk.yellow(`\n⚠ Session encountered an error: ${err.message}`));
           console.log(chalk.cyan(`  Attempting recovery (${host.sessionRetryCount}/${maxRetries}) in ${formatRecoveryWait(delay)}...`));
-          await host.sleep(delay);
+          try {
+            await host.sleep(delay, abortController.signal);
+          } catch (waitError) {
+            if (abortController.signal.aborted) return false;
+            throw waitError;
+          }
           if (abortController.signal.aborted) {
             return false;
           }
@@ -734,7 +774,6 @@ export class InstructionRunner {
         }
 
         host.stopUI(true, 'Session failed');
-        // Emit error for RPC mode
         const errorMessage = host.getDisplayErrorMessage(err);
         recordReflectionFailure(
           encounteredProviderFailure || err instanceof ApiError ? 'provider' : 'unexpected',
@@ -743,7 +782,10 @@ export class InstructionRunner {
         host.recordTurnFailure?.(errorMessage);
         host.clearActivityForCompletedTurn?.();
         host.emitOutput({ type: 'error', content: errorMessage });
-        if (err instanceof Error) {
+        const inkRenderer = host.useInkRenderer ? host.inkRenderer : null;
+        if (inkRenderer?.addNotification) {
+          inkRenderer.addNotification(errorMessage, { placement: 'transcript' });
+        } else if (err instanceof Error) {
           console.error(chalk.red(errorMessage));
         } else {
           console.error(errorMessage);

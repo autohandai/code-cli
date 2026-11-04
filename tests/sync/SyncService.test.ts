@@ -1327,7 +1327,7 @@ describe('SyncService', () => {
           expect(mockApiClient.initiateDownload).not.toHaveBeenCalled();
           expect(mockApiClient.downloadFile).not.toHaveBeenCalled();
           expect(await fs.readFile(outsideFile, 'utf8')).toBe('sentinel');
-          expect(await fs.pathExists(path.join(tempDir, '.sync-state.json'))).toBe(false);
+          expect(await fs.readJson(path.join(tempDir, '.sync-state.json'))).not.toHaveProperty('lastSync');
           expect(events.some((event) => event.type === 'sync_completed')).toBe(false);
         }
       } finally {
@@ -1354,7 +1354,7 @@ describe('SyncService', () => {
       expect(result.error).toMatch(/invalid sync manifest/i);
       expect(mockApiClient.initiateDownload).not.toHaveBeenCalled();
       expect(mockApiClient.initiateUpload).not.toHaveBeenCalled();
-      expect(await fs.pathExists(path.join(tempDir, '.sync-state.json'))).toBe(false);
+      expect(await fs.readJson(path.join(tempDir, '.sync-state.json'))).not.toHaveProperty('lastSync');
     });
 
     it.each([
@@ -1373,27 +1373,27 @@ describe('SyncService', () => {
       expect(mockApiClient.initiateDownload).not.toHaveBeenCalled();
     });
 
-    it.each([
-      ['per-file limit', { maxFileSize: 7, maxTotalSize: 100 }, ['memory/entry.json']],
-      ['aggregate limit', { maxFileSize: 100, maxTotalSize: 15 }, [
-        'memory/first.json',
-        'memory/second.json',
-      ]],
-    ])('rejects a remote manifest over the configured %s before transfer', async (
-      _label,
-      limits,
-      paths,
-    ) => {
-      Object.assign(mockApiClient, { limits });
-      (mockApiClient.getRemoteManifest as ReturnType<typeof vi.fn>)
-        .mockResolvedValue(makeManifest(paths));
-
+    it('skips oversized remote files with a report before transfer', async () => {
+      Object.assign(mockApiClient, { limits: { maxFileSize: 7, maxTotalSize: 100 } });
+      vi.mocked(mockApiClient.getRemoteManifest).mockResolvedValue(makeManifest(['memory/entry.json']));
       const result = await makeService().sync();
-
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/invalid sync manifest/i);
+      expect(result.success).toBe(true);
+      expect(result.remoteSkipped?.oversizedFiles).toBe(1);
       expect(mockApiClient.initiateDownload).not.toHaveBeenCalled();
       expect(mockApiClient.downloadFile).not.toHaveBeenCalled();
+    });
+
+    it('selects a bounded subset of oversized cloud history without blocking the sync', async () => {
+      Object.assign(mockApiClient, { limits: { maxFileSize: 100, maxTotalSize: 15 } });
+      vi.mocked(mockApiClient.getRemoteManifest).mockResolvedValue(makeManifest(['skills/first/SKILL.md', 'skills/second/SKILL.md']));
+      vi.mocked(mockApiClient.initiateDownload).mockResolvedValue({ downloadUrls: { 'skills/first/SKILL.md': 'https://storage.example/first' } });
+      vi.mocked(mockApiClient.downloadFile).mockResolvedValue(Buffer.from('Be kind.'));
+      const result = await makeService().sync();
+      expect(result.success).toBe(true);
+      expect(result.remoteSkipped?.budgetFiles).toBe(1);
+      expect(mockApiClient.initiateDownload).toHaveBeenCalledWith('test-token', ['skills/first/SKILL.md'], expect.any(AbortSignal));
+      expect(await fs.pathExists(path.join(tempDir, 'skills/first/SKILL.md'))).toBe(true);
+      expect(await fs.pathExists(path.join(tempDir, 'skills/second/SKILL.md'))).toBe(false);
     });
 
     it('rejects a remote write through an escaping symlink ancestor', async () => {
@@ -1621,7 +1621,7 @@ describe('SyncService', () => {
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/session index/i);
       expect(await fs.readJson(indexPath)).toEqual(previousIndex);
-      expect(await fs.pathExists(path.join(tempDir, '.sync-state.json'))).toBe(false);
+      expect(await fs.readJson(path.join(tempDir, '.sync-state.json'))).not.toHaveProperty('lastSync');
     });
 
     it.each([
@@ -1675,7 +1675,7 @@ describe('SyncService', () => {
         expect(result.success).toBe(false);
         expect(result.error).toMatch(/session index/i);
         expect(await fs.readJson(indexPath)).toEqual(previousIndex);
-        expect(await fs.pathExists(path.join(tempDir, '.sync-state.json'))).toBe(false);
+        expect(await fs.readJson(path.join(tempDir, '.sync-state.json'))).not.toHaveProperty('lastSync');
       },
     );
 
@@ -1692,7 +1692,7 @@ describe('SyncService', () => {
       expect(result.success).toBe(false);
       expect(result.downloaded).toBe(0);
       expect(mockApiClient.downloadFile).not.toHaveBeenCalled();
-      expect(await fs.pathExists(path.join(tempDir, '.sync-state.json'))).toBe(false);
+      expect(await fs.readJson(path.join(tempDir, '.sync-state.json'))).not.toHaveProperty('lastSync');
       expect(events.some((event) => event.type === 'sync_completed')).toBe(false);
     });
 
@@ -1717,7 +1717,7 @@ describe('SyncService', () => {
       expect(result.success).toBe(false);
       expect(result.downloaded).toBe(1);
       expect(result.error).toContain('second download failed');
-      expect(await fs.pathExists(path.join(tempDir, '.sync-state.json'))).toBe(false);
+      expect(await fs.readJson(path.join(tempDir, '.sync-state.json'))).not.toHaveProperty('lastSync');
       expect(events.some((event) => event.type === 'sync_completed')).toBe(false);
     });
 
@@ -1733,7 +1733,7 @@ describe('SyncService', () => {
       expect(result.success).toBe(false);
       expect(mockApiClient.uploadFile).not.toHaveBeenCalled();
       expect(mockApiClient.completeUpload).not.toHaveBeenCalled();
-      expect(await fs.pathExists(path.join(tempDir, '.sync-state.json'))).toBe(false);
+      expect(await fs.readJson(path.join(tempDir, '.sync-state.json'))).not.toHaveProperty('lastSync');
       expect(events.some((event) => event.type === 'sync_completed')).toBe(false);
     });
 
@@ -1760,7 +1760,7 @@ describe('SyncService', () => {
       expect(result.uploaded).toBe(1);
       expect(result.error).toContain('second upload failed');
       expect(mockApiClient.completeUpload).not.toHaveBeenCalled();
-      expect(await fs.pathExists(path.join(tempDir, '.sync-state.json'))).toBe(false);
+      expect(await fs.readJson(path.join(tempDir, '.sync-state.json'))).not.toHaveProperty('lastSync');
       expect(events.some((event) => event.type === 'sync_completed')).toBe(false);
     });
 
@@ -1786,7 +1786,7 @@ describe('SyncService', () => {
 
       expect(result.success).toBe(false);
       expect(result.uploaded).toBe(1);
-      expect(await fs.pathExists(path.join(tempDir, '.sync-state.json'))).toBe(false);
+      expect(await fs.readJson(path.join(tempDir, '.sync-state.json'))).not.toHaveProperty('lastSync');
       expect(events.some((event) => event.type === 'sync_completed')).toBe(false);
     });
 

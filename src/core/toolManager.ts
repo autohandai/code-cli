@@ -1,3 +1,4 @@
+import { describeUnattendedApproval, summarizeUnattendedApprovals, UnattendedApprovalTracker } from '../permissions/unattended.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -159,6 +160,7 @@ export interface PermissionRequestHookContext extends PreToolHookContext {
 }
 
 export interface ToolAuthorizationOptions {
+  unattendedApprovals?: UnattendedApprovalTracker;
   permissionManager: PermissionManager;
   /** Resolve specialized contexts, such as the expanded shell command for a meta-tool. */
   resolvePermissionContext?: (action: AgentAction) => PermissionContext | undefined;
@@ -308,25 +310,34 @@ const completionEvidenceParameter: ToolParameter = {
   required: ['summary', 'checks'],
 };
 
-/**
- * Script tool definition — registered only while the `code_mode` feature is on.
- * It needs no approval of its own: the script can do nothing except call tools,
- * and each of those calls is authorized exactly as if the model had made it.
- */
+export function searchToolDefinitions<T extends { name: string; description: string }>(
+  tools: readonly T[], query: string, requestedLimit = 10,
+): T[] {
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(20, Math.floor(requestedLimit))) : 10;
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return tools.map((tool) => {
+    const name = tool.name.toLowerCase();
+    const haystack = `${name} ${tool.description.toLowerCase()}`;
+    const score = terms.reduce((total, term) => total
+      + (name === term ? 10 : name.includes(term) ? 6 : 0)
+      + (haystack.includes(term) ? 2 : 0), 0);
+    return { tool, score };
+  }).filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score || left.tool.name.localeCompare(right.tool.name))
+    .slice(0, limit).map(({ tool }) => tool);
+}
+
+/** Every nested action is independently authorized through ToolManager. */
 export const CODE_MODE_TOOL_DEFINITION: ToolDefinition = {
   name: CODE_MODE_TOOL_NAME,
   description: [
-    'Run one JavaScript script that calls your tools and returns only its final value.',
-    'Use it when a task needs many tool calls whose raw output you do not need to read yourself:',
-    'scanning or aggregating across files, loops, filtering, counting, joining results.',
-    'Inside the script, call `await tools.<name>(args)` with the same arguments as the tool itself',
-    '(MCP tools as `tools["mcp__server__tool"](args)`). Each call resolves to',
-    '`{ ok: true, output }` or `{ ok: false, error, kind }` and never throws; start independent calls',
-    'together with `Promise.all`. `console.log` is captured. `return` a small JSON-serialisable value:',
-    'only that value, the logs and call counts come back to you. The script has no file, network,',
-    'process or timer access of its own, and cannot delegate, plan, ask the user, or start another script.',
-    'Every nested call goes through the usual permission checks, and a denied call ends the script.',
-    'Prefer the ordinary tools for one or two simple calls.',
+    'Default tool dispatch: plain JavaScript with top-level await and return.',
+    'Call await tools.name(args) or tools["mcp__server__tool"](args). Results: {ok:true,output} or {ok:false,error,kind}.',
+    'Use tool_search for exact schemas; Promise.all only for independent calls. Inspect results and return concise JSON evidence; console.log is captured.',
+    'No direct file, network, process or timer access. Every nested call uses normal permission and hook checks; a denied call ends the script.',
+    'Do not nest run_tool_script or ask_followup_question; ask the user directly.',
+    'If a result has images: true, return immediately to inspect the images before continuing.',
+    'Up to 512 calls. Goals, research, delegation, browser, desktop and connected tools use this bridge.',
   ].join(' '),
   parameters: {
     type: 'object',
@@ -1474,11 +1485,11 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'skill',
-    description: 'List, inspect, activate, or deactivate a loaded skill. Activating a skill adds its instructions to the active session prompt.',
+    description: 'Search authorized local skills, inspect an exact reference, or select/deactivate task instructions. Activation is selection; loading is confirmed by request receipts.',
     parameters: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: 'Skill operation to perform', enum: ['list', 'info', 'activate', 'deactivate'] },
+        command: { type: 'string', description: 'Skill operation to perform', enum: ['list', 'search', 'info', 'activate', 'deactivate'] },
         name: { type: 'string', description: 'Skill name for info, activate, or deactivate' }
       },
       required: ['command']
@@ -2515,6 +2526,12 @@ export const EXIT_PLAN_MODE_TOOL_DEFINITION: ToolDefinition = {
 };
 
 export class ToolManager {
+  private readonly unattendedApprovals: UnattendedApprovalTracker;
+
+  getUnattendedDenials(): string[] { return this.unattendedApprovals.tools; }
+
+  resetUnattendedDenials(): void { this.unattendedApprovals.reset(); }
+
   private readonly getActiveProvider?: () => string;
   private readonly definitions = new Map<AgentAction['type'], ToolDefinition>();
   private readonly runtimeMetaToolNames = new Set<AgentAction['type']>();
@@ -2529,6 +2546,7 @@ export class ToolManager {
   private readonly onAdditionalContext?: ToolAuthorizationOptions['onAdditionalContext'];
 
   constructor(options: ToolManagerOptions) {
+    this.unattendedApprovals = options.authorization?.unattendedApprovals ?? new UnattendedApprovalTracker();
     this.getActiveProvider = options.getActiveProvider;
     this.executor = options.executor;
     this.confirmApproval = options.confirmApproval;
@@ -2773,6 +2791,11 @@ export class ToolManager {
         results.set(i, result);
         onToolComplete?.(i, result);
       };
+      if (this.unattendedApprovals.hasDenials) {
+        reject(summarizeUnattendedApprovals(this.getUnattendedDenials()));
+        continue;
+      }
+
 
       try {
         call = this.repairReadFileInput(call);
@@ -3007,7 +3030,13 @@ export class ToolManager {
           }
 
           if (!isAllowedPermissionPrompt(decision)) {
-            reject('Tool execution skipped by user.', 'authorization', 'Tool execution skipped by user.');
+            if (decision.reason === 'non_interactive') {
+              this.unattendedApprovals.record(call.tool);
+              const message = describeUnattendedApproval(call.tool);
+              reject(message, 'authorization', message);
+            } else {
+              reject('Tool execution skipped by user.', 'authorization', 'Tool execution skipped by user.');
+            }
             continue;
           }
 
@@ -3508,6 +3537,13 @@ export class ToolManager {
         const taskIndex = cursor++;
         const { call, index } = tasks[taskIndex];
         let result: ToolExecutionResult;
+        if (this.unattendedApprovals.hasDenials) {
+          const error = summarizeUnattendedApprovals(this.getUnattendedDenials());
+          result = { tool: call.tool, success: false, kind: 'authorization', error, output: error };
+          results.set(index, result);
+          onToolComplete?.(index, result);
+          continue;
+        }
         try {
           if (!this.isProviderAllowed(call.tool)) throw new Error('Lifecycle hook tools are available only with the Autohand AI provider.');
           const action = this.toAction(call);

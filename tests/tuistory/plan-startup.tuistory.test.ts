@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import type { Session } from 'tuistory';
+import { scriptToolCall } from '../../src/testing/scenarios/codeModeScenario.js';
 import { declineStartupPlan, leaveStartupPlanMode, startPlanFromComposer } from '../../src/testing/scenarios/planStartupScenario.js';
 import {
   createMockAutohandAINativeSequenceServer, createTempAutohandHome, exitInteractive,
@@ -21,10 +22,10 @@ afterEach(async () => {
 async function launch(args: string[], reviewPlan = false) {
   const server = await createMockAutohandAINativeSequenceServer([
     ...(reviewPlan ? [
-      { content: 'Creating a plan.', toolCall: { id: 'create-plan', name: 'plan', args: { notes: '1. Read the existing module\n2. Refactor the module\n3. Run tests' } } },
-      { content: 'The plan tool saved three concrete steps. I will now present the saved plan for the user to review.', toolCall: { id: 'review-plan', name: 'exit_plan_mode', args: {} } },
+      { content: 'Creating a plan.', toolCall: scriptToolCall('create-plan', 'plan', { notes: '1. Read the existing module\n2. Refactor the module\n3. Run tests' }) },
+      { content: 'The plan tool saved three concrete steps. I will now present the saved plan for the user to review.', toolCall: scriptToolCall('review-plan', 'exit_plan_mode') },
     ] : []),
-    { content: reviewPlan ? 'The plan is pending approval. Attempting a write should still be blocked by the plan-mode tool gate.' : 'Attempting a write.', toolCall: { id: 'startup-write', name: 'write_file', args: { path: 'blocked.txt', contents: 'blocked' } } },
+    { content: reviewPlan ? 'The plan is pending approval. Attempting a write should still be blocked by the plan-mode tool gate.' : 'Attempting a write.', toolCall: scriptToolCall('startup-write', 'write_file', { path: 'blocked.txt', contents: 'blocked' }) },
     { content: 'PLAN_STARTUP_COMPLETE' },
   ]);
   servers.push(server);
@@ -54,7 +55,7 @@ async function expectReadOnlyFirstTurn(state: TuistoryTempState, server: MockNat
   expect(server.requests.length).toBeGreaterThanOrEqual(2);
   expect(JSON.stringify(server.requests[0]?.messages)).toContain('Plan Mode');
   const tools = server.requests[0]?.tools as Array<{ function: { name: string } }>;
-  expect(tools.map((tool) => tool.function.name)).toContain('read_file');
+  expect(tools.map((tool) => tool.function.name)).toContain('run_tool_script');
   expect(tools.map((tool) => tool.function.name)).not.toContain('write_file');
   expect(toolResult(server, 1, 'startup-write')).toContain('not available in plan mode');
 }

@@ -20,6 +20,48 @@ describe('LLMGatewayClient', () => {
   });
 
   describe('constructor', () => {
+    it.each([429, 503])('waits for a custom provider Retry-After on HTTP %i', async (status) => {
+      vi.useFakeTimers();
+      try {
+        const fetchMock = vi.fn()
+          .mockResolvedValueOnce({ ok: false, status, headers: new Headers({ 'Retry-After': '3' }), json: async () => ({ error: { message: 'Temporarily busy' } }) })
+          .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'retry', choices: [{ message: { content: 'ok' } }] }) });
+        global.fetch = fetchMock;
+        const client = new LLMGatewayClient({ apiKey: 'fixture', model: 'qwen', baseUrl: 'https://fixture.invalid/v1' }, { maxRetries: 1, retryDelay: 10 });
+        const pending = client.complete({ messages: [{ role: 'user', content: 'hello' }] });
+        await vi.advanceTimersByTimeAsync(2999);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(pending).resolves.toMatchObject({ content: 'ok' });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps runtime notes in place and sends only one leading system message', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 'roles', choices: [{ message: { content: 'ok' } }] }),
+      });
+      global.fetch = fetchMock;
+      const client = new LLMGatewayClient({ apiKey: 'fixture', model: 'qwen', baseUrl: 'https://fixture.invalid/v1' });
+      await client.complete({ messages: [
+        { role: 'system', content: 'Stable policy' },
+        { role: 'system', content: 'Stable environment' },
+        { role: 'assistant', content: 'Earlier session context' },
+        { role: 'user', content: 'Continue the goal' },
+        { role: 'system', content: 'Project Knowledge: fresh evidence' },
+      ] });
+      const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(payload.messages.filter((message: LLMMessage) => message.role === 'system')).toEqual([
+        { role: 'system', content: 'Stable policy\n\nStable environment' },
+      ]);
+      expect(payload.messages[1].role).toBe('user');
+      expect(payload.messages.at(-1)).toMatchObject({ role: 'user', content: expect.stringContaining('Project Knowledge: fresh evidence') });
+      expect(payload.messages[0].content).not.toContain('fresh evidence');
+    });
+
     it('should use default base URL when not provided', () => {
       const settings: LLMGatewaySettings = {
         apiKey: 'test-key',
@@ -160,7 +202,7 @@ describe('LLMGatewayClient', () => {
         serviceName: 'Autohand AI',
         credentialName: 'Autohand AI API key',
         accountName: 'Autohand AI account',
-      });
+      }, 'autohandai');
 
       const failure = await client.complete({
         messages: [{ role: 'user', content: 'Hello' }],
@@ -190,7 +232,7 @@ describe('LLMGatewayClient', () => {
         maxRetries: 2, timeout: 1000, retryDelay: 1,
       }, {
         serviceName: 'Autohand AI', credentialName: 'Autohand AI API key', accountName: 'Autohand AI account',
-      });
+      }, 'autohandai');
       const failure = client.complete({ messages: [{ role: 'user', content: 'Inspect Spotify' }], stream: true })
         .catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(1000);
@@ -400,7 +442,7 @@ describe('LLMGatewayClient', () => {
       expect(payload.messages[3]?.content).toBeTruthy();
     });
 
-    it('preserves orphaned tool observations as API-valid system context', async () => {
+    it('preserves orphaned tool observations as user context without adding a system message', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -436,7 +478,7 @@ describe('LLMGatewayClient', () => {
       expect(payload.messages).toEqual([
         { role: 'user', content: 'Continue' },
         {
-          role: 'system',
+          role: 'user',
           content: '[Recovered Tool Result: read_file]\norphan result',
         },
       ]);
@@ -585,7 +627,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -628,7 +670,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       try {
@@ -679,7 +721,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -725,7 +767,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       try {
@@ -772,7 +814,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -808,7 +850,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -858,7 +900,7 @@ describe('LLMGatewayClient', () => {
             serviceName: 'Autohand AI',
             credentialName: 'Autohand AI API key',
             accountName: 'Autohand AI account',
-          },
+          }, 'autohandai',
         );
 
         try {
@@ -910,7 +952,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       try {
@@ -958,7 +1000,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -1009,7 +1051,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       try {
@@ -1049,7 +1091,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
 
       await expect(client.complete({
@@ -1080,7 +1122,7 @@ describe('LLMGatewayClient', () => {
           serviceName: 'Autohand AI',
           credentialName: 'Autohand AI API key',
           accountName: 'Autohand AI account',
-        },
+        }, 'autohandai',
       );
       let settled = false;
       const outcome = client.complete({
@@ -1541,12 +1583,12 @@ describe('Autohand reset-credit guidance', () => {
   it.each(['window_5h', 'window_24h', 'window_week'])('renders a trusted billing reset link for %s', async scope => {
     const resetUrl = 'https://console.autohand.ai/billing?account=team_1&from=cli-limit';
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { type: 'rate_limited', scope, message: 'Window exhausted', resetAt: 1900000000, resetUrl } }, { status: 429 })));
-    const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, { maxRetries: 0 }, { serviceName: 'Autohand AI', credentialName: 'API key', accountName: 'account' });
+    const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, { maxRetries: 0 }, { serviceName: 'Autohand AI', credentialName: 'API key', accountName: 'account' }, 'autohandai');
     await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] })).rejects.toThrow(`Skip the wait: use 100 reset credits to reset this window now. Packs start at US$10: ${resetUrl}`);
   });
   it.each(['https://evil.test/billing', 'http://console.autohand.ai/billing', 'https://console.autohand.ai/upgrade/'])('does not render an untrusted reset destination %s', async resetUrl => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { type: 'rate_limited', scope: 'window_5h', resetUrl } }, { status: 429 })));
-    const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, { maxRetries: 0 }, { serviceName: 'Autohand AI', credentialName: 'API key', accountName: 'account' });
+    const client = new LLMGatewayClient({ apiKey: 'test-key', model: 'fantail' }, { maxRetries: 0 }, { serviceName: 'Autohand AI', credentialName: 'API key', accountName: 'account' }, 'autohandai');
     await expect(client.complete({ messages: [{ role: 'user', content: 'hello' }] })).rejects.not.toThrow('Skip the wait:');
   });
 });

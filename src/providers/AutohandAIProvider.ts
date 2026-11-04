@@ -1,3 +1,4 @@
+import { AUTOHAND_PROVIDER_TIMEOUT_MS } from '../utils/networkTimeout.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -34,7 +35,7 @@ export function getAutohandAICloudModelCliUnsupportedReason(
   model: string | undefined,
 ): string | undefined {
   const normalized = normalizeAutohandAICloudModelId(model);
-  if (normalized === "weka") return "Weka is available through the Autohand API, the Agent SDKs and the Console, not in the CLI. Pick another model with /model or --model.";
+  if (normalized === "weka") return "Weka cannot run as the main coding model. Eligible Autohand AI Cloud decision features may use Weka. Pick another model with /model or --model.";
   const entry = getProviderModelOptions("autohandai").find(
     (candidate) => candidate.id === normalized,
   );
@@ -196,15 +197,16 @@ export class AutohandAIProvider implements LLMProvider {
     };
     // Streamed completions only need the budget to cover time to headers, but
     // reasoning and gateway inspection can hold headers back; keep the old
-    // completion budget unless the user set an explicit network timeout.
+    // completion budget as a floor, even when older configuration saved 30 seconds.
     this.cloudClient = new LLMGatewayClient(effectiveConfig, {
       ...networkSettings,
-      timeout: networkSettings?.timeout ?? 300_000,
+      timeout: Math.max(networkSettings?.timeout ?? AUTOHAND_PROVIDER_TIMEOUT_MS, AUTOHAND_PROVIDER_TIMEOUT_MS),
     }, {
       serviceName: "Autohand AI",
       credentialName: "Autohand AI API key",
       accountName: "Autohand AI account",
-    });
+      statusUrl: "https://status.autohand.ai",
+    }, 'autohandai');
   }
 
   getName(): string {

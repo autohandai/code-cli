@@ -266,7 +266,7 @@ export class SlashCommandHandler {
           const { clearConversation } = await import('../commands/clear.js');
           return clearConversation({
             resetConversation: this.ctx.resetConversation,
-            compactionSettings: this.ctx.provider === 'autohandai' ? this.ctx.config?.autohandai : undefined,
+            decisionDispatcher: this.ctx.decisionDispatcher,
             signal: this.ctx.commandSignal,
             sessionManager: this.ctx.sessionManager,
             memoryManager: this.ctx.memoryManager,
@@ -568,6 +568,7 @@ export class SlashCommandHandler {
         }
         case '/skills': {
           const { skills } = await import('../commands/skills.js');
+          const { isSkillLearningCommand } = await import('./agent/AgentSkillLearning.js');
           if (!this.ctx.skillsRegistry) {
             return 'Skills registry not available.';
           }
@@ -578,6 +579,7 @@ export class SlashCommandHandler {
             isNonInteractive: this.ctx.isNonInteractive,
             onBeforeModal: this.ctx.onBeforeModal,
             onAfterModal: this.ctx.onAfterModal,
+            ...(isSkillLearningCommand(args) ? await this.ctx.getSkillLearningContext?.() : {}),
           }, args);
         }
         case '/skills install': {
@@ -597,11 +599,16 @@ export class SlashCommandHandler {
           if (!this.ctx.skillsRegistry) {
             return 'Skills registry not available.';
           }
-          return createSkill({
-            llm: this.ctx.llm,
-            skillsRegistry: this.ctx.skillsRegistry,
-            workspaceRoot: this.ctx.workspaceRoot
-          });
+          await this.ctx.onBeforeModal?.();
+          try {
+            return await createSkill({
+              llm: this.ctx.llm,
+              skillsRegistry: this.ctx.skillsRegistry,
+              workspaceRoot: this.ctx.workspaceRoot
+            });
+          } finally {
+            await this.ctx.onAfterModal?.();
+          }
         }
         case '/theme': {
           const { theme } = await import('../commands/theme.js');
@@ -628,7 +635,7 @@ export class SlashCommandHandler {
           const { sync } = await import('../commands/sync.js');
           await this.ctx.onBeforeModal?.();
           try {
-            return await sync(this.ctx);
+            return await sync(this.ctx, args);
           } finally {
             await this.ctx.onAfterModal?.();
           }
@@ -810,6 +817,10 @@ export class SlashCommandHandler {
         case '/tools': {
           const { tools } = await import('../commands/tools.js');
           return tools({ toolsRegistry: this.ctx.toolsRegistry }, args);
+        }
+        case '/discovery': {
+          const { discovery } = await import('../commands/discovery.js');
+          return discovery(this.ctx, args);
         }
         case '/experiments': {
           const { features } = await import('../commands/features.js');

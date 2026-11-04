@@ -10,6 +10,8 @@ import type { ActionExecutor } from '../../../src/core/actionExecutor.js';
 import type { LLMProvider } from '../../../src/providers/LLMProvider.js';
 import type { TeamModelAssignment } from '../../../src/core/teams/TeamModelPolicy.js';
 import { SessionThreadBudget } from '../../../src/core/agents/SessionThreadBudget.js';
+import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
+import { UnattendedApprovalTracker } from '../../../src/permissions/unattended.js';
 
 function createDelegator(): AgentDelegator {
   return new AgentDelegator(
@@ -19,6 +21,33 @@ function createDelegator(): AgentDelegator {
 }
 
 describe('AgentDelegator typed outcomes', () => {
+  it.each(['direct', 'nested', 'parallel'] as const)('preserves a %s unattended denial as authorization failure with the real tool name', async route => {
+    const registry = AgentRegistry.getInstance();
+    vi.spyOn(registry, 'loadAgents').mockResolvedValue();
+    vi.spyOn(registry, 'getAgent').mockImplementation(name => ({ name, description: name, systemPrompt: name,
+      tools: name === 'parent' ? ['delegate_task', 'write_file'] : ['write_file'], path: `/tmp/${name}.md` }));
+    const call = (tool: string, args: Record<string, unknown>) => ({ id: 'denied', created: 1, raw: {}, content: '',
+      toolCalls: [{ id: 'call', function: { name: tool, arguments: JSON.stringify(args) } }] });
+    const complete = vi.fn();
+    if (route === 'nested') complete.mockResolvedValueOnce(call('delegate_task', { agent_name: 'writer', task: 'write' }));
+    complete.mockResolvedValue(call('write_file', { path: '/tmp/denied.txt', contents: 'must not run' }));
+    const executeForTool = vi.fn();
+    const unattendedApprovals = new UnattendedApprovalTracker();
+    const delegator = new AgentDelegator({ getName: () => 'openai', complete, getCapabilities: () => ({ nativeToolCalling: true }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool } as unknown as ActionExecutor, {
+      authorization: { permissionManager: new PermissionManager({ mode: 'interactive' }), unattendedApprovals },
+      confirmApproval: async (_message, context) => context?.tool === 'delegate_task' ? true : { decision: 'deny_once', reason: 'non_interactive' },
+    });
+    const result = route === 'parallel'
+      ? await delegator.delegateParallelForTool([{ agent_name: 'writer', task: 'write' }, { agent_name: 'other-writer', task: 'write' }])
+      : await delegator.delegateTaskForTool(route === 'nested' ? 'parent' : 'writer', 'write');
+    expect(result).toMatchObject({ success: false, kind: 'authorization', error: expect.stringContaining('--allowed-tools write_file') });
+    expect(unattendedApprovals.tools).toEqual(['write_file']);
+    expect(complete).toHaveBeenCalledTimes(route === 'direct' ? 1 : 2);
+    expect(executeForTool).not.toHaveBeenCalled();
+  });
+
   it('enforces the cloud research scope even if a worker asks to write a file', async () => {
     const registry = AgentRegistry.getInstance();
     vi.spyOn(registry, 'loadAgents').mockResolvedValue();
@@ -31,7 +60,7 @@ describe('AgentDelegator typed outcomes', () => {
       complete: async request => {
         requests.push(request);
         return { id: 'worker', created: 0, raw: null, content: requests.length === 1 ? '' : 'Read-only report completed.',
-          ...(requests.length === 1 ? { toolCalls: [{ id: 'unsafe', function: { name: 'write_file', arguments: '{"path":"secret.ts","contents":"overwrite"}' } }] } : {}) };
+          ...(requests.length === 1 ? { toolCalls: [{ id: 'unsafe', function: { name: 'run_tool_script', arguments: JSON.stringify({ script: "return await tools.write_file({path:'secret.ts',contents:'overwrite'});" }) } }] } : {}) };
       },
     };
     const delegator = new AgentDelegator(provider, { executeForTool } as unknown as ActionExecutor, {
@@ -39,7 +68,8 @@ describe('AgentDelegator typed outcomes', () => {
     });
     expect((await delegator.delegateTaskForTool('reader', 'Inspect source')).success).toBe(true);
     expect(executeForTool).not.toHaveBeenCalled();
-    expect(requests[0].tools?.map(tool => tool.name)).toContain('read_file');
+    expect(requests[0].tools?.map(tool => tool.name)).toEqual(['run_tool_script', 'tool_search']);
+    expect(JSON.stringify(requests[1].messages)).toContain('Unknown tool');
     expect(requests[0].tools?.map(tool => tool.name)).not.toContain('write_file');
     expect(requests[0].tools?.map(tool => tool.name)).not.toContain('delegate_task');
     expect(JSON.stringify(requests[0].messages)).toContain('compact structured report');

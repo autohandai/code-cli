@@ -102,3 +102,5 @@ script in plain English, then review and save it. `/hooks list` prints the event
 table; `/hooks manage` retains manual add, toggle, test, remove, and global controls.
 See [Lifecycle hooks](../../docs/hooks.md) for plugin ownership, generated scripts,
 and the Autohand AI hook tools.
+
+`/discovery` previews useful workflows from the current workspace locally, without model calls, history collection, saved drafts or uploads. A standalone bundled `$workflow-discovery` uses this same preview; `autohand discovery --analyze` retains its separate bounded ranking stage.

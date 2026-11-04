@@ -2361,17 +2361,18 @@ export class SetupWizard {
 
     const timeoutStr = await showInput({
       title: t('setup.network.timeout'),
-      defaultValue: '30000',
+      defaultValue: '',
       validate: (val: string) => {
-        const n = parseInt(val, 10);
-        if (isNaN(n) || n < 5000 || n > 120000) return 'Enter a number between 5000 and 120000';
+        if (val.trim() === '') return true;
+        const n = Number(val);
+        if (!Number.isInteger(n) || n < 5000 || n > 600000) return 'Enter a number between 5000 and 600000, or leave blank for the provider default';
         return true;
       }
     });
 
     this.state.network = {
       maxRetries: parseInt(maxRetriesStr || '3', 10),
-      timeout: parseInt(timeoutStr || '30000', 10)
+      ...((timeoutStr ?? '').trim() ? { timeout: Number(timeoutStr) } : {})
     };
   }
 

@@ -158,6 +158,7 @@ import { negotiateBrowserCapabilities } from '../../browser/browserCapabilities.
 import { redactBrowserToolArguments } from '../../browser/browserRedaction.js';
 import { CHROME_AUTOMATION_V2_SYSTEM_PROMPT } from '../../browser/chromeSkill.js';
 import { GoalManager } from '../../goals/GoalManager.js';
+import { goalManagerContinuityOptions } from '../../goals/GoalContinuity.js';
 import { parseGoalStatus, type GoalCheckpointInput, type GoalCompletionEvidence } from '../../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../../goals/feature.js';
 import { getRpcErrorMetadata, writeRpcDebugLine } from './logging.js';
@@ -410,7 +411,8 @@ export class RPCAdapter {
     model: string,
     workspace: string,
     config?: LoadedConfig,
-    mcpServerConfigs?: McpServerConfigEntry[]
+    mcpServerConfigs?: McpServerConfigEntry[],
+    sessionType: 'startup' | 'resume' = 'startup',
   ): void {
     this.agent = agent;
     this.conversation = conversation;
@@ -419,7 +421,7 @@ export class RPCAdapter {
     this.sessionStartedAt = Date.now();
     this.config = config ? { ...config } : { configPath: '' };
     this.browserV2PromptInjected = false;
-    this.sessionId = generateId('session');
+    this.sessionId = agent.getSessionManager?.()?.getCurrentSession?.()?.metadata?.sessionId ?? generateId('session');
     this.mcpServerConfigs = mcpServerConfigs ?? [];
 
     // Get reference to agent's ImageManager for handling multimodal prompts
@@ -450,7 +452,7 @@ export class RPCAdapter {
       timestamp: createTimestamp(),
       contextPercent: this.contextPercent,
     });
-    this.emitHookSessionStart('startup');
+    this.emitHookSessionStart(sessionType);
     agent.programStatus?.start();
   }
 
@@ -479,9 +481,16 @@ export class RPCAdapter {
     };
   }
 
+  private createGoalManager(): GoalManager {
+    return new GoalManager(this.workspace, {
+      sessionId: this.agent?.getSessionManager?.().getCurrentSession?.()?.metadata.sessionId,
+      ...goalManagerContinuityOptions(this.agent?.getGoalContinuity?.()),
+    });
+  }
+
   async handleGoalGet(): Promise<unknown> {
     if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
-    return new GoalManager(this.workspace).getSessionSnapshot();
+    return this.createGoalManager().getSessionSnapshot();
   }
 
   async handleGoalCreate(params: {
@@ -493,7 +502,7 @@ export class RPCAdapter {
     min_time_seconds_before_wrap_up?: number;
   }): Promise<unknown> {
     if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
-    return new GoalManager(this.workspace).createOrQueueGoal({
+    return this.createGoalManager().createOrQueueGoal({
       objective: params.objective,
       source: 'rpc',
       acceptanceCriteria: params.acceptance_criteria,
@@ -517,7 +526,7 @@ export class RPCAdapter {
     min_time_seconds_before_wrap_up?: number | null;
   }): Promise<unknown> {
     if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
-    return new GoalManager(this.workspace).updateGoal({
+    return this.createGoalManager().updateGoal({
       objective: params.objective,
       status: parseGoalStatus(params.status),
       completionEvidence: params.completion_evidence,
@@ -533,7 +542,7 @@ export class RPCAdapter {
 
   async handleGoalClear(): Promise<unknown> {
     if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
-    return new GoalManager(this.workspace).clearGoal();
+    return this.createGoalManager().clearGoal();
   }
 
   async handleGoalQueue(params: {
@@ -545,7 +554,7 @@ export class RPCAdapter {
     min_time_seconds_before_wrap_up?: number;
   }): Promise<unknown> {
     if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
-    const manager = new GoalManager(this.workspace);
+    const manager = this.createGoalManager();
     return manager.enqueueGoal({
       objective: params.objective,
       source: 'rpc',
@@ -559,12 +568,12 @@ export class RPCAdapter {
 
   async handleGoalStartQueued(): Promise<unknown> {
     if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
-    return new GoalManager(this.workspace).startQueuedGoal();
+    return this.createGoalManager().startQueuedGoal();
   }
 
   async handleGoalListTemplates(): Promise<unknown> {
     if (!this.isGoalFeatureEnabled()) return this.goalFeatureDisabledResult();
-    return new GoalManager(this.workspace).listTemplates();
+    return this.createGoalManager().listTemplates();
   }
 
   private isGoalFeatureEnabled(): boolean {
@@ -3322,6 +3331,9 @@ export class RPCAdapter {
     );
     const prompt = this.activePrompt;
     switch (event.type) {
+      case 'skill_attachment':
+        if (event.receipt) writeNotification('autohand.skillAttachment', { receipt: event.receipt, timestamp: createTimestamp() });
+        break;
       case 'peer_update':
       case 'resource_update': {
         const update = event.type === 'peer_update' ? event.peerEvent : event.resourceEvent;

@@ -11,6 +11,7 @@ import {
   setNestedValue,
   setConfigSetting,
   parseConfigSetArgs,
+  parseSettingValue,
   formatConfigSetResult,
   getSettingsForCategory,
   formatSettingValue,
@@ -78,6 +79,45 @@ describe('setNestedValue', () => {
 });
 
 describe('SETTINGS_REGISTRY', () => {
+  it('keeps adaptive skills, automatic learning, and every remote decision opt-in separate and off by default', () => {
+    const config: LoadedConfig = { configPath: '/tmp/config.json', skills: { decisions: { enabled: false, provider: 'openai', model: 'fixture-model' } } };
+    const keys = ['features.adaptiveSkills', 'skills.learning.enabled', 'skills.decisions.enabled', 'skills.decisions.selection',
+      'skills.decisions.preview', 'skills.decisions.learning', 'skills.decisions.compaction', 'skills.decisions.remotePreview'];
+    for (const key of keys) expect(SETTINGS_REGISTRY.find(setting => setting.key === key)).toMatchObject({ type: 'boolean', defaultValue: false });
+    expect(setConfigSetting(config, 'features.adaptiveSkills', 'true')).toEqual({ key: 'features.adaptiveSkills', value: true });
+    expect(config.skills?.learning?.enabled).toBeUndefined();
+    expect(config.skills?.decisions).toEqual({ enabled: false, provider: 'openai', model: 'fixture-model' });
+    expect(setConfigSetting(config, 'skills.learning.enabled', 'false')).toEqual({ key: 'skills.learning.enabled', value: false });
+    expect(config.skills?.decisions?.enabled).toBe(false);
+  });
+
+  it('configures decision routing and bounded budgets without enabling remote work', () => {
+    const config: LoadedConfig = { configPath: '/tmp/config.json' };
+    setConfigSetting(config, 'skills.decisions.provider', 'openai');
+    setConfigSetting(config, 'skills.decisions.model', 'fixture-model');
+    setConfigSetting(config, 'skills.decisions.timeoutMs', '1200');
+    setConfigSetting(config, 'skills.maxInstructionTokens', '4096');
+    setConfigSetting(config, 'skills.learning.scope', 'project');
+    expect(config.skills).toEqual({ decisions: { provider: 'openai', model: 'fixture-model', timeoutMs: 1200 },
+      maxInstructionTokens: 4096, learning: { scope: 'project' } });
+    expect(() => setConfigSetting(config, 'skills.decisions.timeoutMs', '10001')).toThrow(/1.*10000/);
+    expect(() => setConfigSetting(config, 'skills.maxInstructionTokens', '0')).toThrow(/positive integer/i);
+    expect(() => setConfigSetting(config, 'skills.learning.scope', 'public')).toThrow();
+    expect(config.skills?.decisions?.enabled).toBeUndefined();
+  });
+
+  it('lets timeout editing retain provider defaults and validates explicit budgets', () => {
+    const setting = SETTINGS_REGISTRY.find(setting => setting.key === 'network.timeout')!;
+    expect(setting.defaultValue).toBeUndefined();
+    expect(parseSettingValue(setting, '')).toBeUndefined();
+    expect(parseSettingValue(setting, '600000')).toBe(600000);
+    expect(() => parseSettingValue(setting, '600001')).toThrow();
+  });
+  it('shows provider defaults for an unset network timeout', () => {
+    const setting = SETTINGS_REGISTRY.find(setting => setting.key === 'network.timeout')!;
+    expect(resolveSettingFallback(setting, { provider: 'autohandai', configPath: 'unused' })).toBe('provider default');
+  });
+
   it('shows the startup mode that applies to the configured screen', () => {
     const setting = SETTINGS_REGISTRY.find(setting => setting.key === 'ui.defaultInteractionMode')!;
     const config: LoadedConfig = { provider: 'openrouter', configPath: '/tmp/config.json' };

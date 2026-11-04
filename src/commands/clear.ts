@@ -9,11 +9,13 @@ import type { MemoryManager } from '../memory/MemoryManager.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
 import type { HookManager } from '../core/HookManager.js';
 import type { AutohandAISettings } from '../types.js';
+import type { DecisionDispatcher } from '../decisions/index.js';
 
 export interface ClearCommandContext {
   resetConversation: (summary?: string) => void | Promise<void>;
   startNewSession?: () => Promise<unknown>;
   compactionSettings?: AutohandAISettings;
+  decisionDispatcher?: DecisionDispatcher;
   signal?: AbortSignal;
   sessionManager: SessionManager;
   memoryManager: MemoryManager;
@@ -32,6 +34,7 @@ export async function clearConversation(ctx: ClearCommandContext): Promise<strin
     compacted = await compactSessionContext({
       history: ConversationManager.getInstance().history(),
       settings: ctx.compactionSettings,
+      decisionDispatcher: ctx.decisionDispatcher,
       signal: ctx.signal,
     });
   } catch (error) {
@@ -52,7 +55,8 @@ export async function clearConversation(ctx: ClearCommandContext): Promise<strin
   });
   await ctx.resetConversation(summary);
   ctx.clearScreen?.();
-  return `Context compacted. Request, learnings, changes and final answer retained (${source === 'weka' ? 'Weka' : 'local fallback'}).`;
+  const method = source === 'weka' ? 'Weka' : source === 'decision-model' ? 'configured decision model' : 'local';
+  return `Context compacted. Request, learnings, changes and final answer retained (${method}).`;
 }
 
 /**

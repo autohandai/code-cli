@@ -44,6 +44,35 @@ describe('goal tools', () => {
     await fs.remove(workspaceRoot);
   });
 
+  it('prepares current activation before tool resume and rolls it back without success observers on refusal', async () => {
+    let mode = 'automode'; let providerId = 'openrouter';
+    const reference = { authority: 'local:fixture', packageId: 'checks', revision: 'sha256:fixture', resource: 'SKILL.md' };
+    Reflect.set(Reflect.get(executor, 'deps'), 'onPrepareGoalActivation', () => { const prior = mode; mode = 'automode'; return () => { mode = prior; }; });
+    Reflect.set(Reflect.get(executor, 'runtime'), 'goalContinuity', { getPinnedReferences: () => [reference], resolveContext: async () => ({ workspaceId: 'workspace:fixture', runtimeVersion: 'fixture', providerId,
+      permissionEpoch: mode, checkedAt: Date.now(), resolveSkill: async (pin: typeof reference) => pin }) });
+    await executor.execute({ type: 'create_goal', objective: 'Mode-sensitive tool goal' });
+    await executor.execute({ type: 'update_goal', status: 'paused', checkpoint: { summary: 'Saved in automode' } });
+    mode = 'default'; expect(JSON.parse(await executor.execute({ type: 'update_goal', status: 'active' }))).toMatchObject({ ok: true }); expect(mode).toBe('automode');
+    await executor.execute({ type: 'update_goal', status: 'paused' }); mode = 'plan'; providerId = 'changed'; const before = activatedObjectives.length;
+    expect(JSON.parse(await executor.execute({ type: 'update_goal', status: 'active' }))).toMatchObject({ ok: false });
+    expect(mode).toBe('plan'); expect(activatedObjectives).toHaveLength(before);
+  });
+
+  it('uses the live host resolver and submitted pins for tool checkpoint and resume managers', async () => {
+    const reference = { authority: 'local:fixture', packageId: 'checks', revision: 'sha256:fixture', resource: 'SKILL.md' };
+    let providerId = 'openrouter';
+    Reflect.set(Reflect.get(executor, 'runtime'), 'goalContinuity', { getPinnedReferences: () => [reference], resolveContext: async () => ({
+      workspaceId: 'workspace:fixture', runtimeVersion: 'fixture', providerId, permissionEpoch: 'fixture', checkedAt: Date.now(), resolveSkill: async (pin: typeof reference) => pin,
+    }) });
+    await executor.execute({ type: 'create_goal', objective: 'Runtime goal' });
+    expect(JSON.parse(await executor.execute({ type: 'update_goal', status: 'paused', checkpoint: { summary: 'Submitted procedure checkpoint' } })))
+      .toMatchObject({ ok: true, goal: { checkpoint: { continuity: { skills: [reference] } } } });
+    const before = activatedObjectives.length; providerId = 'changed';
+    expect(JSON.parse(await executor.execute({ type: 'update_goal', status: 'active' }))).toMatchObject({ ok: false, message: expect.stringContaining('providerId changed') });
+    expect(activatedObjectives).toHaveLength(before);
+    providerId = 'openrouter'; expect(JSON.parse(await executor.execute({ type: 'update_goal', status: 'active' }))).toMatchObject({ ok: true });
+  });
+
   it('activates a tool-created goal but does not reactivate it when another goal is queued', async () => {
     await executor.execute({ type: 'create_goal', objective: 'started goal' });
     await executor.execute({ type: 'create_goal', objective: 'queued goal' });

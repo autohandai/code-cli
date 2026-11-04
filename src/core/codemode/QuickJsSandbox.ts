@@ -18,7 +18,7 @@ export interface SandboxToolCall {
 }
 
 export type SandboxToolOutcome =
-  | { ok: true; output: string }
+  | { ok: true; output: string; images?: boolean }
   | { ok: false; error: string; kind?: string; output?: string };
 
 export interface SandboxLimits {
@@ -74,7 +74,7 @@ export const DEFAULT_SANDBOX_LIMITS: SandboxLimits = Object.freeze({
   maxScriptChars: 50_000,
   maxResultChars: 20_000,
   maxLogChars: 4_000,
-  maxToolCalls: 200,
+  maxToolCalls: 512,
   maxToolResultChars: MIB,
 });
 

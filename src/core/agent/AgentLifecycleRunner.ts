@@ -5,7 +5,9 @@
  */
 import { extensionRuntimeHost } from '../../extensions/ExtensionRuntimeHost.js';
 import chalk from 'chalk';
-import { initializeSessionGitSnapshot, type SessionGitState } from '../../actions/gitSessionSnapshot.js';
+import { GoalManager } from '../../goals/GoalManager.js';
+import { goalManagerContinuityOptions } from '../../goals/GoalContinuity.js';
+import { resetSessionGitSnapshot, type SessionGitState } from '../../actions/gitSessionSnapshot.js';
 import { isAxoInput } from '../../ui/axo/axoCommand.js';
 import { isStartupTimingEnabled, startupTimeline } from '../../startup/startupTimeline.js';
 import { buildOutputSchemaInstruction, buildOutputSchemaRepairInstruction, checkOutputAgainstSchema, type OutputSchemaSpec } from '../../modes/outputSchema.js';
@@ -32,6 +34,7 @@ import type {
 import type { Session } from '../../session/SessionManager.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
+import { isWorkflowDiscoveryShortcut } from '../../discovery/preview.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
 import { plan as planCommand } from '../../commands/plan.js';
 import type { SlashCommandContext } from '../slashCommandTypes.js';
@@ -85,6 +88,7 @@ const COMMAND_HOOK_KILL_GRACE_PERIOD_MS = 100;
 const MCP_FIRST_TURN_DEADLINE_MS = 2_000;
 const COMPUTER_CONTROL_FIRST_TURN_DEADLINE_MS = 8_000;
 const STARTUP_WAIT_STATUS = 'Finishing startup...';
+const rpcStartupRestoredSessions = new WeakMap<AgentLifecycleHost, string>();
 
 export interface AgentLifecycleHost {
   [key: string]: any;
@@ -344,7 +348,7 @@ export async function startFreshAgentSession(
     }
   }
 
-  initializeSessionGitSnapshot(host.runtime, true);
+  resetSessionGitSnapshot(host.runtime);
   const startedAt = Date.now();
   await host.resetConversationContext();
   host.resetAgentStateForFreshSession(startedAt);
@@ -570,6 +574,8 @@ export async function runAgentInteractive(host: AgentLifecycleHost, initialInstr
     }
 
     host.mcpStartupCoordinator.prepareForInteractiveStartup();
+
+    await initializeInteractiveComposer(host);
 
     // Start ALL initialization in background so prompt appears instantly.
     // The user can start typing while managers initialize.
@@ -815,7 +821,6 @@ export async function shutdownAgentRuntimeResources(host: AgentLifecycleHost): P
   }
 
 export async function initializeAgentManagers(host: AgentLifecycleHost): Promise<void> {
-    initializeSessionGitSnapshot(host.runtime);
     if (host.runtime?.options?.bare === true) {
       await runWithConcurrency([
         { label: 'session_manager', run: async () => host.sessionManager.initialize() },
@@ -1100,6 +1105,7 @@ export async function initializeAgentForRPC(
   signal?: AbortSignal,
   existingSessionId?: string,
 ): Promise<void> {
+    rpcStartupRestoredSessions.delete(host);
     // Initialize managers in parallel for faster startup
     await awaitLifecycleStep(Promise.resolve(host.initializeManagers()), signal);
     // Start MCP connections concurrently with the remaining initialization.
@@ -1114,7 +1120,9 @@ export async function initializeAgentForRPC(
     }
     // These must run sequentially after the parallel init
     await awaitLifecycleStep(
-      Promise.resolve(host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot)),
+      Promise.resolve(existingSessionId
+        ? host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot, { createIdentity: false })
+        : host.skillsRegistry.setWorkspace(host.runtime.workspaceRoot)),
       signal,
     );
     const providerSettings = getHostProviderSettings(host);
@@ -1122,15 +1130,19 @@ export async function initializeAgentForRPC(
     const providerTelemetryMetadata = buildProviderTelemetryMetadata(providerSettings);
     host.sessionStartedAt = Date.now();
     const [, session] = await awaitLifecycleStep(Promise.all([
-      host.resetConversationContext(),
+      existingSessionId ? Promise.resolve() : host.resetConversationContext(),
       existingSessionId
         ? host.sessionManager.loadSession(existingSessionId)
         : host.sessionManager.createSession(host.runtime.workspaceRoot, configuredModel),
     ]), signal);
     const model = session?.metadata?.model ?? configuredModel;
+    if (existingSessionId) {
+      await awaitLifecycleStep(restoreAgentSessionState(host, session), signal);
+      rpcStartupRestoredSessions.set(host, session.metadata.sessionId);
+    }
     await awaitLifecycleStep(startHostActiveAgentHeartbeat(host), signal);
 
-    await awaitLifecycleStep(Promise.resolve(host.injectSessionBootstrap()), signal);
+    if (!existingSessionId) await awaitLifecycleStep(Promise.resolve(host.injectSessionBootstrap()), signal);
 
     // Do not acknowledge initialization until the first RPC/command turn can
     // advertise every successfully connected MCP tool.
@@ -1261,6 +1273,7 @@ export async function runAgentCommandMode(
       if (signal?.aborted) {
         throw createLifecycleAbortError();
       }
+      rpcStartupRestoredSessions.delete(host);
       await awaitLifecycleStep(
         Promise.resolve(host.runtime.options.resumeSessionId
           ? host.initializeForRPC(signal, host.runtime.options.resumeSessionId)
@@ -1269,7 +1282,10 @@ export async function runAgentCommandMode(
       );
       initialized = true;
 
-      if (host.runtime.options.resumeSessionId) {
+      const startupRestoredSession = rpcStartupRestoredSessions.get(host);
+      rpcStartupRestoredSessions.delete(host);
+      if (host.runtime.options.resumeSessionId && !(startupRestoredSession === host.runtime.options.resumeSessionId
+        && host.sessionManager.getCurrentSession()?.metadata?.sessionId === startupRestoredSession)) {
         await awaitLifecycleStep(host.restoreSessionState(host.runtime.options.resumeSessionId), signal);
       }
 
@@ -1390,12 +1406,26 @@ export async function runAgentCommandMode(
     }
   }
 
+async function restoreHostGoalCheckpoint(host: AgentLifecycleHost, sessionId: string): Promise<void> {
+  if (typeof host.runtime?.workspaceRoot !== 'string' || !sessionId) return;
+  const manager: GoalManager = host.goalActivityManager?.restoreSessionCheckpoint ? host.goalActivityManager : new GoalManager(host.runtime.workspaceRoot, {
+    sessionId, ...goalManagerContinuityOptions(host.runtime.goalContinuity),
+  });
+  const restored = await manager.restoreSessionCheckpoint();
+  if (!restored.ok) throw new Error(restored.message ?? 'Goal checkpoint recovery was refused.');
+}
+
 export async function restoreAgentSessionState(host: AgentLifecycleHost, sessionOrId: string | Session) {
-    initializeSessionGitSnapshot(host.runtime, true);
+    resetSessionGitSnapshot(host.runtime);
     const session = typeof sessionOrId === 'string'
       ? await host.sessionManager.loadSession(sessionOrId)
       : sessionOrId;
 
+    if (typeof host.runtime?.workspaceRoot === 'string') {
+      await host.skillsRegistry?.setWorkspace?.(host.runtime.workspaceRoot, { createIdentity: false });
+    }
+    const restoredSessionId = session.metadata?.sessionId ?? (typeof sessionOrId === 'string' ? sessionOrId : undefined);
+    if (restoredSessionId) await restoreHostGoalCheckpoint(host, restoredSessionId);
     await host.resetConversationContext();
     await host.injectSessionBootstrap();
     const messages: import('../../session/types.js').SessionMessage[] = session.getMessages();
@@ -1483,6 +1513,46 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
     // Initialize managers and pre-load files in parallel
     await host.initializeManagers();
 
+    // Prepare MCP startup coordinator so auto-connect servers are identified
+    // before the interactive loop begins (mirrors runAgentInteractive).
+    host.mcpStartupCoordinator.prepareForInteractiveStartup();
+
+    // Start MCP connections in background (non-blocking, like fresh session startup).
+    // Guarded on mcpManager existence so a missing manager or a synchronous
+    // connectAll throw cannot escape before the try/finally below installs and
+    // removes the exit signal handlers.
+    if (host.mcpManager && host.runtime.config.mcp?.enabled !== false) {
+      try {
+        host.mcpStartupCoordinator.markConnectStarted();
+        host.mcpReady = host.mcpManager
+          .connectAll(host.runtimeMcpServers ?? host.runtime.config.mcp?.servers ?? [])
+          .then(() => { if (!isRuntimeResourceShutdownStarted(host)) host.syncMcpTools(); })
+          .catch(() => { /* individual server errors already captured by connectAll */ })
+          .finally(() => { if (!isRuntimeResourceShutdownStarted(host)) host.mcpStartupCoordinator.markSummaryPending(); });
+      } catch {
+        // A synchronous connectAll throw must not escape before the try/finally
+        // below installs and removes the exit signal handlers.
+      }
+    }
+
+    // Mark init as complete BEFORE the try so both the success path and the
+    // fallback path (which creates a new session) leave initDone true and
+    // initReady awaitable. Without this, describeStartupWait() returns
+    // STARTUP_WAIT_STATUS and ensureInitComplete() hangs, freezing the composer.
+    //
+    // initReady is a resolved promise rather than performBackgroundInit() on
+    // purpose: the resumed session is already restored, and the background-init
+    // pipeline calls resetConversationContext() and sessionManager.createSession(),
+    // which would wipe the restored conversation and double-create a session.
+    host.initDone = true;
+    host.initReady = Promise.resolve();
+
+    // Install exit signal handlers to stop queue processing immediately on SIGINT/SIGTERM.
+    // Installed before the try so both the success path and the fallback path
+    // (which creates a new session) have handlers active during the interactive
+    // loop. Removed in the finally block after the loop exits.
+    host.installExitSignalHandlers();
+
     try {
       const session = await host.restoreSessionState(sessionId);
       host.sessionStartedAt = Date.now();
@@ -1524,6 +1594,10 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
         buildProviderTelemetryMetadata(providerSettings)
       );
       await host.runInteractiveLoop();
+    } finally {
+      // Clean up signal handlers on success, error, or fallback path.
+      // They are re-installed by runAgentInteractive on the next fresh session.
+      host.removeExitSignalHandlers();
     }
   }
 
@@ -1644,10 +1718,7 @@ async function executeQueuedMobileComposerCommand(
   }
 }
 
-export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise<void> {
-    // Initialize Ink UI early so the composer is ready before the first idle check.
-    // This ensures consistent UI from startup instead of falling back to readline
-    // and then switching to Ink after the first prompt.
+async function initializeInteractiveComposer(host: AgentLifecycleHost): Promise<void> {
     if (host.useInkRenderer && !host.inkRenderer) {
       await host.initializeUI(undefined, undefined, true);
       if (host.restoredChatMessages?.length && host.inkRenderer?.setChatMessages) {
@@ -1662,6 +1733,10 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
       }
       host.inkRenderer?.setPendingSuggestion?.(host.pendingSuggestion ?? undefined);
     }
+  }
+
+export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise<void> {
+    await initializeInteractiveComposer(host);
 
     while (true) {
       // Check if we should exit immediately (SIGINT/SIGTERM received)
@@ -1807,7 +1882,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         // before runInstruction, but instructions from the Ink queue bypass
         // that path. Without host, /help etc. go through the full ReAct loop
         // which sends them to the LLM and leaves the composer frozen.
-        if (!mobileTurn && instruction.startsWith('/')) {
+        if (!mobileTurn && (instruction.startsWith('/') || isWorkflowDiscoveryShortcut(instruction, host.skillsRegistry, host.runtime.options.bare))) {
           if (host.runtime.options.bare && !isLikelyFilePathSlashInput(instruction)) {
             if (host.inkRenderer?.isRunning()) {
               if (!consumeAgentInkSubmittedInstructionEcho(host, instruction)) {

@@ -71,6 +71,15 @@ function createAgentHarness() {
 }
 
 describe('turn memory reflection', () => {
+  it('does not start a model reflection when the active provider disables background calls', async () => {
+    const { agent, llm } = createAgentHarness();
+    agent.runtime.config.provider = 'openai';
+    agent.runtime.config.openai = { model: 'fixture', backgroundCalls: false };
+    agent.scheduleTurnMemoryReflection({ status: 'succeeded' });
+    await agent.turnMemoryReflectionInFlight;
+    expect(llm.complete).not.toHaveBeenCalled();
+  });
+
   it.each(['account', 'workspace'])('does not publish delayed project reflection after a %s switch while preserving personal memories', async switchKind => {
     const { agent, llm } = createAgentHarness();
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-reflection-scope-'));

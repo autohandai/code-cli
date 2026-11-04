@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolveRunToolScope } from '../../src/permissions/runToolScope.js';
 import { PermissionManager } from '../../src/permissions/PermissionManager.js';
 import { buildPermissionSettingsFromYolo, parseYoloPattern } from '../../src/permissions/yoloMode.js';
 
@@ -47,6 +48,20 @@ describe('--yolo with --timeout', () => {
 
     expect(manager.checkPermission({ tool: 'write_file', path: 'src/a.ts' })).not.toMatchObject({ allowed: true, reason: 'pattern_allowed' });
     expect(manager.getSettings().allowPatterns).toEqual([]);
+  });
+
+  it('requires approval after the YOLO window expires even with an explicit run allowlist', () => {
+    const baseline = { mode: 'interactive' as const };
+    const manager = new PermissionManager({ settings: {
+      ...baseline, ...buildPermissionSettingsFromYolo(parseYoloPattern('allow:*')),
+    } });
+    manager.setRunToolScope(resolveRunToolScope({ allowedTools: ['write_file'] }));
+    manager.expireAutoApprovalAfter(1, baseline);
+    const context = { tool: 'write_file', path: 'notes.txt' };
+    expect(manager.checkPermission(context).allowed).toBe(true);
+    vi.advanceTimersByTime(1_100);
+    expect(manager.checkPermission(context).allowed).toBe(false);
+    expect(manager.checkPermission(context).allowed).toBe(false);
   });
 
   it('notifies the caller once so it can clear the runtime yolo option', () => {

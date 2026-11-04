@@ -32,6 +32,17 @@ describe("Sync Integration", () => {
   });
 
   describe("SyncApiClient", () => {
+    it("classifies a missing transfer object without retaining its response body", async () => {
+      const { SyncApiClient } = await import("../../src/sync/SyncApiClient.js");
+      const client = new SyncApiClient({ baseUrl: "https://test-api.example.com", maxRetries: 1 });
+      const cancel = vi.fn().mockResolvedValue(undefined);
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404, body: { cancel } });
+
+      await expect(client.downloadFile("https://test-api.example.com/v1/sync/file/fixture", "fixture-token"))
+        .rejects.toMatchObject({ name: "SyncDownloadNotFoundError", status: 404 });
+      expect(cancel).toHaveBeenCalledOnce();
+    });
+
     it.each([
       "http://api.example.com",
       "http://192.168.1.20:8787/api",

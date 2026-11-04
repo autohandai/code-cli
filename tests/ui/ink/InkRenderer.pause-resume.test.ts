@@ -94,7 +94,7 @@ describe('InkRenderer keyboard protocol lifecycle', () => {
     expect(stopped).toBe(true);
   });
 
-  it('pushes the kitty disambiguate flag when the UI starts and pops it when it stops', () => {
+  it('pushes the kitty disambiguate flag when the UI starts and pops it when it stops', async () => {
     const originalIsTTY = process.stdout.isTTY;
     (process.stdout as any).isTTY = true;
     const writes: string[] = [];
@@ -109,13 +109,14 @@ describe('InkRenderer keyboard protocol lifecycle', () => {
     });
     try {
       renderer.start();
-      expect(writes).toContain('\x1b[>1u');
-      expect(writes).not.toContain('\x1b[<u');
+      await Promise.resolve();
+      expect(writes.join('')).toContain('\x1b[>1u');
+      expect(writes.join('')).not.toContain('\x1b[<u');
 
-      renderer.stop();
-      expect(writes.lastIndexOf('\x1b[<u')).toBeGreaterThan(writes.indexOf('\x1b[>1u'));
+      await renderer.stop();
+      expect(writes.join('').lastIndexOf('\x1b[<u')).toBeGreaterThan(writes.join('').indexOf('\x1b[>1u'));
     } finally {
-      renderer.stop();
+      await renderer.stop();
       write.mockRestore();
       (process.stdout as any).isTTY = originalIsTTY;
     }
@@ -472,6 +473,95 @@ describe('InkRenderer pause/resume cycle', () => {
 });
 
 describe('full-screen renderer lifecycle', () => {
+  async function withInteractiveTerminal(run: (writes: string[]) => Promise<void>): Promise<void> {
+    const saved = (['isTTY', 'columns', 'rows'] as const).map(name => [name, Object.getOwnPropertyDescriptor(process.stdout, name)] as const);
+    const inputDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const term = process.env.TERM;
+    const writes: string[] = [];
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => { writes.push(String(chunk)); return true; }) as typeof process.stdout.write);
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'columns', { configurable: true, value: 120 });
+    Object.defineProperty(process.stdout, 'rows', { configurable: true, value: 40 });
+    process.env.TERM = 'xterm-256color';
+    try {
+      await run(writes);
+    } finally {
+      write.mockRestore();
+      if (inputDescriptor) Object.defineProperty(process.stdin, 'isTTY', inputDescriptor); else Reflect.deleteProperty(process.stdin, 'isTTY');
+      for (const [name, descriptor] of saved) {
+        if (descriptor) Object.defineProperty(process.stdout, name, descriptor); else Reflect.deleteProperty(process.stdout, name);
+      }
+      if (term === undefined) delete process.env.TERM; else process.env.TERM = term;
+    }
+  }
+
+  const resizeTo = (columns: number, rows: number) => {
+    Object.defineProperty(process.stdout, 'columns', { configurable: true, value: columns });
+    Object.defineProperty(process.stdout, 'rows', { configurable: true, value: rows });
+    process.stdout.emit('resize');
+  };
+
+  it('resets the full-screen origin inside the next synchronized paint after resize', async () => {
+    await withInteractiveTerminal(async writes => {
+      const renderer = new InkRenderer({ fullScreenMode: true, onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+      try {
+        renderer.start();
+        await Promise.resolve();
+        writes.length = 0;
+        resizeTo(120, 40);
+        expect(writes.filter(text => text.includes('\x1b[2J\x1b[H'))).toHaveLength(0);
+        resizeTo(80, 40);
+        resizeTo(80, 24);
+        await Promise.resolve();
+        expect(writes).toHaveLength(0);
+        process.stdout.write('\x1b[?25l');
+        await Promise.resolve();
+        expect(writes.join('')).not.toContain('\x1b[2J\x1b[H');
+        writes.length = 0;
+        process.stdout.write('\x1b[?2026h');
+        await Promise.resolve();
+        process.stdout.write('\x1b[?25l');
+        expect(writes.join('')).not.toContain('\x1b[2J\x1b[H');
+        process.stdout.write('resized frame');
+        process.stdout.write('\x1b[?2026l');
+        await Promise.resolve();
+        const frame = writes.join('');
+        expect(frame).toContain('\x1b[2J\x1b[H');
+        expect(writes).toHaveLength(1);
+        expect(writes[0]).toContain('\x1b[2J\x1b[Hresized frame');
+        expect(frame.indexOf('\x1b[?2026h')).toBeLessThan(frame.indexOf('\x1b[2J\x1b[H'));
+        expect(frame.indexOf('resized frame')).toBeLessThan(frame.lastIndexOf('\x1b[?2026l'));
+        writes.length = 0;
+        process.stdout.write('\x1b[?2026h');
+        process.stdout.write('same viewport');
+        process.stdout.write('\x1b[?2026l');
+        await Promise.resolve();
+        expect(writes.join('')).not.toContain('\x1b[2J\x1b[H');
+        await renderer.stop();
+        writes.length = 0;
+        resizeTo(100, 30);
+        expect(writes).toHaveLength(0);
+      } finally {
+        await renderer.stop();
+      }
+    });
+  });
+
+  it('leaves inline terminal resizes to Ink', async () => {
+    await withInteractiveTerminal(async writes => {
+      const renderer = new InkRenderer({ fullScreenMode: false, onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+      try {
+        renderer.start();
+        writes.length = 0;
+        resizeTo(80, 24);
+        expect(writes.some(text => text.includes('\x1b[2J'))).toBe(false);
+      } finally {
+        await renderer.stop();
+      }
+    });
+  });
+
   it.each(['normal', 'mount failure', 'clear failure'])('restores screen ownership on %s', async (scenario) => {
     const inputDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     const outputDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
@@ -504,8 +594,8 @@ describe('full-screen renderer lifecycle', () => {
         } else await renderer.stop();
       }
       expect(writes.filter(text => text.includes('?1049l'))).toHaveLength(1);
-      expect(writes.filter(text => text === '\x1b[>1u')).toHaveLength(1);
-      expect(writes.filter(text => text === '\x1b[<u')).toHaveLength(1);
+      expect(writes.join('').split('\x1b[>1u')).toHaveLength(2);
+      expect(writes.join('').split('\x1b[<u')).toHaveLength(2);
       if (timerBaseline !== undefined) expect(vi.getTimerCount()).toBe(timerBaseline);
       expect(process.listenerCount('exit')).toBe(before);
     } finally {

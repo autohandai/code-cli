@@ -5,15 +5,26 @@
  *
  * Sync API Client for communicating with Cloudflare R2 via API
  */
+import { SYNC_MAX_TOTAL_BYTES } from './rootBudgets.js';
+import { discardResponseBody } from '../utils/responseBody.js';
 import type { SyncManifest, SyncApiConfig, SyncApiResponse, SyncResult } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.autohand.ai';
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const DEFAULT_MAX_TOTAL_SIZE = 100 * 1024 * 1024; // 100MB
+const DEFAULT_MAX_TOTAL_SIZE = SYNC_MAX_TOTAL_BYTES; // Per-root budgets fit below 2 GiB
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000; // 1 second base delay
 const MAX_FILES_PER_REQUEST = 100; // API limit for files array
+
+export class SyncDownloadNotFoundError extends Error {
+  readonly status = 404;
+
+  constructor() {
+    super('Download failed: 404');
+    this.name = 'SyncDownloadNotFoundError';
+  }
+}
 
 export class SyncApiClient {
   private readonly baseUrl: string;
@@ -514,6 +525,9 @@ export class SyncApiClient {
     );
 
     if (!response.ok) {
+      discardResponseBody(response);
+      this.throwIfAborted(signal);
+      if (response.status === 404) throw new SyncDownloadNotFoundError();
       throw new Error(`Download failed: ${response.status}`);
     }
 

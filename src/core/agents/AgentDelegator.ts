@@ -14,6 +14,7 @@ import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ActionExecutor } from '../actionExecutor.js';
 import type { ClientContext, LLMUsage, LoadedConfig, ToolActionOutcome } from '../../types.js';
 import type { ToolAuthorizationOptions, ToolDefinition, ToolManagerOptions } from '../toolManager.js';
+import { UnattendedApprovalError } from '../../permissions/unattended.js';
 import type { TeamModelAssignment } from '../teams/TeamModelPolicy.js';
 import { getSessionThreadBudget, SessionThreadLimitError, type ThreadBudget, type ThreadLease } from './SessionThreadBudget.js';
 import type { PeerRunRuntime, PeerRunRuntimeFactory } from '../agent/PeerCommunicationRuntime.js';
@@ -32,7 +33,7 @@ type ParallelDelegationResult =
     | { success: true; text: string }
     | {
         success: false;
-        kind: 'validation' | 'operational' | 'aborted';
+        kind: 'validation' | 'operational' | 'aborted' | 'authorization';
         text: string;
         error: string;
     };
@@ -304,7 +305,8 @@ export class AgentDelegator {
             const output = `Error running agent '${agentName}': ${errorMessage}`;
             return {
                 success: false,
-                kind: cancelled ? 'aborted' : error instanceof SessionThreadLimitError ? 'validation' : 'operational',
+                kind: cancelled ? 'aborted' : error instanceof UnattendedApprovalError ? 'authorization'
+                    : error instanceof SessionThreadLimitError ? 'validation' : 'operational',
                 error: errorMessage, output,
             };
         } finally {
@@ -347,7 +349,7 @@ export class AgentDelegator {
                 ? { success: true, text: `[${agent_name}] Result:\n${result.output ?? ''}` }
                 : {
                     success: false,
-                    kind: result.kind === 'aborted' || result.kind === 'validation' ? result.kind : 'operational',
+                    kind: result.kind === 'aborted' || result.kind === 'validation' || result.kind === 'authorization' ? result.kind : 'operational',
                     text: `[${agent_name}] Failed: ${result.error}`,
                     error: result.error,
                 };
@@ -361,6 +363,7 @@ export class AgentDelegator {
             return {
                 success: false,
                 kind: failures.some(result => result.kind === 'aborted') ? 'aborted'
+                    : failures.some(result => result.kind === 'authorization') ? 'authorization'
                     : failures.some(result => result.kind === 'operational') ? 'operational' : 'validation',
                 error: failures.map(result => result.error ?? 'Delegated task failed.').join('; '),
                 output,

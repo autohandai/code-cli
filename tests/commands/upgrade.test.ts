@@ -3,7 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SlashCommandContext } from '../../src/core/slashCommandTypes.js';
 
 function makeContext(overrides: Partial<SlashCommandContext> = {}): SlashCommandContext {
@@ -11,6 +11,30 @@ function makeContext(overrides: Partial<SlashCommandContext> = {}): SlashCommand
 }
 
 describe('/upgrade', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2027-01-01T00:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it.each([
+    ['2026-12-31T23:59:59.999Z', true],
+    ['2027-01-01T00:00:00.000Z', false],
+    ['2027-01-02T12:00:00.000Z', false],
+  ])('shows the approved annual offer at %s only while active', async (now, active) => {
+    vi.setSystemTime(new Date(now));
+    const { upgrade } = await import('../../src/commands/upgrade.js');
+    const offer = 'Annual plans are 20% off for the first year only, until 1 Jan 2027: autohand.ai/code/pricing';
+    for (const isNonInteractive of [false, true]) {
+      const result = await upgrade(makeContext({
+        isNonInteractive,
+        getAccountEntitlement: async () => ({ tier: 'pro', freeRemaining: null }),
+      }), { openBrowser: vi.fn().mockResolvedValue(true) });
+      expect(result?.includes(offer)).toBe(active);
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('asks the user to sign in when there is no entitlement', async () => {
     const { upgrade } = await import('../../src/commands/upgrade.js');
     const openBrowser = vi.fn();

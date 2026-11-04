@@ -13,12 +13,18 @@ import {
 } from '../../../src/core/agent/AgentContextRuntime.js';
 import { listSavedResearchReports } from '../../../src/core/agent/SavedResearchContext.js';
 import { buildSessionBootstrap } from '../../../src/core/agent/SessionBootstrapBuilder.js';
+import type { LoadedConfig } from '../../../src/types.js';
 
 describe('saved research context', () => {
   let workspaceRoot: string;
+  let config: LoadedConfig;
 
   beforeEach(async () => {
     workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-saved-research-'));
+    config = {
+      configPath: path.join(workspaceRoot, '.autohand', 'config.json'),
+      features: { adaptiveSkills: false },
+    };
     await fs.outputFile(
       path.join(workspaceRoot, '.autohand', 'research', 'topic-dspy.md'),
       [
@@ -64,6 +70,7 @@ describe('saved research context', () => {
   it('surfaces saved research in the next user prompt context', async () => {
     const message = await buildAgentTurnContext({
       runtime: {
+        config,
         workspaceRoot,
         options: {},
       },
@@ -94,6 +101,7 @@ describe('saved research context', () => {
 
     const message = await buildAgentTurnContext({
       runtime: {
+        config,
         workspaceRoot,
         options: {},
       },

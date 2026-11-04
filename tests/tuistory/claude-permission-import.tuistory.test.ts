@@ -4,6 +4,29 @@ import path from 'node:path';
 import { createTempAutohandHome, launchBuiltAutohand, waitForExit, expectCleanExit } from './helpers/autohandTuistory.js';
 
 describe('built Claude permission import', () => {
+  it('honors global dry-run and imports an alternate profile skill with its scripts', async () => {
+    const state = await createTempAutohandHome();
+    const source = path.join(state.workspaceRoot, 'alternate-profile');
+    const folder = path.join(source, 'skills', 'review-package');
+    await fs.outputFile(path.join(folder, 'SKILL.md'), '---\nname: review-package\ndescription: Review the project.\n---\nUse scripts/review.sh.\n');
+    await fs.outputFile(path.join(folder, 'scripts', 'review.sh'), '#!/bin/sh\necho fixture\n');
+    const destination = path.join(state.autohandHome, 'skills', 'imported-claude', 'review-package');
+    const args = ['--path', state.workspaceRoot, '--config', state.configPath, 'import', 'claude', '--categories', 'skills'];
+    try {
+      const preview = await launchBuiltAutohand(['--dry-run', ...args], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { CLAUDE_CONFIG_DIR: source } });
+      try { await waitForExit(preview, 30_000); expectCleanExit(preview); expect(preview.readAll()).toContain('1 skill'); } finally { preview.close(); }
+      expect(await fs.pathExists(destination)).toBe(false);
+      const imported = await launchBuiltAutohand(args, { autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { CLAUDE_CONFIG_DIR: source } });
+      try { await waitForExit(imported, 30_000); expectCleanExit(imported); } finally { imported.close(); }
+      expect(await fs.readFile(path.join(destination, 'scripts', 'review.sh'), 'utf8')).toBe('#!/bin/sh\necho fixture\n');
+      expect(await fs.readFile(path.join(destination, 'SKILL.md'), 'utf8')).toContain('scripts/review.sh');
+      await fs.outputFile(path.join(destination, 'scripts', 'review.sh'), 'LOCAL EDIT');
+      const repeated = await launchBuiltAutohand(args, { autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { CLAUDE_CONFIG_DIR: source } });
+      try { await waitForExit(repeated, 30_000); expectCleanExit(repeated); } finally { repeated.close(); }
+      expect(await fs.readFile(path.join(destination, 'scripts', 'review.sh'), 'utf8')).toBe('LOCAL EDIT');
+    } finally { await state.cleanup(); }
+  });
+
   it('previews mappings without writes, then imports and reports legacy cleanup in the terminal', async () => {
     const state = await createTempAutohandHome();
     const source = path.join(state.workspaceRoot, 'claude-fixture');

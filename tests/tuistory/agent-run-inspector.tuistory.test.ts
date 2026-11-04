@@ -189,7 +189,7 @@ describe('Autohand AI native session agent inspector', () => {
     expect(restored).toContain('inspector-slow · cancelled');
     expect(restored).toContain('inspector-error · failed');
     const fastRequest = requests.find((payload) => (payload.messages as Array<{ content?: string }>).some((message) => message.content?.startsWith('INSPECTOR_FAST')));
-    expect(fastRequest?.tools).toEqual(expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'read_file' }) })]));
+    expect(fastRequest?.tools).toEqual(expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'run_tool_script' }) })]));
     await session.press('escape');
     await session.type('/squad view');
     await session.text({ timeout: 10_000, waitFor: (text) => text.includes('/squad view') });
@@ -306,10 +306,12 @@ describe('Autohand AI native session agent inspector', () => {
     }, { timeout: 20_000 });
     for (const history of workerRequests.values()) {
       const system = history[0]?.filter((message) => message.role === 'system').map((message) => message.content ?? '').join('\n') ?? '';
-      expect(system).toContain('## Project lessons');
-      expect(system).toContain(projectLesson);
-      expect(system).toContain(path.join(state.workspaceRoot, '.autohand', 'memory'));
-      expect(system).not.toContain(wrongProjectLesson);
+      const context = history[0]?.filter(message => message.role === 'user').map(message => message.content ?? '').join('\n') ?? '';
+      expect(system).not.toContain(projectLesson);
+      expect(context).toContain('## Project lessons');
+      expect(context).toContain(projectLesson);
+      expect(context).toContain(path.join(state.workspaceRoot, '.autohand', 'memory'));
+      expect(JSON.stringify(history[0])).not.toContain(wrongProjectLesson);
     }
     const { receipt, reply } = await messageAndCancelFixtureAgents(session, followup, () => {
       if (!releaseReader || !releaseWriter) throw new Error('Interaction workers have not started');

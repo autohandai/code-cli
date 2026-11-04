@@ -8,6 +8,8 @@ Use `/handoff web --workspace` to include your GitHub repository, branch and a p
 
 Use `--no-open` to print the link without opening a browser. Transfers are private to the signed-in user and account, expire after 24 hours, and contain no runtime credentials or MCP configuration. The source conversation remains available. Conversation limits are 500 saved user/assistant messages and 8 MB, including supported embedded images.
 
+If `/handoff web` reports that there are no saved messages, send a message and let the response finish, then retry. A handoff needs at least one saved user or assistant message; system and tool entries do not count. If the conversation exceeds 500 saved messages, start a new session with a concise handover and transfer that session. Autohand does not silently truncate the conversation. Either failure leaves the local conversation available and uploads no partial transfer.
+
 To come back, type `/handoff cli` in a Web chat or choose **Conversation options → Continue in CLI**. Copy the `autohand transfer <id> --account <account>` command and run it in the folder where you want to continue. The CLI previews the transfer and resumes it locally. It does not overwrite the original repository or run the imported prompt. `autohand transfer --help` lists review and import-only options.
 
 This is a conversation/workspace handoff, not a live relay. Local tools, processes and stdio MCP connections stay on the CLI machine. Web can reuse account connectors with hosted HTTPS endpoints; operating local MCP from Web still requires a remote bridge. The existing `/go` and experimental `/handoff session` mobile relay are unchanged.

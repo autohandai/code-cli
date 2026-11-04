@@ -21,6 +21,8 @@ export const metadata = {
   prd: 'prd/skills_feature.md'
 };
 
+export const aliasMetadata = { ...metadata, command: '/skills-new' };
+
 interface SkillsNewContext {
   llm: LLMProvider;
   skillsRegistry: SkillsRegistry;

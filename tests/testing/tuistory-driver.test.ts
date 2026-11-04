@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runCheckpointFooterScenario, runGoalCompletionScenario } from '../../src/testing/scenarios/checkpointFooterScenario.js';
 import type { Session } from 'tuistory';
 import { exitInteractive, launchTuistorySession, waitForTerminalScreen } from '../../src/testing/drivers/tuistory-driver.js';
 
@@ -142,5 +143,23 @@ describe('waitForTerminalScreen', () => {
     await expect(waitForTerminalScreen({ text }, { timeout: 100, waitFor: isCompleted }))
       .rejects.toBe(error);
     expect(text).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('checkpoint scenario completion frames', () => {
+  it.each([
+    { scenario: runCheckpointFooterScenario, marker: 'CHECKPOINT_FOOTER_ANSWER' },
+    { scenario: runGoalCompletionScenario, marker: 'DELIVERED_CHANGELOG' },
+  ])('rechecks the settled $marker frame before reporting completion', async ({ scenario, marker }) => {
+    const expected = `${marker}\nCompleted in 0m 1s`;
+    const text = vi.fn<Session['text']>().mockResolvedValueOnce(`${marker}\nTurn update: completion review is pending.`).mockResolvedValueOnce(expected);
+    const session = {
+      waitForText: vi.fn().mockResolvedValue('composer'),
+      type: vi.fn().mockResolvedValue(undefined),
+      press: vi.fn().mockResolvedValue(undefined),
+      text,
+    } as unknown as Session;
+    await expect(scenario(session)).resolves.toBe(expected);
+    expect(text).toHaveBeenCalledTimes(2);
   });
 });

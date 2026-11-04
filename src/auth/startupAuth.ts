@@ -3,16 +3,16 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { saveConfig } from '../config.js';
+import { saveValidatedAuth } from '../config.js';
 import type { AuthUser, LoadedConfig } from '../types.js';
 import { getAuthClient } from './index.js';
 import { isDurableAuthCredential } from './credentialType.js';
 import { applyTraceAuthenticationChange } from '../integrations/ahtraces/settingsLifecycle.js';
 
-async function clearInvalidAuthentication(config: LoadedConfig): Promise<void> {
+async function clearInvalidAuthentication(config: LoadedConfig, validatedToken: string): Promise<void> {
   config.auth = undefined;
   try {
-    await saveConfig(config, { writeAuth: true });
+    await saveValidatedAuth(config, validatedToken);
   } catch {
     // Ignore save errors during startup.
   }
@@ -32,17 +32,20 @@ export async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthU
     return undefined;
   }
 
+  const validatedToken = config.auth.token;
+
   if (config.auth.expiresAt && !isDurableAuthCredential(config.auth.token)) {
     const expiresAt = new Date(config.auth.expiresAt);
     if (expiresAt < new Date()) {
-      await clearInvalidAuthentication(config);
+      await clearInvalidAuthentication(config, validatedToken);
       return undefined;
     }
   }
 
   try {
     const authClient = getAuthClient();
-    const result = await authClient.validateSession(config.auth.token);
+    const result = await authClient.validateSession(validatedToken);
+    if (config.auth?.token !== validatedToken) return config.auth?.user;
 
     if (result.authenticated) {
       if (result.user && config.auth) {
@@ -52,7 +55,7 @@ export async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthU
       if (config.auth?.expiresAt && isDurableAuthCredential(config.auth.token)) {
         delete config.auth.expiresAt;
         try {
-          await saveConfig(config, { writeAuth: true });
+          await saveValidatedAuth(config, validatedToken);
         } catch {
           // Ignore save errors during startup.
         }
@@ -61,7 +64,7 @@ export async function validateAuthOnStartup(config: LoadedConfig): Promise<AuthU
       return config.auth?.user;
     }
 
-    await clearInvalidAuthentication(config);
+    await clearInvalidAuthentication(config, validatedToken);
     return undefined;
   } catch {
     return config.auth?.user;

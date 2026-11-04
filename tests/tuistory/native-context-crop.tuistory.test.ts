@@ -95,7 +95,7 @@ describe('Native context crop history', () => {
       }),
     ]));
     expect(continuation?.tools).toEqual(expect.arrayContaining([
-      expect.objectContaining({ function: expect.objectContaining({ name: 'read_file' }) }),
+      expect.objectContaining({ function: expect.objectContaining({ name: 'run_tool_script' }) }),
     ]));
     expect(JSON.stringify(continuation?.messages)).not.toContain('[Tool Result Integrity]');
     expect(await session.text()).toContain('NATIVE_CONTEXT_CROP_CONTINUED');

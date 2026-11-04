@@ -17,13 +17,13 @@ import type {
   PermissionImportReport,
 } from '../types.js';
 import type { SessionMessage } from '../../session/types.js';
-import { AUTOHAND_PATHS } from '../../constants.js';
+import { AUTOHAND_PATHS, getUserSkillLocations } from '../../constants.js';
 import { detectConfigPath } from '../../config.js';
 import YAML from 'yaml';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { BaseImporter } from './BaseImporter.js';
 import { ClaudePermissionImport } from '../ClaudePermissionImport.js';
-import { atomicWriteFile } from '../../utils/atomicFile.js';
+import { atomicWriteFile, withFileLock } from '../../utils/atomicFile.js';
 
 /**
  * A single parsed Claude event from a session JSONL file.
@@ -150,12 +150,12 @@ export class ClaudeImporter extends BaseImporter {
     // Check skills
     const skillsDir = path.join(home, 'skills');
     if (await fse.pathExists(skillsDir)) {
-      const skillEntries = await fse.readdir(skillsDir, { withFileTypes: true }) as unknown as Array<{ name: string; isFile(): boolean }>;
-      const skillFiles = skillEntries.filter(e => e.isFile());
-      if (skillFiles.length > 0) {
+      const { files, folders } = await this.listSkills(skillsDir);
+      const skillCount = files.length + folders.length;
+      if (skillCount > 0) {
         available.set('skills', {
-          count: skillFiles.length,
-          description: `${skillFiles.length} skill file${skillFiles.length !== 1 ? 's' : ''}`,
+          count: skillCount,
+          description: `${skillCount} skill${skillCount !== 1 ? 's' : ''}`,
         });
       }
     }
@@ -585,8 +585,7 @@ export class ClaudeImporter extends BaseImporter {
       return;
     }
 
-    const entries = await fse.readdir(skillsDir, { withFileTypes: true }) as unknown as Array<{ name: string; isFile(): boolean }>;
-    const skillFiles = entries.filter(e => e.isFile());
+    const { files: skillFiles, folders: skillFolders } = await this.listSkills(skillsDir);
 
     let success = 0;
     let failed = 0;
@@ -621,7 +620,59 @@ export class ClaudeImporter extends BaseImporter {
       }
     }
 
-    imported.set('skills', { success, failed, skipped: 0 });
+    let skipped = 0;
+    const skipReasons: Record<string, number> = {};
+    const alreadyDiscovered = getUserSkillLocations().some(location => path.resolve(location.basePath) === path.resolve(skillsDir));
+    for (const [index, folder] of skillFolders.entries()) {
+      if (alreadyDiscovered) {
+        skipped++;
+        skipReasons['already available from ~/.claude/skills'] = skipped;
+        continue;
+      }
+      const src = path.join(skillsDir, folder.name);
+      const dest = path.join(destDir, folder.name);
+      onProgress?.({ category: 'skills', current: skillFiles.length + index + 1, total: skillFiles.length + skillFolders.length, item: folder.name, status: 'importing' });
+      try {
+        if (await fse.pathExists(dest)) {
+          skipped++;
+          skipReasons['already imported'] = (skipReasons['already imported'] ?? 0) + 1;
+          continue;
+        }
+        await fse.ensureDir(destDir);
+        const skillRoot = await fse.realpath(AUTOHAND_PATHS.skills);
+        const staging = await fse.mkdtemp(path.join(path.dirname(skillRoot), '.autohand-skill-import-'));
+        try {
+          const stagedPackage = path.join(staging, folder.name);
+          await fse.copy(src, stagedPackage, { overwrite: false, errorOnExist: true });
+          const published = await withFileLock(`${dest}.lock`, async () => {
+            if (await fse.pathExists(dest)) return false;
+            await fse.rename(stagedPackage, dest);
+            return true;
+          }, { waitTimeoutMs: 1_000 });
+          if (published) success++;
+          else {
+            skipped++;
+            skipReasons['already imported'] = (skipReasons['already imported'] ?? 0) + 1;
+          }
+        } finally { await fse.remove(staging); }
+      } catch (err) {
+        failed++;
+        errors.push({ category: 'skills', item: folder.name, error: err instanceof Error ? err.message : String(err), retriable: true });
+      }
+    }
+    imported.set('skills', { success, failed, skipped, ...(skipped ? { skipReasons } : {}) });
+  }
+
+  private async listSkills(skillsDir: string): Promise<{ files: Array<{ name: string }>; folders: Array<{ name: string }> }> {
+    const entries = await fse.readdir(skillsDir, { withFileTypes: true });
+    const files = entries.filter(e => e.isFile());
+    const folders: Array<{ name: string }> = [];
+    for (const entry of entries) {
+      if (entry.isDirectory() && await fse.pathExists(path.join(skillsDir, entry.name, 'SKILL.md'))) {
+        folders.push(entry);
+      }
+    }
+    return { files, folders };
   }
 
   // ---------------------------------------------------------------

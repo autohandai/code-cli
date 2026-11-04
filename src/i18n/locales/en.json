@@ -258,7 +258,33 @@
         "sessionRetryDelay": "Retry delay (ms)",
         "sessionRetryDelayDesc": "Delay between retries in milliseconds",
         "debug": "Debug mode",
-        "debugDesc": "Enable debug output"
+        "debugDesc": "Enable debug output",
+        "adaptiveSkills": "Adaptive skills",
+        "adaptiveSkillsDesc": "Discover skills on demand and load instructions for this task; restart required",
+        "skillLearning": "Automatic skill learning",
+        "skillLearningDesc": "Allow eligible verified work to create private drafts; requires adaptive skills and configured independent checks",
+        "skillLearningScope": "Learned skill scope",
+        "skillLearningScopeDesc": "Keep drafts in this project or explicitly select your personal library",
+        "skillInstructionBudget": "Skill instruction token budget",
+        "skillInstructionBudgetDesc": "Optional instruction budget; oversized required instructions cause an error instead of truncation",
+        "skillDecisions": "Remote decision models",
+        "skillDecisionsDesc": "Allow separately enabled decision features on an eligible configured provider",
+        "skillDecisionProvider": "Decision provider",
+        "skillDecisionProviderDesc": "Provider ID must match the active execution provider",
+        "skillDecisionModel": "Decision model",
+        "skillDecisionModelDesc": "Model used for enabled decision features; Weka requires eligible Autohand AI Cloud execution",
+        "skillSelectionDecision": "Skill selection decisions",
+        "skillSelectionDecisionDesc": "Allow remote reranking of a bounded local shortlist",
+        "skillPreviewDecision": "Prompt preview decisions",
+        "skillPreviewDecisionDesc": "Allow preview decisions; remote typed text also requires remote preview consent",
+        "skillRemotePreview": "Send typed text for remote preview",
+        "skillRemotePreviewDesc": "Explicitly allow remote preview of typed text before submission",
+        "skillLearningDecision": "Skill learning decisions",
+        "skillLearningDecisionDesc": "Allow eligible remote draft extraction; automatic learning remains a separate control",
+        "skillCompactionDecision": "Context compaction decisions",
+        "skillCompactionDecisionDesc": "Allow eligible remote compaction decisions with local fallback",
+        "skillDecisionTimeout": "Decision timeout (ms)",
+        "skillDecisionTimeoutDesc": "Deadline for a decision request, from 1 to 10000 milliseconds"
       },
       "sessions": {
         "awareness": "Concurrent session awareness",
@@ -274,7 +300,7 @@
         "maxRetries": "Max retries",
         "maxRetriesDesc": "Maximum retry attempts for failed requests",
         "timeout": "Timeout (ms)",
-        "timeoutDesc": "Request timeout in milliseconds",
+        "timeoutDesc": "Leave blank to use each provider's default, for example 300 s for Autohand and at least 600 s for Anthropic.",
         "retryDelay": "Retry delay (ms)",
         "retryDelayDesc": "Delay between retries in milliseconds"
       },
@@ -676,7 +702,7 @@
       "description": "Configure retry and timeout behavior for API requests.",
       "needCustom": "Configure custom network settings? (retries, timeouts)",
       "maxRetries": "Maximum retry attempts (1-5):",
-      "timeout": "Request timeout in milliseconds (5000-120000):"
+      "timeout": "Leave blank for the provider default, or enter 5000-600000 ms"
     },
     "search": {
       "title": "Web Search Provider",

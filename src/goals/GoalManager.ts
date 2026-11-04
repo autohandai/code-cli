@@ -9,6 +9,8 @@ import { PROJECT_DIR_NAME } from '../constants.js';
 import { withFileLock } from '../utils/atomicFile.js';
 import { GoalSnapshotStore, GoalStorageError } from './GoalSnapshotStore.js';
 import { buildCompletionReceipt, parseAcceptanceCriteria } from './GoalCompletion.js';
+import { captureSubmittedGoalSkills, parsePinnedSkill, preflightGoalContinuity, preserveUnknownEffects, retainCheckpointHistory } from './GoalContinuity.js';
+import type { GoalContinuityResolver, PinnedSkillReference } from './GoalContinuity.js';
 import { applyGoalProgress } from './GoalProgress.js';
 import { parseGoalStatus, UNSCOPED_GOAL_SESSION_KEY as UNKNOWN_SESSION_KEY } from './types.js';
 import { ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
@@ -16,6 +18,7 @@ import { parseQueueBlockItems } from './queueBlockParser.js';
 import { listGoalTemplateMetadata, resolveGoalTemplateByName, resolveGoalTemplateInvocation } from './templates.js';
 import type {
   CompletedGoal,
+  GoalCheckpoint,
   GoalCreateInput,
   GoalMutationResult,
   GoalPeer,
@@ -41,6 +44,8 @@ interface GoalSubscriptionGroup {
 const subscriptionGroups = new Map<string, GoalSubscriptionGroup>();
 
 export interface GoalManagerOptions {
+  resolveContinuityContext?: GoalContinuityResolver;
+  getPinnedReferences?: () => readonly PinnedSkillReference[];
   sessionId?: string;
   /** Resolve the active session lazily for long-lived UI subscriptions. */
   getSessionId?: () => string | undefined;
@@ -52,11 +57,12 @@ export interface GoalManagerOptions {
   isSessionAlive?: (sessionId: string) => Promise<boolean>;
 }
 
-export function buildGoalContinuationInstruction(objective: string): string {
+export function buildGoalContinuationInstruction(objective: string, checkpoint?: GoalCheckpoint): string {
   return [
     `Active goal: ${objective}`,
     'Continue working toward this persistent goal until it is complete, blocked, waiting, paused, cleared, or budget-limited.',
     'Use get_goal or update_goal when you need to inspect or modify the goal state.',
+    ...(checkpoint ? [`Approved checkpoint: ${JSON.stringify(checkpoint)}`, 'Do not repeat external effects observed as completed. Continue from the recorded observations.'] : []),
   ].join('\n');
 }
 
@@ -65,6 +71,8 @@ export class GoalManager {
   private storageWarning?: string;
   private readonly sessionId?: string;
   private readonly getSessionId?: () => string | undefined;
+  private readonly resolveContinuityContext?: GoalContinuityResolver;
+  private readonly getPinnedReferences?: () => readonly PinnedSkillReference[];
   private readonly isSessionAlive: (sessionId: string) => Promise<boolean>;
 
   constructor(
@@ -74,6 +82,8 @@ export class GoalManager {
     this.store = new GoalSnapshotStore(this.statePath());
     this.sessionId = options.sessionId?.trim() || undefined;
     this.getSessionId = options.getSessionId;
+    this.resolveContinuityContext = options.resolveContinuityContext;
+    this.getPinnedReferences = options.getPinnedReferences;
     this.isSessionAlive = options.isSessionAlive ?? defaultSessionLivenessProbe;
   }
 
@@ -211,6 +221,44 @@ export class GoalManager {
 
   async listTemplates(): Promise<GoalTemplateMetadata[]> {
     return listGoalTemplateMetadata(this.workspaceRoot);
+  }
+
+  async restoreSessionCheckpoint(): Promise<GoalMutationResult> {
+    const initial = await this.readSnapshot();
+    const initialGoal = initial.goals[this.goalKey()];
+    if (!initialGoal || initialGoal.status === 'complete' || initialGoal.status === 'budgetLimited') return this.result(initial, true, 'No unfinished checkpoint requires restart recovery.');
+    return this.withMutation(async () => {
+      const snapshot = await this.readSnapshot();
+      const key = this.goalKey();
+      const goal = snapshot.goals[key];
+      if (!goal || goal.status === 'complete' || goal.status === 'budgetLimited') return this.result(snapshot, true, 'No unfinished checkpoint requires restart recovery.');
+      try {
+        if (key !== UNKNOWN_SESSION_KEY && await this.isSessionAlive(key)) return this.result(snapshot, false, 'Cannot restore a goal owned by a live session.');
+      } catch {
+        return this.result(snapshot, false, 'Could not verify session liveness. No goals were changed.');
+      }
+      if (goal.status !== 'active') return this.result(snapshot, true, 'Stopped checkpoint owner verified. Explicitly resume when ready.');
+      const now = Date.now();
+      const next = { ...snapshot, goals: { ...snapshot.goals, [key]: { ...goal, status: 'paused' as const, updatedAt: now } }, updatedAt: now };
+      await this.writeSnapshot(next);
+      return this.result(next, true, 'Restored checkpoint paused. Explicitly resume after reviewing the current context.');
+    });
+  }
+
+  async upgradeSkillPins(references: readonly PinnedSkillReference[]): Promise<GoalMutationResult> {
+    return this.withMutation(async () => {
+      const snapshot = await this.readSnapshot();
+      const current = snapshot.goals[this.goalKey()];
+      if (!current?.checkpoint?.continuity) return this.result(snapshot, false, 'No pinned checkpoint exists for this session.');
+      if (current.status === 'active') return this.result(snapshot, false, 'Pause the goal before explicitly upgrading skill pins.');
+      try {
+        const skills = references.map(parsePinnedSkill);
+        return await this.updateGoalUnlocked({ checkpoint: { ...current.checkpoint, continuity: { ...current.checkpoint.continuity, skills } } }, false, false);
+      } catch (error) {
+        if (!(error instanceof TypeError)) throw error;
+        return this.result(snapshot, false, error.message);
+      }
+    });
   }
 
   async prepareSessionRecovery(sessionId: string): Promise<GoalMutationResult> {
@@ -359,7 +407,7 @@ export class GoalManager {
     return this.withMutation(() => this.updateGoalUnlocked({ ...input, status: 'complete' }, true));
   }
 
-  private async updateGoalUnlocked(input: GoalUpdateInput, prepareOnly = false): Promise<GoalMutationResult> {
+  private async updateGoalUnlocked(input: GoalUpdateInput, prepareOnly = false, captureSubmittedSkills = true): Promise<GoalMutationResult> {
     const snapshot = await this.readSnapshot();
     const key = this.goalKey();
     const current = snapshot.goals[key] ? this.withLiveElapsed(snapshot.goals[key]) : null;
@@ -379,9 +427,21 @@ export class GoalManager {
     try {
       parseGoalStatus(input.status);
       next = applyGoalProgress(next, input);
+      if (input.checkpoint !== undefined && next.checkpoint) {
+        if (captureSubmittedSkills) next.checkpoint = await captureSubmittedGoalSkills(current, next.checkpoint, this.resolveContinuityContext, this.getPinnedReferences);
+        preserveUnknownEffects(current.checkpoint?.continuity, next.checkpoint?.continuity);
+        next.checkpointHistory = retainCheckpointHistory(current.checkpointHistory, current.checkpoint, next.checkpoint);
+      }
+      if (input.status === 'active' && current.status !== 'active') {
+        const checked = await preflightGoalContinuity(next, this.resolveContinuityContext);
+        if (JSON.stringify(checked) !== JSON.stringify(next.checkpoint)) {
+          next.checkpointHistory = retainCheckpointHistory(next.checkpointHistory, next.checkpoint, checked);
+          next.checkpoint = checked ? { ...checked, recordedAt: Date.now() } : checked;
+        }
+      }
     } catch (error) {
-      if (!(error instanceof TypeError)) throw error;
-      return this.result(snapshot, false, error.message);
+      if (!(error instanceof TypeError) && !(input.status === 'active' && current.status !== 'active')) throw error;
+      return this.result(snapshot, false, error instanceof Error ? error.message : 'Cannot resume: current context validation failed.');
     }
     if (input.checkpoint !== undefined) changes.push('checkpoint');
     if (input.stopReason !== undefined || input.resumeWhen !== undefined) changes.push('stop details');
@@ -887,6 +947,8 @@ function buildQueuedGoal(input: GoalCreateInput & { source: QueuedGoal['source']
 
 function buildCompletedGoal(goal: GoalState, completedAt: number, sessionId: string): CompletedGoal {
   return {
+    checkpoint: goal.checkpoint,
+    checkpointHistory: goal.checkpointHistory,
     goalId: goal.goalId,
     sessionId,
     objective: goal.objective,

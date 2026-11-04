@@ -3,6 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { parseGoalContinuity } from './GoalContinuity.js';
 import type { GoalCheckpoint, GoalCheckpointInput, GoalState, GoalStatus, GoalUpdateInput } from './types.js';
 
 export function parseGoalCheckpoint(value: unknown): GoalCheckpointInput {
@@ -16,6 +17,7 @@ export function parseGoalCheckpoint(value: unknown): GoalCheckpointInput {
     summary: text(raw.summary, 'checkpoint summary'),
     nextStep: raw.nextStep === undefined ? undefined : text(raw.nextStep, 'checkpoint next step'),
     artifacts,
+    continuity: parseGoalContinuity(raw.continuity),
   };
 }
 
@@ -41,10 +43,12 @@ export function applyGoalProgress(current: GoalState, input: GoalUpdateInput): G
   const changingStatus = input.status !== undefined && input.status !== current.status;
   const stopReason = input.stopReason !== undefined ? input.stopReason : changingStatus ? undefined : current.stopReason;
   const resumeWhen = input.resumeWhen !== undefined ? input.resumeWhen : changingStatus ? undefined : current.resumeWhen;
+  const checkpoint = input.checkpoint === undefined ? current.checkpoint : { ...parseGoalCheckpoint(input.checkpoint), recordedAt: Date.now() };
+  if (checkpoint && checkpoint.continuity === undefined && current.checkpoint?.continuity) checkpoint.continuity = current.checkpoint.continuity;
   return {
     ...current,
     ...parseGoalStopState(status, stopReason, resumeWhen),
-    checkpoint: input.checkpoint === undefined ? current.checkpoint : { ...parseGoalCheckpoint(input.checkpoint), recordedAt: Date.now() },
+    checkpoint,
   };
 }
 

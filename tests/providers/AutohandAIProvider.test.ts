@@ -13,6 +13,22 @@ import {
   getAutohandAIAvailableModelOptions,
 } from "../../src/providers/AutohandAIProvider.js";
 
+describe("Autohand outage guidance", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it.each([[503, true], [401, false]] as const)(
+    "includes status guidance only for service failures (HTTP %s)",
+    async (status, includesStatus) => {
+      globalThis.fetch = vi.fn().mockResolvedValue(Response.json({ error: { message: "fixture failure" } }, { status })) as typeof globalThis.fetch;
+      const provider = new AutohandAIProvider({ plan: "cloud", authMode: "api-key", apiKey: "test-key", model: "fantail" }, { maxRetries: 0 });
+      const error = await provider.complete({ messages: [{ role: "user", content: "hi" }] }).catch((failure: unknown) => failure);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message.includes("https://status.autohand.ai")).toBe(includesStatus);
+    },
+  );
+});
+
 describe("AutohandAIProvider", () => {
   let originalFetch: typeof globalThis.fetch;
 
@@ -23,6 +39,24 @@ describe("AutohandAIProvider", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+  it("names Autohand AI and the recovery action when a hosted model is not found", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({
+      error: { message: "Fixture model is not available" },
+    }, { status: 404 }));
+    globalThis.fetch = fetchMock;
+    const provider = new AutohandAIProvider({
+      plan: "cloud", authMode: "api-key", apiKey: "test-key", model: "fantail",
+    }, { maxRetries: 0 });
+
+    await expect(provider.complete({ messages: [{ role: "user", content: "hi" }] }))
+      .rejects.toMatchObject({
+        code: "model_not_found", httpStatus: 404, retryable: false,
+        message: expect.stringContaining("Autohand AI could not find the requested model. Use /model to select a different one."),
+        rawDetail: "Fixture model is not available",
+      });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("uses the authenticated plan catalog and excludes non-chat models", async () => {
@@ -69,7 +103,7 @@ describe("AutohandAIProvider", () => {
         apiKey: "test-autohand-key",
         model,
       })).toThrow(
-        "Weka is available through the Autohand API, the Agent SDKs and the Console, not in the CLI. Pick another model with /model or --model.",
+        "Weka cannot run as the main coding model. Eligible Autohand AI Cloud decision features may use Weka. Pick another model with /model or --model.",
       );
     },
   );
@@ -88,7 +122,7 @@ describe("AutohandAIProvider", () => {
       model: "weka",
       messages: [{ role: "user", content: "Decide" }],
     })).rejects.toThrow(
-      "Weka is available through the Autohand API, the Agent SDKs and the Console, not in the CLI. Pick another model with /model or --model.",
+      "Weka cannot run as the main coding model. Eligible Autohand AI Cloud decision features may use Weka. Pick another model with /model or --model.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -152,7 +186,7 @@ describe("AutohandAIProvider", () => {
     expect(provider.getCapabilities()).toEqual({ nativeToolCalling: true, streaming: true });
   });
 
-  it.each([undefined, 5_000])('preserves the completion header budget unless timeout is explicitly %s', async (timeout) => {
+  it.each([undefined, 5_000, 30_000, 600_000])('keeps the provider header floor with configured timeout %s', async (timeout) => {
     const timer = vi.spyOn(globalThis, 'setTimeout');
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: 'Inspected response' }, finish_reason: 'stop' }],
@@ -161,7 +195,23 @@ describe("AutohandAIProvider", () => {
       plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'fantail',
     }, timeout === undefined ? undefined : { timeout });
     await provider.complete({ messages: [], stream: true });
-    expect(timer).toHaveBeenCalledWith(expect.any(Function), timeout ?? 300_000);
+    expect(timer).toHaveBeenCalledWith(expect.any(Function), Math.max(timeout ?? 300_000, 300_000));
+  });
+
+  it('accepts Moa headers after forty seconds with the legacy thirty-second setting', async () => {
+    vi.useFakeTimers();
+    try {
+      globalThis.fetch = vi.fn((_url, init) => new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(Response.json({ choices: [{ message: { content: 'Long reasoning completed' }, finish_reason: 'stop' }] })), 40_000);
+        init?.signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); }, { once: true });
+      })) as typeof fetch;
+      const provider = new AutohandAIProvider({ plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa' }, { timeout: 30_000 });
+      const completion = expect(provider.complete({ messages: [{ role: 'user', content: 'Reason carefully' }], stream: true })).resolves.toMatchObject({ content: 'Long reasoning completed' });
+      await vi.advanceTimersByTimeAsync(40_000);
+      await completion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([undefined, false])('does not replay a buffered completion after an ambiguous 300-second timeout with stream=%s', async (stream) => {

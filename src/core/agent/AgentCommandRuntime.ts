@@ -33,6 +33,8 @@ import type { CommandUseSurface } from '../../telemetry/types.js';
 import type { ThreadLease } from '../agents/SessionThreadBudget.js';
 import { withProgramStatusWait } from './AgentProgramStatus.js';
 import type { AgentProgramStatus } from './AgentProgramStatus.js';
+import { isAdaptiveSkillsEnabled } from '../../skills/feature.js';
+import { isWorkflowDiscoveryShortcut } from '../../discovery/preview.js';
 
 export interface AgentCommandRuntimeHost {
   [key: string]: any;
@@ -104,7 +106,7 @@ const INTERACTIVE_SLASH_COMMANDS = new Set([
   '/agents-new', '/agents new', '/resume', '/theme', '/language',
   '/model', '/skills', '/skills install', '/skills-install',
   '/skills new', '/skills-new', '/mcp', '/mcp install', '/mcp-install',
-  '/squad', '/peers', '/whatityped', '/sync',
+  '/squad', '/peers', '/whatityped', '/status', '/sync',
   '/cloud', '/handoff', '/handoff cloud', '/open',
 ]);
 
@@ -113,7 +115,7 @@ const FIXED_COMPOSER_RESULT_COMMANDS = new Set(['/tasks', '/team', '/teams', '/s
 const MARKDOWN_REPORT_COMMANDS = new Set(['/pr-review', '/deslop', '/tester']);
 
 export function shouldPreserveComposerDraftAfterCommand(command: string): boolean {
-  return command === '/whatityped' || command === '/peers' || command === '/feedback' || command === '/sync';
+  return command === '/whatityped' || command === '/peers' || command === '/feedback' || command === '/status' || command === '/sync';
 }
 
 export function shouldRenderSlashCommandResultInComposer(command: string): boolean {
@@ -244,7 +246,7 @@ export async function runAgentSlashCommandWithInput(host: AgentCommandRuntimeHos
     }
 
     try {
-      if (command === '/clear') {
+      if (command === '/clear' || command === '/discovery') {
         return await runCancellableAgentCommand(host as CancellableCommandHost, () => host.handleSlashCommand(command, args));
       }
       const result = await host.handleSlashCommand(command, args);
@@ -323,8 +325,8 @@ async function handleStableAgentSlashCommand(
     return result;
   }
 
-export function isAgentSlashCommand(_host: AgentCommandRuntimeHost, input: string): boolean {
-    return input.trim().startsWith('/');
+export function isAgentSlashCommand(host: AgentCommandRuntimeHost, input: string): boolean {
+    return input.trim().startsWith('/') || isWorkflowDiscoveryShortcut(input, host.skillsRegistry, host.runtime?.options?.bare);
   }
 
 export function isAgentSlashCommandSupported(host: AgentCommandRuntimeHost, command: string): boolean {
@@ -335,7 +337,8 @@ export function isAgentSlashCommandSupported(host: AgentCommandRuntimeHost, comm
     return host.slashHandler.isCommandSupported(command);
   }
 
-export function parseAgentSlashCommand(_host: AgentCommandRuntimeHost, input: string): { command: string; args: string[] } {
+export function parseAgentSlashCommand(host: AgentCommandRuntimeHost, input: string): { command: string; args: string[] } {
+    if (isWorkflowDiscoveryShortcut(input, host.skillsRegistry, host.runtime?.options?.bare)) return { command: '/discovery', args: [] };
     const trimmed = input.trim();
     const parts = trimmed.split(/\s+/);
 
@@ -385,7 +388,7 @@ export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost,
     if (host.confirmationCallback) {
       decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => host.confirmationCallback(message, context)));
     } else if (isExternalCallbackEnabled()) {
-      decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => unifiedConfirm(message, promptContext, { forcePrompt })));
+      decision = normalizePermissionPromptResponse(await withProgramStatusWait('permission', message, () => unifiedConfirm(message, promptContext, { forcePrompt, nonInteractive: host.runtime.isCommandMode === true || Boolean(host.runtime.options.prompt) || !process.stdin.isTTY })));
     } else {
       host.notificationService.notify(
         { body: message, reason: 'confirmation' },
@@ -398,7 +401,7 @@ export async function confirmAgentDangerousAction(host: AgentCommandRuntimeHost,
         if (wasRaw) {
           safeSetRawMode(process.stdin as NodeJS.ReadStream, false);
         }
-        return unifiedConfirm(message, promptContext, { forcePrompt });
+        return unifiedConfirm(message, promptContext, { forcePrompt, nonInteractive: host.runtime.isCommandMode === true || Boolean(host.runtime.options.prompt) || !process.stdin.isTTY });
       }));
     }
 
@@ -453,20 +456,6 @@ export async function requestAgentDirectoryAccess(host: AgentCommandRuntimeHost,
   }
 
 export async function executeAgentAskFollowupQuestion(host: AgentCommandRuntimeHost, question: string, suggestedAnswers?: string[]): Promise<string> {
-    // Auto-approve mode: always answer "Yes" to unblock autonomous flows.
-    if (host.runtime.options.yes || host.runtime.options.unrestricted) {
-      console.log(chalk.yellow(`\n❓ ${question}`));
-      console.log(chalk.gray('  (Auto-answered: Yes)\n'));
-      return '<answer>Yes</answer>';
-    }
-
-    // Non-interactive mode fallback
-    if (process.env.CI === '1' || process.env.AUTOHAND_NON_INTERACTIVE === '1') {
-      console.log(chalk.yellow(`\n❓ ${question}`));
-      console.log(chalk.gray('  (Auto-skipped in non-interactive mode)\n'));
-      return '<answer>Skipped (non-interactive mode)</answer>';
-    }
-
     if (host.followupQuestionCallback) {
       try {
         const mobileAnswer = await withProgramStatusWait('question', question, () => host.followupQuestionCallback(question, suggestedAnswers));
@@ -478,6 +467,20 @@ export async function executeAgentAskFollowupQuestion(host: AgentCommandRuntimeH
       } catch {
         // A mobile transport failure falls through to the existing local prompt.
       }
+    }
+
+    const ci = process.env.CI?.toLowerCase();
+    const interactive = process.stdin.isTTY === true
+      && process.stdout.isTTY === true
+      && ci !== '1' && ci !== 'true'
+      && process.env.AUTOHAND_NON_INTERACTIVE !== '1'
+      && host.runtime.isRpcMode !== true
+      && host.runtime.isCommandMode !== true
+      && !host.runtime.options.prompt;
+    if (!interactive) {
+      console.log(chalk.yellow(`\n❓ ${question}`));
+      console.log(chalk.gray('  (Question unanswered: no response channel is available)\n'));
+      return '<unanswered>No user answer was collected because no interactive input or response channel is available. This is not user consent or approval. Do NOT call ask_followup_question again. Continue using existing instructions when possible; if the missing information is essential, report the blocker instead of inventing an answer.</unanswered>';
     }
 
     host.notificationService.notify(
@@ -791,7 +794,20 @@ export function handleAgentSkillTool(
   host: AgentCommandRuntimeHost,
   action: Extract<AgentAction, { type: 'skill' }>,
 ): ToolActionOutcome {
+    if (action.command === 'search') {
+      const query = action.name?.trim();
+      if (!query) throw new Error('skill search requires a query in the "name" argument.');
+      const matches = host.skillsRegistry.getSkillRuntime().search(query);
+      return { success: true, output: JSON.stringify(matches.map(({ entry, score }: import('../../skills/SkillRuntime.js').SkillSearchMatch) => ({
+        name: entry.name, description: entry.description, reference: entry.reference, source: entry.source, scope: entry.scope, quality: entry.quality, automatic: entry.automatic, score,
+      })), null, 2) };
+    }
     if (action.command === 'list') {
+      if (host.runtime?.config && isAdaptiveSkillsEnabled(host.runtime.config)) {
+        return { success: true, output: JSON.stringify(host.skillsRegistry.getSkillRuntime().list().map((entry: import('../../skills/SkillRuntime.js').SkillCatalogEntry) => ({
+          name: entry.name, description: entry.description, reference: entry.reference, source: entry.source, scope: entry.scope, quality: entry.quality, automatic: entry.automatic,
+        })), null, 2) };
+      }
       const skills = host.skillsRegistry.listSkills().map((skill: SkillSummary) => ({
         name: skill.name,
         description: skill.description,
@@ -827,6 +843,7 @@ export function handleAgentSkillTool(
           source: skill.source,
           path: skill.path,
           active: skill.isActive,
+          reference: host.skillsRegistry.getSkillReference?.(skill),
           allowedTools: skill['allowed-tools'] ?? null,
         }, null, 2),
       };

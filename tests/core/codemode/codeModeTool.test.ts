@@ -15,6 +15,7 @@ import {
 import { findFeature } from '../../../src/features/featureRegistry.js';
 import { PlanModeManager } from '../../../src/modes/planMode/PlanModeManager.js';
 import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
+import path from 'node:path';
 import type { LoadedConfig, ToolActionOutcome } from '../../../src/types.js';
 
 const config = (features?: Record<string, unknown>): LoadedConfig =>
@@ -24,6 +25,16 @@ const ok = (output: string): ToolActionOutcome => ({ success: true, output });
 const definition = (name: string): ToolDefinition => ({ name: name as ToolDefinition['name'], description: name, requiresApproval: false });
 
 describe('run_tool_script definition', () => {
+  it('keeps the native parameter schema unchanged while bounding repeated bridge prose', async () => {
+    await expect(`${JSON.stringify(CODE_MODE_TOOL_DEFINITION.parameters, null, 2)}\n`).toMatchFileSnapshot(
+      path.join(import.meta.dirname, 'fixtures/run-tool-script.parameters.json'),
+    );
+    expect(CODE_MODE_TOOL_DEFINITION.description.length).toBeLessThanOrEqual(900);
+    for (const requirement of ['tool_search', 'Promise.all', 'permission', 'images: true', 'ask_followup_question', '512']) {
+      expect(CODE_MODE_TOOL_DEFINITION.description).toContain(requirement);
+    }
+  });
+
   it('describes a script tool with a required script and an optional timeout', () => {
     expect(CODE_MODE_TOOL_DEFINITION.name).toBe(CODE_MODE_TOOL_NAME);
     expect(CODE_MODE_TOOL_DEFINITION.parameters?.required).toEqual(['script']);
@@ -42,14 +53,14 @@ describe('run_tool_script definition', () => {
 });
 
 describe('code mode feature flag', () => {
-  it('is an experimental feature that is off until features.codeMode is set', () => {
+  it('enables the compact programmatic tool surface unless explicitly disabled', () => {
     expect(findFeature(CODE_MODE_FEATURE_ID)).toMatchObject({
       id: 'code_mode',
       stage: 'experimental',
       configPath: 'features.codeMode',
-      defaultEnabled: false,
+      defaultEnabled: true,
     });
-    expect(isCodeModeEnabled(config())).toBe(false);
+    expect(isCodeModeEnabled(config())).toBe(true);
     expect(isCodeModeEnabled(config({ codeMode: false }))).toBe(false);
     expect(isCodeModeEnabled(config({ codeMode: true }))).toBe(true);
     expect(isCodeModeEnabled(undefined)).toBe(false);

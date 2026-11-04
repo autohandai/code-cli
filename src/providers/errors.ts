@@ -397,17 +397,28 @@ function stripHtmlFromBody(body: string): string {
     .trim();
 }
 
-/**
- * Upper bound for a server-supplied retry delay (`Retry-After` header or a
- * body-inferred value). Account-level "usage limit" 429s can advertise a
- * reset hours away; consumers (the session retry loop, provider clients)
- * use `retryAfterMs` directly as a sleep duration with no cap of their own,
- * so an unbounded value would silently block the whole session for hours
- * on a single retry attempt instead of completing its configured retries.
- * Clamping here — the single point where every provider's retryAfterMs is
- * computed — keeps automatic retries bounded everywhere at once.
- */
-const MAX_RETRY_AFTER_MS = 60_000;
+export function providerRetryDelay(error: unknown, baseDelay: number, attempt: number): number {
+  return Math.max(baseDelay * 2 ** attempt, error instanceof ApiError ? error.retryAfterMs ?? 0 : 0);
+}
+
+export function waitForProviderRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!Number.isFinite(ms) || ms > 2_147_483_647) {
+    return Promise.reject(new ApiError('The provider requested a retry delay beyond the automatic timer limit.', 'rate_limited', 429, false));
+  }
+  if (signal?.aborted) return Promise.reject(new ApiError('Request cancelled.', 'cancelled', 0, false));
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      reject(new ApiError('Request cancelled.', 'cancelled', 0, false));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
 
 export { makeError as createApiError };
 
@@ -424,10 +435,7 @@ function makeError(
     ? `${friendlyMessage}\n${displayBody}`
     : friendlyMessage;
 
-  const rawRetryAfterMs = parseRetryAfter(headers) ?? inferRetryAfterFromBody(code, rawBody);
-  const retryAfterMs = rawRetryAfterMs === undefined
-    ? undefined
-    : Math.min(rawRetryAfterMs, MAX_RETRY_AFTER_MS);
+  const retryAfterMs = parseRetryAfter(headers) ?? inferRetryAfterFromBody(code, rawBody);
 
   return new ApiError(message, code, httpStatus, retryable, retryAfterMs, rawBody);
 }

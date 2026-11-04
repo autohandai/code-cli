@@ -31,6 +31,8 @@ interface WireRequest {
 
 const servers: Server[] = [];
 const workspaces: string[] = [];
+const CHILD_SCRIPT = "const result = await tools.read_file({path:'fixture.txt'}); return result.ok ? result.output : result.error;";
+const PARENT_SCRIPT = "const schemas = await tools.tool_search({query:'delegate_parallel'}); const result = await tools.delegate_task({agent_name:'wire-reader',task:'Read fixture.txt and report its contents.'}); return {report:result.output ?? result.error,schema:JSON.parse(schemas.output).find(tool => tool.name === 'delegate_parallel').parameters};";
 
 function toolCall(name: string, args: Record<string, unknown>, id: string): LLMToolCall {
   return { id, type: 'function', function: { name, arguments: JSON.stringify(args) } };
@@ -69,9 +71,7 @@ async function fixture(mode: 'success' | 'failure' | 'cancel' | 'image' | 'missi
       const child = typeof body.messages[0].content === 'string' && body.messages[0].content.startsWith('WIRE_CHILD');
       const result = body.messages.find(message => message.role === 'tool');
       if (!child) {
-        if (!result) reply(response, '', [toolCall('delegate_task', {
-          agent_name: 'wire-reader', task: 'Read fixture.txt and report its contents.',
-        }, 'parent-delegate-call')]);
+        if (!result) reply(response, '', [toolCall('run_tool_script', { script: PARENT_SCRIPT }, 'parent-script-call')]);
         else reply(response, mode === 'failure' ? 'PARENT_OBSERVED_CHILD_FAILURE' : 'PARENT_VERIFIED_CHILD_RESULT');
       } else if (mode === 'cancel') {
         childRequested.resolve();
@@ -79,7 +79,7 @@ async function fixture(mode: 'success' | 'failure' | 'cancel' | 'image' | 'missi
         response.writeHead(500, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ error: { message: 'Native child unavailable' } }));
       } else if (!result) {
-        reply(response, '', [toolCall('read_file', { path: 'fixture.txt' }, 'child-read-call')]);
+        reply(response, '', [toolCall('run_tool_script', { script: CHILD_SCRIPT }, 'child-script-call')]);
       } else {
         reply(response, `CHILD_VERIFIED: ${result.content}`);
       }
@@ -160,7 +160,7 @@ describe('Autohand AI native delegation wire protocol', () => {
     const state = await fixture('image');
     await expect(state.parent.run('Verify the screenshot with the reader.')).resolves.toBe('PARENT_VERIFIED_CHILD_RESULT');
     const childRequest = state.requests[2];
-    const resultIndex = childRequest.messages.findIndex(message => message.tool_call_id === 'child-read-call');
+    const resultIndex = childRequest.messages.findIndex(message => message.tool_call_id === 'child-script-call');
     const carrier = childRequest.messages[resultIndex + 1];
     expect(carrier).toMatchObject({ role: 'user', content: expect.arrayContaining([
       { type: 'image_url', image_url: { url: expect.stringMatching(/^data:image\/png;base64,/) } },
@@ -171,7 +171,7 @@ describe('Autohand AI native delegation wire protocol', () => {
     expect(await decoded.metadata()).toMatchObject({ format: 'png', width: 8, height: 8 });
     expect([...await decoded.raw().toBuffer()]).toEqual([...await sharp(state.imageBytes).raw().toBuffer()]);
     expect(childRequest.messages[resultIndex]).toMatchObject({
-      role: 'tool', tool_call_id: 'child-read-call', content: expect.stringContaining('NATIVE_CHILD_FILE_CONTENT'),
+      role: 'tool', tool_call_id: 'child-script-call', content: expect.stringContaining('NATIVE_CHILD_FILE_CONTENT'),
     });
     expect(state.addMessage.mock.calls.every(([message]) => typeof message.content === 'string')).toBe(true);
     expect(JSON.stringify(state.addMessage.mock.calls)).not.toContain('data:image/');
@@ -181,7 +181,7 @@ describe('Autohand AI native delegation wire protocol', () => {
   it('reports unavailable child screenshot evidence in the native result instead of implying inspection', async () => {
     const state = await fixture('missing-image');
     await state.parent.run('Verify the screenshot with the reader.');
-    const result = state.requests[2].messages.find(message => message.tool_call_id === 'child-read-call');
+    const result = state.requests[2].messages.find(message => message.tool_call_id === 'child-script-call');
     expect(result?.content).toEqual(expect.stringMatching(/image.*unavailable|unable.*image|image.*failed/i));
     expect(JSON.stringify(state.requests[2].messages)).not.toContain('data:image/');
   });
@@ -207,23 +207,24 @@ describe('Autohand AI native delegation wire protocol', () => {
       expect(request.extra_body?.chat_template_kwargs?.reasoning_effort).toBeUndefined();
     }
     expect(parent.messages[0].content).toContain('wire-reader');
-    expect(parent.tools.find(tool => tool.function.name === 'delegate_parallel')?.function.parameters)
+    expect(parent.tools.find(tool => tool.function.name === 'run_tool_script')?.function.parameters)
+      .toMatchObject({ required: ['script'] });
+    const parentScriptResult = parentResult.messages.find(message => message.role === 'tool' && message.tool_call_id === 'parent-script-call');
+    expect(JSON.parse(String(parentScriptResult?.content)).result.schema)
       .toMatchObject({ properties: { tasks: { type: 'array', items: { type: 'object' } } } });
-    expect(child.tools.map(tool => tool.function.name)).toContain('read_file');
+    expect(child.tools.map(tool => tool.function.name)).toEqual(['run_tool_script', 'tool_search']);
     expect(child.tools.map(tool => tool.function.name)).not.toContain('write_file');
     expect(childResult.messages).toContainEqual(expect.objectContaining({
-      role: 'assistant', tool_calls: [toolCall('read_file', { path: 'fixture.txt' }, 'child-read-call')],
+      role: 'assistant', tool_calls: [toolCall('run_tool_script', { script: CHILD_SCRIPT }, 'child-script-call')],
     }));
     expect(childResult.messages).toContainEqual(expect.objectContaining({
-      role: 'tool', tool_call_id: 'child-read-call', content: expect.stringContaining('NATIVE_CHILD_FILE_CONTENT'),
+      role: 'tool', tool_call_id: 'child-script-call', content: expect.stringContaining('NATIVE_CHILD_FILE_CONTENT'),
     }));
     expect(parentResult.messages).toContainEqual(expect.objectContaining({
-      role: 'assistant', tool_calls: [toolCall('delegate_task', {
-        agent_name: 'wire-reader', task: 'Read fixture.txt and report its contents.',
-      }, 'parent-delegate-call')],
+      role: 'assistant', tool_calls: [toolCall('run_tool_script', { script: PARENT_SCRIPT }, 'parent-script-call')],
     }));
     expect(parentResult.messages).toContainEqual(expect.objectContaining({
-      role: 'tool', tool_call_id: 'parent-delegate-call', content: expect.stringContaining('CHILD_VERIFIED:'),
+      role: 'tool', tool_call_id: 'parent-script-call', content: expect.stringContaining('NATIVE_CHILD_FILE_CONTENT'),
     }));
     expect(state.executeForTool).toHaveBeenCalledOnce();
     expect(state.onSubagentStart).toHaveBeenCalledWith(expect.objectContaining({
@@ -257,8 +258,10 @@ describe('Autohand AI native delegation wire protocol', () => {
     await expect(state.parent.run('Verify the fixture.')).resolves.toBe('PARENT_OBSERVED_CHILD_FAILURE');
     expect(state.requests).toHaveLength(3);
     expect(state.requests[2].messages).toContainEqual(expect.objectContaining({
-      role: 'tool', tool_call_id: 'parent-delegate-call', content: expect.stringContaining('Native child unavailable'),
+      role: 'tool', tool_call_id: 'parent-script-call', content: expect.stringContaining('Native child unavailable'),
     }));
+    const scriptResult = state.requests[2].messages.find(message => message.tool_call_id === 'parent-script-call');
+    expect(JSON.parse(String(scriptResult?.content)).calls.failed).toBe(1);
     expect(state.onSubagentStop).toHaveBeenCalledOnce();
     expect(state.onSubagentStop).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', success: false }));
     expect(state.executeForTool).not.toHaveBeenCalled();

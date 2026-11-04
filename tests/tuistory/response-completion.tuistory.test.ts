@@ -157,7 +157,7 @@ describe('response completion', () => {
     expect(server.requests).toHaveLength(5);
     expect(server.requests[2]?.tools).toBeUndefined();
     expect(server.requests[3]?.tools).toEqual(expect.arrayContaining([
-      expect.objectContaining({ function: expect.objectContaining({ name: 'read_file' }) }),
+      expect.objectContaining({ function: expect.objectContaining({ name: 'run_tool_script' }) }),
     ]));
     expect(screen).toContain('TOOL_RECOVERY_RESTORED_OK');
     expect(session.readAll()).not.toContain('I will read the file after this update.');

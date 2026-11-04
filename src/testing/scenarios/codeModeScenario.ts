@@ -1,5 +1,12 @@
 import type { Session } from 'tuistory';
 
+export function scriptToolCall(id: string, name: string, args: Record<string, unknown> = {}) {
+  return {
+    id, name: 'run_tool_script',
+    args: { script: `return await tools[${JSON.stringify(name)}](${JSON.stringify(args)});` },
+  };
+}
+
 export const SCRIPT_DESCRIPTION = 'Check the package name';
 
 /** The script the scripted model submits: two reads, aggregated inside the script. */

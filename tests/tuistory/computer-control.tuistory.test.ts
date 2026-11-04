@@ -10,6 +10,7 @@ import sharp from 'sharp';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
+import { scriptToolCall } from '../../src/testing/scenarios/codeModeScenario.js';
 import { answerComputerUseTrust, requestComputerUseTrust } from '../../src/testing/scenarios/computerUseTrustScenario.js';
 import {
   createMockAutohandAINativeSequenceServer,
@@ -270,15 +271,11 @@ describe('built native computer control', () => {
     const provider = await createMockAutohandAINativeSequenceServer([
       {
         content: 'Checking the native app connection.',
-        toolCall: {
-          id: 'call_windows',
-          name: 'mcp__autohand-computer-use__list_windows',
-          args: { pid: 6844 },
-        },
+        toolCall: scriptToolCall('call_windows', 'mcp__autohand-computer-use__list_windows', { pid: 6844 }),
       },
       {
         content: 'Inspecting the discovered window.',
-        toolCall: { id: 'call_window_state', name: 'mcp__autohand-computer-use__get_window_state', args: { pid: 6844, window_id: 280 } },
+        toolCall: scriptToolCall('call_window_state', 'mcp__autohand-computer-use__get_window_state', { pid: 6844, window_id: 280 }),
       },
       { content: 'COMPUTER_CONTROL_TURN_COMPLETE' },
     ]);
@@ -332,10 +329,11 @@ describe('built native computer control', () => {
       tools?: Array<{ function?: { name?: string } }>;
     };
     expect(firstRequest.tools?.map((tool) => tool.function?.name))
-      .toContain('mcp__autohand-computer-use__list_windows');
+      .toContain('run_tool_script');
+    expect(firstRequest.tools?.map(tool => tool.function?.name)).not.toContain('mcp__autohand-computer-use__list_windows');
     const userMessage = firstRequest.messages?.find((message) => message.role === 'user')?.content ?? '';
     expect(userMessage).toBe('use my spotify and play Felix Rosch');
-    const turnContext = firstRequest.messages?.filter(message => message.role === 'system').map(message => message.content).join('\n') ?? '';
+    const turnContext = firstRequest.messages?.filter(message => message.role === 'user' && message.content?.includes('<autohand-context>')).map(message => message.content).join('\n') ?? '';
     expect(turnContext).toContain('Computer control mode');
     expect(turnContext).toContain('Operate one exact local app or window');
     expect(turnContext).toContain('mcp__autohand-computer-use__');
@@ -343,7 +341,7 @@ describe('built native computer control', () => {
     const secondRequest = provider.requests[1] as {
       messages?: Array<{ role?: string; content?: string }>;
     };
-    const windowResult = secondRequest.messages?.find(message => message.role === 'tool')?.content;
+    const windowResult = JSON.parse(secondRequest.messages?.find(message => message.role === 'tool')?.content ?? '{}').result?.output;
     expect(windowResult).toContain('Found 1 window(s).');
     expect(windowResult).toContain('"window_id":280');
     expect(windowResult).toContain('"pid":6844');

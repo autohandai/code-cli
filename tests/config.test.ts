@@ -7,7 +7,8 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import os from 'node:os';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as atomicFiles from '../src/utils/atomicFile.js';
 import { applyTrustedWorkspaceEntries, getProviderConfig, loadConfig, resolveRequestedWorkspaceRoot, saveConfig } from '../src/config';
 import { trustWorkspace } from '../src/permissions/workspaceTrust';
 import type { AutohandConfig } from '../src/types';
@@ -20,6 +21,85 @@ afterEach(() => {
 });
 
 describe('getProviderConfig', () => {
+  it.each([
+    ['yaml', 'provider: openrouter\nnetwork:\n  timeout: 30000\n  maxRetries: 2\nauth:\n  token: fixture-kept\n'],
+    ['toml', 'provider = "openrouter"\n[network]\ntimeout = 30000\nmaxRetries = 2\n[auth]\ntoken = "fixture-kept"\n'],
+  ])('preserves %s configuration fields during timeout migration', async (extension, content) => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-format-timeout-'));
+    const configPath = path.join(directory, `config.${extension}`);
+    try {
+      await fs.writeFile(configPath, content);
+      const loaded = await loadConfig(configPath);
+      expect(loaded.network).toEqual({ maxRetries: 2 });
+      expect(loaded.auth?.token).toBe('fixture-kept');
+      const saved = await fs.readFile(configPath, 'utf8');
+      expect(saved).toContain('fixture-kept');
+      expect(saved).not.toContain('30000');
+    } finally { await fs.remove(directory); }
+  });
+
+  it('loads legacy timeout settings when migration cannot write the config', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-readonly-timeout-'));
+    const configPath = path.join(directory, 'config.json');
+    const original = { provider: 'openrouter', network: { timeout: 30000, maxRetries: 2 } };
+    await fs.writeJson(configPath, original);
+    const failure = Object.assign(new Error('Read-only configuration'), { code: 'EROFS' });
+    const directWrite = vi.spyOn(fs, 'writeJson').mockRejectedValue(failure);
+    const atomicWrite = vi.spyOn(atomicFiles, 'atomicWriteFile').mockRejectedValue(failure);
+    try {
+      expect((await loadConfig(configPath)).network).toEqual({ maxRetries: 2 });
+      expect(await fs.readJson(configPath)).toEqual(original);
+    } finally { directWrite.mockRestore(); atomicWrite.mockRestore(); await fs.remove(directory); }
+  });
+
+  it('migrates legacy timeout configuration atomically without overwriting an intervening edit', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-concurrent-timeout-'));
+    const configPath = path.join(directory, 'config.json');
+    await fs.writeJson(configPath, { provider: 'openrouter', network: { timeout: 30000 } });
+    const edited = { provider: 'openrouter', network: { timeout: 60000 }, auth: { token: 'new-fixture-token' }, custom: 'retained' };
+    const originalWrite = atomicFiles.atomicWriteFile;
+    const atomicWrite = vi.spyOn(atomicFiles, 'atomicWriteFile').mockImplementation(async (file, content, options) => {
+      await fs.writeJson(configPath, edited);
+      return originalWrite(file, content, options);
+    });
+    try {
+      await loadConfig(configPath);
+      expect(atomicWrite).toHaveBeenCalledOnce();
+      expect(await fs.readJson(configPath)).toEqual(edited);
+      expect((await fs.readdir(directory)).filter(name => name !== 'config.json')).toEqual([]);
+    } finally { atomicWrite.mockRestore(); await fs.remove(directory); }
+  });
+
+  it.each(['migration', 'save'] as const)('preserves a symlinked configuration during %s', async operation => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-symlink-config-'));
+    const target = path.join(directory, 'profile.json');
+    const configPath = path.join(directory, 'config.json');
+    try {
+      await fs.writeJson(target, { provider: 'openrouter', network: { timeout: operation === 'migration' ? 30000 : 60000 } });
+      await fs.symlink('profile.json', configPath);
+      const config = await loadConfig(configPath);
+      if (operation === 'save') { config.provider = 'openai'; await saveConfig(config); }
+      expect((await fs.lstat(configPath)).isSymbolicLink()).toBe(true);
+      expect(await fs.readlink(configPath)).toBe('profile.json');
+      expect((await fs.readJson(target)).provider).toBe(operation === 'save' ? 'openai' : 'openrouter');
+      expect((await fs.readJson(target)).network).toEqual(operation === 'save' ? { timeout: 60000 } : {});
+    } finally { await fs.remove(directory); }
+  });
+
+  it('migrates only the legacy default timeout and preserves the rest of the saved config', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-timeout-'));
+    const configPath = path.join(tempDir, 'config.json');
+    try {
+      const original = { provider: 'openrouter', openrouter: { model: 'openrouter/auto' }, network: { timeout: 30000, maxRetries: 2, retryDelay: 777 } };
+      await fs.writeJson(configPath, original);
+      const loaded = await loadConfig(configPath);
+      expect(loaded.network).toEqual({ maxRetries: 2, retryDelay: 777 });
+      expect(await fs.readJson(configPath)).toEqual({ ...original, network: { maxRetries: 2, retryDelay: 777 } });
+      await fs.writeJson(configPath, { ...original, network: { timeout: 60000 } });
+      expect((await loadConfig(configPath)).network?.timeout).toBe(60000);
+    } finally { await fs.remove(tempDir); }
+  });
+
   it('creates new configs with local and cloud trace collection disabled', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-'));
     const configPath = path.join(tempDir, 'config.json');

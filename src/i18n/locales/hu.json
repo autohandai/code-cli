@@ -462,7 +462,10 @@
     "configFile": "~/.autohand/config.json (az Ön beállításai)",
     "agentsFile": "AGENTS.md (projekt utasítások az Autohand-hoz)",
     "nextSteps": "Következő lépések:",
-    "tryCommand": "Próbálja ki: autohand"
+    "tryCommand": "Próbálja ki: autohand",
+    "network": {
+      "timeout": "A szolgáltatói alapértékhez hagyja üresen, vagy adjon meg 5000-600000 ms értéket"
+    }
   },
   "errors": {
     "generic": "Hiba történt: {{message}}",

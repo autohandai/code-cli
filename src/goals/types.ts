@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { GoalContinuity } from './GoalContinuity.js';
+
 export const GOAL_STATUSES = ['active', 'paused', 'blocked', 'waiting', 'budgetLimited', 'complete'] as const;
 export type GoalStatus = typeof GOAL_STATUSES[number];
 
@@ -39,6 +41,7 @@ export interface GoalCheckpointInput {
   summary: string;
   nextStep?: string;
   artifacts?: string[];
+  continuity?: GoalContinuity;
 }
 
 export interface GoalCheckpoint extends GoalCheckpointInput {
@@ -53,6 +56,7 @@ export interface GoalState {
   stopReason?: string;
   resumeWhen?: string;
   checkpoint?: GoalCheckpoint;
+  checkpointHistory?: GoalCheckpoint[];
   status: GoalStatus;
   tokenBudget?: number;
   timeBudgetSeconds?: number;
@@ -80,6 +84,8 @@ export interface QueuedGoal {
 }
 
 export interface CompletedGoal {
+  checkpoint?: GoalCheckpoint;
+  checkpointHistory?: GoalCheckpoint[];
   goalId: string;
   sessionId?: string;
   objective: string;

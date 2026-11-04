@@ -345,7 +345,7 @@ interface TextBufferKeyInfo {
 }
 
 /** Chords no extension may take, whichever profile is active. */
-const FIXED_RESERVED_KEYBINDINGS = ['ctrl+c', 'ctrl+d', 'ctrl+x', 'ctrl+enter', 'escape', 'enter', 'return'];
+const FIXED_RESERVED_KEYBINDINGS = ['ctrl+c', 'ctrl+d', 'ctrl+x', 'ctrl+s', 'ctrl+enter', 'escape', 'enter', 'return'];
 
 /** Normalises an Ink keypress into the shape the keybinding matcher reads. */
 export function toInkKeyEvent(input: string, key: InkKey): KeyEvent {
@@ -1805,10 +1805,12 @@ export function AgentUI({
       return;
     }
 
-    if (key.return && key.ctrl && !key.shift && !key.meta && !key.super && !key.hyper
+    const portableSteeringKey = key.ctrl && char === 's' && !key.shift && !key.meta && !key.super && !key.hyper;
+    const queuedSteeringKey = (key.return && key.ctrl || portableSteeringKey) && !key.shift && !key.meta && !key.super && !key.hyper;
+    if (queuedSteeringKey
       && (key.eventType === 'release' || key.eventType === 'repeat')) return;
 
-    if (key.return && key.ctrl && !key.shift && !key.meta && !key.super && !key.hyper
+    if (queuedSteeringKey
       && isWorkingRef.current && enableQueueInputRef.current
       && editingQueueIndexRef.current === null && editingGoalRef.current === null
       && queuedInstructionsRef.current.length > 0 && onSteerQueuedInstructionRef.current) {
@@ -1822,6 +1824,8 @@ export function AgentUI({
       }
       return;
     }
+
+    if (portableSteeringKey && editingQueueIndexRef.current === null) return;
 
     if (activeKeybindings.matches('toggleTeamPanel', keyEvent)) {
       onToggleTeamPanelRef.current?.();
@@ -2272,6 +2276,10 @@ export function AgentUI({
     // directly; a selected queue edit always has its own submit behavior.
     let submitChar = char;
     let submitKey = key;
+    if (portableSteeringKey && editingQueueIndexRef.current !== null) {
+      submitChar = '\r';
+      submitKey = { ...key, return: true };
+    }
     const saveSelectedQueueEdit = editingQueueIndexRef.current !== null && isShiftEnterKey(char, key);
     // Shell, slash, and :alias inputs skip this split and run at once.
     if (isWorkingRef.current && enableQueueInputRef.current && editingQueueIndexRef.current === null && onSteerRef.current && textBeforeKey.trim().length > 0 && canSteerComposerInput(textBeforeKey)) {
@@ -3271,7 +3279,7 @@ const QueuedInstructionsPanel = memo(function QueuedInstructionsPanel({
     <Box flexDirection="column" marginTop={1}>
       <Text color={colors.muted} bold>
         Queue · {queuedInstructions.length} pending
-        {queueSteeringEnabled ? <Text bold={false}> · ctrl+enter steer {focused ? 'selected' : 'next'}</Text> : null}
+        {queueSteeringEnabled ? <Text bold={false}> · ctrl+s or ctrl+enter steer {focused ? 'selected' : 'next'}</Text> : null}
       </Text>
       {visibleInstructions.map((instruction, visibleIndex) => {
         const idx = start + visibleIndex;
@@ -3904,67 +3912,70 @@ const FixedBottom = memo(function FixedBottom({
 
   return (
     <>
-      <Box flexDirection="column" flexShrink={fullScreen ? 1 : 0} overflow={fullScreen ? 'hidden' : 'visible'}>
-        {announcement ? (
-          <AnnouncementLine
-            text={announcement.text}
-            hint={announcement.hint}
-            visible={announcement.visible}
-            columns={terminalColumns}
-          />
-        ) : null}
-        {feedbackSurvey ? (
-          <FeedbackSurveyLine survey={feedbackSurvey} columns={terminalColumns} />
-        ) : null}
-        <StatusSection
-          fullScreen={fullScreen}
-          terminalRows={terminalRows}
-          onWorkingSpinnerFrame={onWorkingSpinnerFrame}
-          isWorking={isWorking}
-          status={status}
-          elapsed={elapsed}
-          tokens={tokens}
-          queuedInstructions={queuedInstructions}
-          queueSteeringEnabled={queueSteeringEnabled}
-          selectedQueueIndex={selectedQueueIndex}
-          completionStats={completionStats}
-          activityItems={activityItems}
-          teamActivity={teamActivity}
-          teamShortcut={actionShortcutHint(keybindings, 'toggleTeamPanel', '/team view')}
-          teamPanelVisible={teamPanelVisible}
-          goalActivity={goalActivity}
-          goalPanelVisible={goalPanelVisible}
-          selectedGoalIndex={selectedGoalIndex}
-          onGoalRowLayoutChange={onGoalRowLayoutChange}
-          commandResult={commandResult}
-          tip={tip}
-          columns={terminalColumns}
-          contextPercent={contextPercent}
-          contextTokens={contextTokens}
-          provider={provider}
-          model={model}
-          taskListPosition={taskListPosition}
-          lineExtension={mergeLineExtensions(
-            configuredLineExtensions?.status,
-            lineExtensions?.status,
-            runtimeLineExtensions?.status,
-          )}
-        />
-        {axo && onAxoGone && shouldShowAxo(axo.enabled, terminalColumns, terminalRows) ? (
-          <AxoBuddy
-            axo={axo}
+      <Box flexDirection="column" flexShrink={fullScreen ? 1 : 0} overflow={fullScreen ? 'hidden' : 'visible'} justifyContent={fullScreen ? 'flex-end' : undefined}>
+        {/* Rows keep their height when the full-screen footer runs out of room; the box clips its top instead of letting Yoga squash rows onto each other. */}
+        <Box flexDirection="column" flexShrink={0}>
+          {announcement ? (
+            <AnnouncementLine
+              text={announcement.text}
+              hint={announcement.hint}
+              visible={announcement.visible}
+              columns={terminalColumns}
+            />
+          ) : null}
+          {feedbackSurvey ? (
+            <FeedbackSurveyLine survey={feedbackSurvey} columns={terminalColumns} />
+          ) : null}
+          <StatusSection
+            fullScreen={fullScreen}
+            terminalRows={terminalRows}
+            onWorkingSpinnerFrame={onWorkingSpinnerFrame}
             isWorking={isWorking}
-            turnStatus={lastTurnOutcome}
-            input={input}
+            status={status}
+            elapsed={elapsed}
+            tokens={tokens}
+            queuedInstructions={queuedInstructions}
+            queueSteeringEnabled={queueSteeringEnabled}
+            selectedQueueIndex={selectedQueueIndex}
+            completionStats={completionStats}
+            activityItems={activityItems}
+            teamActivity={teamActivity}
+            teamShortcut={actionShortcutHint(keybindings, 'toggleTeamPanel', '/team view')}
+            teamPanelVisible={teamPanelVisible}
+            goalActivity={goalActivity}
+            goalPanelVisible={goalPanelVisible}
+            selectedGoalIndex={selectedGoalIndex}
+            onGoalRowLayoutChange={onGoalRowLayoutChange}
+            commandResult={commandResult}
+            tip={tip}
             columns={terminalColumns}
-            rows={terminalRows}
-            onGone={onAxoGone}
+            contextPercent={contextPercent}
+            contextTokens={contextTokens}
+            provider={provider}
+            model={model}
+            taskListPosition={taskListPosition}
+            lineExtension={mergeLineExtensions(
+              configuredLineExtensions?.status,
+              lineExtensions?.status,
+              runtimeLineExtensions?.status,
+            )}
           />
-        ) : null}
-        {fullScreen && menus}
+          {axo && onAxoGone && shouldShowAxo(axo.enabled, terminalColumns, terminalRows) ? (
+            <AxoBuddy
+              axo={axo}
+              isWorking={isWorking}
+              turnStatus={lastTurnOutcome}
+              input={input}
+              columns={terminalColumns}
+              rows={terminalRows}
+              onGone={onAxoGone}
+            />
+          ) : null}
+          {fullScreen && menus}
+        </Box>
         <ShortcutsHelpPanel visible={showShortcuts && !isWorking} keybindings={keybindings} columns={terminalColumns} fullScreen={fullScreen} />
-        {goalEditUnavailable ? <Text color={colors.warning}>Goal is unavailable. Draft kept; Esc cancels.</Text> : null}
       </Box>
+      {goalEditUnavailable ? <Box flexShrink={0}><Text color={colors.warning}>Goal is unavailable. Draft kept; Esc cancels.</Text></Box> : null}
       <InputLineWrapper
         maxRows={fullScreen ? Math.max(1, Math.min(4, Math.floor((terminalRows ?? 24) / 4))) : undefined}
         enableQueueInput={enableQueueInput}

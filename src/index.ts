@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { UNATTENDED_APPROVAL_EXIT_CODE } from './permissions/unattended.js';
 process.title = 'Autohand Code';
 // Set terminal window/icon title (OSC 0 - works in Ghostty, iTerm2, and most terminals)
 const requestsStructuredCommandOutput = process.argv.some((arg) => (
@@ -24,7 +25,7 @@ process.env.AUTOHAND_CODE = '1';
 import 'dotenv/config';
 import './startup/installEnvironmentProxy.js';
 import { collectToolPatternOption } from './permissions/cliPolicyMutation.js';
-import { configureRunConfigOverlay } from './runConfigOverlay.js';
+import { configureRunConfigOverlay, consumeSdkRunSettings } from './runConfigOverlay.js';
 import { loadOutputSchema } from './modes/outputSchema.js';
 import { startupTimeline } from './startup/startupTimeline.js';
 import { countStartupWorkspacePeers, getStartupGitLabel, getStartupLogoRows, StartupBranding } from './startup/startupBranding.js';
@@ -344,8 +345,12 @@ const collectRepeatable = (value: string, previous: string[] = []): string[] => 
 // --profile and --set apply to every command, including subcommands, and to
 // every config load in this process, before any of them reads the config.
 program.hook('preAction', async (thisCommand, actionCommand) => {
-  const { profile, set, config, bare, daemon, tracesOn, tracesOff, mode, acp } = thisCommand.opts<{
+  const { profile, set, config, bare, daemon, tracesOn, tracesOff, mode, acp, sdkSettingsVersion, answerOnly, setupOnly, clientContext } = thisCommand.opts<{
     profile?: string;
+    sdkSettingsVersion?: string;
+    answerOnly?: boolean;
+    setupOnly?: boolean;
+    clientContext?: string;
     set?: string[];
     config?: string;
     bare?: boolean;
@@ -355,7 +360,8 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
     mode?: string;
     acp?: boolean;
   }>();
-  configureRunConfigOverlay({ profile, sets: set });
+  const sdkSettings = consumeSdkRunSettings(sdkSettingsVersion, process.env, answerOnly === true || setupOnly === true || clientContext === 'blueprint');
+  configureRunConfigOverlay({ profile, sets: set, ...(sdkSettings ? { sdkSettings } : {}) });
 
   const commandPath = commandPathOf(actionCommand);
   if (daemon === false && (tracesOn || commandPath[0] === 'traces' || commandPath[0] === 'computer' || commandPath[0] === 'squad')) {
@@ -424,7 +430,7 @@ program
   .option('--output-format <format>', 'Command output format: stream-json')
   .option('--json [mode]', 'Command JSON output: stream (default) or local')
   .option('--output-schema <file>', 'Command mode only: the final answer must be one JSON document valid against this JSON Schema file')
-  .option('--bare', 'Minimal mode: skip hooks, LSP, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
+  .option('--bare', 'Minimal mode: skip hooks, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery', false)
   .option('--no-daemon', 'Disable background services and child processes; keep foreground tools and session commands')
   .option('--offline', 'Disable startup network operations, including model catalog refreshes', false)
   .option('--path <path>', 'Workspace path to operate in')
@@ -469,6 +475,9 @@ program
   .addOption(new Option('--agent <name>').hideHelp())
   .addOption(new Option('--lead-session <id>').hideHelp())
   .addOption(new Option('--provider <provider>').hideHelp())
+  .addOption(new Option('--sdk-settings-version <version>').choices(['1']).hideHelp())
+  .addOption(new Option('--sdk-session-reference <reference>').hideHelp())
+  .addOption(new Option('--sdk-resume-last').hideHelp())
   .option('--teammate-mode <mode>', 'Legacy team display preference; live team view stays in the lead terminal')
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
   .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')
@@ -2051,6 +2060,15 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
         ),
         createSyncService: async (authUser) => {
           const { createSyncService, DEFAULT_SYNC_CONFIG, SyncApiClient } = await import('./sync/index.js');
+          let lastUnavailableCount = 0;
+          const notifySyncNotice = async (message: string): Promise<void> => {
+            if (agentHolder.current) {
+              agentHolder.current.notifyUser(message);
+            } else {
+              const { promptNotify } = await import('./ui/inputPrompt.js');
+              promptNotify(chalk.yellow(message));
+            }
+          };
           return createSyncService({
             controlPlaneConfigPath: config.configPath,
             authToken: config.auth?.token ?? '',
@@ -2061,14 +2079,17 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
               ...config.sync,
               enabled: true,
             },
-            onAuthFailure: async () => {
-              const message = 'Session sync failed. Run /logout and /login if you continue to see this message.';
-              if (agentHolder.current) {
-                agentHolder.current.notifyUser(message);
-              } else {
-                const { promptNotify } = await import('./ui/inputPrompt.js');
-                promptNotify(chalk.yellow(message));
+            onSyncFailure: async (reason) => {
+              const oneLine = reason.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').slice(0, 300).replace(/[.\s]+$/u, '');
+              await notifySyncNotice(`Settings sync is paused: ${oneLine}. Run /sync status`);
+            },
+            onEvent: (event) => {
+              if (event.type !== 'sync_completed' || !event.result.success) return;
+              const unavailable = event.result.remoteSkipped?.unavailableFiles ?? 0;
+              if (unavailable > 0 && unavailable !== lastUnavailableCount) {
+                void notifySyncNotice('Settings synced with incomplete cloud history. Run /sync status').catch(() => {});
               }
+              lastUnavailableCount = unavailable;
             },
             onControlPlaneMcpApplied: async (mcp) => {
               config.mcp = mcp;
@@ -2123,11 +2144,11 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     }
 
     // Configure web search provider from CLI flag, config file, or environment
-    const { configureSearchFromAccount } = await awaitCliLifecycleStep(
+    const { prepareSearchFromAccount } = await awaitCliLifecycleStep(
       import('./actions/web.js'),
       commandLifecycleController.signal,
     );
-    await configureSearchFromAccount(config, options.searchEngine, commandLifecycleController.signal);
+    prepareSearchFromAccount(config, options.searchEngine, commandLifecycleController.signal);
 
     // Pipe mode: read stdin once if piped, then compose with prompt text (if any).
     // This must happen before AutohandAgent construction because dependency
@@ -2272,7 +2293,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       commandOutputCompleted = true;
       agent.setOutputListener(undefined);
       if (!commandLifecycleController.signal.aborted) {
-        process.exitCode = succeeded ? 0 : 1;
+        process.exitCode = succeeded ? 0 : agent.getUnattendedToolDenials().length > 0 ? UNATTENDED_APPROVAL_EXIT_CODE : 1;
       }
     } else if (agentLaunchMode === 'resume' && options.resumeSessionId) {
       await agent.resumeSession(options.resumeSessionId);
@@ -2806,7 +2827,7 @@ async function runPatchMode(opts: CLIOptions): Promise<void> {
       // Run the instruction (changes will be batched in preview mode)
       const succeeded = await agent.runCommandMode(opts.prompt);
       if (!succeeded) {
-        exitCode = 1;
+        exitCode = agent.getUnattendedToolDenials().length > 0 ? UNATTENDED_APPROVAL_EXIT_CODE : 1;
       } else {
         // Get all pending changes
         const changes = files.getPendingChanges();

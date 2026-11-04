@@ -1,18 +1,36 @@
-import type { AutohandConfig, ProviderName } from '../../types.js';
+import type { AutohandConfig, BuiltInProviderName, ExtensionProviderId, ProviderName, ProviderSettings } from '../../types.js';
+
+function providerControls(config: AutohandConfig, provider = config.provider ?? 'openrouter'): ProviderSettings | undefined {
+  if (provider.startsWith('custom:')) return config.customProviders?.[provider.slice('custom:'.length)];
+  if (provider.startsWith('extension:')) return config.extensionProviders?.[provider as ExtensionProviderId];
+  return config[provider as BuiltInProviderName];
+}
+
+export function areProviderBackgroundCallsEnabled(config: AutohandConfig, provider?: ProviderName): boolean {
+  return providerControls(config, provider)?.backgroundCalls !== false;
+}
 
 export function isAutohandOrchestrationEnabled(config: AutohandConfig, provider = config.provider): boolean {
   return provider === 'autohandai'
     && config.autohandai?.plan === 'cloud'
+    && config.autohandai.maxConcurrentThreads !== 1
+    && config.autohandai.backgroundCalls !== false
     && config.autohandai.orchestration !== false;
 }
 
 export function orchestrationThreadLimit(config: AutohandConfig, provider?: ProviderName): number {
-  return config.features?.multi_agent_v2?.max_concurrent_threads_per_session
+  const limit = config.features?.multi_agent_v2?.max_concurrent_threads_per_session
     ?? (isAutohandOrchestrationEnabled(config, provider) ? 4 : 9);
+  const providerLimit = providerControls(config, provider)?.maxConcurrentThreads;
+  if (providerLimit === undefined) return limit;
+  if (!Number.isSafeInteger(providerLimit) || providerLimit < 1 || providerLimit > 64) {
+    throw new RangeError('Provider maxConcurrentThreads must be an integer between 1 and 64.');
+  }
+  return Math.min(limit, providerLimit);
 }
 
 export function canUseMoaAdvisor(config: AutohandConfig, tier?: string, model = config.autohandai?.model): boolean {
-  return isAutohandOrchestrationEnabled(config) && tier !== 'free'
+  return areProviderBackgroundCallsEnabled(config) && isAutohandOrchestrationEnabled(config) && tier !== 'free'
     && (Boolean(tier) || model === 'moa' || model === 'auto');
 }
 

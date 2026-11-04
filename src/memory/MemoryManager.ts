@@ -345,6 +345,8 @@ export class MemoryManager {
       const existing = learned.get(key) ?? {
         ...event.capability,
         uses: 0,
+        activationObservations: 0,
+        legacyActivationObservations: 0,
         successfulUses: 0,
         failedUses: 0,
         userUses: 0,
@@ -353,7 +355,9 @@ export class MemoryManager {
         score: 0,
       };
       existing.uses += 1;
-      existing.successfulUses += event.outcome === 'succeeded' ? 1 : 0;
+      existing.activationObservations += event.capability.kind === 'skill' && event.outcome !== 'failed' ? 1 : 0;
+      existing.legacyActivationObservations += event.capability.kind === 'skill' && event.observation === 'legacy-format-activation' ? 1 : 0;
+      existing.successfulUses += event.capability.kind === 'slash_command' && event.outcome === 'succeeded' ? 1 : 0;
       existing.failedUses += event.outcome === 'failed' ? 1 : 0;
       existing.userUses += event.origin === 'user' ? 1 : 0;
       existing.agentUses += event.origin === 'agent' ? 1 : 0;
@@ -364,6 +368,9 @@ export class MemoryManager {
     }
 
     for (const capability of learned.values()) {
+      if (capability.kind === 'skill') {
+        continue;
+      }
       const recency = this.calculateRecencyScore(capability.lastUsedAt, now);
       capability.score = Math.max(0, (capability.successfulUses * 4)
         + (Math.min(capability.userUses, capability.successfulUses) * 2)

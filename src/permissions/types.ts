@@ -186,6 +186,7 @@ export type PermissionPromptDecision =
 
 export interface PermissionPromptResult {
   decision: PermissionPromptDecision;
+  reason?: 'non_interactive';
   alternative?: string;
 }
 

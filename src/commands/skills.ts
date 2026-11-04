@@ -21,9 +21,10 @@ import { showModal, showConfirm, type ModalOption } from '../ui/ink/components/M
 import type { SkillsRegistry } from '../skills/SkillsRegistry.js';
 import type { SkillDefinition } from '../skills/types.js';
 import type { HookManager } from '../core/HookManager.js';
+import { skillLearningCommand, type SkillLearningCommandContext } from './skill-learning.js';
 
 
-export interface SkillsCommandContext {
+export interface SkillsCommandContext extends SkillLearningCommandContext {
   skillsRegistry: SkillsRegistry;
   workspaceRoot?: string;
   hookManager?: HookManager;
@@ -58,6 +59,17 @@ export async function skills(ctx: SkillsCommandContext, args: string[] = []): Pr
   const skillName = args.slice(1).join(' ').trim() || args[1];
 
   switch (subcommand) {
+    case 'learning':
+    case 'learn':
+    case 'inspect':
+    case 'verify':
+    case 'benefit':
+    case 'prefer':
+    case 'rollback':
+    case 'exclude':
+    case 'forget':
+      return skillLearningCommand(ctx, args);
+
     case 'install':
     case 'get':
     case 'add':
@@ -648,6 +660,15 @@ export const metadata = {
     { name: 'remove', description: 'Remove an installed skill' },
     { name: 'info', description: 'Show detailed skill info' },
     { name: 'new', description: 'Create a new project skill' },
+    { name: 'learning', description: 'Manage automatic learning and inspect drafts' },
+    { name: 'learn', description: 'Draft a local skill from a prior work outcome' },
+    { name: 'inspect', description: 'Inspect learned revision, lineage, and evidence' },
+    { name: 'verify', description: 'Run independent checks on a learned revision' },
+    { name: 'benefit', description: 'Freeze a held-out benefit evaluation plan' },
+    { name: 'prefer', description: 'Evaluate a predeclared benefit plan' },
+    { name: 'rollback', description: 'Withdraw a learned revision' },
+    { name: 'exclude', description: 'Exclude a learned skill' },
+    { name: 'forget', description: 'Remove learning evidence without deleting packages' },
   ],
 };
 

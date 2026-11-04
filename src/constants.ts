@@ -269,6 +269,7 @@ export function getUserSkillLocations(homeDir = os.homedir(), autohandSkillsDir 
  */
 export function getProjectSkillLocations(workspaceRoot: string) {
   return [
+    { basePath: path.join(workspaceRoot, '.codex', 'skills'), source: 'codex-project' as const, recursive: true },
     { basePath: path.join(workspaceRoot, '.claude', 'skills'), source: 'claude-project' as const, recursive: false },
     ...THIRD_PARTY_PROJECT_SKILL_DIRS.map((relativePath) => ({
       basePath: path.join(workspaceRoot, relativePath),

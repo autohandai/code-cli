@@ -2,6 +2,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
+import { scriptToolCall } from '../../src/testing/scenarios/codeModeScenario.js';
 import type { HookDefinition } from '../../src/types.js';
 import { describeSessionEndHook, openLifecycleHooks, importClaudeHooks, enableImportedHook, submitHookScenarioPrompt } from '../../src/testing/scenarios/lifecycleHooksScenario.js';
 import { createTempAutohandHome, createMockAutohandAINativeSequenceServer, createMockAuthServer, launchBuiltAutohand,
@@ -77,12 +78,12 @@ describe('lifecycle hooks built CLI', () => {
     await exitInteractive(session);
   }, 60_000);
 
-  it('lets Autohand AI list, author and disable hooks through native tools', async () => {
+  it('lets Autohand AI list, author and disable hooks through scripts', async () => {
     const { session, state, server } = await launch([
-      { content: 'I will inspect the existing lifecycle hooks before adding the requested automation.', toolCall: { id: 'hooks-list', name: 'list_hooks' } },
-      { content: 'The session-end event has one existing config hook. I will add the requested logger without changing it.', toolCall: { id: 'hooks-create', name: 'create_hook', args: { prompt: 'Log completion at session end', event: 'session-end' } } },
+      { content: 'I will inspect the existing lifecycle hooks before adding the requested automation.', toolCall: scriptToolCall('hooks-list', 'list_hooks') },
+      { content: 'The session-end event has one existing config hook. I will add the requested logger without changing it.', toolCall: scriptToolCall('hooks-create', 'create_hook', { prompt: 'Log completion at session end', event: 'session-end' }) },
       hookDraft,
-      { content: 'The new logger was saved at session-end index one. I will disable it now as the user requested.', toolCall: { id: 'hooks-disable', name: 'set_hook_enabled', args: { event: 'session-end', index: 1, enabled: false } } },
+      { content: 'The new logger was saved at session-end index one. I will disable it now as the user requested.', toolCall: scriptToolCall('hooks-disable', 'set_hook_enabled', { event: 'session-end', index: 1, enabled: false }) },
       { content: 'LIFECYCLE_TOOLS_COMPLETE' },
     ]);
     await session.waitForText('❯');
@@ -91,7 +92,7 @@ describe('lifecycle hooks built CLI', () => {
     await session.waitForText('LIFECYCLE_TOOLS_COMPLETE', { timeout: 30_000 });
     const config = await fs.readJson(state.configPath);
     expect(config.hooks.hooks).toContainEqual(expect.objectContaining({ description: 'Record session completion', enabled: false }));
-    expect(server.requests.some(request => JSON.stringify(request.tools).includes('create_hook'))).toBe(true);
+    expect(server.requests[0].tools).toEqual(expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'run_tool_script' }) })]));
     await exitInteractive(session);
     expect(await fs.pathExists(path.join(state.workspaceRoot, 'lifecycle.log'))).toBe(false);
   }, 60_000);
@@ -161,10 +162,10 @@ describe('prompt hook cancellation', () => {
 describe('command hooks installed through set_lifecycle_hook', () => {
   it('writes a project-level post-tool hook the model asked for, then runs it on the next tool call', async () => {
     const { session, state, server } = await launch([
-      { content: 'I will install a post-tool hook at the project level so lint runs after every tool call.', toolCall: { id: 'hooks-set', name: 'set_lifecycle_hook', args: {
+      { content: 'I will install a post-tool hook at the project level so lint runs after every tool call.', toolCall: scriptToolCall('hooks-set', 'set_lifecycle_hook', {
         event: 'post-tool', command: 'node record-hook.cjs POST_TOOL_LINT', description: 'Run lint after every tool call', level: 'project',
-      } } },
-      { content: 'The hook is installed. I will read the fixture to show it running.', toolCall: { id: 'read-fixture', name: 'read_file', args: { path: 'fixture.txt' } } },
+      }) },
+      { content: 'The hook is installed. I will read the fixture to show it running.', toolCall: scriptToolCall('read-fixture', 'read_file', { path: 'fixture.txt' }) },
       { content: 'COMMAND_HOOK_FLOW_COMPLETE' },
     ], [], async (state) => {
       await fs.writeFile(path.join(state.workspaceRoot, 'record-hook.cjs'),
@@ -182,10 +183,12 @@ describe('command hooks installed through set_lifecycle_hook', () => {
     }]);
     expect((await fs.readJson(state.configPath)).hooks.hooks)
       .not.toContainEqual(expect.objectContaining({ description: 'Run lint after every tool call' }));
-    expect(server.requests.some(request => JSON.stringify(request.tools).includes('set_lifecycle_hook'))).toBe(true);
+    expect(server.requests[0].tools).toEqual(expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'run_tool_script' }) })]));
     const toolResult = server.requests.flatMap(request => request.messages as Array<{ role: string; content?: string }>)
-      .find(message => message.role === 'tool' && message.content?.includes('"status":"created"'));
-    expect(toolResult?.content).toContain('"level":"project"');
+      .filter(message => message.role === 'tool')
+      .map(message => JSON.parse(message.content ?? '{}'))
+      .find(result => result.result?.output?.includes('"status":"created"'));
+    expect(toolResult?.result?.output).toContain('"level":"project"');
     await exitInteractive(session);
     // The hook fired inside the same session, on the read_file call that followed it.
     expect(await fs.readFile(path.join(state.workspaceRoot, 'project-hooks.log'), 'utf8')).toContain('POST_TOOL_LINT');
