@@ -69,9 +69,9 @@ The earlier panel/handoff/slash validation reported 40 terminal scenarios passin
 
 The runtime changes were committed before proof began. The later checkpoint scenario/driver-only correction was validated separately with tests, lint, typecheck, and the real terminal scenarios above. Full repository proof remains required before publication.
 
-The current managed permission profile permits source writes but exposes the original checkout's `.git` read-only. A normal fetch there failed opening `.git/FETCH_HEAD` with `Operation not permitted`. The candidate commits, documentation, validation logs, and an incremental Git bundle are retained under `.artifacts/remote-branch-review-20261104/` in the original project. The original checkout remains at `75edf473` with its three pre-existing WIP files unchanged. Remote Git fetching later also failed DNS resolution; the audit's live GitHub API snapshots and fetched branch tips are recorded separately.
+An earlier normal fetch in the original checkout failed opening `.git/FETCH_HEAD` with `Operation not permitted`. The final normal local fetch and fast-forward succeeded, integrating the candidate through `9cd3f518` into the original checkout. All three pre-existing WIP files retained their exact SHA-256 digests. The candidate commits, documentation, validation logs, and an incremental Git bundle are retained under `.artifacts/remote-branch-review-20261104/` in the original project. Remote Git fetching later also failed DNS resolution; the audit's live GitHub API snapshots and fetched branch tips are recorded separately.
 
-Once normal Git write access is available, inspect the three WIP files and fast-forward the prepared history without resetting them:
+For recovery in a checkout that contains the required base commits, inspect local changes and fast-forward the saved history without resetting them:
 
 ```sh
 git bundle verify .artifacts/remote-branch-review-20261104/integration-candidate.bundle
