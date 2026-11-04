@@ -569,6 +569,14 @@ export class InstructionRunner {
         return false;
       }
 
+      const preparationDenials = host.toolManager?.getUnattendedDenials?.() ?? [];
+      if (preparationDenials.length > 0) {
+        host.conversation.addMessage({ role: 'user', content: instruction });
+        await host.saveUserMessage(instruction);
+        host.conversation.addSystemNote(`${summarizeUnattendedApprovals(preparationDenials)} Stop this turn without retrying tools.`);
+        return recordIncompleteLoop({ status: 'incomplete', reason: 'approval_required' });
+      }
+
       stopPreparation = host.startPreparationStatus(instruction);
       const turnContext = await host.buildTurnContext(instruction);
       stopPreparation();

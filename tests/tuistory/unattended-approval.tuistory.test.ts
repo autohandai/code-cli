@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { runUnattendedApprovalProbe } from '../../src/testing/scenarios/unattendedApprovalScenario.js';
-import { createTempAutohandHome, createMockOpenRouterSequenceServer, launchBuiltAutohand, repoRoot, waitForExit } from './helpers/autohandTuistory.js';
+import { createTempAutohandHome, createMockSubAgentCatalogFetchPreload, createMockOpenRouterSequenceServer, launchBuiltAutohand, repoRoot, waitForExit } from './helpers/autohandTuistory.js';
 
 const request = JSON.stringify({ toolCalls: [{ tool: 'write_file', args: { path: 'hello.txt', contents: 'hi' } }, { tool: 'run_command', args: { command: 'ls' } }] });
 
@@ -29,6 +29,25 @@ describe('unattended approval boundary', () => {
       expect(server.requests).toHaveLength(1);
       expect(existsSync(path.join(state.workspaceRoot, 'hello.txt'))).toBe(false);
     } finally { await server.close(); await state.cleanup(); }
+  }, 30_000);
+
+  it('stops a denied specialist installation before making a lead model request', async () => {
+    const server = await createMockOpenRouterSequenceServer([JSON.stringify({ finalResponse: 'Should not run' })]);
+    const preload = await createMockSubAgentCatalogFetchPreload();
+    const state = await createTempAutohandHome({ config: {
+      openrouter: { baseUrl: server.baseUrl }, features: { automaticSpecialists: true },
+      permissions: { mode: 'interactive' }, agent: { maxIterations: 4, sessionRetryLimit: 0 },
+    } });
+    const nodeOptions = [process.env.NODE_OPTIONS, `--import ${preload.importSpecifier}`].filter(Boolean).join(' ');
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '-p', 'Bring a team of ui and security agents to inspect this repo.'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { NODE_OPTIONS: nodeOptions },
+    });
+    try {
+      await waitForExit(session, 20_000);
+      expect(session.exitInfo?.exitCode, session.readAll()).toBe(77);
+      expect(session.readAll()).toContain('--allowed-tools install_specialist_roster');
+      expect(server.requests).toHaveLength(0);
+    } finally { session.close(); await server.close(); await preload.cleanup(); await state.cleanup(); }
   }, 30_000);
 
   it.each([['--yes'], ['--allowed-tools', 'write_file,run_command']])('runs the approved task with %j', async (...flags) => {

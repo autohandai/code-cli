@@ -772,6 +772,17 @@ export async function runAgentReactLoop(
       return steered.length > 0;
     };
 
+    const stopForUnattendedApproval = (): ReactLoopResult | undefined => {
+      const denied = host.toolManager.getUnattendedDenials?.() ?? [];
+      if (denied.length === 0) return undefined;
+      const summary = summarizeUnattendedApprovals(denied);
+      host.conversation.addSystemNote(`${summary} Stop this turn without retrying tools.`);
+      renderFinalResponse(summary);
+      return { status: 'incomplete', reason: 'approval_required' };
+    };
+    const preparationFailure = stopForUnattendedApproval();
+    if (preparationFailure) return preparationFailure;
+
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
       // Check for abort at the start of each iteration
       if (abortController.signal.aborted) {
@@ -1763,13 +1774,8 @@ export async function runAgentReactLoop(
           );
         }
 
-        const unattendedDenials = host.toolManager.getUnattendedDenials?.() ?? [];
-        if (unattendedDenials.length > 0) {
-          const summary = summarizeUnattendedApprovals(unattendedDenials);
-          host.conversation.addSystemNote(`${summary} Stop this turn without retrying tools.`);
-          renderFinalResponse(summary);
-          return { status: 'incomplete', reason: 'approval_required' };
-        }
+        const approvalFailure = stopForUnattendedApproval();
+        if (approvalFailure) return approvalFailure;
 
         const stepNumber = iteration + 1;
         const shouldStop = await control.onStepFinish?.({

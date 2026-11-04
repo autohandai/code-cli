@@ -1575,7 +1575,7 @@ export class AutohandAgent {
       }
       signal?.throwIfAborted();
     }
-    if (plan.selectedAgents.length === 0) {
+    if (this.toolManager.getUnattendedDenials().length > 0 || plan.selectedAgents.length === 0) {
       return {
         results: formatSpecialistResults({ plan, batches: [], completed: false }),
         completed: false,
