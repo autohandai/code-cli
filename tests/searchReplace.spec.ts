@@ -19,6 +19,7 @@ function createRuntime(): AgentRuntime {
 function createFiles(overrides: Partial<FileActionManager> = {}): Partial<FileActionManager> {
   return {
     root: '/repo',
+    inspectPath: vi.fn().mockResolvedValue({ kind: 'missing' }),
     readFile: vi.fn().mockResolvedValue('hello world'),
     writeFile: vi.fn().mockResolvedValue(undefined),
     ...overrides
