@@ -18,7 +18,8 @@ describe('unattended approval boundary', () => {
         expect(result.exitCode, result.stdout + result.stderr).toBe(77);
         expect(result.elapsedMs).toBeLessThan(20_000);
         expect(result.stderr).toContain('--allowed-tools write_file');
-        expect(result.stderr).toContain('--yes');
+        expect(result.stderr).toContain("write_file needs approval, and this run can't ask for it. Rerun with --yes, or with --allowed-tools write_file.");
+        expect(result.stderr.split('\n').filter(line => line.startsWith('Denied ('))).toEqual(["Denied (this run can't ask for approval): write_file. Rerun with --yes, or with --allowed-tools write_file."]);
       } else {
         const session = await launchBuiltAutohand(args, { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
         try {

@@ -1,4 +1,4 @@
-import { summarizeUnattendedApprovals } from '../../permissions/unattended.js';
+import { describeUnattendedApproval, summarizeUnattendedApprovals } from '../../permissions/unattended.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -491,7 +491,9 @@ export class InstructionRunner {
     const recordIncompleteLoop = (result: Extract<ReactLoopResult, { status: 'incomplete' }>): false => {
       success = false;
       if (result.reason === 'approval_required') {
-        console.error(summarizeUnattendedApprovals(host.toolManager?.getUnattendedDenials?.() ?? []));
+        const denied = host.toolManager?.getUnattendedDenials?.() ?? [];
+        for (const tool of new Set(denied)) console.error(describeUnattendedApproval(tool));
+        console.error(summarizeUnattendedApprovals(denied));
       }
       recordReflectionFailure('incomplete', INCOMPLETE_LOOP_REASONS[result.reason]);
       host.stopUI(true);
