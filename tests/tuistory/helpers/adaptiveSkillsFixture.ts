@@ -92,7 +92,7 @@ export async function launchAdaptiveSkillsFixture(options: {
     }));
     const session = await launchBuiltAutohand(['--config', state.configPath, '--path', state.workspaceRoot], {
       autohandHome: state.autohandHome, cwd: state.workspaceRoot, rows: 50,
-      env: { HOME: state.autohandHome, PATH: '/usr/bin:/bin:/usr/sbin:/sbin:/Users/igorcosta/.bun/bin:/opt/homebrew/bin',
+      env: { HOME: state.autohandHome, PATH: process.env.PATH,
         OPENROUTER_API_KEY: undefined, OPENAI_API_KEY: undefined, ANTHROPIC_API_KEY: undefined,
         AUTOHAND_API_KEY: undefined, AUTOHAND_AUTH_TOKEN: undefined, AUTOHAND_DEBUG: undefined, ...options.env },
     });

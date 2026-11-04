@@ -24,4 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install the independently published binary in a clean HOME
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 src/testing/scenarios/released-installer-smoke.py --channel '${{ matrix.channel }}'

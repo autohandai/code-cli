@@ -68,6 +68,16 @@ describe('CI workflow checkout', () => {
     expect(workflow.concurrency?.group).toContain('github.ref');
   });
 
+  it('provisions ripgrep for every Linux job running the full unit inventory', () => {
+    const jobs = readWorkflowJobs();
+    for (const [workflow, name] of [['ci.yml', 'test'], ['release.yml', 'test'], ['full-proof.yml', 'proof']]) {
+      const job = jobs.find(job => job.workflow === workflow && job.name === name);
+      expect(job, `${workflow}:${name}`).toBeDefined();
+      expect(job!.body, `${workflow}:${name}`).toMatch(/apt-get install[^\n]*\bripgrep\b/u);
+      expect(job!.body.indexOf('apt-get install'), `${workflow}:${name}`).toBeLessThan(job!.body.search(/run: bun run (?:test:ci|proof)/u));
+    }
+  });
+
   it('offers an opt-in complete proof on a runner with full Git history', () => {
     const proof = readWorkflowJobs().find(job => job.workflow === 'full-proof.yml' && job.name === 'proof');
     expect(proof).toBeDefined();

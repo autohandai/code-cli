@@ -2152,7 +2152,7 @@ async function readPersistedAuth(
 ): Promise<{ present: boolean; auth?: LoadedConfig["auth"] }> {
   try {
     const parsed = await parseConfigFile(configPath);
-    if (parsed && typeof parsed === "object" && "auth" in parsed) {
+    if (parsed && typeof parsed === "object") {
       return { present: true, auth: (parsed as AutohandConfig).auth };
     }
     return { present: false };
@@ -2187,9 +2187,28 @@ async function writeConfigData(configPath: string, data: Record<string, unknown>
   }
 }
 
-export async function saveConfig(
+export async function saveValidatedAuth(config: LoadedConfig, validatedToken: string): Promise<void> {
+  const writePath = await resolveConfigWritePath(config.configPath);
+  await fs.ensureDir(path.dirname(writePath));
+  await withFileLock(`${writePath}.lock`, async () => {
+    const persisted = await parseConfigFile(config.configPath);
+    if (!isPlainRecord(persisted.auth) || persisted.auth.token !== validatedToken) return;
+    if (config.auth) persisted.auth = config.auth;
+    else delete persisted.auth;
+    await writeConfigData(config.configPath, persisted as Record<string, unknown>, {}, writePath);
+  });
+}
+
+export async function saveConfig(config: LoadedConfig, options: SaveConfigOptions = {}): Promise<void> {
+  const writePath = await resolveConfigWritePath(config.configPath);
+  await fs.ensureDir(path.dirname(writePath));
+  await withFileLock(`${writePath}.lock`, () => saveConfigSnapshot(config, options, writePath));
+}
+
+async function saveConfigSnapshot(
   config: LoadedConfig,
-  options: SaveConfigOptions = {},
+  options: SaveConfigOptions,
+  writePath: string,
 ): Promise<void> {
   const { configPath, workspaceOverlay, runOverlay, [runtimeProviderOverride]: override, ...data } =
     config as LoadedConfig & { [runtimeProviderOverride]?: RuntimeProviderOverride };
@@ -2243,7 +2262,7 @@ export async function saveConfig(
 
   await fs.ensureDir(path.dirname(configPath));
 
-  await writeConfigData(configPath, data as Record<string, unknown>);
+  await writeConfigData(configPath, data as Record<string, unknown>, {}, writePath);
 
   // A signed-in client synchronizes its account-managed MCP connectors and the
   // safe settings snapshot after user-level configuration changes. The import is

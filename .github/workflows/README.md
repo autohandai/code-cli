@@ -68,7 +68,10 @@ resolutions. Weekly Dependabot updates keep the GitHub Actions versions current.
 
 **Triggers:**
 - Pull requests to `main`, `beta`, `alpha`
-- Push to any branch (except main, beta, alpha)
+- Push to contributor branches except main, beta, alpha, `cto/**`, and `nikita/**`
+- Manual dispatch for validation before opening a PR
+
+Managed CTO/Nikita branches use PR validation to avoid duplicate push and PR matrices. Superseded runs for the same PR or ref are cancelled.
 
 **What it does:**
 1. Type checking
@@ -81,7 +84,7 @@ resolutions. Weekly Dependabot updates keep the GitHub Actions versions current.
 
 Add the `full-proof` label to a pull request to run the complete `bun run proof`
 command on a fresh Ubuntu runner. The job uses the declared Bun version, Node.js
-24, frozen dependencies, and full Git history for terminal version assertions.
+24, frozen dependencies, ripgrep, and full Git history for terminal version assertions.
 It reruns when the labeled pull request changes and cancels its superseded run.
 The regular sharded CI jobs remain available for faster feedback.
 

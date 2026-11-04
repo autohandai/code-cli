@@ -201,6 +201,9 @@ jobs:
         with:
           bun-version-file: package.json
 
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -235,6 +238,9 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

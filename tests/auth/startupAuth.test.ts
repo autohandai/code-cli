@@ -11,7 +11,7 @@ vi.mock('../../src/auth/index.js', () => ({
 }));
 
 vi.mock('../../src/config.js', () => ({
-  saveConfig: vi.fn(),
+  saveValidatedAuth: vi.fn(),
 }));
 
 vi.mock('../../src/integrations/ahtraces/settingsLifecycle.js', () => ({
@@ -19,7 +19,7 @@ vi.mock('../../src/integrations/ahtraces/settingsLifecycle.js', () => ({
 }));
 
 import { getAuthClient } from '../../src/auth/index.js';
-import { saveConfig } from '../../src/config.js';
+import { saveValidatedAuth } from '../../src/config.js';
 import { applyTraceAuthenticationChange } from '../../src/integrations/ahtraces/settingsLifecycle.js';
 import { validateAuthOnStartup } from '../../src/auth/startupAuth.js';
 
@@ -42,9 +42,7 @@ describe('validateAuthOnStartup', () => {
 
     await expect(validateAuthOnStartup(config)).resolves.toBeUndefined();
     expect(config.auth).toBeUndefined();
-    // Clearing a server-rejected credential is an intentional auth write, so it
-    // must opt out of the shared-config preservation that protects other tabs.
-    expect(saveConfig).toHaveBeenCalledWith(config, { writeAuth: true });
+    expect(saveValidatedAuth).toHaveBeenCalledWith(config, 'invalid-token');
     expect(applyTraceAuthenticationChange).toHaveBeenCalledWith(config);
   });
 
@@ -65,7 +63,7 @@ describe('validateAuthOnStartup', () => {
 
     expect(validateSession).not.toHaveBeenCalled();
     expect(config.auth).toBeUndefined();
-    expect(saveConfig).toHaveBeenCalledWith(config, { writeAuth: true });
+    expect(saveValidatedAuth).toHaveBeenCalledWith(config, 'legacy-session-token');
     expect(applyTraceAuthenticationChange).toHaveBeenCalledWith(config);
   });
 
@@ -84,7 +82,7 @@ describe('validateAuthOnStartup', () => {
 
     await expect(validateAuthOnStartup(config)).resolves.toBe(user);
     expect(config.auth?.token).toBe('valid-local-token');
-    expect(saveConfig).not.toHaveBeenCalled();
+    expect(saveValidatedAuth).not.toHaveBeenCalled();
   });
 
   it('validates a durable device credential and clears obsolete session expiry metadata', async () => {
@@ -105,6 +103,6 @@ describe('validateAuthOnStartup', () => {
     expect(validateSession).toHaveBeenCalledWith('ahc_durable-device-credential');
     expect(config.auth?.token).toBe('ahc_durable-device-credential');
     expect(config.auth).not.toHaveProperty('expiresAt');
-    expect(saveConfig).toHaveBeenCalledWith(config, { writeAuth: true });
+    expect(saveValidatedAuth).toHaveBeenCalledWith(config, 'ahc_durable-device-credential');
   });
 });

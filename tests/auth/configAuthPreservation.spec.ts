@@ -8,12 +8,17 @@
  * incidental save (a model switch, a settings change) must not rewrite the file
  * with that stale credential and sign the newer tab out.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
+import { validateAuthOnStartup } from '../../src/auth/startupAuth.js';
+import { getAuthClient } from '../../src/auth/index.js';
 import { saveConfig } from '../../src/config.js';
 import type { LoadedConfig } from '../../src/types.js';
+
+vi.mock('../../src/auth/index.js', () => ({ getAuthClient: vi.fn() }));
+vi.mock('../../src/integrations/ahtraces/settingsLifecycle.js', () => ({ applyTraceAuthenticationChange: vi.fn() }));
 
 let directory: string;
 let configPath: string;
@@ -24,6 +29,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.resetAllMocks();
   await fs.remove(directory);
 });
 
@@ -76,6 +82,12 @@ describe('saveConfig auth preservation', () => {
     expect(persisted.auth).toBeUndefined();
   });
 
+  it('does not resurrect a stale credential after another tab signs out', async () => {
+    await fs.writeJson(configPath, { provider: 'openrouter' });
+    await saveConfig(baseConfig({ token: 'signed-out-token' }));
+    expect((await fs.readJson(configPath)).auth).toBeUndefined();
+  });
+
   it('still persists a credential when the file has none yet', async () => {
     await saveConfig(baseConfig({
       token: 'first-token',
@@ -93,5 +105,46 @@ describe('saveConfig auth preservation', () => {
 
     const persisted = await fs.readJson(configPath) as Record<string, unknown>;
     expect(persisted.auth).toBeUndefined();
+  });
+});
+
+describe('background authentication persistence', () => {
+  it.each(['json', 'yaml', 'toml'])('keeps newer UI settings when validation rejects an older %s snapshot', async extension => {
+    configPath = path.join(directory, `config.${extension}`);
+    const startup = { ...baseConfig({ token: 'rejected-token' }), ui: { taskListPosition: 'above-composer' as const } };
+    await saveConfig(startup, { writeAuth: true });
+    let rejectSession!: (value: { authenticated: false }) => void;
+    vi.mocked(getAuthClient).mockReturnValue({ validateSession: () => new Promise(resolve => { rejectSession = resolve; }) } as ReturnType<typeof getAuthClient>);
+    const validation = validateAuthOnStartup(startup);
+    await saveConfig({ ...startup, ui: { taskListPosition: 'up' } });
+    rejectSession({ authenticated: false });
+    await validation;
+    const { loadConfig } = await import('../../src/config.js');
+    const persisted = await loadConfig(configPath);
+    expect(persisted.ui?.taskListPosition).toBe('up');
+    expect(persisted.auth).toBeUndefined();
+  });
+
+  it('does not clear a credential another tab saved while validation was pending', async () => {
+    const startup = baseConfig({ token: 'old-token' });
+    await saveConfig(startup, { writeAuth: true });
+    let rejectSession!: (value: { authenticated: false }) => void;
+    vi.mocked(getAuthClient).mockReturnValue({ validateSession: () => new Promise(resolve => { rejectSession = resolve; }) } as ReturnType<typeof getAuthClient>);
+    const validation = validateAuthOnStartup(startup);
+    await saveConfig(baseConfig({ token: 'new-login' }), { writeAuth: true });
+    rejectSession({ authenticated: false });
+    await validation;
+    expect((await fs.readJson(configPath)).auth.token).toBe('new-login');
+  });
+
+  it('does not invalidate a new login in the running session', async () => {
+    const startup = baseConfig({ token: 'old-token' });
+    let rejectSession!: (value: { authenticated: false }) => void;
+    vi.mocked(getAuthClient).mockReturnValue({ validateSession: () => new Promise(resolve => { rejectSession = resolve; }) } as ReturnType<typeof getAuthClient>);
+    const validation = validateAuthOnStartup(startup);
+    startup.auth = { token: 'new-login', user: { id: 'new-user', email: 'new@example.com' } };
+    rejectSession({ authenticated: false });
+    await expect(validation).resolves.toEqual(startup.auth.user);
+    expect(startup.auth.token).toBe('new-login');
   });
 });

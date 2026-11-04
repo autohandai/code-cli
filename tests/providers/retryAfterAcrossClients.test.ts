@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NVIDIAClient } from '../../src/providers/NVIDIAClient.js';
 import { AzureClient } from '../../src/providers/AzureClient.js';
 import { CerebrasClient } from '../../src/providers/CerebrasClient.js';
@@ -6,6 +6,7 @@ import { MLXProvider } from '../../src/providers/MLXProvider.js';
 import { OllamaProvider } from '../../src/providers/OllamaProvider.js';
 import { LLMGatewayClient } from '../../src/providers/LLMGatewayClient.js';
 import { OpenRouterClient } from '../../src/providers/OpenRouterClient.js';
+import * as platform from '../../src/utils/platform.js';
 import type { LLMProvider } from '../../src/providers/LLMProvider.js';
 
 const network = { maxRetries: 1, retryDelay: 10 };
@@ -22,7 +23,10 @@ const clients: Array<[string, () => Pick<LLMProvider, 'complete'>]> = [
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-describe.each(clients)('%s Retry-After', (_name, create) => {
+describe.each(clients)('%s Retry-After', (name, create) => {
+  beforeEach(() => {
+    if (name === 'mlx') vi.spyOn(platform, 'isMLXSupported').mockReturnValue(true);
+  });
   it.each([429, 503])('never retries HTTP %i before the stated delay, including delays above one minute', async status => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()

@@ -76,3 +76,39 @@ describe.skipIf(process.platform === 'win32')('Unix installer platform compatibi
     expect(result.stderr).toContain('npm i -g autohand-cli');
   });
 });
+
+describe.skipIf(process.platform === 'win32')('alpha release discovery', () => {
+  async function discover(env: Record<string, string | undefined>, failure = false) {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'installer-alpha-'));
+    try {
+      const script = path.join(root, 'probe.sh');
+      const log = path.join(root, 'curl-args');
+      await fs.writeFile(script, `${functions}\ncurl() {\n  printf '%s\\n' "$@" > "$CURL_ARGS"\n  ${failure ? "printf 'GitHub API refused release discovery\\n' >&2; return 22" : `printf '%s\\n' '[{"tag_name":"v0.9.9-alpha.old","prerelease":true,"published_at":"2026-11-01T00:00:00Z"},{"tag_name":"v0.9.9","prerelease":false,"published_at":"2026-11-04T00:00:00Z"},{"tag_name":"v0.9.9-alpha.new","prerelease":true,"published_at":"2026-11-03T00:00:00Z"}]'`}\n}\nget_latest_alpha_tag\n`);
+      const result = spawnSync('/bin/sh', [script], { encoding: 'utf8', timeout: 10_000,
+        env: { ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, ...env, CURL_ARGS: log } });
+      return { ...result, args: await fs.readFile(log, 'utf8') };
+    } finally { await fs.remove(root); }
+  }
+
+  it.each(['GH_TOKEN', 'GITHUB_TOKEN'])('uses the optional %s credential only for GitHub API metadata', async name => {
+    const result = await discover({ [name]: 'fixture-secret' });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('v0.9.9-alpha.new');
+    expect(result.args).toContain('Authorization: Bearer fixture-secret');
+    expect(result.args).toContain('https://api.github.com/repos/autohandai/code-cli/releases?per_page=100');
+    expect(result.stdout + result.stderr).not.toContain('fixture-secret');
+  });
+
+  it('retains public installation without an API credential', async () => {
+    const result = await discover({});
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('v0.9.9-alpha.new');
+    expect(result.args).not.toContain('Authorization');
+  });
+
+  it('keeps API failure details available for diagnosis', async () => {
+    const result = await discover({}, true);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('GitHub API refused release discovery');
+  });
+});
