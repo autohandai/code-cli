@@ -526,18 +526,19 @@ function parseConfigContent(configPath: string, rawContent: string): AutohandCon
 
 async function persistLegacyNetworkTimeoutMigration(configPath: string): Promise<void> {
   try {
-    await fs.access(configPath, fs.constants.W_OK);
-    await withFileLock(`${configPath}.lock`, async () => {
-      const original = await fs.readFile(configPath, 'utf8');
+    const writePath = await resolveConfigWritePath(configPath);
+    await fs.access(writePath, fs.constants.W_OK);
+    await withFileLock(`${writePath}.lock`, async () => {
+      const original = await fs.readFile(writePath, 'utf8');
       const current = parseConfigContent(configPath, original);
       if (!isPlainRecord(current) || !isPlainRecord(current.network) || current.network.timeout !== 30_000) return;
       const network = { ...current.network };
       delete network.timeout;
       await writeConfigData(configPath, { ...current, network }, {
         beforeCommit: () => {
-          if (fs.readFileSync(configPath, 'utf8') !== original) throw new Error('Configuration changed during timeout migration');
+          if (fs.readFileSync(writePath, 'utf8') !== original) throw new Error('Configuration changed during timeout migration');
         },
-      });
+      }, writePath);
     }, { waitTimeoutMs: 250, retryDelayMs: 10 });
   } catch {
     // A readable configuration remains usable when optional migration cannot persist.
@@ -2160,14 +2161,29 @@ async function readPersistedAuth(
   }
 }
 
-async function writeConfigData(configPath: string, data: Record<string, unknown>, options: AtomicCommitOptions = {}): Promise<void> {
+async function resolveConfigWritePath(configPath: string): Promise<string> {
+  let candidate = configPath;
+  for (let depth = 0; depth < 40; depth++) {
+    try { return await fs.realpath(candidate); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    try { candidate = path.resolve(path.dirname(candidate), await fs.readlink(candidate)); } catch (error) {
+      if (['ENOENT', 'EINVAL'].includes((error as NodeJS.ErrnoException).code ?? '')) return candidate;
+      throw error;
+    }
+  }
+  throw new Error('Configuration symlink chain exceeds the supported depth');
+}
+
+async function writeConfigData(configPath: string, data: Record<string, unknown>, options: AtomicCommitOptions = {}, targetPath?: string): Promise<void> {
+  const writePath = targetPath ?? await resolveConfigWritePath(configPath);
   if (isYamlFile(configPath)) {
     const yamlContent = YAML.stringify(data, { indent: 2 });
-    await atomicWriteFile(configPath, yamlContent, options);
+    await atomicWriteFile(writePath, yamlContent, options);
   } else if (isTomlFile(configPath)) {
-    await atomicWriteFile(configPath, stringifyTomlObject(data), options);
+    await atomicWriteFile(writePath, stringifyTomlObject(data), options);
   } else {
-    await atomicWriteFile(configPath, `${JSON.stringify(data, null, 2)}\n`, options);
+    await atomicWriteFile(writePath, `${JSON.stringify(data, null, 2)}\n`, options);
   }
 }
 

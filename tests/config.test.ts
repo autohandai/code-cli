@@ -70,6 +70,22 @@ describe('getProviderConfig', () => {
     } finally { atomicWrite.mockRestore(); await fs.remove(directory); }
   });
 
+  it.each(['migration', 'save'] as const)('preserves a symlinked configuration during %s', async operation => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-symlink-config-'));
+    const target = path.join(directory, 'profile.json');
+    const configPath = path.join(directory, 'config.json');
+    try {
+      await fs.writeJson(target, { provider: 'openrouter', network: { timeout: operation === 'migration' ? 30000 : 60000 } });
+      await fs.symlink('profile.json', configPath);
+      const config = await loadConfig(configPath);
+      if (operation === 'save') { config.provider = 'openai'; await saveConfig(config); }
+      expect((await fs.lstat(configPath)).isSymbolicLink()).toBe(true);
+      expect(await fs.readlink(configPath)).toBe('profile.json');
+      expect((await fs.readJson(target)).provider).toBe(operation === 'save' ? 'openai' : 'openrouter');
+      expect((await fs.readJson(target)).network).toEqual(operation === 'save' ? { timeout: 60000 } : {});
+    } finally { await fs.remove(directory); }
+  });
+
   it('migrates only the legacy default timeout and preserves the rest of the saved config', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-timeout-'));
     const configPath = path.join(tempDir, 'config.json');

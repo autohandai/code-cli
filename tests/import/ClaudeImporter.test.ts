@@ -39,6 +39,9 @@ vi.mock('fs-extra', () => ({
     writeJson: vi.fn().mockResolvedValue(undefined),
     writeFile: vi.fn().mockResolvedValue(undefined),
     copy: vi.fn().mockResolvedValue(undefined),
+    mkdtemp: vi.fn(async (prefix: string) => prefix + "fixture"),
+    move: vi.fn().mockResolvedValue(undefined),
+    remove: vi.fn().mockResolvedValue(undefined),
     stat: vi.fn(),
     realpath: vi.fn(async (file: string) => file),
     lstat: vi.fn(async () => ({ isSymbolicLink: () => false })),
@@ -877,6 +880,82 @@ describe('ClaudeImporter', () => {
       expect(skills).toBeDefined();
       expect(skills!.success).toBe(2);
       expect(fse.copy).toHaveBeenCalledTimes(2);
+    });
+
+    it('should count folder skills but leave them in place', async () => {
+      vi.mocked(fse.pathExists).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s === CLAUDE_HOME) return true;
+        if (s === path.join(CLAUDE_HOME, 'skills')) return true;
+        if (s === path.join(CLAUDE_HOME, 'skills', 'pr-summary', 'SKILL.md')) return true;
+        return false;
+      });
+
+      vi.mocked(fse.readdir).mockImplementation(async (p: string) => {
+        const s = String(p);
+        if (s === path.join(CLAUDE_HOME, 'skills')) {
+          return [
+            { name: 'pr-summary', isDirectory: () => true, isFile: () => false },
+            { name: 'notes', isDirectory: () => true, isFile: () => false },
+            { name: 'skill1.md', isDirectory: () => false, isFile: () => true },
+          ] as never;
+        }
+        return [];
+      });
+
+      const scan = await importer.scan();
+      expect(scan.available.get('skills')!.count).toBe(2);
+
+      const result = await importer.import(['skills']);
+      const skills = result.imported.get('skills');
+      expect(skills).toEqual({
+        success: 1,
+        failed: 0,
+        skipped: 1,
+        skipReasons: { 'already available from ~/.claude/skills': 1 },
+      });
+      expect(fse.copy).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['sourceHome', 'CLAUDE_CONFIG_DIR'] as const)('imports folder packages from %s instead of claiming they are discoverable', async sourceOption => {
+      const source = path.join(HOME, 'alternate-claude');
+      if (sourceOption === 'CLAUDE_CONFIG_DIR') vi.stubEnv('CLAUDE_CONFIG_DIR', source);
+      importer = new ClaudeImporter(sourceOption === 'sourceHome' ? { sourceHome: source } : {});
+      const skillsDir = path.join(source, 'skills');
+      vi.mocked(fse.pathExists).mockImplementation(async p => [source, skillsDir, path.join(skillsDir, 'package', 'SKILL.md')].includes(String(p)));
+      vi.mocked(fse.readdir).mockResolvedValue([{ name: 'package', isDirectory: () => true, isFile: () => false }] as never);
+      try {
+        const result = await importer.import(['skills']);
+        expect(result.imported.get('skills')).toMatchObject({ success: 1, failed: 0, skipped: 0 });
+        expect(fse.copy).toHaveBeenCalledWith(path.join(skillsDir, 'package'), expect.stringContaining('.autohand-skill-import-'), { overwrite: false, errorOnExist: true });
+        expect(fse.move).toHaveBeenCalledWith(expect.stringContaining('.autohand-skill-import-'), expect.stringContaining(path.join('skills', 'imported-claude', 'package')), { overwrite: false });
+      } finally { vi.unstubAllEnvs(); }
+    });
+
+    it('does not publish a partial package and permits retry after a resource copy fails', async () => {
+      const source = path.join(HOME, 'alternate-claude');
+      importer = new ClaudeImporter({ sourceHome: source });
+      vi.mocked(fse.pathExists).mockImplementation(async p => String(p) === source || String(p) === path.join(source, 'skills') || String(p).endsWith('SKILL.md'));
+      vi.mocked(fse.readdir).mockResolvedValue([{ name: 'package', isDirectory: () => true, isFile: () => false }] as never);
+      vi.mocked(fse.copy).mockRejectedValueOnce(new Error('Resource copy failed')).mockResolvedValue(undefined);
+      const failed = await importer.import(['skills']);
+      expect(failed.imported.get('skills')).toMatchObject({ success: 0, failed: 1 });
+      expect(fse.move).not.toHaveBeenCalled();
+      expect(fse.remove).toHaveBeenCalledOnce();
+      const retried = await importer.import(['skills']);
+      expect(retried.imported.get('skills')).toMatchObject({ success: 1, failed: 0 });
+      expect(fse.move).toHaveBeenCalledOnce();
+      expect(fse.remove).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not overwrite an existing imported folder package', async () => {
+      const source = path.join(HOME, 'alternate-claude');
+      importer = new ClaudeImporter({ sourceHome: source });
+      vi.mocked(fse.pathExists).mockImplementation(async p => String(p) === source || String(p).endsWith('skills') || String(p).endsWith('SKILL.md') || String(p).includes('imported-claude'));
+      vi.mocked(fse.readdir).mockResolvedValue([{ name: 'package', isDirectory: () => true, isFile: () => false }] as never);
+      const result = await importer.import(['skills']);
+      expect(result.imported.get('skills')).toMatchObject({ success: 0, failed: 0, skipped: 1, skipReasons: { 'already imported': 1 } });
+      expect(fse.copy).not.toHaveBeenCalled();
     });
 
     it('should handle missing skills directory gracefully', async () => {
