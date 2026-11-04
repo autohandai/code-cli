@@ -290,7 +290,7 @@ ${body}
         name: 'tracked-skill',
         source: 'autohand-user',
         origin: 'user',
-        outcome: 'succeeded',
+        outcome: 'activated',
       });
     });
 

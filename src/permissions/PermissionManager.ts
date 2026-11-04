@@ -25,6 +25,7 @@ import { matchesToolPattern } from './toolPatterns.js';
 import { filterAdvertisedTools } from './toolAdvertising.js';
 import { checkRunToolScope, isToolAdvertisedByScope, type RunToolScope } from './runToolScope.js';
 import { YoloTimer } from './yoloMode.js';
+import { setBounded } from '../utils/bounded.js';
 import {
   addToSessionAllowList,
   addToSessionDenyList,
@@ -43,6 +44,9 @@ const PLAN_FILE_EDIT_TOOLS = new Set([
   'write_file', 'append_file', 'apply_patch', 'notebook_edit', 'search_replace',
   'format_file', 'multi_file_edit', 'delete_path', 'rename_path', 'copy_path',
 ]);
+
+/** Evict the oldest recorded cache entries; explicit allow and deny rules remain in their own stores. */
+export const MAX_SESSION_CACHE_ENTRIES = 1000;
 
 /**
  * Default security blacklist - always blocked patterns for sensitive files and dangerous commands.
@@ -302,6 +306,7 @@ export class PermissionManager {
     };
   }
 
+  private autoApprovalExpired = false;
   private autoApproval: { timer: YoloTimer; baseline: PermissionSettings; onExpire?: () => void } | undefined;
 
   /**
@@ -315,6 +320,7 @@ export class PermissionManager {
     onExpire?: () => void,
   ): void {
     if (!timeoutSeconds || timeoutSeconds <= 0) return;
+    this.autoApprovalExpired = false;
     this.autoApproval = { timer: new YoloTimer(timeoutSeconds), baseline: baseline ?? {}, onExpire };
   }
 
@@ -322,6 +328,7 @@ export class PermissionManager {
     if (!this.autoApproval || this.autoApproval.timer.isActive()) return;
     const { baseline, onExpire } = this.autoApproval;
     this.autoApproval = undefined;
+    this.autoApprovalExpired = true;
     this.settings = this.normalizeSettings(baseline);
     this.setMode(this.settings.mode || 'interactive');
     onExpire?.();
@@ -537,6 +544,13 @@ export class PermissionManager {
       return ruleDecision;
     }
 
+    // Explicit CLI tool selection is consent for this run. Denials, safety
+    // modes, plan checkpoints and rules above retain their precedence; an
+    // internal additional scope alone never grants approval.
+    if (!this.autoApprovalExpired && this.runToolScope && this.runToolScope.allowed.length > 0 && this.checkRunToolScope(context).allowed) {
+      return { allowed: true, reason: 'user_approved' };
+    }
+
     // Default: needs prompt (interactive mode)
     return { allowed: false, reason: 'default' };
   }
@@ -568,7 +582,7 @@ export class PermissionManager {
     const merged = this.getMergedSettings();
     if (merged.rememberSession) {
       const cacheKey = this.getCacheKey(context);
-      this.sessionCache.set(cacheKey, allowed);
+      setBounded(this.sessionCache, cacheKey, allowed, MAX_SESSION_CACHE_ENTRIES);
     }
 
     // Build pattern for allowList/denyList
@@ -1147,6 +1161,10 @@ export class PermissionManager {
   /**
    * Get current settings (for display)
    */
+  getEffectiveSettings(): PermissionSettings {
+    return structuredClone(this.getMergedSettings());
+  }
+
   getSettings(): PermissionSettings {
     return {
       ...this.settings,

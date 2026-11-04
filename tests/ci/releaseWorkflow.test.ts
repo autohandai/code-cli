@@ -62,12 +62,12 @@ function loadReleaseSteps(): WorkflowStep[] {
 }
 
 const MACOS_SECRETS = [
-  'APPLICATION_CERT_BASE64',
-  'CERT_PASSWORD',
-  'DEVELOPER_NAME',
-  'TEAM_ID',
-  'APPLE_ID',
-  'APP_SPECIFIC_PASSWORD',
+  'CSC_LINK',
+  'CSC_KEY_PASSWORD',
+  'APPLE_TEAM_ID',
+  'APPLE_API_KEY',
+  'APPLE_API_KEY_ID',
+  'APPLE_API_ISSUER',
 ] as const;
 
 function runMacOsSigningPreflight(channel: string, credentials: Record<string, string> = {}) {
@@ -138,6 +138,12 @@ function runVersionStep(manualVersion: string): string {
 }
 
 describe('release workflow', () => {
+  it('keeps the Computer Use deployment target independent of the macOS runner version', () => {
+    const build = loadReleaseWorkflow().jobs.build.steps.find(step => step.name === 'Build Autohand Computer Use host');
+    expect(build?.run).toContain('computer-use-component/autohand/scripts/build-macos-host.sh');
+    expect(build?.run).not.toContain('/usr/bin/swiftc');
+  });
+
   it('builds and bundles both musl architectures alongside glibc Linux', () => {
     const workflow = loadReleaseWorkflow();
     const targets = workflow.jobs.build.strategy?.matrix?.include ?? [];
@@ -167,11 +173,11 @@ describe('release workflow', () => {
     expect(step?.shell).toBe('bash');
   });
 
-  it.each(['alpha', 'release'])('allows %s to use ad-hoc signing while Apple credentials are unavailable', channel => {
+  it.each(['alpha', 'release'])('blocks %s publication when Apple signing credentials are unavailable', channel => {
     const result = runMacOsSigningPreflight(channel);
-    expect(result.status, result.diagnostics).toBe(0);
-    expect(result.output).toBe('mode=adhoc\n');
-    expect(result.diagnostics).toContain('not notarized');
+    expect(result.status, result.diagnostics).toBe(1);
+    expect(result.output).toBe('');
+    expect(result.diagnostics).toContain('CSC_LINK');
   });
 
   it.each(['alpha', 'release'])('selects Developer ID signing for fully configured %s releases', (channel) => {
@@ -194,78 +200,66 @@ describe('release workflow', () => {
     },
   );
 
-  it('passes the selected signing mode to mutually exclusive macOS build steps', () => {
+  it('requires Developer ID signing and API notarization without a release fallback', () => {
     const workflow = loadReleaseWorkflow();
-    const preflight = workflow.jobs.prepare.steps.find((step) => step.name === 'Select macOS signing mode');
+    const preflight = workflow.jobs.prepare.steps.find(step => step.name === 'Select macOS signing mode');
     expect(preflight?.id).toBe('macos-signing');
     expect(preflight?.if).toBe("steps.check.outputs.should_release == 'true'");
-    expect(preflight?.env?.RELEASE_CHANNEL).toBe('${{ steps.determine.outputs.channel }}');
     for (const name of MACOS_SECRETS) {
       expect(preflight?.env?.[name]).toBe('${{ secrets.' + name + ' }}');
     }
     expect(workflow.jobs.prepare.outputs?.macos_signing_mode).toBe('${{ steps.macos-signing.outputs.mode }}');
-    const steps = workflow.jobs.build.steps;
-    const adhoc = steps.find((step) => step.name === 'Ad-hoc sign macOS artifacts');
-    expect(adhoc?.if).toBe("runner.os == 'macOS' && needs.prepare.outputs.macos_signing_mode == 'adhoc'");
-    expect(adhoc?.run).toContain('codesign --force --sign - --timestamp=none');
-    expect(adhoc?.run).toContain('codesign --verify --strict --verbose=4');
-    expect(adhoc?.run).toContain('codesign --verify --deep --strict --verbose=4');
-    expect(adhoc?.run).toContain('matrix.artifact');
-    expect(adhoc?.run).toContain('matrix.tracesArtifact');
-    expect(adhoc?.run).toContain('Autohand Computer Use.app');
-    expect(adhoc?.run).toContain('autohand-computer-use-${{ matrix.target }}.tar.gz');
-    expect(adhoc?.run).not.toMatch(/notarytool|stapler|spctl/);
-    expect(steps.indexOf(adhoc!)).toBeGreaterThan(steps.findIndex((step) => step.name === 'Build Autohand Computer Use host'));
-    expect(steps.indexOf(adhoc!)).toBeLessThan(steps.findIndex((step) => step.name === 'Smoke test binary'));
+    expect(workflow.jobs.build.steps.some(step => step.name === 'Ad-hoc sign macOS artifacts')).toBe(false);
+    expect(workflow.jobs.release.steps.some(step => step.name === 'Document ad-hoc macOS signing')).toBe(false);
+    const sign = workflow.jobs.build.steps.find(step => step.name === 'Sign and notarize macOS artifacts');
+    expect(sign?.run).toContain('--key "$APPLE_API_KEY_PATH"');
+    expect(sign?.run).toContain('--key-id "$APPLE_API_KEY_ID"');
+    expect(sign?.run).toContain('--issuer "$APPLE_API_ISSUER"');
+    expect(sign?.run).not.toContain('--apple-id');
   });
 
-  it('labels ad-hoc macOS downloads in the published release notes', () => {
-    const steps = loadReleaseSteps();
-    const notice = steps.find((step) => step.name === 'Document ad-hoc macOS signing');
-    expect(notice?.if).toBe("needs.prepare.outputs.macos_signing_mode == 'adhoc'");
-    expect(notice?.run).toContain('>> release-notes.md');
-    expect(notice?.run).toContain('not notarized');
-    expect(notice?.run).toContain('Open Anyway');
-    expect(steps.indexOf(notice!)).toBeGreaterThan(steps.findIndex((step) => step.name === 'Generate release notes'));
-    expect(steps.indexOf(notice!)).toBeLessThan(steps.findIndex((step) => step.name === 'Create Release'));
-  });
-
-  it.skipIf(process.platform !== 'darwin')('runs the ad-hoc signing step and verifies archived Bun artifacts on macOS', () => {
-    const script = loadReleaseWorkflow().jobs.build.steps.find(
-      (step) => step.name === 'Ad-hoc sign macOS artifacts',
-    )?.run;
+  it.skipIf(process.platform !== 'darwin')('preserves Bun runtime entitlements when signing hardened executables', () => {
+    const script = loadReleaseWorkflow().jobs.build.steps.find(step => step.name === 'Sign and notarize macOS artifacts')?.run;
     expect(script).toBeDefined();
-    const directory = mkdtempSync(path.join(tmpdir(), 'autohand-signing-native-'));
-    const binaryDirectory = path.join(directory, 'binaries');
-    const app = path.join(binaryDirectory, 'Autohand Computer Use.app');
+    const directory = mkdtempSync(path.join(tmpdir(), 'autohand-hardened-signing-'));
+    const binaries = path.join(directory, 'binaries');
+    const app = path.join(binaries, 'Autohand Computer Use.app');
     try {
       mkdirSync(path.join(app, 'Contents/MacOS'), { recursive: true });
       const source = path.join(directory, 'probe.js');
-      writeFileSync(source, 'console.log("signing-fixture");\n');
-      const executable = path.join(binaryDirectory, 'autohand-probe');
+      writeFileSync(source, 'console.log("hardened-signing-fixture");\n');
+      const executable = path.join(binaries, 'autohand-probe');
       execFileSync('bun', ['build', source, '--compile', '--outfile', executable], { stdio: 'pipe', timeout: 20_000 });
-      copyFileSync(executable, path.join(binaryDirectory, 'ahtraces-probe'));
-      copyFileSync(executable, path.join(app, 'Contents/MacOS/probe'));
+      copyFileSync(executable, path.join(binaries, 'ahtraces-probe'));
+      copyFileSync('/usr/bin/true', path.join(app, 'Contents/MacOS/probe'));
       writeFileSync(path.join(app, 'Contents/Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>probe</string>
-<key>CFBundleIdentifier</key><string>ai.autohand.signing-fixture</string>
+<key>CFBundleIdentifier</key><string>ai.autohand.hardened-signing-fixture</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 </dict></plist>`);
       const signing = spawnSync('bash', ['-euo', 'pipefail', '-c', script!
+        .split('mkdir -p ./binaries/notarization')[0]!
+        .replace(/IDENTITY=.*/, 'IDENTITY="-"')
+        .replaceAll('--timestamp', '--timestamp=none')
+        .replaceAll('--keychain "$AUTOHAND_CODESIGN_KEYCHAIN"', '')
+        .replaceAll('./native/macos/cli.entitlements.plist', path.join(REPOSITORY_ROOT, 'native/macos/cli.entitlements.plist'))
         .replaceAll('${{ matrix.artifact }}', 'autohand-probe')
-        .replaceAll('${{ matrix.tracesArtifact }}', 'ahtraces-probe')
-        .replaceAll('${{ matrix.target }}', 'darwin-probe')], {
+        .replaceAll('${{ matrix.tracesArtifact }}', 'ahtraces-probe')], {
         cwd: directory, encoding: 'utf8', timeout: 20_000,
+        env: { ...process.env, DEVELOPER_NAME: 'fixture', TEAM_ID: 'fixture', APPLE_ID: 'fixture', APP_SPECIFIC_PASSWORD: 'fixture' },
       });
-      expect(signing.status, `Bun ${execFileSync('bun', ['--version'], { encoding: 'utf8' }).trim()}: ${signing.stderr}`).toBe(0);
-      expect(execFileSync(executable, { encoding: 'utf8', timeout: 5_000 }).trim()).toBe('signing-fixture');
-      const restored = path.join(directory, 'restored');
-      mkdirSync(restored);
-      execFileSync('tar', ['-xzf', path.join(binaryDirectory, 'autohand-computer-use-darwin-probe.tar.gz'), '-C', restored]);
-      const restoredApp = path.join(restored, 'Autohand Computer Use.app');
-      execFileSync('codesign', ['--verify', '--deep', '--strict', restoredApp], { stdio: 'pipe', timeout: 5_000 });
-      expect(execFileSync(path.join(restoredApp, 'Contents/MacOS/probe'), { encoding: 'utf8', timeout: 5_000 }).trim()).toBe('signing-fixture');
+      expect(signing.status, signing.stderr).toBe(0);
+      for (const name of ['autohand-probe', 'ahtraces-probe']) {
+        const entitlements = execFileSync('codesign', ['-d', '--entitlements', '-', '--xml', path.join(binaries, name)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+        expect(entitlements).toContain('<key>com.apple.security.cs.allow-jit</key>');
+        expect(entitlements).toContain('<key>com.apple.security.cs.allow-unsigned-executable-memory</key>');
+        expect(entitlements).toContain('<key>com.apple.security.cs.disable-library-validation</key>');
+        expect(entitlements).not.toContain('com.apple.security.get-task-allow');
+        const result = spawnSync(path.join(binaries, name), { encoding: 'utf8', timeout: 5_000 });
+        expect(result.status, result.stderr + String(result.signal ?? '')).toBe(0);
+        expect(result.stdout.trim()).toBe('hardened-signing-fixture');
+      }
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -488,17 +482,14 @@ describe('release workflow', () => {
     expect(uploadIndex).toBeGreaterThan(smokeIndex);
     expect(certificateStep?.if).toBe("runner.os == 'macOS' && needs.prepare.outputs.macos_signing_mode == 'developer-id'");
     expect(certificateStep?.env).toMatchObject({
-      APPLICATION_CERT_BASE64: '${{ secrets.APPLICATION_CERT_BASE64 }}',
-      CERT_PASSWORD: '${{ secrets.CERT_PASSWORD }}',
+      CSC_LINK: '${{ secrets.CSC_LINK }}',
+      CSC_KEY_PASSWORD: '${{ secrets.CSC_KEY_PASSWORD }}',
     });
-    expect(certificateStep?.run).toContain('security import application.p12');
-    expect(certificateStep?.run).toContain('Developer ID Application');
+    expect(certificateStep?.run).toContain('autohand/scripts/import-apple-signing.sh');
     expect(signStep?.if).toBe("runner.os == 'macOS' && needs.prepare.outputs.macos_signing_mode == 'developer-id'");
     expect(signStep?.env).toMatchObject({
-      DEVELOPER_NAME: '${{ secrets.DEVELOPER_NAME }}',
-      TEAM_ID: '${{ secrets.TEAM_ID }}',
-      APPLE_ID: '${{ secrets.APPLE_ID }}',
-      APP_SPECIFIC_PASSWORD: '${{ secrets.APP_SPECIFIC_PASSWORD }}',
+      APPLE_API_KEY_ID: '${{ secrets.APPLE_API_KEY_ID }}',
+      APPLE_API_ISSUER: '${{ secrets.APPLE_API_ISSUER }}',
     });
     expect(signStep?.run).toContain('codesign --force --timestamp --options runtime');
     expect(signStep?.run).toContain('codesign --verify --strict --verbose=4');
@@ -523,14 +514,14 @@ describe('release workflow', () => {
     expect(buildSteps[uploadIndex]?.with?.path).toContain('${{ matrix.tracesArtifact }}');
     expect(buildTargets).toEqual(expect.arrayContaining([
       {
-        os: 'macos-latest',
+        os: 'macos-26',
         target: 'darwin-arm64',
         artifact: 'autohand-macos-arm64',
         tracesArtifact: 'ahtraces-macos-arm64',
         computerUseArtifact: 'autohand-computer-use-darwin-arm64.tar.gz',
       },
       {
-        os: 'macos-15-intel',
+        os: 'macos-26-intel',
         target: 'darwin-x64',
         artifact: 'autohand-macos-x64',
         tracesArtifact: 'ahtraces-macos-x64',
@@ -559,13 +550,13 @@ describe('release workflow', () => {
     expect(transportJob?.['runs-on']).toBe('${{ matrix.os }}');
     expect(transportJob?.strategy?.matrix?.include).toEqual([
       {
-        os: 'macos-latest',
+        os: 'macos-26',
         artifact: 'autohand-macos-arm64',
         tracesArtifact: 'ahtraces-macos-arm64',
         computerUseArtifact: 'autohand-computer-use-darwin-arm64.tar.gz',
       },
       {
-        os: 'macos-15-intel',
+        os: 'macos-26-intel',
         artifact: 'autohand-macos-x64',
         tracesArtifact: 'ahtraces-macos-x64',
         computerUseArtifact: 'autohand-computer-use-darwin-x64.tar.gz',
@@ -580,6 +571,10 @@ describe('release workflow', () => {
     expect(verifyStep?.run).toContain('"$binary" --version < /dev/null');
     expect(verifyStep?.run).toContain('ahtraces');
     expect(verifyStep?.run).toContain('Autohand Computer Use.app');
+    expect(verifyStep?.env?.MACOS_SIGNING_MODE).toBe('${{ needs.prepare.outputs.macos_signing_mode }}');
+    expect(verifyStep?.run).toContain('if [ "$MACOS_SIGNING_MODE" = "developer-id" ]');
+    expect(verifyStep?.run).toContain('xcrun stapler validate');
+    expect(verifyStep?.run).toContain('spctl -a -vv -t exec');
     expect(workflow.jobs.release.needs).toEqual([
       'prepare',
       'build',

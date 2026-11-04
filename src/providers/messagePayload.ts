@@ -78,6 +78,37 @@ export function isBlankContent(content: unknown): boolean {
   return content === null || content === undefined;
 }
 
+/** Keep runtime context at its conversation position instead of moving it into the cached prefix. */
+export function normalizePromptRoles(messages: readonly MultimodalMessage[]): MultimodalMessage[] {
+  const normalized: MultimodalMessage[] = [];
+  const leading: string[] = [];
+  const currentContext: MultimodalMessage[] = [];
+  let inConversation = false;
+  for (const message of messages) {
+    if (message.role === 'system' && message.runtimeContextKey) {
+      currentContext.push({ role: 'user', content: `<autohand-context>\n${toTextOnlyContent(message.content)}\n</autohand-context>` });
+      continue;
+    }
+    if (message.role === 'system' && !inConversation) {
+      const text = toTextOnlyContent(message.content);
+      if (text.trim()) leading.push(text);
+      continue;
+    }
+    if (!inConversation) {
+      if (leading.length) normalized.push({ role: 'system', content: leading.join('\n\n') });
+      if (message.role === 'assistant') {
+        normalized.push({ role: 'user', content: '[Continue from the following conversation history.]' });
+      }
+      inConversation = true;
+    }
+    normalized.push(message.role === 'system'
+      ? { role: 'user', content: `<autohand-context>\n${toTextOnlyContent(message.content)}\n</autohand-context>` }
+      : message);
+  }
+  if (!inConversation && leading.length) normalized.push({ role: 'system', content: leading.join('\n\n') });
+  return [...normalized, ...currentContext];
+}
+
 function toOutboundMessage(
   message: MultimodalMessage,
   transformContent: (content: MultimodalMessage["content"]) => unknown,
@@ -126,6 +157,7 @@ export function normalizeOutboundMessages(
   messages: MultimodalMessage[],
   options: NormalizeOutboundMessagesOptions = {},
 ): Record<string, unknown>[] {
+  messages = normalizePromptRoles(messages);
   const transformContent = options.transformContent ?? ((content) => content);
   const knownToolCallIds = new Set<string>();
   const answeredToolCallIds = new Set<string>();
@@ -166,7 +198,7 @@ export function normalizeOutboundMessages(
       flushBackfill();
       outbound.push(
         options.recoverOrphanedToolResult?.(message) ?? {
-          role: "system",
+          role: "user",
           content: String(message.content),
         },
       );

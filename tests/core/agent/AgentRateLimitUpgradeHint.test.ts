@@ -43,4 +43,11 @@ describe('AutohandAgent quota upgrade hint', () => {
     await autohand.agent.notifySessionFailure(new ApiError('boom', 'server_error', 500, false));
     expect(autohand.ui.setTip).not.toHaveBeenCalled();
   });
+
+  it('does not show an upgrade for local Autohand model failures', async () => {
+    const { agent, ui } = makeAgent('autohandai');
+    Object.assign(agent, { runtime: { config: { autohandai: { plan: 'local' } }, options: {} } });
+    await agent.notifySessionFailure(new ApiError('busy', 'rate_limited', 429, false));
+    expect(ui.setTip).not.toHaveBeenCalled();
+  });
 });

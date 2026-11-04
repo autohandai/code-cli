@@ -43,8 +43,15 @@ async function trackSession(sessionPromise: Promise<Session>): Promise<Session> 
 async function waitForComposer(session: Session): Promise<void> {
   await session.text({
     timeout: 20_000,
-    waitFor: (text) => text.includes('❯'),
+    waitFor: (text) => composerRow(text) >= 0,
   });
+}
+
+function composerRow(screen: string): number {
+  const lines = screen.split('\n');
+  const border = lines.map(line => line.includes('▔'.repeat(5))).lastIndexOf(true);
+  if (border < 0) return -1;
+  return lines.findIndex((line, index) => index > border && line.trimStart().startsWith('❯'));
 }
 
 async function launchInteractive(fullScreenMode: boolean): Promise<Session> {
@@ -79,7 +86,7 @@ async function expectStillRunning(session: Session, command: string): Promise<vo
 describe('raw-stdin modal slash commands Tuistory', () => {
   it.each([false, true])('keeps the CLI alive while the /status panel is open (full screen: %s)', async fullScreen => {
     const session = await launchInteractive(fullScreen);
-    const baseline = (await session.text()).split('\n').findIndex(line => line.trimStart().startsWith('❯'));
+    const baseline = composerRow(await session.text());
 
     await session.type('/status');
     await session.press('enter');
@@ -94,7 +101,7 @@ describe('raw-stdin modal slash commands Tuistory', () => {
     // "Esc to exit" does nothing.
     await session.press('escape');
     await waitForComposer(session);
-    if (fullScreen) expect((await session.text()).split('\n').findIndex(line => line.trimStart().startsWith('❯'))).toBe(baseline);
+    if (fullScreen) expect(composerRow(await session.text())).toBe(baseline);
     expect(session.exitInfo, 'Escape closed the /status panel and killed the CLI').toBeNull();
 
     await exitInteractive(session);
@@ -102,7 +109,7 @@ describe('raw-stdin modal slash commands Tuistory', () => {
 
   it.each([false, true])('keeps the CLI alive while the /agents live view is open (full screen: %s)', async fullScreen => {
     const session = await launchInteractive(fullScreen);
-    const baseline = (await session.text()).split('\n').findIndex(line => line.trimStart().startsWith('❯'));
+    const baseline = composerRow(await session.text());
 
     await session.type('/agents');
     await session.press('enter');
@@ -115,7 +122,7 @@ describe('raw-stdin modal slash commands Tuistory', () => {
 
     await session.press('escape');
     await waitForComposer(session);
-    if (fullScreen) expect((await session.text()).split('\n').findIndex(line => line.trimStart().startsWith('❯'))).toBe(baseline);
+    if (fullScreen) expect(composerRow(await session.text())).toBe(baseline);
     expect(session.exitInfo, 'Escape closed the /agents view and killed the CLI').toBeNull();
 
     await exitInteractive(session);

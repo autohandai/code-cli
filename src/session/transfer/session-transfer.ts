@@ -1,6 +1,7 @@
 /** Versioned, credential-free conversation snapshot shared by desktop and Web clients. */
 export const TRANSFER_VERSION = 2;
 export const TRANSFER_MAX_BYTES = 8 * 1024 * 1024;
+export const TRANSFER_MAX_MESSAGES = 500;
 export const TRANSFER_ORIGIN = 'https://dev.autohand.ai';
 export const TRANSFER_MAX_IMAGE_BYTES = 1_000_000;
 export const TRANSFER_MAX_IMAGES = 4;
@@ -126,7 +127,7 @@ export function parseSessionTransfer(value: unknown): SessionTransfer {
   if ((input.version !== 1 && input.version !== TRANSFER_VERSION) || !['vscode', 'web', 'cli'].includes(String(input.source))) {
     throw new Error('This session transfer uses an unsupported format.');
   }
-  if (!Array.isArray(input.messages) || !input.messages.length || input.messages.length > 500) {
+  if (!Array.isArray(input.messages) || !input.messages.length || input.messages.length > TRANSFER_MAX_MESSAGES) {
     throw new Error('Transfer between 1 and 500 saved messages.');
   }
   const messages = input.messages.map((value): TransferMessage => {

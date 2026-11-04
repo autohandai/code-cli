@@ -30,6 +30,8 @@ export interface TuistoryTempState {
 }
 
 export interface LaunchBuiltAutohandOptions {
+  runtimeCommand?: string;
+  runtimeArgs?: string[];
   inputCommand?: string[];
   entrypoint?: string;
   autohandHome?: string;
@@ -220,10 +222,12 @@ export async function createMockOllamaServer(models: string[]): Promise<MockOlla
   };
 }
 
-export async function createMockOpenRouterServer(responseContent: string, delayMs = 0): Promise<MockOpenRouterServer> {
-  const server = createServer((request, response) => {
+export async function createMockOpenRouterServer(responseContent: string, delayMs = 0, responseGate?: Promise<void>): Promise<MockOpenRouterServer> {
+  const server = createServer(async (request, response) => {
     if (request.url === '/chat/completions' && request.method === 'POST') {
       request.resume();
+      if (responseGate) await responseGate;
+      if (response.destroyed) return;
       setTimeout(() => {
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(JSON.stringify({
@@ -453,7 +457,8 @@ export async function createMockAutohandAINativeSequenceServer(
 
 export async function createMockOpenRouterSequenceServer(
   responseContents: string[],
-  delayMs = 0
+  delayMs = 0,
+  options: { responseGate?: Promise<void> } = {}
 ): Promise<MockOpenRouterServer & { requests: Array<Record<string, unknown>> }> {
   let completionCalls = 0;
   const requests: Array<Record<string, unknown>> = [];
@@ -468,7 +473,8 @@ export async function createMockOpenRouterSequenceServer(
           requests.push({});
         }
       });
-      setTimeout(() => {
+      const send = (): void => {
+        if (response.destroyed) return;
         const index = Math.min(completionCalls, responseContents.length - 1);
         completionCalls += 1;
         response.writeHead(200, { 'content-type': 'application/json' });
@@ -491,7 +497,12 @@ export async function createMockOpenRouterSequenceServer(
             total_tokens: 54,
           },
         }));
+      };
+      const timer = setTimeout(() => {
+        if (options.responseGate) void options.responseGate.then(send, () => response.destroy());
+        else send();
       }, delayMs);
+      response.once('close', () => clearTimeout(timer));
       return;
     }
 
@@ -1276,8 +1287,8 @@ export async function launchBuiltAutohand(
     ? (launchOptions: Parameters<typeof launchTuistorySession>[0]) => launchPipedTuistorySession(options.inputCommand!, launchOptions)
     : launchTuistorySession;
   return await launch({
-    command: process.execPath,
-    args: [options.entrypoint ?? path.join(root, 'dist/index.js'), ...args],
+    command: options.runtimeCommand ?? process.execPath,
+    args: [...options.runtimeArgs ?? [], options.entrypoint ?? path.join(root, 'dist/index.js'), ...args],
     cwd: options.cwd ?? root,
     env,
     cols: options.cols ?? 120,

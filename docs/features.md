@@ -177,6 +177,7 @@ Starting or resuming a goal uses the configured
 - [x] `autohand experiments enable <feature>` and `autohand experiments disable <feature>` persist changes to config
 - [x] `autohand experiments refresh` downloads remote feature flags from the Autohand API
 - [x] `/experiments` opens an interactive checkbox list for toggling experiments from the TUI
+- [x] `adaptive_skills` is a default-off, restart-required opt-in for on-demand discovery and complete task-scoped skill packets; automatic learning and remote decisions remain separate opt-ins. See [Agent Skills](agent-skills.md#adaptive-skills).
 - [x] `/experiments` is the interactive TUI surface for experiment changes
 - [x] Remote feature flags are cached in `~/.autohand/feature-flags.json` and refreshed after their API TTL expires
 - [x] `cli_usage_v2` is enabled by default and powers `/usage`, `/usage weekly`, and `/usage monthly`

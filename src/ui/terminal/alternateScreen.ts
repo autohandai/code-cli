@@ -18,10 +18,11 @@ export function acquireAlternateScreen(output: ScreenOutput): () => void {
       if (!owners.has(output)) return;
       owners.delete(output);
       process.off('exit', restore);
-      output.write('\x1b[?1049l');
+      output.write('\x1b[?7h\x1b[?1049l');
     };
     owner = { count: 0, restore };
-    output.write('\x1b[?1049h\x1b[2J\x1b[H');
+    // A full-screen frame is a fixed grid: a line that is wider than the terminal must be clipped, never wrapped onto the next row.
+    output.write('\x1b[?1049h\x1b[?7l\x1b[2J\x1b[H');
     owners.set(output, owner);
     process.once('exit', restore);
   } else output.write('\x1b[2J\x1b[H');

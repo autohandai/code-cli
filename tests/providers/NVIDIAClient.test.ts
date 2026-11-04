@@ -155,7 +155,7 @@ describe('NVIDIAClient', () => {
       });
     });
 
-    it('should consolidate recovery system notes into the leading system message', async () => {
+    it('keeps recovery context in place without changing the leading system message', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -185,10 +185,11 @@ describe('NVIDIAClient', () => {
       expect(callBody.messages).toEqual([
         {
           role: 'system',
-          content: 'Original instructions\n\n[Auto-Recovery] Older turns were compacted.'
+          content: 'Original instructions'
         },
         { role: 'user', content: 'First request' },
         { role: 'assistant', content: 'First response' },
+        { role: 'user', content: '<autohand-context>\n[Auto-Recovery] Older turns were compacted.\n</autohand-context>' },
         { role: 'user', content: 'Continue' }
       ]);
     });

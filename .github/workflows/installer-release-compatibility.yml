@@ -18,10 +18,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-26]
         channel: [stable, alpha]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - name: Install the independently published binary in a clean HOME
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 src/testing/scenarios/released-installer-smoke.py --channel '${{ matrix.channel }}'

@@ -8,6 +8,8 @@ It uses an isolated discovery subprocess and does not load project extensions or
 execute project scripts. The default scan works offline; `--analyze` adds an optional
 model analysis through the built-in `workflow-discovery` skill.
 
+Inside an interactive session, run `/discovery` or invoke the bundled `$workflow-discovery` on its own. This previews the current repository with depth zero and no conversation-history collection, local draft writes, uploads or model calls. It keeps the composer available and supports cancellation. A same-name project skill retains its normal behavior. The structured ranking skill remains available to the isolated `--analyze` worker after collection; users do not need to construct its input.
+
 ```sh
 autohand discovery
 autohand discovery list

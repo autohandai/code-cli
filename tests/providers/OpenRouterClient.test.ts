@@ -199,6 +199,21 @@ describe('OpenRouterClient', () => {
   });
 
   describe('opaque provider errors', () => {
+    it('names OpenRouter and the recovery action when a model is not found', async () => {
+      const client = new OpenRouterClient({ apiKey: 'test-key', model: 'openrouter/auto' }, { maxRetries: 0 });
+      const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({
+        error: { message: 'Fixture model is not available' },
+      }, { status: 404 }));
+
+      await expect(client.complete({ messages: [{ role: 'user', content: 'hi' }] }))
+        .rejects.toMatchObject({
+          code: 'model_not_found', httpStatus: 404, retryable: false,
+          message: expect.stringContaining('OpenRouter could not find the requested model. Use /model to select a different one.'),
+          rawDetail: 'Fixture model is not available',
+        });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it.each([
       ['context_length_exceeded', 'context_overflow'],
       ['authentication', 'auth_failed'],
@@ -481,6 +496,7 @@ describe('OpenRouterClient', () => {
       expect((error as ApiError).retryable).toBe(true);
       expect((error as ApiError).code).not.toBe('invalid_request');
       expect((error as Error).message).not.toContain('malformed');
+      expect((error as Error).message).toContain('https://status.openrouter.ai');
     }
   });
 

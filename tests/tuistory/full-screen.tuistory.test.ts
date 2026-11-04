@@ -157,11 +157,50 @@ describe('full-screen terminal', () => {
     expect(screens.expanded).toContain('Ctrl+O collapse');
     expect(screens.paged).not.toContain('live-row-1\n');
     expect(screens.resized).toContain('preserved draft');
+    expect(session.getRawOutput().indexOf('\x1b[?7l')).toBeGreaterThan(session.getRawOutput().indexOf('\x1b[?1049h'));
+    const clearedAt = screens.resizeOutput.indexOf('\x1b[2J\x1b[H');
+    expect(clearedAt).toBeGreaterThanOrEqual(0);
+    expect(screens.resizeOutput.indexOf('Autohand Code', clearedAt)).toBeGreaterThan(clearedAt);
+    const resizedRows = screens.resized.split('\n');
+    expect(resizedRows[0]).toContain('Autohand Code');
+    expect(resizedRows.filter(row => row.includes('Back to bottom · Ctrl+End'))).toHaveLength(1);
+    expect(resizedRows.filter(row => row.includes('❯ preserved draft'))).toHaveLength(1);
+    expect(resizedRows.every(row => row.length <= 48)).toBe(true);
     expect(screens.collapsed).toContain('Ctrl+O expand');
     expect(screens.collapsed).toContain('live-row-60');
     expect(screens.highlightedAfter).toContain('❯ thanks');
     await exitInteractive(session);
     expect(session.getRawOutput()).toContain('FULL_SCREEN_PTY_EXIT');
+    expect(session.getRawOutput().lastIndexOf('\x1b[?7h')).toBeLessThan(session.getRawOutput().lastIndexOf('\x1b[?1049l'));
+  });
+
+  it('keeps the slash menu intact and within a narrower terminal after resize', async () => {
+    state = await createTempAutohandHome({ config: { features: { fullScreenMode: true }, ui: { promptSuggestions: false } } });
+    session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000, cols: 140, rows: 30,
+    });
+    await session.waitForText('❯');
+    await session.type('/');
+    await session.waitForText('Tab to accept');
+    await session.waitIdle();
+    const menuRows = (screen: string) => screen.split('\n').filter(row => /^[▸ ] \//u.test(row));
+    const wide = outputViewport(session);
+    expect(menuRows(wide).length).toBeGreaterThan(0);
+    const resizeOffset = session.getRawOutput().length;
+    await session.resize({ cols: 60, rows: 30 });
+    await session.text({ timeout: 5_000, waitFor: screen => screen.split('\n').every(row => row.length <= 60) && screen.includes('Tab to accept') });
+    await session.waitIdle();
+    const narrow = outputViewport(session);
+    const narrowRows = narrow.split('\n');
+    expect(session.getRawOutput().slice(resizeOffset)).toContain('\x1b[2J\x1b[H');
+    expect(narrowRows[0]).toContain('Autohand Code');
+    expect(menuRows(narrow).map(row => row.split(/ {2}/u)[0])).toEqual(menuRows(wide).map(row => row.split(/ {2}/u)[0]));
+    expect(narrowRows.filter(row => row.includes('Tab to accept'))).toHaveLength(1);
+    expect(narrowRows.find(row => row.includes('Tab to accept'))?.trimEnd()).toBe('  Tab to accept · ↑↓ to navigate');
+    expect(narrowRows.findIndex(row => row.includes('Tab to accept'))).toBeLessThan(narrowRows.findIndex(row => row.includes('❯ /')));
+    expect(narrowRows.every(row => row.length <= 60)).toBe(true);
+    await session.press('esc');
+    await exitInteractive(session);
   });
 
   it('shows product identity at the top and the configured status below the composer', async () => {

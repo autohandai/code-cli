@@ -142,14 +142,15 @@ export class ConversationManager {
     }
     if (replaceKey) {
       const idx = this.messages.findIndex(
-        (m) => m.role === 'system' && m.content?.includes(replaceKey)
+        (m, index) => index > 0 && m.role === 'system'
+          && (m.runtimeContextKey === replaceKey || m.content?.includes(replaceKey))
       );
       if (idx >= 0) {
-        this.messages[idx] = { role: 'system', content };
+        this.messages[idx] = { role: 'system', content, runtimeContextKey: replaceKey };
         return;
       }
     }
-    this.messages.push({ role: 'system', content });
+    this.messages.push({ role: 'system', content, ...(replaceKey ? { runtimeContextKey: replaceKey } : {}) });
   }
 
   /**

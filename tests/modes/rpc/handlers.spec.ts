@@ -1323,7 +1323,7 @@ describe('RPC Adapter - Browser handoff', () => {
       ['autohand.hook.sessionStart', expect.objectContaining({ sessionType: 'resume' })],
     ]);
     expect(mockHookManager.executeHooks).toHaveBeenCalledWith('session-end', {
-      sessionId: 'session_test123',
+      sessionId: 'session-current',
       sessionEndReason: 'exit',
       duration: 400,
     });

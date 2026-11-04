@@ -9,14 +9,24 @@ import { formatAgentRoster } from '../../../src/core/agents/agentRoster.js';
 describe('model-visible agent roster', () => {
   const agents = [{ name: 'domain-owner', description: 'Checks domain boundaries', source: 'session' as const }];
 
+  it('keeps the complete metadata catalog in compact JSON rows without unnecessary field repetition', () => {
+    const catalog = [...agents, { name: 'unicode-审阅', description: `Keep \"quotes\" and\n${'every required detail '.repeat(30)}`, source: 'user' as const }];
+    const roster = formatAgentRoster(catalog, new Set(['delegate_task', 'delegate_parallel', 'create_team', 'add_teammate', 'find_sub_agents', 'install_sub_agent']));
+    const rows = roster.split('\n').filter(line => line.startsWith('- [')).map(line => JSON.parse(line.slice(2)) as unknown);
+    expect(rows).toEqual(catalog.map(({ name, description, source }) => [name, description, source]));
+    expect(roster).toContain('metadata does not grant permissions');
+    expect(roster).toContain('explicit approval');
+    const rowChars = roster.split('\n').filter(line => line.startsWith('- [')).join('\n').length;
+    expect(roster.length - rowChars).toBeLessThan(800);
+  });
+
   it('omits delegation guidance when the runtime grants no delegation or discovery tools', () => {
     expect(formatAgentRoster(agents, new Set(['read_file']))).toBe('');
   });
 
   it('shows exact installed roles without advertising tools that are not available', () => {
     const roster = formatAgentRoster(agents, new Set(['delegate_task']));
-    expect(roster).toContain('"name":"domain-owner"');
-    expect(roster).toContain('"source":"session"');
+    expect(roster).toContain('["domain-owner","Checks domain boundaries","session"]');
     expect(roster).toContain('exact installed agent name');
     expect(roster).not.toContain('delegate_parallel');
     expect(roster).not.toContain('find_sub_agents');

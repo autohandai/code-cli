@@ -1,3 +1,4 @@
+import { describeNetworkTimeout } from '../utils/networkTimeout.js';
 /**
  * @license
  * Copyright 2025 Autohand AI LLC
@@ -17,10 +18,12 @@ import {
     formatAccountPlanThroughput,
     formatUsageDashboard,
     gatherUsageDashboardData,
-    resolveAccountEntitlement,
+    resolveProviderEntitlement,
 } from './usage.js';
 import { formatAccount } from './accountDisplay.js';
 import type { AccountEntitlement } from '../auth/AuthClient.js';
+import { getSyncService } from '../sync/runtimeSyncService.js';
+import { formatSyncSkippedFiles } from '../sync/skipReport.js';
 import packageJson from '../../package.json' with { type: 'json' };
 
 export const metadata = {
@@ -47,6 +50,8 @@ interface StatusData {
     usageV2Dashboard: string | null;
     config: AutohandConfig | undefined;
     contextCompactionEnabled: boolean;
+    syncPausedReason?: string;
+    syncWarnings: string[];
 }
 
 export async function status(ctx: SlashCommandContext): Promise<string | null> {
@@ -71,10 +76,13 @@ async function gatherStatusData(ctx: SlashCommandContext): Promise<StatusData> {
         apiConnected = false;
     }
 
-    const accountEntitlement = await resolveAccountEntitlement(ctx);
+    const accountEntitlement = await resolveProviderEntitlement(ctx);
+    const syncHealth = await getSyncService()?.getHealth?.();
 
     return {
         version: packageJson.version,
+        syncPausedReason: syncHealth?.lastError,
+        syncWarnings: formatSyncSkippedFiles(syncHealth?.remoteSkipped, 'Cloud'),
         sessionId: currentSession?.metadata.sessionId ?? null,
         cwd: ctx.workspaceRoot,
         provider: ctx.provider ?? 'openrouter',
@@ -312,6 +320,8 @@ function renderStatusTab(data: StatusData): void {
     console.log(theme.bold(`${t('commands.status.provider')}:`), data.provider);
     console.log(theme.bold(`${t('commands.status.model')}:`), data.model);
     console.log(theme.bold('Account:'), data.account);
+    if (data.syncPausedReason) console.log(theme.muted(`Settings sync: sync paused (${data.syncPausedReason})`));
+    for (const warning of data.syncWarnings) console.log(theme.muted(warning));
     if (data.accountEntitlement) {
         console.log(theme.bold('Plan:'), formatAccountPlanName(data.accountEntitlement));
         const allowance = formatAccountPlanAllowance(data.accountEntitlement);
@@ -351,7 +361,7 @@ function renderConfigTab(data: StatusData): void {
         ['Permission mode', config?.permissions?.mode ?? 'interactive'],
         ['Telemetry', config?.telemetry?.enabled === true ? 'true' : 'false'],
         ['Network retries', String(config?.network?.maxRetries ?? 3)],
-        ['Network timeout', `${config?.network?.timeout ?? 30000}ms`],
+        ['Network timeout', describeNetworkTimeout(config)],
     ];
 
     for (const [name, value] of settings) {

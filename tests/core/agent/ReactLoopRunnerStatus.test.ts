@@ -43,6 +43,37 @@ import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 import { PromptCacheToolSet } from '../../../src/core/agent/PromptCache.js';
 
 describe('ReactLoopRunner composer status', () => {
+  it('refuses an oversized prepared request before spending a provider call', async () => {
+    const complete = vi.fn().mockResolvedValue({ id: 'too-large', created: 1, content: 'Done.', raw: {} });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.contextWindow = 128000;
+    host.getMessagesWithImages = async () => [
+      { role: 'system', content: 'Policy' },
+      { role: 'user', content: 'uncroppable content '.repeat(60000) },
+    ];
+    await expect(runAgentReactLoop(host, new AbortController())).rejects.toThrow(/context.*limit/i);
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('stops before a lead request when specialist preparation already denied unattended approval', async () => {
+    const llmComplete = vi.fn().mockResolvedValue({ id: 'unexpected', created: 1, raw: {}, content: '{"finalResponse":"Should not run"}' });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    host.toolManager.getUnattendedDenials = vi.fn().mockReturnValue(['install_specialist_roster']);
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'approval_required' });
+    expect(llmComplete).not.toHaveBeenCalled();
+    expect(host.conversation.addSystemNote).toHaveBeenCalledWith(expect.stringContaining('install_specialist_roster'));
+  });
+
+  it('ends the turn after missing unattended approval without another model request or completion review', async () => {
+    const llmComplete = vi.fn().mockResolvedValueOnce({ id: 'tool', created: 1, raw: {}, content: JSON.stringify({ toolCalls: [{ tool: 'write_file', args: { path: 'hello.txt', contents: 'hi' } }] }) }).mockResolvedValueOnce({ id: 'retry', created: 2, raw: {}, content: '{"finalResponse":"Retrying"}' });
+    const host = createReactLoopTestHost(llmComplete, new ReactionParser());
+    host.toolManager.execute = vi.fn().mockResolvedValue([{ tool: 'write_file', success: false, kind: 'authorization', error: 'Needs approval' }]);
+    host.toolManager.getUnattendedDenials = vi.fn().mockReturnValueOnce([]).mockReturnValue(['write_file']);
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'approval_required' });
+    expect(llmComplete).toHaveBeenCalledOnce();
+    expect(host.conversation.addSystemNote).toHaveBeenCalledWith(expect.stringContaining("this run can't ask"));
+  });
+
   it('stops before the model request that would exceed the run budget and records usage', async () => {
     const { RunBudget, RunBudgetExceededError } = await import('../../../src/core/agent/RunBudget.js');
     const llmComplete = vi.fn()
@@ -1408,6 +1439,33 @@ describe('ReactLoopRunner composer status', () => {
     }
   });
 
+  it.each(['autohandai', 'openai', 'custom:fixture'] as const)(
+    'keeps a compact tool envelope across changing goal and research work on %s', async (provider) => {
+      const complete = vi.fn().mockResolvedValue({ id: 'compact', created: 1, content: 'Done.', raw: {} });
+      const host = createReactLoopTestHost(complete, new ReactionParser());
+      host.activeProvider = provider;
+      host.llm.getCapabilities = () => ({ nativeToolCalling: true, maxTools: 128 });
+      const tools = [
+        { name: 'run_tool_script', description: 'Run a tool program' },
+        { name: 'tool_search', description: 'Discover tool schemas' },
+        { name: 'ask_followup_question', description: 'Ask the user' },
+        { name: 'get_goal', description: 'Inspect the goal' },
+        { name: 'research_search', description: 'Search research sources' },
+        ...Array.from({ length: 150 }, (_, i) => ({ name: `fixture_${i}`, description: 'Read and edit code' })),
+      ];
+      host.toolManager.toFunctionDefinitions = () => tools;
+      for (const content of ['Read and edit code', 'Inspect get_goal', 'Use research_search']) {
+        host.conversation.history = () => [{ role: 'user', content }];
+        await runAgentReactLoop(host, new AbortController());
+      }
+      const envelopes = complete.mock.calls.map(([request]) => JSON.stringify(request.tools));
+      expect(new Set(envelopes).size).toBe(1);
+      expect(JSON.parse(envelopes[0]).map((tool: { name: string }) => tool.name)).toEqual([
+        'ask_followup_question', 'run_tool_script', 'tool_search',
+      ]);
+    },
+  );
+
   it('bounds the actual native request after cached tool selection reaches the Grok limit', async () => {
     const complete = vi.fn().mockResolvedValue({ id: 'bounded', created: 1, content: 'Done.', raw: {} });
     const host = createReactLoopTestHost(complete, new ReactionParser());
@@ -1908,16 +1966,103 @@ describe('failed tool observations', () => {
   });
 });
 
+describe('programmatic runtime operations', () => {
+  async function fixture(script: string, review?: 'approved' | 'changes_requested' | 'unavailable') {
+    const { ActionExecutor } = await import('../../../src/core/actionExecutor.js');
+    const { FileActionManager } = await import('../../../src/actions/filesystem.js');
+    const { ToolManager, DEFAULT_TOOL_DEFINITIONS, CODE_MODE_TOOL_DEFINITION } = await import('../../../src/core/toolManager.js');
+    const { runCodeModeScript } = await import('../../../src/core/agent/CodeModeRunner.js');
+    const events: string[] = [];
+    const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({
+      toolCalls: [{ tool: 'run_tool_script', args: { script } }],
+    }) }).mockResolvedValue({ content: 'Verified runtime operation.' });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    const executor = new ActionExecutor({ runtime: host.runtime, files: new FileActionManager(process.cwd()),
+      resolveWorkspacePath: relative => relative, confirmDangerousAction: async () => true });
+    const manager = new ToolManager({
+      definitions: [CODE_MODE_TOOL_DEFINITION, ...DEFAULT_TOOL_DEFINITIONS.filter(definition =>
+        ['git_commit', 'run_command', 'smart_context_cropper'].includes(definition.name))],
+      executor: async (action, context) => {
+        if (action.type === 'run_tool_script') return runCodeModeScript(manager, {
+          script: action.script, toolCallId: context?.toolCallId ?? 'script', signal: context?.signal, context,
+        });
+        if (action.type === 'git_commit') {
+          events.push('commit executed');
+          return { success: true, output: 'Fixture commit' };
+        }
+        if (action.type === 'run_command') {
+          events.push('test executed');
+          return { success: false, kind: 'command', error: 'Fixture compiler failure' };
+        }
+        return executor.executeForTool(action, context);
+      },
+      confirmApproval: async () => true,
+    });
+    host.toolManager = manager;
+    if (review) {
+      host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review: async checkpoint => {
+        events.push(`review ${checkpoint}`);
+        return { verdict: review, feedback: 'Fixture review' };
+      } });
+      host.captureAdvisorDiff = async () => 'Fixture diff';
+    }
+    return { host, events };
+  }
+
+  it.each(['approved', 'changes_requested', 'unavailable'] as const)(
+    'preserves the commit checkpoint for a nested Git tool: %s', async review => {
+      const { host, events } = await fixture('return await tools.git_commit({ message: "Fixture" });', review);
+      await runAgentReactLoop(host, new AbortController());
+      expect(events).toContain('review commit');
+      if (review === 'approved') {
+        expect(events.indexOf('review commit')).toBeLessThan(events.indexOf('commit executed'));
+      } else {
+        expect(events).not.toContain('commit executed');
+      }
+    },
+  );
+
+  it('reviews repeated nested test failures before allowing another scripted action', async () => {
+    const { host, events } = await fixture(`
+      await tools.run_command({ command: 'bun test' });
+      await tools.run_command({ command: 'bun test' });
+      return await tools.git_commit({ message: 'Must remain blocked' });
+    `);
+    const observeFailure = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+    host.createCheckpointAdvisor = () => ({ observeFailure, review: async checkpoint => {
+      events.push(`review ${checkpoint}`);
+      return { verdict: 'changes_requested', feedback: 'Resolve the repeated test failure' };
+    } });
+    host.captureAdvisorDiff = async () => 'Fixture diff';
+    await runAgentReactLoop(host, new AbortController());
+    expect(events.filter(event => event === 'test executed')).toHaveLength(2);
+    expect(events).toContain('review repeated_failure');
+    expect(events).not.toContain('commit executed');
+  });
+
+  it('routes scripted context cropping through the live conversation handler', async () => {
+    const { host } = await fixture('return await tools.smart_context_cropper({ crop_direction: "top", crop_amount: 2 });');
+    vi.mocked(host.handleSmartContextCrop).mockResolvedValue('Cropped two messages');
+    await runAgentReactLoop(host, new AbortController());
+    expect(host.handleSmartContextCrop).toHaveBeenCalledWith(expect.objectContaining({
+      tool: 'smart_context_cropper', args: { crop_direction: 'top', crop_amount: 2 },
+    }));
+    expect(host.saveToolMessage).toHaveBeenCalledWith('run_tool_script', expect.stringContaining('Cropped two messages'), expect.any(String));
+  });
+});
+
 describe('goal completion delivery', () => {
-  it.each(['unavailable', 'changes_requested', 'approved', 'disabled', 'delivery_failure', 'cancelled', 'concurrent_goal_change', 'duplicate_completion'] as const)(
-    'preserves the original goal until successful delivery: %s', async (mode) => {
+  it.each((['unavailable', 'changes_requested', 'approved', 'disabled', 'delivery_failure', 'cancelled', 'concurrent_goal_change', 'duplicate_completion'] as const)
+    .flatMap(mode => [{ mode, scripted: false }, { mode, scripted: true }]))(
+    'preserves the original goal until successful delivery: $mode (scripted: $scripted)', async ({ mode, scripted }) => {
       const fs = (await import('fs-extra')).default;
       const { tmpdir } = await import('node:os');
       const path = await import('node:path');
       const { GoalManager } = await import('../../../src/goals/GoalManager.js');
       const { ActionExecutor } = await import('../../../src/core/actionExecutor.js');
       const { FileActionManager } = await import('../../../src/actions/filesystem.js');
-      const { ToolManager, GOAL_TOOL_DEFINITIONS } = await import('../../../src/core/toolManager.js');
+      const { ToolManager, GOAL_TOOL_DEFINITIONS, CODE_MODE_TOOL_DEFINITION } = await import('../../../src/core/toolManager.js');
+      const { runCodeModeScript } = await import('../../../src/core/agent/CodeModeRunner.js');
       const root = await fs.mkdtemp(path.join(tmpdir(), 'goal-delivery-'));
       try {
         const manager = new GoalManager(root);
@@ -1928,7 +2073,10 @@ describe('goal completion delivery', () => {
           { tool: 'update_goal', args: { status: 'complete' } },
         ];
         if (mode === 'duplicate_completion') calls.push({ tool: 'update_goal', args: { status: 'complete' } });
-        const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: calls }) })
+        const dispatchedCalls = scripted ? [{ tool: 'run_tool_script', args: {
+          script: `const results = []; for (const args of ${JSON.stringify(calls.map(call => call.args))}) results.push(await tools.update_goal(args)); return results;`,
+        } }] : calls;
+        const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: dispatchedCalls }) })
           .mockResolvedValue({ content: 'DELIVERED_CHANGELOG' });
         const host = createReactLoopTestHost(complete, new ReactionParser());
         host.runtime.workspaceRoot = root;
@@ -1937,12 +2085,16 @@ describe('goal completion delivery', () => {
         const executor = new ActionExecutor({ runtime: host.runtime, files: new FileActionManager(root),
           resolveWorkspacePath: (relative) => path.resolve(root, relative),
           confirmDangerousAction: async () => true });
-        host.toolManager = new ToolManager({ definitions: GOAL_TOOL_DEFINITIONS, executor: async (action, context) => {
+        const toolManager = new ToolManager({ definitions: [...GOAL_TOOL_DEFINITIONS, ...(scripted ? [CODE_MODE_TOOL_DEFINITION] : [])], executor: async (action, context) => {
+          if (action.type === 'run_tool_script') return runCodeModeScript(toolManager, {
+            script: action.script, toolCallId: context?.toolCallId ?? 'script', signal: context?.signal, context,
+          });
           const result = await executor.executeForTool(action, context);
           expect(result).toMatchObject({ success: true });
           return result;
         },
           confirmApproval: async () => true });
+        host.toolManager = toolManager;
         const assertPending = async () => {
           const state = await manager.getSessionSnapshot();
           expect(state.goal?.objective).toBe('Deliver changelog');
@@ -1971,7 +2123,8 @@ describe('goal completion delivery', () => {
           expect(result.status).toBe(mode === 'approved' || mode === 'disabled' || mode === 'duplicate_completion' ? 'completed'
             : mode === 'cancelled' ? 'aborted' : 'incomplete');
         }
-        expect(host.saveToolMessage).toHaveBeenCalledWith('update_goal', expect.stringContaining('"ok": true'), expect.any(String));
+        const completionTool = scripted ? 'run_tool_script' : 'update_goal';
+        expect(host.saveToolMessage).toHaveBeenCalledWith(completionTool, expect.stringContaining('"ok": true'), expect.any(String));
         const state = await manager.getSessionSnapshot();
         if (mode === 'unavailable' || mode === 'changes_requested') {
           expect(host.emitOutput).toHaveBeenCalledWith(expect.objectContaining({ type: 'message',
@@ -1980,7 +2133,7 @@ describe('goal completion delivery', () => {
             && event.content?.includes('DELIVERED_CHANGELOG') && event.content.includes('Work remains pending Moa review'))).toBe(true);
         }
         if (mode === 'duplicate_completion') {
-          expect(host.saveToolMessage).toHaveBeenCalledWith('update_goal', expect.stringContaining('already prepared'), expect.any(String));
+          expect(host.saveToolMessage).toHaveBeenCalledWith(completionTool, expect.stringContaining('already prepared'), expect.any(String));
         }
         if (mode === 'concurrent_goal_change') {
           expect(state.completed).toHaveLength(1);

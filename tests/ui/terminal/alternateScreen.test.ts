@@ -16,6 +16,19 @@ describe('alternate screen ownership', () => {
     expect(process.listenerCount('exit')).toBe(before);
   });
 
+  it('disables terminal auto-wrap while it owns the screen and restores it before leaving', () => {
+    const writes: string[] = [];
+    const output = { write: (text: string) => { writes.push(text); return true; } };
+    const release = acquireAlternateScreen(output);
+    const entered = writes.join('');
+    expect(entered.indexOf('\x1b[?1049h')).toBeLessThan(entered.indexOf('\x1b[?7l'));
+    writes.length = 0;
+    release();
+    const left = writes.join('');
+    expect(left).toContain('\x1b[?7h');
+    expect(left.indexOf('\x1b[?7h')).toBeLessThan(left.indexOf('\x1b[?1049l'));
+  });
+
   it('defaults to full screen on interactive streams and honors opt-out', () => {
     expect(shouldUseFullScreen(undefined, true, true, 'xterm')).toBe(true);
     expect(shouldUseFullScreen(false, true, true, 'xterm')).toBe(false);

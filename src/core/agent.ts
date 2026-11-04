@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { areProviderBackgroundCallsEnabled } from './agent/AutohandOrchestration.js';
+import { selectCodeModeTools } from './agent/CodeModeRunner.js';
+import { usesAutohandAICloud } from '../providers/AutohandAIProvider.js';
 import type { RunBudget } from './agent/RunBudget.js';
 import { SteeringQueue } from './agent/SteeringQueue.js';
 import { AgentProgramStatus, shouldWriteProgramStatus, withProgramStatusPrompt } from './agent/AgentProgramStatus.js';
@@ -40,7 +43,7 @@ import { maybeOfferAutohandAISwitch } from '../commands/login.js';
 import { getFeatureState, isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
 import type { RemoteFeatureFlagManager } from '../features/RemoteFeatureFlagManager.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
-import { ApiError } from '../providers/errors.js';
+import { ApiError, waitForProviderRetry } from '../providers/errors.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
@@ -966,7 +969,8 @@ export class AutohandAgent {
   private shouldRunTurnMemoryReflection(): boolean {
     if (this.runtime.options?.bare || this.runtime.options?.ephemeral || this.runtime.options?.daemon === false) return false;
     if (this.runtime.isCommandMode || this.runtime.options?.prompt) return false;
-    return this.runtime.config?.agent?.autoMemory !== false;
+    return this.runtime.config?.agent?.autoMemory !== false
+      && areProviderBackgroundCallsEnabled(this.runtime.config, this.activeProvider);
   }
 
   private async runQueuedTurnMemoryReflection(): Promise<void> {
@@ -1414,6 +1418,7 @@ export class AutohandAgent {
       set contextWindow(value) { agent.contextWindow = value; },
       get contextPercentLeft() { return agent.contextPercentLeft; },
       conversation: agent.conversation,
+      skillsRegistry: agent.skillsRegistry,
       get inkRenderer() { return agent.inkRenderer as AgentReactLoopHost['inkRenderer']; },
       responseCompletionHooks: DEFAULT_RESPONSE_COMPLETION_HOOKS,
       get lastAssistantResponseForNotification() { return agent.lastAssistantResponseForNotification; },
@@ -1516,6 +1521,10 @@ export class AutohandAgent {
     return buildAgentTurnContext(this as unknown as AgentContextRuntimeHost, instruction);
   }
 
+  private beginSpecialistTurn(): void {
+    this.specialistOrchestrator?.beginTurn();
+  }
+
   private async prepareSpecialists(instruction: string): Promise<string | undefined> {
     if (getFeatureState(this.runtime.config, 'automatic_specialists')?.enabled !== true) {
       return undefined;
@@ -1525,15 +1534,19 @@ export class AutohandAgent {
     }
     if (this.permissionManager.isReadOnlyReview()) return undefined;
 
-    this.specialistOrchestrator.beginTurn();
     const request = detectSpecialistRequest(instruction);
     if (!request) {
       const continuation = await this.specialistOrchestrator.continueInterview(instruction, { signal: this.activeAbortController?.signal });
-      return continuation ? formatSpecialistResults(continuation) : undefined;
+      if (!continuation) return undefined;
+      const results = formatSpecialistResults(continuation);
+      if (continuation.completed && continuation.plan.unresolvedRoles.length === 0) {
+        this.specialistOrchestrator.rememberTurnResult(continuation.plan.requestedRoles, results);
+      }
+      return results;
     }
 
     const { results, completed } = await this.runSpecialistOrchestration(request);
-    // Only a roster that fully ran is worth reusing; a partial one may be retried.
+    // Role-level reuse requires a complete roster; agent outcomes are cached as each batch runs.
     if (completed) {
       this.specialistOrchestrator.rememberTurnResult(request.requestedRoles, results);
     }
@@ -1575,7 +1588,7 @@ export class AutohandAgent {
       }
       signal?.throwIfAborted();
     }
-    if (plan.selectedAgents.length === 0) {
+    if (this.toolManager.getUnattendedDenials().length > 0 || plan.selectedAgents.length === 0) {
       return {
         results: formatSpecialistResults({ plan, batches: [], completed: false }),
         completed: false,
@@ -1685,6 +1698,13 @@ export class AutohandAgent {
    * plan and picks up the fresh one afterwards.
    */
   refreshAccountPlan(): Promise<void> {
+    if (!usesAutohandAICloud(this.runtime.config, this.activeProvider)) {
+      const hadPlan = Boolean(this.accountPlan);
+      this.accountPlan = null;
+      this.lastPaymentNotice = null;
+      if (hadPlan) this.syncProviderModelStatusLine();
+      return Promise.resolve();
+    }
     if (this.accountPlanRefresh) return this.accountPlanRefresh;
     const pending = this.readAccountPlan().finally(() => { this.accountPlanRefresh = undefined; });
     this.accountPlanRefresh = pending;
@@ -1705,7 +1725,7 @@ export class AutohandAgent {
 
     try {
       const entitlement = await getAuthClient().fetchEntitlement(token, selectedAccountId(this.runtime.config));
-      if (!entitlement || token !== currentToken()) return;
+      if (!entitlement || token !== currentToken() || !usesAutohandAICloud(this.runtime.config, this.activeProvider)) return;
       const next = planSummaryFromEntitlement(entitlement);
       const payment = entitlement.paymentAccess;
       const noticeId = payment ? `${payment.actionUrl}:${payment.since}` : null;
@@ -1761,6 +1781,11 @@ export class AutohandAgent {
   }
 
   private syncProviderModelStatusLine(provider: ProviderName = this.activeProvider): void {
+    const autohandCloud = usesAutohandAICloud(this.runtime.config, provider);
+    const planLabel = formatComposerPlanLabel(autohandCloud ? this.accountPlan : null);
+    if (!autohandCloud && this.inkRenderer?.getState?.()?.tip?.kind === 'upgrade') {
+      this.ui?.setTip?.(undefined);
+    }
     const providerSettings = getProviderConfig(this.runtime.config, provider);
     const model = this.runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     const providerLabel =
@@ -1768,7 +1793,7 @@ export class AutohandAgent {
         ? providerSettings.displayName
         : provider;
     this.ui?.setProviderModel?.(providerLabel, model);
-    this.ui?.setPlanLabel?.(formatComposerPlanLabel(this.accountPlan));
+    this.ui?.setPlanLabel?.(planLabel);
     const statusLineSettings = getConfigStatusLineSettings(this.runtime.config);
     this.inkRenderer?.setConfiguredLineExtensions?.(withPeerLineExtension(buildStatusBarExtensions(this.runtime.config, {
       workspaceRoot: this.runtime.workspaceRoot,
@@ -1781,7 +1806,7 @@ export class AutohandAgent {
         interactionMode: this.getInteractionMode(),
         model,
         providerLabel,
-        planLabel: formatComposerPlanLabel(this.accountPlan),
+        planLabel,
         contextPercentLeft: this.contextPercentLeft,
         sessionTokensUsed: this.totalTokensUsed ?? 0,
         sessionTokenUsageUnavailable: this.sessionTokenUsageUnavailable,
@@ -1944,8 +1969,8 @@ export class AutohandAgent {
   /**
    * Sleep helper for retry delays
    */
-  private sleep(ms: number): Promise<void> {
-    return agentSleep(ms);
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return signal ? waitForProviderRetry(ms, signal) : agentSleep(ms);
   }
 
 
@@ -2079,7 +2104,7 @@ export class AutohandAgent {
         model,
         provider: this.activeProvider,
       });
-      if (this.activeProvider === 'autohandai') {
+      if (usesAutohandAICloud(this.runtime.config, this.activeProvider)) {
         this.ui?.setTip?.({ kind: 'upgrade', text: formatUpgradeHint(this.accountPlan) });
       }
     }
@@ -2233,9 +2258,17 @@ export class AutohandAgent {
     return this.sessionManager;
   }
 
+  getGoalContinuity(): import('../goals/GoalContinuity.js').GoalRuntimeContinuity | undefined {
+    return this.runtime.goalContinuity;
+  }
+
   /**
    * The most recent final assistant response, e.g. to summarise a session.
    */
+  getUnattendedToolDenials(): string[] {
+    return this.toolManager.getUnattendedDenials();
+  }
+
   getLastAssistantResponse(): string {
     return this.lastAssistantResponseForNotification;
   }
@@ -2273,7 +2306,8 @@ export class AutohandAgent {
    * Used by RPC adapter to provide real context usage data.
    */
   getToolDefinitions(): import('../types.js').FunctionDefinition[] {
-    return this.toolManager?.toFunctionDefinitions() ?? [];
+    const tools = this.toolManager?.toFunctionDefinitions() ?? [];
+    return selectCodeModeTools(tools, this.llm?.getCapabilities?.().maxTools) ?? tools;
   }
 
   /**

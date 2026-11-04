@@ -1634,6 +1634,60 @@ describe("SetupWizard", () => {
       expect(result.config.agent?.debug).toBe(true);
     });
 
+    it("leaves a custom-network timeout unset when the input is blank", async () => {
+      const wizard = new SetupWizard(testWorkspace);
+
+      mockShowModal
+        .mockResolvedValueOnce({ value: "en" })
+        .mockResolvedValueOnce({ value: "ollama" })
+        .mockResolvedValueOnce({ value: "interactive" })
+        .mockResolvedValueOnce({ value: "disabled" }); // trace consent
+      mockShowInput.mockResolvedValueOnce("llama3.2:latest");
+      mockShowConfirm
+        .mockResolvedValueOnce(true) // remember
+        .mockResolvedValueOnce(true) // telemetry
+        .mockResolvedValueOnce(true) // autoReport
+        .mockResolvedValueOnce(false) // prefs
+        .mockResolvedValueOnce(true); // advanced=YES
+
+      // Notifications
+      mockShowConfirm.mockResolvedValueOnce(false); // disabled
+      // Network: yes
+      mockShowConfirm.mockResolvedValueOnce(true);
+      mockShowInput
+        .mockResolvedValueOnce("5") // maxRetries
+        .mockResolvedValueOnce(""); // timeout
+
+      // Search
+      mockShowModal.mockResolvedValueOnce({ value: "duckduckgo" });
+      // MCP
+      mockShowConfirm.mockResolvedValueOnce(false);
+      // Agent
+      mockShowInput.mockResolvedValueOnce("50");
+      mockShowConfirm.mockResolvedValueOnce(true); // debug
+      // Community
+      mockShowConfirm.mockResolvedValueOnce(false);
+      // Agents.md
+      mockShowConfirm.mockResolvedValueOnce(false);
+      // Registration
+      mockShowConfirm.mockResolvedValueOnce(false); // registration (skip)
+      // Review
+      mockShowConfirm.mockResolvedValueOnce(true);
+
+      const result = await wizard.run({ skipWelcome: true });
+
+      expect(result.config.network?.maxRetries).toBe(5);
+      expect(result.config.network?.timeout).toBeUndefined();
+      const timeoutPrompt = mockShowInput.mock.calls.find(([options]) => options.title === "setup.network.timeout")?.[0];
+      expect(timeoutPrompt?.defaultValue).toBe("");
+      expect(timeoutPrompt?.validate?.("")).toBe(true);
+      expect(timeoutPrompt?.validate?.("600000")).toBe(true);
+      expect(timeoutPrompt?.validate?.("600001")).not.toBe(true);
+      expect(result.config.search?.provider).toBe("duckduckgo");
+      expect(result.config.agent?.maxIterations).toBe(50);
+      expect(result.config.agent?.debug).toBe(true);
+    });
+
     it("should prompt for Brave API key when brave search selected", async () => {
       const wizard = new SetupWizard(testWorkspace);
 

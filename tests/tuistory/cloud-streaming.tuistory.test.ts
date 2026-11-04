@@ -3,7 +3,9 @@ import { createServer, type ServerResponse } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Session } from 'tuistory';
+import { scriptToolCall } from '../../src/testing/scenarios/codeModeScenario.js';
 import { createMockAuthServer, createTempAutohandHome, exitInteractive, launchBuiltAutohand } from './helpers/autohandTuistory.js';
 
 const cleanupTasks: Array<() => Promise<unknown>> = [];
@@ -65,10 +67,10 @@ describe('built cloud token streaming', () => {
     expect(JSON.stringify(requests[2].messages)).toContain('Created directory birds_stickers');
     expect(await readFile(path.join(state.workspaceRoot, 'birds_stickers/index.html'), 'utf8')).toContain('@keyframes fly');
   }, 60_000);
-  it('recovers an empty Moa checkpoint verdict before staging the requested file', async () => {
+  it('recovers an empty Moa checkpoint verdict before staging the requested file through a script', async () => {
     const auth = await createMockAuthServer();
     cleanupTasks.push(auth.close);
-    const reviews: Array<{ max_tokens: number }> = [];
+    const reviews: Array<{ max_tokens: number; messages: Array<{ content: string }> }> = [];
     let turns = 0;
     const server = createServer(async (request, response) => {
       const chunks: Buffer[] = [];
@@ -85,8 +87,9 @@ describe('built cloud token streaming', () => {
       }
       turns += 1;
       response.writeHead(200, { 'content-type': 'text/event-stream' });
+      const stage = scriptToolCall('stage-reviewed', 'git_add', { paths: ['fixture.txt'] });
       const delta = turns === 1
-        ? { content: 'The requested fixture change is ready to stage for the commit.', tool_calls: [{ index: 0, id: 'stage-reviewed', type: 'function', function: { name: 'git_add', arguments: '{"paths":["fixture.txt"]}' } }] }
+        ? { content: 'The requested fixture change is ready to stage for the commit.', tool_calls: [{ index: 0, id: stage.id, type: 'function', function: { name: stage.name, arguments: JSON.stringify(stage.args) } }] }
         : { content: 'The requested file was reviewed and staged successfully.' };
       response.end(`data: ${JSON.stringify({ choices: [{ delta, finish_reason: turns === 1 ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } })}\n\ndata: [DONE]\n\n`);
     });
@@ -119,6 +122,9 @@ describe('built cloud token streaming', () => {
     await vi.waitFor(() => expect(reviews).toHaveLength(3), { timeout: 10_000 });
     expect(reviews[0].max_tokens).toBe(8000);
     expect(reviews[1].max_tokens).toBe(16000);
+    for (const review of reviews.slice(0, 2)) {
+      expect(JSON.parse(review.messages.at(-1)!.content).checkpoint).toBe('commit');
+    }
     expect(execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: state.workspaceRoot, encoding: 'utf8' }).trim()).toBe('fixture.txt');
   }, 60_000);
   it('reuses the tool prefix through a read-to-edit transition without a throughput retry', async () => {
@@ -282,9 +288,18 @@ describe('built cloud token streaming', () => {
       network: { timeout: 1_000, maxRetries: 1, retryDelay: 2_000 },
     } });
     cleanupTasks.push(state.cleanup);
+    // Advance only the new five-minute provider deadline; keep timeout/replay coverage fast.
+    const clockPreload = path.join(state.autohandHome, 'provider-timeout-clock.mjs');
+    await writeFile(clockPreload, `globalThis.setTimeout = new Proxy(globalThis.setTimeout, {
+      apply(target, receiver, args) {
+        if (args[1] === 300_000) args[1] = 1_000;
+        return Reflect.apply(target, receiver, args);
+      },
+    });`);
+    const nodeOptions = [process.env.NODE_OPTIONS, `--import ${pathToFileURL(clockPreload).href}`].filter(Boolean).join(' ');
     const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
       autohandHome: state.autohandHome, cwd: state.workspaceRoot,
-      env: { AUTOHAND_AUTH_API_URL: `${auth.baseUrl}/api/auth` },
+      env: { AUTOHAND_AUTH_API_URL: `${auth.baseUrl}/api/auth`, NODE_OPTIONS: nodeOptions },
     });
     cleanupTasks.push(() => exitInteractive(session));
     await session.text({ timeout: 20_000, waitFor: (text) => text.includes('❯') });

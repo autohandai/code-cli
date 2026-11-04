@@ -36,7 +36,7 @@ export interface SimilarityMatch {
 
 export type CapabilityKind = 'skill' | 'slash_command';
 export type CapabilityUsageOrigin = 'user' | 'agent';
-export type CapabilityUsageOutcome = 'succeeded' | 'failed';
+export type CapabilityUsageOutcome = 'activated' | 'succeeded' | 'failed';
 
 export interface CapabilityIdentity {
   kind: CapabilityKind;
@@ -51,6 +51,8 @@ export interface CapabilityUsageInput extends CapabilityIdentity {
 
 export interface LearnedProjectCapability extends CapabilityIdentity {
   uses: number;
+  activationObservations: number;
+  legacyActivationObservations: number;
   successfulUses: number;
   failedUses: number;
   userUses: number;
@@ -93,6 +95,7 @@ export type MemoryEvent =
       capability: CapabilityIdentity;
       origin: CapabilityUsageOrigin;
       outcome: CapabilityUsageOutcome;
+      observation?: 'legacy-format-activation';
       memoryId?: never;
       entry?: never;
     });

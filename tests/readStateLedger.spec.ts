@@ -6,7 +6,7 @@
 import fse from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileActionManager } from '../src/actions/filesystem.js';
 import { ActionExecutor } from '../src/core/actionExecutor.js';
 import { ReadSessionLedger } from '../src/core/agent/ReadSessionLedger.js';
@@ -59,6 +59,69 @@ describe('stateful read ledger', () => {
       },
     });
   }
+
+  it.each([
+    { type: 'write_file', path: 'default.txt', contents: 'stale replacement' },
+    { type: 'append_file', path: 'default.txt', contents: 'stale append' },
+    { type: 'apply_patch', path: 'default.txt', patch: 'stale patch' },
+  ] satisfies AgentAction[])('blocks a stale $type by default and preserves the user edit', async action => {
+    const target = path.join(workspaceRoot, 'default.txt');
+    await fse.writeFile(target, 'original');
+    const executor = createExecutor({});
+    await executor.executeForTool({ type: 'read_file', path: 'default.txt' }, { approvalHandled: true });
+    await fse.appendFile(target, '\nUSER EDIT DURING TURN');
+    const outcome = await executor.executeForTool(action, { approvalHandled: true });
+    expect(outcome).toMatchObject({ success: false, kind: 'authorization', error: expect.stringContaining('changed after it was read') });
+    expect(await fse.readFile(target, 'utf8')).toBe('original\nUSER EDIT DURING TURN');
+    await executor.executeForTool({ type: 'read_file', path: 'default.txt' }, { approvalHandled: true });
+    const refreshed = await executor.executeForTool({ type: 'write_file', path: 'default.txt', contents: 'original\nUSER EDIT DURING TURN\nupdated' }, { approvalHandled: true });
+    expect(refreshed.success).toBe(true);
+  });
+
+  it.each(['complete', 'partial', 'unread'] as const)('preserves the default %s observation policy during an unstable hash', async observation => {
+    const target = path.join(workspaceRoot, 'hash-race.txt');
+    await fse.writeFile(target, 'alpha\nbravo');
+    const executor = createExecutor({});
+    if (observation !== 'unread') {
+      await executor.executeForTool({ type: 'read_file', path: 'hash-race.txt', ...(observation === 'partial' ? { limit: 1 } : {}) }, { approvalHandled: true });
+    }
+    const hash = FileActionManager.prototype.hashInspectedFile;
+    const spy = vi.spyOn(FileActionManager.prototype, 'hashInspectedFile').mockImplementationOnce(async function (inspection) {
+      const revision = await hash.call(this, inspection);
+      await fse.writeFile(target, 'USER EDIT DURING HASH');
+      return { ...revision, revisionStable: false };
+    });
+    try {
+      const outcome = await executor.executeForTool({ type: 'write_file', path: 'hash-race.txt', contents: 'replacement' }, { approvalHandled: true });
+      if (observation === 'complete') {
+        expect(outcome).toMatchObject({ success: false, kind: 'authorization', error: expect.stringContaining('changed after it was read') });
+        expect(await fse.readFile(target, 'utf8')).toBe('USER EDIT DURING HASH');
+      } else {
+        expect(outcome.success).toBe(true);
+      }
+    } finally { spy.mockRestore(); }
+  });
+
+  it('keeps new, never-read and partial-read writes allowed by default', async () => {
+    const executor = createExecutor({});
+    for (const name of ['unread.txt', 'partial.txt']) await fse.writeFile(path.join(workspaceRoot, name), 'one\ntwo');
+    await executor.executeForTool({ type: 'read_file', path: 'partial.txt', limit: 1 }, { approvalHandled: true });
+    for (const name of ['new.txt', 'unread.txt', 'partial.txt']) {
+      const result = await executor.executeForTool({ type: 'write_file', path: name, contents: 'updated' }, { approvalHandled: true });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('preserves the stateful-read kill switch for stale files', async () => {
+    process.env.AUTOHAND_DISABLE_STATEFUL_READ = '1';
+    const target = path.join(workspaceRoot, 'disabled.txt');
+    await fse.writeFile(target, 'original');
+    const executor = createExecutor({});
+    await executor.executeForTool({ type: 'read_file', path: 'disabled.txt' }, { approvalHandled: true });
+    await fse.writeFile(target, 'external');
+    const result = await executor.executeForTool({ type: 'write_file', path: 'disabled.txt', contents: 'replacement' }, { approvalHandled: true });
+    expect(result.success).toBe(true);
+  });
 
   it('records a complete model-visible read without changing ledger-only output', async () => {
     await fse.writeFile(path.join(workspaceRoot, 'complete.txt'), 'alpha\nbeta\n');
@@ -180,7 +243,7 @@ describe('stateful read ledger', () => {
     });
   });
 
-  it('keeps legacy sessions free of read state when all experiments are off', async () => {
+  it('records revisions for default stale-write safety without changing read output', async () => {
     await fse.writeFile(path.join(workspaceRoot, 'legacy.txt'), 'unchanged behavior');
     const executor = createExecutor({});
 
@@ -190,7 +253,7 @@ describe('stateful read ledger', () => {
     }, { approvalHandled: true });
 
     expect(outcome).toEqual({ success: true, output: '     1\tunchanged behavior' });
-    expect(sessionManager.getCurrentSession()?.getReadFileState()).toBeNull();
+    expect(sessionManager.getCurrentSession()?.getReadFileState()?.entries[0]).toMatchObject({ complete: true, sha256: expect.any(String) });
   });
 
   it('consumes an unchanged complete-read dedup hit so the next retry returns content', async () => {

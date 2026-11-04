@@ -15,6 +15,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { minimatch } from 'minimatch';
 import { resolveRipgrepCommand } from '../utils/ripgrep.js';
 
 const execFileAsync = promisify(execFile);
@@ -382,13 +383,16 @@ class RipgrepSearchBackend implements SearchBackend {
 
   async fileSearch(params: FindParams): Promise<string> {
     try {
-      const result = await execFileAsync(resolveRipgrepCommand(), ['--files', '.'], {
+      const result = await execFileAsync(resolveRipgrepCommand(), ['--files', '--path-separator', '/', '.'], {
         cwd: this.workspaceRoot,
         encoding: 'utf8',
         maxBuffer: 10 * 1024 * 1024,
       });
       const files = result.stdout.trim().split('\n').filter(Boolean);
-      const ranked = rankPaths(files, params.query).slice(0, params.limit ?? 50);
+      const glob = fileGlob(params.query, files);
+      const ranked = (glob
+        ? await newestPaths(files.filter(file => minimatch(file.replace(/^\.\//, ''), glob)), this.workspaceRoot)
+        : rankPaths(files, params.query)).slice(0, params.limit ?? 50);
       if (!ranked.length) {
         return 'No files found.';
       }
@@ -408,7 +412,10 @@ class RipgrepSearchBackend implements SearchBackend {
 
   private async fileSearchWithFilesystemWalk(params: FindParams): Promise<string> {
     const files = await collectWorkspaceFiles(this.workspaceRoot);
-    const ranked = rankPaths(files, params.query).slice(0, params.limit ?? 50);
+    const glob = fileGlob(params.query, files);
+    const ranked = (glob
+      ? await newestPaths(files.filter(file => minimatch(file, glob)), this.workspaceRoot)
+      : rankPaths(files, params.query)).slice(0, params.limit ?? 50);
     if (!ranked.length) {
       return 'No files found.';
     }
@@ -515,6 +522,29 @@ function formatPlainLines(lines: string[], limit: number, singular: string, plur
       ? `Found ${lines.length} ${plural} (showing first ${limit}):\n\n`
       : `Found ${lines.length} ${lines.length === 1 ? singular : plural}:\n\n`;
   return header + limited.join('\n');
+}
+
+function fileGlob(query: string, files: string[]): string | null {
+  if (!/[*?[{]/.test(query)) return null;
+  if (query.includes('[') && !/[*?{]/.test(query) && rankPaths(files, query).length > 0) return null;
+  return query.includes('/') ? query : `**/${query}`;
+}
+
+async function newestPaths(files: string[], workspaceRoot: string): Promise<string[]> {
+  const entries: Array<{ file: string; modified: number }> = [];
+  for (let offset = 0; offset < files.length; offset += 64) {
+    const batch = await Promise.all(files.slice(offset, offset + 64).map(async file => {
+      try {
+        const stat = await fs.stat(path.join(workspaceRoot, file));
+        return stat.isFile() ? { file: file.replace(/^\.\//, ''), modified: stat.mtimeMs } : null;
+      } catch {
+        return null;
+      }
+    }));
+    for (const entry of batch) if (entry) entries.push(entry);
+  }
+  return entries.sort((a, b) => b.modified - a.modified || a.file.localeCompare(b.file))
+    .map(entry => entry.file);
 }
 
 function rankPaths(files: string[], query: string): string[] {

@@ -4,6 +4,7 @@ import { clearConversation, type ClearCommandContext } from '../../src/commands/
 import type { SessionManager } from '../../src/session/SessionManager.js';
 import type { MemoryManager } from '../../src/memory/MemoryManager.js';
 import type { LLMProvider } from '../../src/providers/LLMProvider.js';
+import { eligibleDecisionDispatcher } from '../decisions/fixtures.js';
 
 const conversation = ConversationManager.getInstance();
 const append = vi.fn().mockResolvedValue(undefined);
@@ -75,7 +76,7 @@ describe('/clear context handoff', () => {
     vi.stubGlobal('fetch', vi.fn(async () => { controller.abort(); throw controller.signal.reason; }));
     const ctx = Object.assign(context(), {
       signal: controller.signal,
-      compactionSettings: { plan: 'cloud' as const, authMode: 'api-key' as const, apiKey: 'fixture-key' },
+      decisionDispatcher: eligibleDecisionDispatcher({ plan: 'cloud', authMode: 'api-key', apiKey: 'fixture-key' }),
     });
     expect(await clearConversation(ctx)).toContain('cancelled');
     expect(append).not.toHaveBeenCalled();

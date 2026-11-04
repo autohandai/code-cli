@@ -8,6 +8,8 @@ import { getPlanModeManager } from '../../commands/plan.js';
 import { resolveBrainstormAutoInjection } from '../../skills/brainstormIntent.js';
 import { resolveComputerControlAutoInjection } from '../../skills/computerControlIntent.js';
 import { resolveDebugAutoInjection } from '../../skills/debugIntent.js';
+import { isAdaptiveSkillsEnabled } from '../../skills/feature.js';
+import type { AdaptiveSkillSession } from '../../skills/AdaptiveSkillSession.js';
 import { getProviderConfig } from '../../config.js';
 import { t } from '../../i18n/index.js';
 import { stripSharedProjectMemory, wrapSharedProjectMemory } from '../../memory/MemoryManager.js';
@@ -85,6 +87,8 @@ export interface AgentContextRuntimeHost {
   };
   runtime: AgentRuntime;
   skillsRegistry: {
+    refreshAdaptiveCatalog?(): Promise<void>;
+    getAdaptiveSession?(): AdaptiveSkillSession;
     getActiveSkills(): Array<{ name: string; description: string }>;
     activateMentionedSkills?(instruction: string): Array<{
       name: string;
@@ -228,6 +232,16 @@ export async function buildAgentTurnContext(
     .filter(Boolean)
     .map(String);
 
+  if (isAdaptiveSkillsEnabled(host.runtime.config)) await host.skillsRegistry.refreshAdaptiveCatalog?.();
+  await host.runtime.goalContinuity?.prepareTurnContext?.();
+  if (isAdaptiveSkillsEnabled(host.runtime.config) && host.skillsRegistry.getAdaptiveSession) {
+    const plan = getPlanModeManager();
+    await host.skillsRegistry.getAdaptiveSession().beginTask(instruction, {
+      taskId: host.runtime.skillTaskId,
+      planModeActive: plan.isEnabled() && plan.getPhase() === 'planning',
+      automatic: !host.runtime.options.bare,
+    });
+  } else {
   const mentionedSkills = host.skillsRegistry?.activateMentionedSkills?.(instruction) ?? [];
   for (const skill of mentionedSkills) {
     turnContextParts.push([
@@ -297,6 +311,8 @@ export async function buildAgentTurnContext(
         debugging.body,
       ].join('\n'));
     }
+  }
+
   }
 
   const mentionContext = host.mentionResolver.flush();

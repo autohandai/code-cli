@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "scoredQualityExperiment": false,
+  "entries": [
+    { "authority": "project", "packageId": "systematic-debugging", "name": "systematic-debugging", "description": "Diagnose errors and debug broken programs", "scope": "project" },
+    { "authority": "builtin", "packageId": "deep-research", "name": "deep-research", "description": "Research primary sources and investigate technical questions", "scope": "builtin" },
+    { "authority": "personal", "packageId": "browser-operation", "name": "browser-operation", "description": "Browser navigation and page interaction", "scope": "personal" },
+    { "authority": "project", "packageId": "data-transform", "name": "data-transform", "description": "Transform tabular CSV data with validation", "scope": "project" },
+    { "authority": "builtin", "packageId": "repository-workflow", "name": "repository-workflow", "description": "Inspect repository branches and git changes", "scope": "builtin" },
+    { "authority": "personal", "packageId": "unit-testing", "name": "unit-testing", "description": "Write test coverage and verify assertions", "scope": "personal" },
+    { "authority": "personal", "packageId": "systematic-debugging", "name": "systematic-debugging", "description": "Diagnose errors and debug personal programs", "scope": "personal" },
+    { "authority": "team:other", "packageId": "private-diagnostics", "name": "private-diagnostics", "description": "Diagnose errors and debug secret programs", "scope": "other-member" },
+    { "authority": "project", "packageId": "incompatible-debugging", "name": "incompatible-debugging", "description": "Diagnose errors and debug unsupported programs", "scope": "project", "compatible": false },
+    { "authority": "project", "packageId": "disabled-debugging", "name": "disabled-debugging", "description": "Diagnose errors and debug disabled programs", "scope": "project", "enabled": false },
+    { "authority": "personal", "packageId": "rendimiento", "name": "rendimiento", "description": "Diagnosticar rendimiento lento y latencia", "scope": "personal" },
+    { "authority": "project", "packageId": "revisao", "name": "revisão", "description": "Revisar código e encontrar regressões", "scope": "project" },
+    { "authority": "builtin", "packageId": "japanese-research", "name": "調査", "description": "日本語の技術調査", "scope": "builtin" },
+    { "authority": "personal", "packageId": "performance", "name": "performance", "description": "Measure performance and reduce latency", "scope": "personal" }
+  ],
+  "queries": [
+    { "query": "debugging failures", "expected": ["skill://personal/systematic-debugging", "skill://project/systematic-debugging"] },
+    { "query": "investigate", "expected": ["skill://builtin/deep-research"] },
+    { "query": "tests", "expected": ["skill://personal/unit-testing"] },
+    { "query": "latency", "expected": ["skill://personal/performance"] },
+    { "query": "rendimiento", "expected": ["skill://personal/rendimiento"], "language": "es", "support": "lexical metadata only" },
+    { "query": "revisão", "expected": ["skill://project/revisao"], "language": "pt", "support": "lexical metadata only" },
+    { "query": "調査", "expected": ["skill://builtin/japanese-research"], "language": "ja", "support": "lexical metadata only" },
+    { "query": "hello!", "expected": [] },
+    { "query": "thank you", "expected": [] },
+    { "query": "calculate quasar luminosity", "expected": [] },
+    { "query": "", "expected": [] }
+  ]
+}

@@ -421,6 +421,8 @@ Sakana.AI provider configuration. The API is OpenAI-compatible and uses `https:/
 
 ### `customProviders`
 
+Autohand sign-in is required with every provider. Autohand rate limits and account quotas apply only to hosted Autohand AI inference. Third-party, custom, and local providers do not consume that allowance or inherit those limits. Your provider can still enforce its own limits; explicitly configured run budgets also remain in effect.
+
 Custom providers let users bring an OpenAI-compatible endpoint without a code change or a new bundled provider. Add the provider under `customProviders`, then select it with `provider: "custom:<id>"`. The same flow is available from `/model` with **New provider...**. During setup, Autohand verifies the base URL, authentication, and selected model through the OpenAI-compatible `/models` endpoint before saving the provider.
 
 ```json
@@ -1067,7 +1069,7 @@ machine), in `/settings` → UI → Keyboard shortcuts, or directly:
 autohand config set ui.keybindingProfile codex
 ```
 
-Every profile keeps Autohand's fixed keys: Enter submits (while a turn runs it queues drafts; select a queued message and submit it to steer, see `ui.enterWhileWorking`), Ctrl+Enter steers queued input, and Esc interrupts.
+Every profile keeps Autohand's fixed keys: Enter submits (while a turn runs it queues drafts; select a queued message and submit it to steer, see `ui.enterWhileWorking`), Ctrl+S or Ctrl+Enter steers queued input, and Esc interrupts.
 Shift+Tab cycles interaction modes, Ctrl+C clears the input and exits on a
 second press, `?` on an empty composer shows the shortcuts panel, and Ctrl+O,
 Ctrl+T and Ctrl+G expand command output and toggle the team and goals panels.
@@ -1202,13 +1204,56 @@ Control agent behavior and iteration limits.
 
 ### Tool Schema Selection
 
-Autohand does not send every full tool schema on every LLM request. The system prompt includes a compact tool capability catalog, and each request exposes only a small set of concrete schemas selected from:
+Programmatic tool dispatch is enabled by default for every provider. The model uses
+`run_tool_script` to call registered tools inside a sandboxed JavaScript program.
+`tool_search` returns exact argument schemas as data; discovering goal, research,
+Git, MCP, or extension tools does not add their schemas to the native tool array.
+The native interface contains the script runner, schema search, and user
+questions, in stable name order. Browser, desktop, MCP, and extension tools run
+through the same checked script bridge. Providers with smaller native-tool limits
+retain the script runner first; schema search is also callable inside scripts.
 
-- Core discovery tools such as `tool_search`, `read_file`, `fff_find`, and `find_grep`
-- Intent-matched tools for editing, verification, git, browser, web, dependency, or project-tracking work
-- Tools requested through recent `tool_search` calls or explicitly mentioned by name
+Scripts can make up to 512 calls, batch independent work with `Promise.all`, and
+return concise evidence. Intermediate output stays inside the sandbox. Each call
+still passes through the normal permissions, plan-mode restrictions, hooks, and
+cancellation checks. Approval for a script does not approve its nested actions.
+Enabled Moa plan, commit, and repeated-failure reviews also apply to nested calls.
+Goal completion waits for final answer delivery and any required completion review.
+Image evidence is attached to the next model response without being embedded in
+script output or the persisted transcript. When a result has `images: true`, the
+script should return so the model can inspect it before choosing another action.
 
-This avoids the large upfront context cost of sending all tool schemas before the user intent is known. `toolSelectionCache` controls only the local selector cache for equivalent turns; it does not perform a pre-user LLM warmup and does not force a large cached prompt prefix.
+Set `features.codeMode` to `false` to restore relevance-based direct tool selection.
+`agent.toolSelectionCache` controls the local cache for that legacy selector;
+turning it off does not control provider prefix caching. Runtime notes are sent
+in place as user-role context, preserving the leading system policy. Context
+compaction can still change history and invalidate the affected cached suffix.
+Replaceable runtime state, such as goal budget updates, is serialized at the
+request tail so updates preserve the earlier conversation prefix.
+
+For providers with limited session capacity, set these fields in that provider's
+configuration (including entries under `customProviders`):
+
+```json
+{
+  "backgroundCalls": false,
+  "maxConcurrentThreads": 1
+}
+```
+
+`backgroundCalls: false` disables optional readiness reviews, suggestions, session
+title refinement, automatic memory reflection, and checkpoint advice. Explicit
+user work and necessary context management still run. `maxConcurrentThreads`
+(1–64) caps session threads including the lead; `1` disables delegation. The lower
+of this provider limit and the session-wide thread limit applies. These controls
+apply within one CLI session; separate CLI processes have separate limits.
+
+Custom endpoints that accept `prompt_cache_key` can opt into session affinity:
+set `features.promptCaching` to `true` and `supportsPromptCacheKey` to `true` on
+that custom provider entry. The CLI sends a stable hashed session key, with a
+separate key for each subagent conversation. The endpoint capability defaults to
+`false`; enable it only when the server accepts this field. Stable tool dispatch
+and runtime-note placement do not require this option.
 
 To disable the local selector cache:
 
@@ -1374,8 +1419,9 @@ Three ways to enable debug mode (in order of precedence):
 When `enableRequestQueue` is enabled, you can continue typing messages while the agent processes a previous request. Your input will be queued and processed automatically when the current task completes.
 
 - Type your message and press Enter to add it to the queue
-- Press Ctrl+Enter to steer the highlighted queued message, or the oldest queued message when none is highlighted
-- Ctrl+Enter preserves an unrelated composer draft and the remaining queue. The active turn reads the message on its next model request, after any in-flight request or tool completes
+- Press Ctrl+S or Ctrl+Enter to steer the highlighted queued message, or the oldest queued message when none is highlighted
+- Ctrl+S uses a standard control key and works without an enhanced keyboard protocol. Ctrl+Enter requires a terminal that distinguishes it from Enter. Both shortcuts preserve an unrelated composer draft and the remaining queue
+- Steering removes the accepted message from the pending queue immediately. The active turn reads it on its next model request, after any in-flight request or tool completes
 - The status line shows how many requests are queued
 - The queue previews up to five messages, using fewer rows in short terminals. Arrow-key selection keeps the highlighted message visible; a count shows how many other messages remain queued
 - Requests are processed in FIFO (first-in, first-out) order
@@ -1717,7 +1763,6 @@ By default, macOS/Linux use `SHELL` or `/bin/sh`. Native Windows uses `ComSpec` 
 {
   "network": {
     "maxRetries": 3,
-    "timeout": 30000,
     "retryDelay": 1000
   }
 }
@@ -1726,8 +1771,10 @@ By default, macOS/Linux use `SHELL` or `/bin/sh`. Native Windows uses `ComSpec` 
 | Field        | Type   | Default | Max | Description                            |
 | ------------ | ------ | ------- | --- | -------------------------------------- |
 | `maxRetries` | number | `3`     | `5` | Retry attempts for failed API requests |
-| `timeout`    | number | `30000` | -   | Request timeout in milliseconds        |
+| `timeout`    | number | Provider default | - | Request deadline in milliseconds; Autohand AI has a 300 s minimum and Anthropic a 600 s minimum |
 | `retryDelay` | number | `1000`  | -   | Delay between retries in milliseconds  |
+
+Leave `network.timeout` unset to use the provider's default. Settings show **provider default** rather than a misleading 30-second value. An explicit value such as `60000` remains stored; provider minimums still apply. On startup, the old generated `30000` value is removed while other settings are retained. Migration uses a file lock and atomic replacement, checks for intervening edits, and can proceed in memory when the file is read-only. JSON, YAML, and TOML retain their formats. Normal configuration saves also use atomic replacement so readers do not observe partially written JSON. Symlinked configurations retain their link and update its real target.
 
 ### Required Ports and Agent Transports
 
@@ -1904,6 +1951,82 @@ Load custom agent definitions from external directories.
 
 Skills are instruction packages that provide specialized instructions to the AI agent. They work like on-demand `AGENTS.md` files that can be activated for specific tasks.
 
+### Adaptive Skills Rollout
+
+Adaptive skills is an experimental, local opt-in. Enable it with `autohand experiments enable adaptive_skills` or `autohand config set features.adaptiveSkills true`, then restart the CLI. Disable it with `autohand experiments disable adaptive_skills` and restart to restore the existing skill prompt behavior. The switch does not enable automatic learning, remote decisions, cloud sharing, or a different inference provider.
+
+```json
+{
+  "features": { "adaptiveSkills": true },
+  "skills": {
+    "learning": { "enabled": false, "scope": "project" },
+    "decisions": {
+      "enabled": false,
+      "selection": false,
+      "preview": false,
+      "remotePreview": false,
+      "learning": false,
+      "compaction": false
+    }
+  }
+}
+```
+
+The startup prompt contains a fixed discovery contract. The installed catalog remains available through the `skill` tool's `list`, `search`, and `info` operations. `search` accepts its query in `name`; `activate` selects instructions for task context. In code mode these operations run through `run_tool_script`, while `tool_search` discovers their schemas. Registry discovery (`find_agent_skills`), approved installation (`install_agent_skill`), `/skills install`, and local authoring (`/skills new` or `/skills-new`) remain available. `/skills search <query>` continues to search the community registry.
+
+Use `$skill-name` for an explicit compatible skill, or the exact `skill://` reference reported by discovery to distinguish same-name packages. A reference identifies its authority and package; a pinned reference also includes the complete package revision and optional resource. Paths locate resources and do not define portable identity. `/deep-research` selects the bundled package through the same loader. A skill's instructions and `allowed-tools` metadata do not grant permissions.
+
+Required instructions are attached in full. If a required resource, pinned revision, authorization, or instruction budget is unavailable, loading reports the problem instead of silently omitting or truncating required content. A `Loaded <name> · <source> · this task` status follows submission of the packet at the provider request boundary. The persisted receipt records the task, session, request, source reference, revision, and content digest. Its `submitted` state establishes request submission; it does not establish correct model behavior or task success. External engine handoffs can record `supplied` evidence. Historical receipts do not prove attachment to a later request.
+
+Packages may declare mandatory text resources and exact pinned dependencies in `skill.runtime.json` (`version: 1`, `requiredResources`, and `dependencies`). The complete manifest covers scripts and binary assets as well as instruction text; archived resources are materialized from the pinned revision. Declarations grant no authority and do not execute scripts automatically. Malformed declarations, missing resources, dependency cycles, and oversized packages fail visibly. See [Required Resources and Dependencies](agent-skills.md#required-resources-and-dependencies).
+
+These settings appear under **Agent Behavior** in `/settings` and are accepted by `autohand config set <key> <value>`:
+
+| Key | Default | Behavior |
+| --- | --- | --- |
+| `features.adaptiveSkills` | `false` | Enable adaptive discovery and task attachment; restart required. |
+| `skills.learning.enabled` | `false` | Allow eligible verified work to queue private learning drafts. |
+| `skills.learning.scope` | `"project"` | Draft scope: `project` or explicitly selected `user`. |
+| `skills.maxInstructionTokens` | Unset | Optional positive instruction-token budget; required content is never truncated to fit. |
+| `skills.decisions.enabled` | `false` | Master opt-in for remote decision features. |
+| `skills.decisions.provider` | Unset | Explicit provider ID; must match active execution. |
+| `skills.decisions.model` | Unset | Explicit decision model; configuring it does not enable requests. |
+| `skills.decisions.selection` | `false` | Allow remote reranking of a bounded local shortlist. |
+| `skills.decisions.preview` | `false` | Enable the preview decision feature. |
+| `skills.decisions.remotePreview` | `false` | Additional consent to send typed text before submission. |
+| `skills.decisions.learning` | `false` | Allow eligible decision-model draft extraction. |
+| `skills.decisions.compaction` | `false` | Allow eligible decision-model compaction. |
+| `skills.decisions.timeoutMs` | Unset | Optional request deadline; dispatcher limit is 10,000 ms. |
+
+Remote decision requests also require online operation, background calls enabled, an attested execution provider, and the individual feature opt-in. Weka is available only for eligible Autohand AI Cloud decision requests with valid authentication, account model entitlement, and quota. It cannot run as the main coding model. Stored Autohand credentials, a provider display name, or `AUTOHAND_TYPE_AHEAD_MODEL=weka` cannot authorize Weka while execution uses another provider. Ineligible or stale routes fall back to local behavior. Login alone does not enable remote previews or learning.
+
+Native code-mode providers use compact shared workflow instructions and a lossless installed-agent roster. Workspace instructions, permissions and goal evidence rules remain in force. Total input still includes those instructions, session context and the three native tool schemas; the small adaptive skill-discovery section is only one part of that total.
+
+Follow-up questions collect actual user input even with `--yes` or unrestricted mode. Those flags automate approval prompts, not factual answers. A non-interactive session without a response callback reports the question as unanswered and does not imply consent.
+
+### Verified Learning and Recovery
+
+Automatic learning is separate from ordinary skill activation, `/learn` project recommendations, and `agent.autoMemory`. Use `/skills learning status`, `/skills learning on`, or `/skills learning off` to inspect or change the automatic-learning preference. Explicit `/skills learn [outcome-id]` requests a draft from a qualifying completed work outcome while automatic learning remains off.
+
+Automatic drafts require a predeclared `skills.learning.verification` contract with `id`, `inputIds`, `checks`, and `artifacts`. Each check names its `id`, command argument array, frozen input `files`, and optional working directory and timeout. The runtime checks changed artifacts against their prior digests and executes the independent checks. Greetings, cancellations, no-op outcomes, assistant success text, and a clean exit alone are insufficient evidence. Configure real acceptance checks for your workflow; none are inferred from a skill's own claims.
+
+Candidate verification uses a separate `skills.learning.candidateVerification` contract with `id`, `inputIds`, and `checks`. Each candidate command must consume its package through a `{candidate}` argument. Verification is bound to the candidate revision and frozen check inputs; editing either invalidates the evidence. Drafts and upstream packages remain distinct, scoped revisions.
+
+| Command | Purpose |
+| --- | --- |
+| `/skills learning list` | Inspect scoped drafts and jobs. |
+| `/skills inspect <candidate>` | Inspect candidate identity and provenance. |
+| `/skills verify <candidate>` | Run configured independent candidate checks. |
+| `/skills benefit <candidate> <plan-id>` | Declare the benefit evaluation plan before preference. |
+| `/skills prefer <candidate> <plan-id>` | Request preference only when independent benefit evidence qualifies. |
+| `/skills rollback <candidate>` | Remove learned preference while retaining package revisions. |
+| `/skills exclude <candidate>` | Exclude the candidate from future learning and preference. |
+| `/skills forget <candidate>` | Remove learning evidence and queued jobs while retaining package files. |
+
+Preferred promotion requires a benefit evaluator supplied by the embedding host API. The CLI does not include a built-in live held-out evaluation runner; without that evaluator, preference fails closed. Passing candidate checks does not demonstrate improved future task quality. This rollout makes no billed-token savings, statistical task-quality, or learned-transfer claim.
+
+Goal checkpoints retain declared skill pins, intent, artifacts, next action, and evidence across restart. `/goal recover <session-id>` restores an offline goal's conversation and paused state; it does not start work or take ownership from a live session. Inspect recovery with `/goals view` and explicitly use `/goal resume` to continue. Missing pins, changed authorization, and uncertain external side effects require resolution before replaying work.
+
 ### Skill Discovery Locations
 
 Skills are discovered from multiple locations, with later sources taking precedence:
@@ -1971,7 +2094,7 @@ Autohand supports special prefixes in the input prompt:
 - Type `$` followed by characters to see available skills with autocomplete
 - Tab accepts the top suggestion (e.g., `$frontend-design`)
 - Skills are discovered from `~/.autohand/skills/` and `<project>/.autohand/skills/`
-- Activated skills are attached to the prompt as special instructions for the current session
+- Activated skills provide special instructions; adaptive mode attaches pinned packets in task context with request-scoped receipts
 - Preview panel shows skill metadata (name, description, activation state)
 
 **Shell Commands (`!`):**
@@ -2244,6 +2367,11 @@ Autohand can sync your configuration across devices for logged-in users. Setting
 | `exclude`          | string[] | `[]`            | Glob patterns to exclude from sync                 |
 | `includeTelemetry` | boolean  | `false`         | Sync telemetry data (requires user consent)        |
 | `includeFeedback`  | boolean  | `false`         | Sync feedback data (requires user consent)         |
+| `sessionsBudgetMb` | number | `100` | Session-history budget in MiB, capped at `1024`; complete sessions are selected within the budget |
+
+Open `/status` or `/sync` to inspect state and sync actions. Press Esc to return to the conversation. These panels retain visible output when launched through `bun run dev`, including after a renderer handoff.
+
+A normal sync can continue transferring healthy settings when a remote saved-session object returns HTTP 404. It withholds the affected session's requested files, the session index, and uploads for that session; existing local files and the remote manifest records remain intact. The panel retains an incomplete-history warning. This does not recover missing cloud bytes or establish that the conversation was downloaded successfully. Retry from a device that still has the complete session, or restore its backup. Force operations, missing download URLs, non-session 404s, authentication failures, and other download failures remain errors. Session downloads are staged privately on disk with bounded storage before publication. Other sync roots have a 100 MiB budget; the aggregate limit is 2 GiB and 5,000 manifest files.
 
 ### CLI Flag
 
@@ -2670,7 +2798,6 @@ autohand --no-browser       # Start with browser bridge disabled
   },
   "network": {
     "maxRetries": 3,
-    "timeout": 30000,
     "retryDelay": 1000
   },
   "telemetry": {
@@ -2765,7 +2892,6 @@ permissions:
 
 network:
   maxRetries: 3
-  timeout: 30000
   retryDelay: 1000
 
 telemetry:
@@ -2959,6 +3085,8 @@ These flags override config file settings:
 | `--max-tokens <n>`            | Stop the run once reported token usage reaches this total, sub-agents included                  |
 | `--max-duration <seconds>`    | Stop the run after this much wall time; checked before each model request                       |
 
+When a noninteractive task needs approval, it stops at the first missing authorization, prints the denied tool names and explicit-consent options to stderr, and exits with status `77`. This applies to delegated agents and automatic specialists; later specialist batches and lead synthesis do not continue after the denial. Grant the intended tool with `--allowed-tools` or use `--yes` only when you intend blanket approval. Tool denial rules, restricted modes, and review boundaries retain precedence. An expired `--yolo --timeout` restores normal prompting even for explicitly selected tools. Existing CI auto-approval recognizes `CI=1`; `CI=true` does not grant consent by itself.
+
 ### Git & Worktree
 
 | Flag                          | Description                                                                                    |
@@ -3022,6 +3150,8 @@ Inspect the result with `zit status` and `zit show <change>`; accepting the chan
 | `--learn-update`              | Re-analyze project and regenerate outdated LLM-generated skills non-interactively              |
 | `--skill-install [name]`      | Install a community skill (opens browser if no name provided)                                  |
 | `--project`                   | Install skill to project level (with --skill-install)                                          |
+
+Claude imports count both flat skill files and folders containing `SKILL.md`. Default `~/.claude/skills/<name>/` packages are discovered in place and reported as skipped, avoiding duplicate copies. Folder skills from an alternate `CLAUDE_CONFIG_DIR` or importer `sourceHome` are copied with their scripts and resources to `skills/imported-claude/`; existing imported packages are retained. Imports stage the complete package outside skill discovery before publication, and a resource-copy failure leaves the package available for a later retry. Global `--dry-run` and the import command's `--dry-run` both preview without copying files.
 
 ### Authentication & Account
 
@@ -3115,9 +3245,11 @@ Use `/usage --text`, `/usage weekly --text`, or `/usage monthly --text` for the 
 
 `prompt_caching` is an experimental feature switch (config path `features.promptCaching`, default off) that sends an opaque session-affinity hint on eligible provider requests. The initial candidate is the ChatGPT OAuth Responses transport; standard OpenAI Chat Completions and other providers remain unchanged. Enable it with `autohand experiments enable prompt_caching`. The OAuth transport remains unverified until a current two-turn live probe confirms accepted controls and provider-reported cache usage, so an independent remote kill switch and exact-field fallback remain active.
 
-`automatic_specialists` is an experimental feature switch (config path `features.automaticSpecialists`, default on, restart required after an override) that resolves explicit specialist-team requests before the lead ReAct loop. It renders the selected roster, runs bounded read-only work in parallel, serializes workspace-mutating specialist tasks, and feeds structured results back to the lead. Missing exact catalog matches use one aggregate approval and fail soft to valid local specialists. Disable it with `autohand experiments disable automatic_specialists`. This switch never starts or queues `/squad` automatically.
+`automatic_specialists` is an experimental feature switch (config path `features.automaticSpecialists`, default on, restart required after an override) that resolves explicit specialist-team requests before the lead ReAct loop. It renders the selected roster, runs bounded read-only work in parallel, serializes workspace-mutating specialist tasks, and feeds structured results back to the lead. Missing exact catalog matches use one aggregate approval and fail soft to valid local specialists. Disable it with `autohand experiments disable automatic_specialists`. The lead reuses the actual pre-run specialist outcomes for the current turn, including partial and failed outcomes. Every accepted instruction clears that reuse, including commands that skip specialist preparation. This switch never starts or queues `/squad` automatically.
 
-The restart-required stateful-read experiments are ordered and disabled by default:
+By default, direct mutation tools refuse to overwrite a fully observed regular file whose content changed after its read, including an unstable revision detected while hashing. Read the file again, incorporate the user edit, and retry. New, unread, and partially read files keep their existing default write policy.
+
+The restart-required stateful-read experiments add stricter behavior and are disabled by default:
 
 | Feature | Config path | Behavior |
 | --- | --- | --- |
@@ -3125,7 +3257,7 @@ The restart-required stateful-read experiments are ordered and disabled by defau
 | `read_state_dedup` | `features.readStateDedup` | Implies the ledger and returns a consume-on-hit stub for an eligible repeated unchanged read. |
 | `read_before_write` | `features.readBeforeWrite` | Implies both earlier increments and requires a complete unchanged read before direct tools mutate an existing regular file. |
 
-Enable an increment with `autohand experiments enable <feature>`. Partial, clamped, invalid-UTF-8, and stale views never authorize a write. Set `AUTOHAND_DISABLE_STATEFUL_READ=1` for a process-local emergency rollback without changing the stored flags.
+Enable an increment with `autohand experiments enable <feature>`. With `read_before_write` enabled, partial, clamped, invalid-UTF-8, and stale views never authorize a write. Set `AUTOHAND_DISABLE_STATEFUL_READ=1` for a process-local emergency rollback without changing the stored flags.
 
 ---
 
@@ -3141,13 +3273,15 @@ Start directly in planning mode with `autohand --plan`, or generate a one-shot p
 
 `--plan` conflicts with `--yolo`, `--auto-mode`, and `--auto-commit`. It does not change the `--mode rpc|acp` transport selector.
 
-Autohand provides a rich set of slash commands for interactive use. Type `/` in the REPL to see suggestions.
+Type `/` in the REPL to browse commands with Up/Down. The menu scrolls through every available match and wraps at either end. Type more letters to filter the list, then use Tab to accept the highlighted command. The same navigation works for subcommands such as `/skills `.
 
 ### Session Management
 
 From the shell, `autohand resume` opens a picker scoped to the current working directory. Use `--path <path>` to select another workspace, `--all` to browse every project, or `--last` to resume the most recently active session. `--last --all` selects the most recently active session across projects. Older metadata without a valid activity timestamp falls back to creation time.
 
-`autohand resume <reference>` accepts a saved session name (set with `/rename` or `--rename`, matched case-insensitively), a full session ID, a unique ID prefix, or a saved session directory/file. A name wins over an ID prefix. Ambiguous or missing references exit with an error, and a name shared by several sessions lists their ID prefixes. Explicit references cannot be combined with `--last` or `--all`. `--config`, `--model`, and `--offline` remain available; `-c` continues to mean auto-commit.
+`autohand resume <reference>` accepts a saved session name (set with `/rename` or `--rename`, matched case-insensitively), a full session ID, a unique ID prefix, or a saved session directory/file. A name wins over an ID prefix. Ambiguous or missing references exit with an error, and a name shared by several sessions lists their ID prefixes. Explicit references cannot be combined with `--last` or `--all`. `--config`, `--model`, and `--offline` remain available. `-c` continues the latest session; use `--auto-commit` for automatic commits.
+
+Restored sessions become ready for input without repeating fresh-session initialization. Configured MCP servers connect in the background; a slow or failed server does not prevent the restored composer from accepting input.
 
 The picker loads twenty sessions per page and provides **More sessions** and **Previous sessions** navigation. Escape or Ctrl+C cancels without starting an agent. Non-interactive invocations require `--last` or an explicit reference when saved sessions exist. Empty history exits successfully without starting a session.
 
@@ -3495,3 +3629,6 @@ Fantail ignores this setting; local sessions do not advertise it.
 When no provider is selected, a signed-in account with server-verified access uses Autohand Web Search. Verified Free accounts include 10 web searches a day, shared with Code Web for the same account and reset at 00:00 UTC. `/search` shows the remaining allowance. At the cap, the tool returns the upgrade link and reset time, and the CLI prints that notice once per session. Lite, Pro, Pro Plus, Max, Team, and Enterprise retain their included search access. Queries are limited to 1,024 characters, 10 results, and 30 native requests per account per minute. Access uses the selected Autohand account and existing account credentials; customers do not need Cloudflare credentials. A failed hosted search reports its status and does not change providers.
 
 Browser Profile is the local default. Connect Chromium through `/browser` or provide an available Chrome/Brave profile. Before launching the profile, Autohand checks its `SingletonLock`, including Chromium's symlink lock. With Chrome open, search uses the connected Chrome bridge first, then eligible Autohand Web Search, then one line directing you to `/search`. A locked profile with no fallback is not offered to the model. A closed profile keeps the existing browser search path. Exa, Brave, and Parallel require `search.exaApiKey`, `search.braveApiKey`, or `search.parallelApiKey`, respectively, or `EXA_API_KEY`, `BRAVE_SEARCH_API_KEY`, or `PARALLEL_API_KEY`. Onboarding never saves a keyed provider with a blank key. Google and DuckDuckGo can be selected explicitly; automated requests may receive CAPTCHA challenges.
+
+
+Startup authentication validation updates only the credential it checked. If a settings command or another terminal changes the shared configuration while validation is pending, the validation result preserves the newer settings and login. Configuration writes use the same file lock and atomic replacement across JSON, YAML, and TOML files.

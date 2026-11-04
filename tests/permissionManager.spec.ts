@@ -795,3 +795,61 @@ describe('temporary run scopes', () => {
     expect(manager.checkPermission({ tool: 'read_file', path: '.env' }).allowed).toBe(false);
   });
 });
+describe('session cache bounding', () => {
+  const limit = 1_000;
+  const context = (index: number) => ({ tool: 'run_command', command: 'cache-fixture', args: [`case-${index}`] });
+
+  async function fill(manager: PermissionManager, count: number): Promise<void> {
+    for (let index = 0; index < count; index++) await manager.recordDecision(context(index), true);
+  }
+
+  it('caps distinct decisions at 1,000 while retaining recorded approvals after eviction', async () => {
+    const manager = new PermissionManager({ settings: { rememberSession: true } });
+    await fill(manager, limit + 1);
+    expect(manager.getCacheStats().size).toBe(limit);
+    expect(manager.getCacheStats().entries).toHaveLength(limit);
+    expect(manager.checkPermission(context(0))).toMatchObject({ allowed: true });
+    expect(manager.checkPermission(context(0)).cached).not.toBe(true);
+    expect(manager.checkPermission(context(limit))).toMatchObject({ allowed: true, cached: true });
+  });
+
+  it('refreshes an existing recorded decision without consuming another cache slot', async () => {
+    const manager = new PermissionManager({ settings: { rememberSession: true } });
+    await fill(manager, limit);
+    await manager.recordDecision(context(0), true);
+    await manager.recordDecision(context(limit), true);
+    expect(manager.getCacheStats().size).toBe(limit);
+    expect(manager.checkPermission(context(0))).toMatchObject({ allowed: true, cached: true });
+    expect(manager.checkPermission(context(1)).cached).not.toBe(true);
+  });
+
+  it('keeps an evicted explicit denial effective even in unrestricted mode', async () => {
+    const manager = new PermissionManager({ mode: 'unrestricted', settings: { rememberSession: true } });
+    const denied = { tool: 'run_command', command: 'denied-cache-fixture' };
+    await manager.recordDecision(denied, false);
+    await fill(manager, limit);
+    expect(manager.getCacheStats().size).toBe(limit);
+    expect(manager.checkPermission(denied)).toMatchObject({ allowed: false, reason: 'deny_list' });
+    expect(manager.checkPermission(denied).cached).not.toBe(true);
+  });
+
+  it('stores no cache entries when session memory is disabled', async () => {
+    const manager = new PermissionManager({ settings: { rememberSession: false } });
+    await manager.recordDecision(context(0), true);
+    await manager.recordDecision(context(1), false);
+    expect(manager.getCacheStats().size).toBe(0);
+    expect(manager.checkPermission(context(0))).toMatchObject({ allowed: true });
+    expect(manager.checkPermission(context(1))).toMatchObject({ allowed: false, reason: 'deny_list' });
+  });
+
+  it('clears cached decisions without removing explicit allow or deny rules', async () => {
+    const manager = new PermissionManager({ settings: { rememberSession: true } });
+    await manager.recordDecision(context(0), true);
+    await manager.recordDecision(context(1), false);
+    expect(manager.getCacheStats().size).toBe(2);
+    manager.clearCache();
+    expect(manager.getCacheStats().size).toBe(0);
+    expect(manager.checkPermission(context(0))).toMatchObject({ allowed: true });
+    expect(manager.checkPermission(context(1))).toMatchObject({ allowed: false, reason: 'deny_list' });
+  });
+});

@@ -43,6 +43,20 @@ describe('RPC goal handlers', () => {
     await fs.remove(workspaceRoot);
   });
 
+  it('uses the managed session and host resolver for every checkpoint and resume mutation', async () => {
+    const reference = { authority: 'local:fixture', packageId: 'checks', revision: 'sha256:fixture', resource: 'SKILL.md' };
+    let permissionEpoch = 'approved';
+    Reflect.set(adapter, 'agent', { getSessionManager: () => ({ getCurrentSession: () => ({ metadata: { sessionId: 'managed-owner' } }) }),
+      getGoalContinuity: () => ({ getPinnedReferences: () => [reference], resolveContext: async () => ({ workspaceId: 'workspace:fixture', runtimeVersion: 'fixture', providerId: 'openrouter', permissionEpoch, checkedAt: Date.now(), resolveSkill: async (pin: typeof reference) => pin }) }),
+    });
+    await adapter.handleGoalCreate({ objective: 'Managed goal' });
+    expect(await adapter.handleGoalGet()).toMatchObject({ sessionId: 'managed-owner' });
+    expect(await adapter.handleGoalUpdate({ status: 'paused', checkpoint: { summary: 'Checkpoint through RPC' } })).toMatchObject({ ok: true, goal: { checkpoint: { continuity: { skills: [reference] } } } });
+    permissionEpoch = 'changed';
+    expect(await adapter.handleGoalUpdate({ status: 'active' })).toMatchObject({ ok: false, message: expect.stringContaining('permissionEpoch changed') });
+    permissionEpoch = 'approved'; expect(await adapter.handleGoalUpdate({ status: 'active' })).toMatchObject({ ok: true });
+  });
+
   it('creates, reads, queues, and starts goals through JSON-RPC handlers', async () => {
     const created = await adapter.handleGoalCreate({ objective: 'rpc goal' }) as any;
     expect(created.ok).toBe(true);

@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SuggestionEngine } from '../../src/core/SuggestionEngine.js';
 import type { LLMProvider } from '../../src/providers/LLMProvider.js';
 import type { LLMMessage } from '../../src/types.js';
@@ -24,6 +24,60 @@ function createMockProvider(response = 'Run the test suite'): LLMProvider {
 }
 
 describe('SuggestionEngine', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('delegates adaptive suggestions without falling back to legacy inference on abstention', async () => {
+    const llm = createMockProvider();
+    const suggest = vi.fn(async () => null);
+    const engine = new SuggestionEngine(llm, { suggest });
+    await engine.generate([{ role: 'user', content: 'Review recent changes' }]);
+    await engine.generateFromProjectContext({ recentFiles: ['src/retry.ts'] });
+    expect(suggest).toHaveBeenCalledTimes(2);
+    expect(suggest).toHaveBeenCalledWith(expect.any(Array), expect.any(AbortSignal));
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(engine.getSuggestion()).toBeNull();
+  });
+
+  it('uses a live adaptive transport getter so later runtime initialization and feature toggles take effect', async () => {
+    const llm = createMockProvider();
+    let adaptive = false;
+    const suggest = vi.fn(async () => 'Review the recent changes');
+    const engine = new SuggestionEngine(llm, { get suggest() { return adaptive ? suggest : undefined; } });
+    await engine.generate([{ role: 'user', content: 'Inspect retry.ts' }]);
+    expect(llm.complete).toHaveBeenCalledOnce();
+    adaptive = true;
+    await engine.generate([{ role: 'user', content: 'Inspect retry.ts' }]);
+    expect(suggest).toHaveBeenCalledOnce();
+    expect(engine.getSuggestion()).toBe('Review the recent changes');
+    expect(llm.complete).toHaveBeenCalledOnce();
+  });
+
+  it('cancels adaptive suggestions without awaiting a transport that ignores cancellation or leaving timers', async () => {
+    vi.useFakeTimers();
+    const baseline = vi.getTimerCount();
+    const llm = createMockProvider();
+    const engine = new SuggestionEngine(llm, { suggest: async () => new Promise(() => {}) });
+    const work = engine.generate([{ role: 'user', content: 'Inspect retry.ts' }]);
+    engine.cancel();
+    await work;
+    expect(engine.getSuggestion()).toBeNull();
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(baseline);
+  });
+
+  it('honors a live background-call policy without recreating the engine', async () => {
+    let enabled = true;
+    const llm = createMockProvider();
+    const engine = new SuggestionEngine(llm, { isEnabled: () => enabled });
+    const history: LLMMessage[] = [{ role: 'user', content: 'Inspect code' }];
+    await engine.generate(history);
+    enabled = false;
+    await engine.generate(history);
+    await engine.generateFromProjectContext({ recentFiles: ['a.ts'] });
+    expect(llm.complete).toHaveBeenCalledTimes(1);
+    expect(engine.getSuggestion()).toBeNull();
+  });
+
   let engine: SuggestionEngine;
   let provider: LLMProvider;
 

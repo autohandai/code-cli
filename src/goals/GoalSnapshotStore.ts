@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { atomicWriteJson } from '../utils/atomicFile.js';
 import { parseAcceptanceCriteria, parseCompletionReceipt } from './GoalCompletion.js';
+import { MAX_CHECKPOINT_HISTORY } from './GoalContinuity.js';
 import { parseGoalStopState, parseStoredCheckpoint } from './GoalProgress.js';
 import { isGoalStatus, UNSCOPED_GOAL_SESSION_KEY } from './types.js';
 import type { CompletedGoal, GoalSnapshot, GoalState, QueuedGoal } from './types.js';
@@ -138,6 +139,7 @@ function normalizeGoal(value: unknown): GoalState {
     status: raw.status,
     ...parseGoalStopState(raw.status, raw.stopReason, raw.resumeWhen),
     checkpoint: parseStoredCheckpoint(raw.checkpoint),
+    checkpointHistory: checkpointHistory(raw.checkpointHistory),
     ...completion(raw),
     ...budgets(raw),
     tokensUsed: nonNegativeInteger(raw.tokensUsed) ?? 0,
@@ -184,6 +186,8 @@ function normalizeCompletedGoal(value: unknown): CompletedGoal {
     timeUsedSeconds: nonNegativeNumber(raw.timeUsedSeconds) ?? 0,
     createdAt: nonNegativeNumber(raw.createdAt) ?? Date.now(),
     completedAt: nonNegativeNumber(raw.completedAt) ?? Date.now(),
+    checkpoint: parseStoredCheckpoint(raw.checkpoint),
+    checkpointHistory: checkpointHistory(raw.checkpointHistory),
   };
 }
 
@@ -242,4 +246,14 @@ function malformed(): GoalStorageError {
 function errorCode(error: unknown): string | undefined {
   return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
     ? error.code : undefined;
+}
+
+function checkpointHistory(value: unknown): GoalState['checkpointHistory'] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_CHECKPOINT_HISTORY) throw malformed();
+  return value.map(item => {
+    const checkpoint = parseStoredCheckpoint(item);
+    if (!checkpoint) throw malformed();
+    return checkpoint;
+  });
 }

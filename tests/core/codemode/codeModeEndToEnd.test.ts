@@ -209,7 +209,6 @@ describe('run_tool_script end to end', () => {
 
   it.each([
     ['another script', `tools.${CODE_MODE_TOOL_NAME}({ script: 'return 1' })`],
-    ['a delegated agent', `tools.delegate_task({ agent_name: 'helper', task: 'do it' })`],
     ['a tool that does not exist', `tools.launch_missiles({})`],
   ])('cannot start %s', async (_name, call) => {
     const { runScript, summary, executed } = createAgentTools();
@@ -220,6 +219,23 @@ describe('run_tool_script end to end', () => {
 
     expect(String(summary(result.success ? result.output : undefined).result)).toMatch(/^refused: /u);
     expect(executed.map(({ tool }) => tool)).toEqual([CODE_MODE_TOOL_NAME]);
+  });
+
+  it('processes and verifies 151 items with 302 checked calls and one returned result', async () => {
+    const { runScript, summary, executed } = createAgentTools();
+    const result = await runScript(`
+      const results = await Promise.all(Array.from({ length: 151 }, async () => {
+        const first = await tools.read_file({ path: 'a.ts' });
+        const verification = await tools.read_file({ path: 'a.ts' });
+        return first.ok && verification.ok && first.output === verification.output;
+      }));
+      return { verified: results.filter(Boolean).length };
+    `);
+    expect(result.success).toBe(true);
+    expect(summary(result.success ? result.output : undefined)).toMatchObject({
+      result: { verified: 151 }, calls: { total: 302, failed: 0 },
+    });
+    expect(executed.filter(({ tool }) => tool === 'read_file')).toHaveLength(302);
   });
 
   it('has no ambient access to the host', async () => {

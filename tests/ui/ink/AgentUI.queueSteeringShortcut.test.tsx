@@ -25,7 +25,7 @@ function renderQueue(accepted = true, options: {
       onInstruction={onInstruction} onEscape={onEscape} onCtrlC={onCtrlC}
       onSteerQueuedInstruction={onSteerQueuedInstruction} onInputChange={onInputChange}
       enableQueueInput={options.enableQueueInput ?? true}
-      extensionKeybindings={options.extension ? [{ extensionId: 'fixture', key: 'ctrl+enter', command: '/help', when: 'always' }] : []}
+      extensionKeybindings={options.extension ? ['ctrl+enter', 'ctrl+s'].map(key => ({ extensionId: 'fixture', key, command: '/help', when: 'always' as const })) : []}
     /></ThemeProvider></I18nProvider>,
   );
   const press = async (input: string) => {
@@ -35,8 +35,8 @@ function renderQueue(accepted = true, options: {
   return { ...instance, press, onInstruction, onSteerQueuedInstruction, onEscape, onCtrlC, onInputChange };
 }
 
-describe('Ctrl+Enter queued conversation steering', () => {
-  it.each(['\x1b[13;5u', '\x1b[27;5;13~'])('steers the next queued message from an empty composer with %j', async key => {
+describe('queued conversation steering shortcuts', () => {
+  it.each(['\x1b[13;5u', '\x1b[27;5;13~', '\x13'])('steers the next queued message from an empty composer with %j', async key => {
     const app = renderQueue();
     await vi.waitFor(() => expect(app.lastFrame()).toContain('Queue · 2 pending'));
     await app.press(key);
@@ -55,12 +55,12 @@ describe('Ctrl+Enter queued conversation steering', () => {
     expect(app.onInputChange).not.toHaveBeenCalledWith('Check the tests');
   });
 
-  it('preserves an unrelated composer draft when steering the next queued message', async () => {
-    const app = renderQueue();
+  it.each(['\x1b[13;5u', '\x13'])('preserves an unrelated composer draft with %j even when an extension claims the chord', async key => {
+    const app = renderQueue(true, { extension: true });
     await vi.waitFor(() => expect(app.lastFrame()).toContain('Queue · 2 pending'));
     await app.press('Keep this draft');
     await vi.waitFor(() => expect(app.onInputChange).toHaveBeenLastCalledWith('Keep this draft'));
-    await app.press('\x1b[13;5u');
+    await app.press(key);
     await vi.waitFor(() => expect(app.onSteerQueuedInstruction).toHaveBeenCalledWith(0, 41, 'Remember the worktrees', 'Remember the worktrees'));
     expect(app.onInputChange).toHaveBeenLastCalledWith('Keep this draft');
     expect(app.onInstruction).not.toHaveBeenCalled();
@@ -75,7 +75,7 @@ describe('Ctrl+Enter queued conversation steering', () => {
     expect(stripAnsi(app.lastFrame() ?? '')).toContain('Remember the worktrees');
   });
 
-  it.each(['\x1b[13;5u', '\x1b[27;5;13~'])('steers a selected edit with its original queue identity using %j', async key => {
+  it.each(['\x1b[13;5u', '\x1b[27;5;13~', '\x13'])('steers a selected edit with its original queue identity using %j', async key => {
     const app = renderQueue(true, { extension: true });
     await vi.waitFor(() => expect(app.lastFrame()).toContain('Queue · 2 pending'));
     await app.press('\x1b[B'); await app.press('\r');
@@ -87,6 +87,7 @@ describe('Ctrl+Enter queued conversation steering', () => {
   it.each(KEYBINDING_PROFILE_IDS)('documents the shortcut in the %s profile help panel', profile => {
     const help = resolveKeybindings(profile).helpRows().map(row => row.left + ' ' + row.right).join('\n');
     expect(help).toContain('ctrl + enter steers queued input');
+    expect(help).toContain('ctrl + s');
   });
 
   it('ignores Ctrl+Enter key release and repeat events', async () => {
@@ -123,6 +124,23 @@ describe('Ctrl+Enter queued conversation steering', () => {
     expect(app.onSteerQueuedInstruction).not.toHaveBeenCalled();
   });
 
+  it.each([{ isWorking: false }, { queuedInstructions: [] }, { enableQueueInput: false }])('does not submit a draft with Ctrl+S outside an active queue: %j', async options => {
+    const app = renderQueue(true, options);
+    await app.press('Keep this draft');
+    await app.press('\x13');
+    expect(app.onSteerQueuedInstruction).not.toHaveBeenCalled();
+    expect(app.onInstruction).not.toHaveBeenCalled();
+  });
+
+  it('ignores enhanced Ctrl+S release and repeat events', async () => {
+    const app = renderQueue();
+    await app.press('\x13');
+    await app.press('\x1b[115;5:3u');
+    await app.press('\x1b[115;5:2u');
+    await vi.waitFor(() => expect(app.onSteerQueuedInstruction).toHaveBeenCalledOnce());
+    expect(app.onInstruction).not.toHaveBeenCalled();
+  });
+
   it('does not interpret pasted escape text as a steering shortcut', async () => {
     const app = renderQueue();
     await vi.waitFor(() => expect(app.lastFrame()).toContain('Queue · 2 pending'));
@@ -132,6 +150,6 @@ describe('Ctrl+Enter queued conversation steering', () => {
 
   it('advertises the queue steering shortcut while messages are pending', async () => {
     const app = renderQueue();
-    await vi.waitFor(() => expect(stripAnsi(app.lastFrame() ?? '')).toContain('ctrl+enter steer next'));
+    await vi.waitFor(() => expect(stripAnsi(app.lastFrame() ?? '')).toContain('ctrl+s or ctrl+enter steer next'));
   });
 });

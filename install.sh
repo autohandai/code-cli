@@ -7,7 +7,7 @@ TRACES_BINARY_NAME="ahtraces"
 COMPAT_BINARY_NAME="autohand-code"
 AGENT_ALIAS_NAME="agent"
 SHORT_ALIAS_NAME="ah"
-FIRST_RUN_MESSAGE="hello world"
+FIRST_RUN_MESSAGE="What can you do in this folder? Give me 3 quick ideas."
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -710,7 +710,11 @@ get_latest_alpha_tag() {
     # Fetch recent releases and pick the newest prerelease by published timestamp.
     # GitHub API list order is not guaranteed chronological for prereleases.
     local _releases_json
-    _releases_json=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=100" 2>/dev/null) || return 1
+    set -- -fsSL --retry 2 --connect-timeout 10 --max-time 30
+    if [ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]; then
+        set -- "$@" -H "Authorization: Bearer ${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+    fi
+    _releases_json=$(curl "$@" "https://api.github.com/repos/${REPO}/releases?per_page=100") || return 1
 
     local _found_tag
     _found_tag=$(

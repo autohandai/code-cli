@@ -76,15 +76,24 @@ describe('managed process launch gate', () => {
     const probe = vi.fn(async () => 'unknown' as const);
     const uncertain = new ResourceCoordinator({ directory, principal: worker.principal, canControl: false, isPrincipalAlive: async () => true, probeProcess: probe });
     const onRecoveryRequired = vi.fn();
+    const finishLaunch = vi.spyOn(uncertain, 'finishLaunch');
     try {
       const running = withCommandCoordination({ coordinator: uncertain, onRecoveryRequired, waitTimeoutMs: 5000 }, () => runCommand(process.execPath, ['-e', 'process.exit(0)'], directory));
       await grantQueued();
       await running;
       await vi.waitFor(() => expect(onRecoveryRequired).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(finishLaunch).toHaveBeenCalledOnce());
+      const completion = finishLaunch.mock.results[0];
+      if (completion?.type !== 'return') throw new Error('Launch cleanup did not return its completion promise.');
+      await expect(completion.value).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+      const reservation = (await uncertain.coordinate({ operation: 'status', resource })).holder;
+      expect(reservation).toMatchObject({ state: 'running', principal: uncertain.principal });
       const attempts = probe.mock.calls.length;
       await new Promise(resolve => setTimeout(resolve, 250));
       expect(probe).toHaveBeenCalledTimes(attempts);
-    } finally { await uncertain.close(); }
+      expect((await uncertain.coordinate({ operation: 'status', resource })).holder).toEqual(reservation);
+      expect(onRecoveryRequired).toHaveBeenCalledOnce();
+    } finally { await uncertain.close(); finishLaunch.mockRestore(); }
   });
 
   it('parks a command before spawn, shows waiting activity and resumes after a controller grant', async () => {

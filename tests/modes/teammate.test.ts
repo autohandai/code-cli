@@ -471,7 +471,8 @@ describe("teammate executeTask", () => {
     expect(provider.getCapabilities()).toEqual({ nativeToolCalling: true });
     const request = provider.complete.mock.calls[0]?.[0];
     expect(request?.tools).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "read_file" }),
+      expect.objectContaining({ name: "run_tool_script" }),
+      expect.objectContaining({ name: "tool_search" }),
     ]));
     const prompt = request?.messages.find((message: { role: string }) => message.role === "system")?.content;
     expect(prompt).toContain("Use the native tool interface");
@@ -590,6 +591,11 @@ describe("teammate executeTask", () => {
     extensionsMock.mockClear();
     provider.complete.mockClear();
 
+    provider.complete.mockResolvedValueOnce({
+      content: '', toolCalls: [{ id: 'discover-extension', type: 'function', function: {
+        name: 'tool_search', arguments: JSON.stringify({ query: 'find_todos' }),
+      } }],
+    });
     await executeTask(
       {
         teamName: "test",
@@ -606,13 +612,19 @@ describe("teammate executeTask", () => {
         blockedBy: [],
         createdAt: "",
       },
+      { authorizeTool: async context => ({ allowed: true, args: context.args }) },
     );
 
     expect(syncDynamicRuntimeExtensions).toHaveBeenCalledOnce();
     const request = provider.complete.mock.calls[0]?.[0];
     expect(request?.tools).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "find_todos" }),
+      expect.objectContaining({ name: "run_tool_script" }),
+      expect.objectContaining({ name: "tool_search" }),
     ]));
+    const discovery = provider.complete.mock.calls[1]?.[0]?.messages.find(
+      (message: { role: string; name?: string }) => message.role === 'tool' && message.name === 'tool_search',
+    );
+    expect(String(discovery?.content)).toContain('find_todos');
   });
 });
 

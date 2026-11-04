@@ -401,46 +401,72 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
  * On unsupported terminals the CSI sequences are silently ignored, so this
  * is safe to enable unconditionally.
  */
-function patchStdoutForSyncOutput(): () => void {
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  let syncActive = false;
-  let pendingEnd = false;
+function patchStdoutForSyncOutput(framePrefix: (paint: string) => string, shouldBatchOutput: () => boolean): () => void {
+  const originalWrite = process.stdout.write;
+  const chunks: Buffer[] = [];
+  let pendingBytes = 0;
+  let callbacks: Array<(error?: Error | null) => void> = [];
+  let flushQueued = false;
+  let inkFrameActive = false;
 
-  const endSync = () => {
-    if (pendingEnd) {
-      pendingEnd = false;
-      syncActive = false;
-      originalWrite('\x1b[?2026l');
-    }
+  const flush = (): boolean => {
+    flushQueued = false;
+    if (chunks.length === 0 && callbacks.length === 0) return true;
+    const content = chunks.length === 0 ? Buffer.alloc(0)
+      : Buffer.concat([Buffer.from('\x1b[?2026h'), ...chunks, Buffer.from('\x1b[?2026l')]);
+    chunks.length = 0;
+    pendingBytes = 0;
+    const completed = callbacks;
+    callbacks = [];
+    return originalWrite.call(process.stdout, content, undefined, (error?: Error | null) => {
+      for (const callback of completed) callback(error);
+    });
   };
 
   const patchedWrite = function (
     chunk: string | Uint8Array,
-    encoding?: BufferEncoding,
-    cb?: (err?: Error) => void
+    encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
+    callback?: (error?: Error | null) => void
   ): boolean {
     const str = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
-    if (!str || str.length === 0) {
-      return originalWrite.call(process.stdout, chunk, encoding as any, cb as any);
+    if (!shouldBatchOutput() && !inkFrameActive && str !== '\x1b[?2026h' && str !== '\x1b[?2026l') {
+      flush();
+      return originalWrite.call(process.stdout, chunk,
+        typeof encodingOrCallback === 'string' ? encodingOrCallback : undefined,
+        typeof encodingOrCallback === 'function' ? encodingOrCallback : callback);
     }
-
-    if (!syncActive) {
-      syncActive = true;
-      originalWrite('\x1b[?2026h');
+    if (str === '\x1b[?2026h') inkFrameActive = true;
+    else if (str === '\x1b[?2026l') inkFrameActive = false;
+    else {
+      const prefix = inkFrameActive ? framePrefix(str) : '';
+      const content = typeof chunk === 'string'
+        ? Buffer.from(chunk, typeof encodingOrCallback === 'string' ? encodingOrCallback : 'utf8')
+        : Buffer.from(chunk);
+      if (prefix) {
+        const origin = Buffer.from(prefix);
+        chunks.push(origin);
+        pendingBytes += origin.length;
+      }
+      chunks.push(content);
+      pendingBytes += content.length;
     }
-    pendingEnd = true;
-
-    const result = originalWrite.call(process.stdout, chunk, encoding as any, cb as any);
-    queueMicrotask(endSync);
-    return result;
+    const complete = typeof encodingOrCallback === 'function' ? encodingOrCallback : callback;
+    if (complete) callbacks.push(complete);
+    if (pendingBytes >= process.stdout.writableHighWaterMark) return flush();
+    if (!flushQueued) {
+      flushQueued = true;
+      queueMicrotask(flush);
+    }
+    return !process.stdout.writableNeedDrain;
   };
 
-  process.stdout.write = patchedWrite as any;
+  process.stdout.write = patchedWrite as typeof process.stdout.write;
 
   return () => {
-    process.stdout.write = originalWrite;
-    if (syncActive) {
-      originalWrite('\x1b[?2026l');
+    try {
+      flush();
+    } finally {
+      process.stdout.write = originalWrite;
     }
   };
 }
@@ -473,16 +499,10 @@ export class InkRenderer {
 
   private static readonly DUPLICATE_INSTRUCTION_SUPPRESSION_MS = 1000;
 
-  /** Resize handler reference for cleanup */
-  private resizeHandler: (() => void) | null = null;
-
-  /** Debounce timer for drag-resize events */
-  private resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Terminal size last painted by the full-screen frame; a resize that keeps it leaves the screen alone. */
+  private paintedViewport: { columns: number | undefined; rows: number | undefined } | null = null;
 
   private tipTimer: ReturnType<typeof setInterval> | null = null;
-
-  /** Debounce time for resize events (ms) - longer to batch drag-resize */
-  private static readonly RESIZE_DEBOUNCE_MS = 150;
 
   /** Cleanup function for stdout sync-output patch */
   private unpatchedStdout: (() => void) | null = null;
@@ -510,19 +530,18 @@ export class InkRenderer {
     this.state = { ...this.state, currentInput: input, peerInputMetadata: metadata, peerDraft: undefined };
   };
 
-/**
-   * Handle resize events with debouncing to prevent flickering during drag-resize.
-   * Ink handles re-renders naturally - we just need to debounce rapid events.
+  /**
+   * A resize may reflow the previous frame. Reset its origin in the same write
+   * as Ink's next paint, since its resize listener can defer the actual output.
+   * Clearing from a resize listener would publish an empty intermediate frame.
    */
-  private onResize = () => {
-    // Debounce rapid events during drag-resize to prevent multiple re-renders
-    if (this.resizeDebounceTimer) {
-      clearTimeout(this.resizeDebounceTimer);
-    }
-    this.resizeDebounceTimer = setTimeout(() => {
-      this.resizeDebounceTimer = null;
-      // Let Ink handle the re-render naturally - no screen clear needed
-    }, InkRenderer.RESIZE_DEBOUNCE_MS);
+  private resizeFramePrefix = (paint: string): string => {
+    if (!this.fullScreenTranscript) return '';
+    const viewport = { columns: process.stdout.columns, rows: process.stdout.rows };
+    if (this.paintedViewport?.columns === viewport.columns && this.paintedViewport.rows === viewport.rows) return '';
+    if (!stripAnsiCodes(paint).trim()) return '';
+    this.paintedViewport = viewport;
+    return '\x1b[2J\x1b[H';
   };
 
   /**
@@ -535,13 +554,14 @@ export class InkRenderer {
 
     if (shouldUseFullScreen(this.options.fullScreenMode, process.stdin.isTTY, process.stdout.isTTY, process.env.TERM)) {
       this.fullScreenTranscript = new FullScreenTranscript();
+      this.paintedViewport = { columns: process.stdout.columns, rows: process.stdout.rows };
       this.releaseScreen = acquireAlternateScreen(process.stdout);
     }
 
     try {
       // Enable synchronized output wrapping to eliminate flicker from partial
       // frame updates. Must happen before Ink starts writing to stdout.
-      this.unpatchedStdout = patchStdoutForSyncOutput();
+      this.unpatchedStdout = patchStdoutForSyncOutput(this.resizeFramePrefix, () => this.instance !== null);
 
       // Shift+Enter, Alt+Enter and Esc are only distinguishable when the
       // terminal encodes modified keys. Ink parses the kitty CSI u form; iTerm2,
@@ -549,13 +569,6 @@ export class InkRenderer {
       if (process.stdout.isTTY) {
         enableKittyProtocol(process.stdout, KITTY_DISAMBIGUATE_FLAG);
         this.keyboardProtocolEnabled = true;
-      }
-
-      // Install our resize guard BEFORE Ink registers its own handler.
-      // Node.js event listeners fire in registration order.
-      this.resizeHandler = this.onResize;
-      if (typeof process.stdout.on === 'function') {
-        process.stdout.on('resize', this.resizeHandler);
       }
 
       this.syncTips();
@@ -664,19 +677,6 @@ export class InkRenderer {
         }
       }
     } finally {
-      if (
-        this.resizeHandler &&
-        typeof process.stdout.off === 'function'
-      ) {
-        process.stdout.off('resize', this.resizeHandler);
-        this.resizeHandler = null;
-      }
-
-      if (this.resizeDebounceTimer) {
-        clearTimeout(this.resizeDebounceTimer);
-        this.resizeDebounceTimer = null;
-      }
-
       this.stopTips();
       if (this.liveOutputFlushTimer) {
         clearTimeout(this.liveOutputFlushTimer);
@@ -696,6 +696,7 @@ export class InkRenderer {
       this.releaseScreen?.();
       this.releaseScreen = undefined;
       this.fullScreenTranscript = undefined;
+      this.paintedViewport = null;
     }
   }
 

@@ -18,7 +18,15 @@ import type {
   SkillSource,
   SkillSimilarityMatch,
   SkillCopyResult,
+  AdaptiveSkillSettings,
 } from './types.js';
+import { SkillRuntime, formatSkillReference, parseSkillReference, type SkillCatalogEntry, type SkillReference } from './SkillRuntime.js';
+import { SkillRevisionStore } from './SkillRevisionStore.js';
+import { SkillResourceMaterializer } from './SkillResourceMaterializer.js';
+import { SkillSnapshotCatalog } from './SkillSnapshotCatalog.js';
+import { ensureSkillWorkspaceIdentity, readSkillWorkspaceIdentity } from './workspaceIdentity.js';
+import { AdaptiveSkillSession, type AdaptiveSkillSessionOptions } from './AdaptiveSkillSession.js';
+import type { LearnedSkillCandidate } from './SkillLearningStore.js';
 import type { ExtensionSkillContribution } from '../extensions/types.js';
 import {
   AUTOHAND_PATHS,
@@ -44,12 +52,16 @@ const SIMILARITY_THRESHOLD = 0.3;
 const BUILTIN_SKILLS_DIR = 'builtin';
 
 export interface SkillSearchLocation {
+  /** Stable host-assigned authority for a custom library; independent of its current path. */
+  authority?: string;
   basePath: string;
   source: SkillSource;
   recursive: boolean;
 }
 
 export interface SkillsRegistryOptions {
+  adaptiveEnabled?: () => boolean;
+  getAdaptiveSettings?: () => AdaptiveSkillSettings | undefined;
   /** Bind account skills to this CLI profile; another process cannot select its account. */
   accountConfigPath?: string;
   /**
@@ -111,6 +123,17 @@ export interface SkillImportResult {
 
 export class SkillsRegistry {
   private skills = new Map<string, SkillDefinition>();
+  private readonly catalogDefinitions = new Map<string, { skill: SkillDefinition; root: string }>();
+  private readonly catalogEntries = new WeakMap<SkillDefinition, SkillCatalogEntry>();
+  private readonly activationOrigins = new WeakMap<SkillDefinition, CapabilityUsageOrigin>();
+  private readonly activationReferences = new WeakMap<SkillDefinition, SkillReference>();
+  private workspaceIdentity: string | null = null;
+  private canonicalRuntime?: SkillRuntime;
+  private adaptiveSession?: AdaptiveSkillSession;
+  private adaptiveRerank?: AdaptiveSkillSessionOptions['rerank'];
+  private readonly snapshotCatalog: SkillSnapshotCatalog;
+  private learnedSkills = new Map<string, { skill: SkillDefinition; candidate: LearnedSkillCandidate }>();
+  private learnedMetadata = new WeakMap<SkillDefinition, LearnedSkillCandidate>();
   /**
    * Open span per active skill, keyed by name. An activated skill is added to
    * the session prompt and stays there, so its body is re-sent on every later
@@ -135,6 +158,7 @@ export class SkillsRegistry {
     private readonly options: SkillsRegistryOptions = {}
   ) {
     this.defaultSource = defaultSource;
+    this.snapshotCatalog = new SkillSnapshotCatalog(userSkillsDir, { managed: process.env.AUTOHAND_SKILL_SNAPSHOT_MANAGED === '1' });
   }
 
   /**
@@ -232,7 +256,7 @@ export class SkillsRegistry {
       // Parse and register the skill
       const result = await this.parser.parseFile(skillPath, 'community');
       if (result.success && result.skill) {
-        this.skills.set(result.skill.name, result.skill);
+        this.registerSkill(result.skill);
         return { success: true, path: skillPath };
       }
 
@@ -308,7 +332,7 @@ export class SkillsRegistry {
       // Parse and register the skill from SKILL.md
       const result = await this.parser.parseFile(skillPath, 'community');
       if (result.success && result.skill) {
-        this.skills.set(result.skill.name, result.skill);
+        this.registerSkill(result.skill);
         return { success: true, path: skillDir };
       }
 
@@ -346,11 +370,162 @@ export class SkillsRegistry {
     return this.userSkillsDir;
   }
 
+  private registerSkill(skill: SkillDefinition, root = path.dirname(path.dirname(skill.path))): void {
+    this.skills.set(skill.name, skill);
+    this.catalogDefinitions.set(skill.path, { skill, root });
+  }
+
+  async ensureAdaptiveWorkspace(): Promise<void> {
+    if (!this.workspaceRoot || this.workspaceIdentity) return;
+    const previous = new Map(this.getCatalogSkills().map(skill => [skill, formatSkillReference(this.getSkillReference(skill))]));
+    this.workspaceIdentity = await ensureSkillWorkspaceIdentity(this.workspaceRoot);
+    for (const [skill, oldKey] of previous) {
+      const span = this.activeSpans.get(oldKey);
+      if (span) { this.activeSpans.delete(oldKey); this.activeSpans.set(formatSkillReference(this.getSkillReference(skill)), span); }
+    }
+  }
+
+  async refreshAdaptiveCatalog(): Promise<void> {
+    await this.snapshotCatalog.refresh();
+    if (this.snapshotCatalog.managed) await this.loadFromDirectory(this.userSkillsDir, this.defaultSource, true);
+  }
+
+  getSkillReference(skill: SkillDefinition): SkillReference {
+    const snapshotReference = this.snapshotCatalog.referenceFor(skill.path);
+    if (snapshotReference) return snapshotReference;
+    if (skill.reference) return skill.reference;
+    const record = this.catalogDefinitions.get(skill.path);
+    const root = record?.root ?? path.dirname(path.dirname(skill.path));
+    const customAuthority = this.options.userSkillLocations?.find(location => sameResolvedPath(location.basePath, root))?.authority;
+    const relativeRoot = this.workspaceRoot && skill.source.endsWith('-project') ? path.relative(this.workspaceRoot, root).split(path.sep).join('/') : undefined;
+    const projectEcosystem = relativeRoot && relativeRoot !== '..' && !relativeRoot.startsWith('../') && !path.isAbsolute(relativeRoot)
+      ? relativeRoot === 'skills' ? 'workspace' : relativeRoot.replace(/\/skills$/u, '').replace(/^\./u, '') : undefined;
+    const ecosystem = projectEcosystem ?? (skill.source.startsWith('autohand') ? 'autohand'
+      : skill.source.startsWith('codex') ? 'codex' : skill.source.startsWith('claude') ? 'claude'
+      : path.basename(path.dirname(root)) === '.agent' ? 'agent' : 'agents');
+    const packageId = path.relative(root, path.dirname(skill.path)).split(path.sep).join('/') || skill.name;
+    if (customAuthority) return { authority: customAuthority, packageId };
+    if (skill.source === 'builtin') return { authority: 'autohand:builtin', packageId };
+    if (skill.source === 'community') return { authority: 'registry:agentskill', packageId: skill.metadata?.['agentskill-slug'] ?? packageId };
+    if (skill.path.includes(`${path.sep}.account-skills${path.sep}`)) {
+      return { authority: `account:${path.basename(path.dirname(path.dirname(skill.path)))}`, packageId: path.basename(path.dirname(skill.path)) };
+    }
+    if (skill.source === 'extension') return { authority: `extension:${skill.metadata?.['extension-id'] ?? path.basename(root)}`, packageId };
+    return { authority: skill.source.endsWith('-project') ? `local:workspace:${this.workspaceIdentity ?? 'unresolved'}:${ecosystem}` : `local:personal:${ecosystem}`, packageId };
+  }
+
+  async setLearnedCandidates(candidates: readonly LearnedSkillCandidate[]): Promise<void> {
+    const next = new Map<string, { skill: SkillDefinition; candidate: LearnedSkillCandidate }>();
+    for (const candidate of candidates) {
+      if (!['draft', 'verified', 'preferred'].includes(candidate.status)) continue;
+      if (candidate.scope !== 'user' && candidate.scope !== `project:${this.workspaceIdentity}`) continue;
+      const filename = path.join(candidate.packagePath, 'SKILL.md');
+      const prior = this.learnedSkills.get(filename);
+      const parsed = prior && formatSkillReference(prior.candidate.reference) === formatSkillReference(candidate.reference)
+        ? { success: true, skill: prior.skill }
+        : await this.parser.parseFile(filename, candidate.scope === 'user' ? 'autohand-user' : 'autohand-project');
+      if (!parsed.success || !parsed.skill) continue;
+      parsed.skill.reference = { ...candidate.reference };
+      this.learnedMetadata.set(parsed.skill, candidate);
+      next.set(filename, { skill: parsed.skill, candidate });
+    }
+    for (const [filename, { skill }] of this.learnedSkills) {
+      if (!next.has(filename)) { this.closeSpan(formatSkillReference(this.getSkillReference(skill)), 'deactivated'); skill.isActive = false; }
+    }
+    this.learnedSkills = next;
+  }
+
+  getCatalogSkills(): SkillDefinition[] {
+    const preferred = this.listSkills();
+    const seen = new Set(preferred.map(skill => skill.path));
+    const base = [...preferred, ...[...this.catalogDefinitions.values()].map(record => record.skill)
+      .filter(skill => !seen.has(skill.path))].filter(skill => this.isSnapshotAuthorized(skill));
+    const excluded = this.options.getAdaptiveSettings?.()?.excluded ?? [];
+    const authorized = (skill: SkillDefinition): boolean => !excluded.includes(skill.name)
+      && !excluded.includes(formatSkillReference(this.getSkillReference(skill)))
+      && !excluded.includes(formatSkillReference({ ...this.getSkillReference(skill), revision: undefined, resource: undefined }));
+    const learned = [...this.learnedSkills.values()];
+    const allowed = (record: (typeof learned)[number], visited = new Set<string>()): boolean => {
+      const { candidate, skill } = record;
+      if (visited.has(candidate.id) || !authorized(skill)
+        || (candidate.scope !== 'user' && candidate.scope !== `project:${this.workspaceIdentity}`)) return false;
+      if (!candidate.parent) return true;
+      const sameIdentity = (entry: SkillDefinition): boolean => {
+        const ref = this.getSkillReference(entry);
+        return ref.authority === candidate.parent!.authority && ref.packageId === candidate.parent!.packageId;
+      };
+      if (base.some(entry => sameIdentity(entry) && authorized(entry))) return true;
+      const parent = learned.find(entry => sameIdentity(entry.skill));
+      return !!parent && allowed(parent, new Set([...visited, candidate.id]));
+    };
+    return [...base, ...learned.filter(record => allowed(record) && this.isSnapshotAuthorized(record.skill)).map(record => record.skill)];
+  }
+
+  private isSnapshotAuthorized(skill: SkillDefinition): boolean {
+    if (!this.snapshotCatalog.managed || skill.source === 'builtin') return true;
+    const scope = this.snapshotCatalog.scopeFor(skill.path);
+    return !!scope && (!scope.startsWith('project:') || scope === `project:${this.workspaceIdentity ?? 'unresolved'}`);
+  }
+
+  getSkillRuntime(): SkillRuntime {
+    this.canonicalRuntime ??= new SkillRuntime({
+      catalog: () => this.getCatalogSkills().map(skill => {
+        let entry = this.catalogEntries.get(skill);
+        if (!entry) {
+          entry = { name: skill.name, description: skill.description, source: skill.source, reference: this.getSkillReference(skill),
+            scope: 'personal', root: path.dirname(skill.path), enabled: true };
+          this.catalogEntries.set(skill, entry);
+        }
+        entry.reference = this.getSkillReference(skill);
+        entry.scope = skill.source === 'builtin' ? 'builtin' : skill.source.endsWith('-project') ? `project:${this.workspaceIdentity ?? 'unresolved'}` : 'personal';
+        entry.scope = this.snapshotCatalog.scopeFor(skill.path) ?? entry.scope;
+        const learned = this.learnedMetadata.get(skill);
+        if (learned) {
+          entry.scope = learned.scope === 'user' ? 'personal' : learned.scope;
+          entry.quality = learned.status as 'draft' | 'verified' | 'preferred';
+          entry.automatic = learned.status !== 'draft';
+          entry.preference = learned.status === 'preferred' && learned.benefit ? 0.05 : 0;
+        }
+        entry.name = skill.name; entry.description = skill.description;
+        const exclusions = this.options.getAdaptiveSettings?.()?.excluded ?? [];
+        entry.enabled = !exclusions.includes(skill.name) && !exclusions.includes(formatSkillReference(entry.reference));
+        return entry;
+      }),
+      authorizedScopes: () => this.snapshotCatalog.managed
+        ? new Set(['builtin', ...this.snapshotCatalog.authorizedScopes(this.workspaceIdentity ?? 'unresolved')])
+        : new Set(['builtin', 'personal', `project:${this.workspaceIdentity ?? 'unresolved'}`]),
+      revisionStore: new SkillRevisionStore(path.join(this.userSkillsDir, '.revisions')),
+      resourceMaterializer: new SkillResourceMaterializer(path.join(path.dirname(this.userSkillsDir), '.skill-resources')),
+    });
+    return this.canonicalRuntime;
+  }
+
+  getActivationOrigin(skill: SkillDefinition): CapabilityUsageOrigin | undefined { return this.activationOrigins.get(skill); }
+  getActivationReference(skill: SkillDefinition): SkillReference { return this.activationReferences.get(skill) ?? this.getSkillReference(skill); }
+
+  getAdaptiveSession(): AdaptiveSkillSession {
+    this.adaptiveSession ??= new AdaptiveSkillSession({ registry: this,
+      rerank: request => this.adaptiveRerank?.(request) ?? Promise.resolve(null) });
+    return this.adaptiveSession;
+  }
+
+  setAdaptiveRerank(rerank: AdaptiveSkillSessionOptions['rerank']): void { this.adaptiveRerank = rerank; }
+
   /** Replace the ephemeral skills contributed by the current extension snapshot. */
   setExtensionSkills(contributions: ExtensionSkillContribution[]): void {
-    const activeNames = new Set(
-      [...this.extensionSkillNames].filter((name) => this.skills.get(name)?.isActive === true),
-    );
+    const previous = new Map([...this.catalogDefinitions.values()]
+      .filter(record => record.skill.source === 'extension')
+      .map(({ skill }) => [formatSkillReference(this.getSkillReference(skill)), {
+        active: skill.isActive,
+        origin: this.activationOrigins.get(skill),
+        reference: this.activationReferences.get(skill),
+      }]));
+    for (const [filename, { skill }] of this.catalogDefinitions) {
+      if (skill.source === 'extension') {
+        skill.isActive = false;
+        this.catalogDefinitions.delete(filename);
+      }
+    }
     for (const name of this.extensionSkillNames) {
       if (this.skills.get(name)?.source === 'extension') {
         this.skills.delete(name);
@@ -360,14 +535,26 @@ export class SkillsRegistry {
 
     for (const contribution of contributions) {
       const name = contribution.definition.name;
-      if (this.skills.has(name)) {
-        continue;
-      }
-      this.skills.set(name, {
+      const root = contribution.provenance.packageRoot;
+      const reference: SkillReference = {
+        authority: `extension:${contribution.provenance.extensionId}`,
+        packageId: path.relative(root, path.dirname(contribution.provenance.file)).split(path.sep).join('/') || name,
+      };
+      const retained = previous.get(formatSkillReference(reference));
+      const skill: SkillDefinition = {
         ...contribution.definition,
-        isActive: activeNames.has(name),
-      });
-      this.extensionSkillNames.add(name);
+        source: 'extension',
+        path: contribution.provenance.file,
+        reference,
+        isActive: retained?.active ?? false,
+      };
+      this.catalogDefinitions.set(skill.path, { skill, root });
+      if (retained?.origin) this.activationOrigins.set(skill, retained.origin);
+      if (retained?.reference) this.activationReferences.set(skill, retained.reference);
+      if (!this.skills.has(name)) {
+        this.skills.set(name, skill);
+        this.extensionSkillNames.add(name);
+      }
     }
   }
 
@@ -398,6 +585,7 @@ export class SkillsRegistry {
    * Initialize the registry by loading skills from the user directory
    */
   async initialize(): Promise<void> {
+    await this.snapshotCatalog.refresh();
     await this.loadBuiltins();
 
     for (const location of this.getUserSkillLocations()) {
@@ -433,6 +621,7 @@ export class SkillsRegistry {
   }
 
   private getUserSkillLocations(): SkillSearchLocation[] {
+    if (this.snapshotCatalog.managed) return [{ basePath: this.userSkillsDir, source: this.defaultSource, recursive: true }];
     if (this.options.userSkillLocations) {
       return this.options.userSkillLocations;
     }
@@ -454,8 +643,24 @@ export class SkillsRegistry {
   /**
    * Set the workspace root and load project-level skills
    */
-  async setWorkspace(workspaceRoot: string): Promise<void> {
+  async setWorkspace(workspaceRoot: string, options: { createIdentity?: boolean } = {}): Promise<void> {
+    if (this.workspaceRoot !== workspaceRoot) {
+      for (const [filename, record] of this.catalogDefinitions) {
+        if (record.skill.source.endsWith('-project')) {
+          this.closeSpan(formatSkillReference(this.getSkillReference(record.skill)), 'deactivated');
+          this.catalogDefinitions.delete(filename);
+        }
+      }
+      this.skills.clear();
+      for (const { skill } of this.catalogDefinitions.values()) this.skills.set(skill.name, skill);
+      this.adaptiveSession?.reset();
+    }
     this.workspaceRoot = workspaceRoot;
+    this.workspaceIdentity = null;
+    if (this.options.adaptiveEnabled?.()) {
+      if (options.createIdentity === false) this.workspaceIdentity = await readSkillWorkspaceIdentity(workspaceRoot);
+      else await this.ensureAdaptiveWorkspace();
+    }
 
     for (const location of getProjectSkillLocations(workspaceRoot)) {
       await this.loadFromDirectory(location.basePath, location.source, location.recursive);
@@ -529,7 +734,7 @@ export class SkillsRegistry {
       }
 
       // Register the skill (later source overrides earlier)
-      this.skills.set(skill.name, skill);
+      this.registerSkill(skill, sourceDirectory);
     }
 
     return result;
@@ -641,10 +846,17 @@ export class SkillsRegistry {
     const skillFiles = await this.findSkillFiles(directory, recursive);
 
     for (const skillPath of skillFiles) {
+      const snapshot = this.snapshotCatalog.referenceFor(skillPath);
+      if (this.snapshotCatalog.managed && source !== 'builtin') {
+        if (!snapshot) continue;
+        const previous = this.catalogDefinitions.get(skillPath)?.skill;
+        if (previous?.reference && formatSkillReference(previous.reference) === formatSkillReference(snapshot)) continue;
+      }
       const result = await this.parser.parseFile(skillPath, source);
       if (result.success && result.skill) {
+        if (snapshot) result.skill.reference = snapshot;
         // Later sources override earlier ones with the same name
-        this.skills.set(result.skill.name, result.skill);
+        this.registerSkill(result.skill, directory);
       }
     }
   }
@@ -687,14 +899,26 @@ export class SkillsRegistry {
    */
   listSkills(): SkillDefinition[] {
     const account = readAccountSkills(path.dirname(this.userSkillsDir), this.options.accountConfigPath);
-    return [...Array.from(this.skills.values()).filter(skill => !account.names.has(skill.name)), ...account.enabled];
+    return [...Array.from(this.skills.values()).filter(skill => !account.names.has(skill.name)), ...account.enabled]
+      .filter(skill => this.isSnapshotAuthorized(skill));
   }
 
   /**
    * Get a specific skill by name
    */
   getSkill(name: string): SkillDefinition | null {
-    return this.listSkills().find(skill => skill.name === name) ?? null;
+    if (parseSkillReference(name)) {
+      const entry = this.getSkillRuntime().resolve(name);
+      return entry ? this.getCatalogSkills().find(skill => path.dirname(skill.path) === entry.root
+        && formatSkillReference(this.getSkillReference(skill)) === formatSkillReference(entry.reference)) ?? null : null;
+    }
+    const preferred = this.listSkills().find(skill => skill.name === name);
+    const account = readAccountSkills(path.dirname(this.userSkillsDir), this.options.accountConfigPath);
+    const skill = preferred ?? (!account.names.has(name)
+      ? this.getCatalogSkills().find(candidate => candidate.name === name && this.learnedMetadata.has(candidate))
+      : null) ?? null;
+    if (skill && this.options.adaptiveEnabled?.() && !this.getSkillRuntime().resolve(this.getSkillReference(skill))) return null;
+    return skill;
   }
 
   /**
@@ -713,18 +937,22 @@ export class SkillsRegistry {
     if (!skill) {
       return false;
     }
+    if (origin === 'agent' && this.learnedMetadata.get(skill)?.status === 'draft') return false;
 
     // Re-activating an already-active skill reports nothing: a second
     // activate would open a span nothing ever closes, and an unclosed span
     // can be neither priced nor judged.
-    if (this.activeSpans.has(name)) {
+    const spanKey = formatSkillReference(this.getSkillReference(skill));
+    this.activationOrigins.set(skill, origin);
+    this.activationReferences.set(skill, parseSkillReference(name) ?? this.getSkillReference(skill));
+    if (this.activeSpans.has(spanKey)) {
       skill.isActive = true;
       return true;
     }
 
     skill.isActive = true;
     const spanId = randomUUID();
-    this.activeSpans.set(name, spanId);
+    this.activeSpans.set(spanKey, spanId);
     const file = describeSkillFile(skill.path);
     this.trackSkillEvent({
       skillName: name,
@@ -751,7 +979,7 @@ export class SkillsRegistry {
         name,
         source: skill.source,
         origin,
-        outcome: 'succeeded',
+        outcome: 'activated',
       }))
         .catch(() => {})
         .finally(() => {
@@ -786,7 +1014,7 @@ export class SkillsRegistry {
    * rode along for the whole run, one deactivated mid-session did not.
    */
   deactivateAll(reason: 'deactivated' | 'session_end' | 'compacted_out' = 'deactivated'): void {
-    for (const skill of this.listSkills()) {
+    for (const skill of this.getCatalogSkills()) {
       skill.isActive = false;
     }
     for (const name of [...this.activeSpans.keys()]) {
@@ -827,13 +1055,15 @@ export class SkillsRegistry {
    * matching activate.
    */
   private closeSpan(name: string, reason: 'deactivated' | 'session_end' | 'compacted_out'): void {
-    const spanId = this.activeSpans.get(name);
+    const skill = this.getSkill(name);
+    const key = skill ? formatSkillReference(this.getSkillReference(skill)) : name;
+    const spanId = this.activeSpans.get(key);
     if (!spanId) {
       return;
     }
-    this.activeSpans.delete(name);
+    this.activeSpans.delete(key);
     this.trackSkillEvent({
-      skillName: name,
+      skillName: skill?.name ?? name,
       source: this.getSkill(name)?.source ?? 'unknown',
       activationType: 'explicit',
       action: 'release',
@@ -846,7 +1076,7 @@ export class SkillsRegistry {
    * Get all currently active skills
    */
   getActiveSkills(): SkillDefinition[] {
-    return this.listSkills().filter(s => s.isActive);
+    return this.getCatalogSkills().filter(s => s.isActive);
   }
 
   /**
@@ -926,7 +1156,7 @@ export class SkillsRegistry {
       // Parse and add to registry
       const result = await this.parser.parseFile(skillPath, 'autohand-user');
       if (result.success && result.skill) {
-        this.skills.set(result.skill.name, result.skill);
+        this.registerSkill(result.skill);
         return true;
       }
       return false;

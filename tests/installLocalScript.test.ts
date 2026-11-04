@@ -70,7 +70,7 @@ describe('local install scripts', () => {
     };
     const devScript = packageJson.scripts?.dev ?? '';
 
-    expect(devScript).toBe('env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_VERSION_SOURCE=git AUTOHAND_DEBUG="$AUTOHAND_DEBUG" ${AUTOHAND_HOME:+AUTOHAND_HOME="$AUTOHAND_HOME"} ${AUTOHAND_CONFIG:+AUTOHAND_CONFIG="$AUTOHAND_CONFIG"} ${AUTOHAND_API_URL:+AUTOHAND_API_URL="$AUTOHAND_API_URL"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL="$AUTOHAND_AUTH_URL"} ${AUTOHAND_DISABLE_STATEFUL_READ:+AUTOHAND_DISABLE_STATEFUL_READ="$AUTOHAND_DISABLE_STATEFUL_READ"} bun src/index.ts');
+    expect(devScript).toBe('env -i PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$HOME" AUTOHAND_VERSION_SOURCE=git AUTOHAND_DEBUG="$AUTOHAND_DEBUG" ${AUTOHAND_HOME:+AUTOHAND_HOME="$AUTOHAND_HOME"} ${AUTOHAND_CONFIG:+AUTOHAND_CONFIG="$AUTOHAND_CONFIG"} ${AUTOHAND_API_URL:+AUTOHAND_API_URL="$AUTOHAND_API_URL"} ${AUTOHAND_AUTH_URL:+AUTOHAND_AUTH_URL="$AUTOHAND_AUTH_URL"} ${AUTOHAND_DISABLE_STATEFUL_READ:+AUTOHAND_DISABLE_STATEFUL_READ="$AUTOHAND_DISABLE_STATEFUL_READ"} ${AUTOHAND_TYPE_AHEAD_MODEL:+AUTOHAND_TYPE_AHEAD_MODEL="$AUTOHAND_TYPE_AHEAD_MODEL"} bun src/index.ts');
   });
 
   it('preserves AUTOHAND_DEBUG through the sanitized dev environment', () => {
@@ -81,6 +81,20 @@ describe('local install scripts', () => {
 
     expect(devScript).toContain('env -i ');
     expect(devScript).toContain('AUTOHAND_DEBUG="$AUTOHAND_DEBUG"');
+  });
+
+  unixInstallScriptTest('forwards only an explicitly selected typeahead model through the sanitized dev environment', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> };
+    const command = packageJson.scripts.dev.replace(/bun src\/index\.ts$/, '/usr/bin/env');
+    for (const model of [undefined, 'weka', 'vendor/model with spaces']) {
+      const probe = spawnSync('/bin/sh', ['-c', command], {
+        encoding: 'utf8', env: { HOME: process.env.HOME || '/tmp', PATH: process.env.PATH || '/usr/bin:/bin',
+          ...(model === undefined ? {} : { AUTOHAND_TYPE_AHEAD_MODEL: model }) },
+      });
+      expect(probe.status, probe.stderr).toBe(0);
+      if (model === undefined) expect(probe.stdout).not.toContain('AUTOHAND_TYPE_AHEAD_MODEL=');
+      else expect(probe.stdout).toContain(`AUTOHAND_TYPE_AHEAD_MODEL=${model}\n`);
+    }
   });
 
   it('preserves the stateful-read emergency switch through the sanitized dev environment', () => {

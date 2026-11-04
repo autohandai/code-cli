@@ -577,14 +577,14 @@ if [ "\${1:-}" = "computer" ] && [ "\${2:-}" = "install" ]; then exit 0; fi
     expect(result.stdout).toContain('Autohand CLI installed successfully');
   });
 
-  unixIt('starts the installed binary with "hello world" as its first message when asked to', () => {
+  unixIt('starts the installed binary with a useful first question when asked to', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'autohand-installer-first-run-'));
     tempRoots.push(tempRoot);
     const { env } = seedFirstRunFixture(tempRoot);
 
     const output = runInstaller({ ...env, AUTOHAND_INSTALL_FIRST_RUN: 'yes' });
 
-    expect(readFileSync(env.AUTOHAND_TEST_LAUNCH_LOG, 'utf8')).toBe('args=\nstdin=hello world\n');
+    expect(readFileSync(env.AUTOHAND_TEST_LAUNCH_LOG, 'utf8')).toBe('args=\nstdin=What can you do in this folder? Give me 3 quick ideas.\n');
     expect(output).toContain('Starting Autohand with your first message');
   });
 

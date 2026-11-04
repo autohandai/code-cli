@@ -16,6 +16,12 @@ const { chmod, ensureDir, pathExists, readFile, readJson, remove, writeFile, wri
 
 export const CHROME_NATIVE_HOST_NAME = 'ai.autohand.rpc';
 export const DEFAULT_CHROME_INSTALL_URL = 'https://autohand.ai/chrome/installed';
+/**
+ * Item id of the published Chrome Web Store listing. Chrome only lets extensions named in the
+ * native host's `allowed_origins` connect, so pairing defaults to the store build whenever no
+ * explicit or configured id names an unpacked one.
+ */
+export const CHROME_WEB_STORE_EXTENSION_ID = 'lljmbfgiogeolajngfkodakhlglkipbj';
 export const DEFAULT_HANDOFF_TTL_MS = 10 * 60 * 1000;
 
 export type ChromiumBrowser = 'chrome' | 'chromium' | 'brave' | 'edge';
@@ -672,7 +678,7 @@ export async function ensureNativeHostInstalled(options?: {
   const browserHomeDir = options?.browserHomeDir ?? os.homedir();
   const manifestHomeDir = process.platform === 'win32' ? homeDir : browserHomeDir;
   const chromeManifests = getManifestTargets('chrome', process.platform, manifestHomeDir);
-  const expectedExtensionIds = [options?.extensionId].filter((id): id is string => Boolean(id));
+  const expectedExtensionIds = [options?.extensionId ?? CHROME_WEB_STORE_EXTENSION_ID];
   const expectedAllowedOrigins = expectedExtensionIds.map((extensionId) => `chrome-extension://${extensionId}/`);
   const hostScriptPath = path.join(getBrowserDataRoot(homeDir), 'host.js');
   const expectedLaunch = resolveCliLaunchSpec();

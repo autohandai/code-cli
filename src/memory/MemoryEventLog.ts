@@ -136,8 +136,13 @@ function parseMemoryEvent(value: unknown, lineNumber: number): MemoryEvent {
     if (capabilityEvent.origin !== 'user' && capabilityEvent.origin !== 'agent') {
       throw new MemoryEventLogCorruptionError('capability origin is invalid', lineNumber);
     }
-    if (capabilityEvent.outcome !== 'succeeded' && capabilityEvent.outcome !== 'failed') {
+    if ((capabilityEvent.outcome !== 'succeeded' && capabilityEvent.outcome !== 'failed'
+      && capabilityEvent.outcome !== 'activated')
+      || (capabilityEvent.outcome === 'activated' && capability.kind !== 'skill')) {
       throw new MemoryEventLogCorruptionError('capability outcome is invalid', lineNumber);
+    }
+    if (capability.kind === 'skill' && capabilityEvent.outcome !== 'failed') {
+      return { ...value as Extract<MemoryEvent, { operation: 'capability_used' }>, outcome: 'activated', observation: 'legacy-format-activation' };
     }
     return value as MemoryEvent;
   }
@@ -154,6 +159,15 @@ function parseMemoryEvent(value: unknown, lineNumber: number): MemoryEvent {
   }
 
   return event as MemoryEvent;
+}
+
+function serializeMemoryEvent(event: MemoryEvent): string {
+  if (event.operation !== 'capability_used') return JSON.stringify(event);
+  // v1 readers reject added fields and unknown outcomes. Keep that wire shape
+  // intact and expose the honest activation interpretation only in memory.
+  return JSON.stringify({ version: event.version, eventId: event.eventId, operation: event.operation,
+    level: event.level, capability: event.capability, origin: event.origin,
+    outcome: event.outcome === 'activated' ? 'succeeded' : event.outcome, occurredAt: event.occurredAt });
 }
 
 function compareMemoryEvents(left: MemoryEvent, right: MemoryEvent): number {
@@ -227,7 +241,7 @@ export function mergeMemoryEventLogContents(
     return localText;
   }
   const prefix = localText && !localText.endsWith('\n') ? `${localText}\n` : localText;
-  return `${prefix}${missing.map((event) => JSON.stringify(event)).join('\n')}\n`;
+  return `${prefix}${missing.map(serializeMemoryEvent).join('\n')}\n`;
 }
 
 export class MemoryEventLog {
@@ -340,7 +354,7 @@ export class MemoryEventLog {
         || !isCapabilityText(input.capability.source)) {
         throw new Error('Capability name and source must be 1-128 printable characters');
       }
-      return {
+      const event: MemoryEvent = {
         version: EVENT_LOG_VERSION,
         eventId,
         operation: 'capability_used',
@@ -354,6 +368,7 @@ export class MemoryEventLog {
         outcome: input.outcome,
         occurredAt,
       };
+      return parseMemoryEvent(event, 1);
     }
     if (input.operation === 'delete') {
       assertSafeMemoryId(input.memoryId);
@@ -416,7 +431,7 @@ export class MemoryEventLog {
       return;
     }
 
-    const content = `${events.map((event) => JSON.stringify(event)).join('\n')}\n`;
+    const content = `${events.map(serializeMemoryEvent).join('\n')}\n`;
     const handle = await nodeFs.open(this.logPath, 'a', 0o600);
     try {
       await handle.writeFile(content, 'utf8');

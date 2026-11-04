@@ -34,6 +34,32 @@ describe('full-screen composer integration', () => {
     expect(rows().findIndex(line => line.includes('❯'))).toBe(composerRow);
   });
 
+  it('keeps every slash suggestion on its own row when the footer runs out of height', async () => {
+    const model = new FullScreenTranscript();
+    const state = { ...createInitialUIState(), isWorking: true, status: 'Parsing...',
+      activityItems: Array.from({ length: 6 }, (_, i) => ({ id: `task-${i}`, kind: 'todo' as const, label: `Refreshing chart ${i}`, status: i === 0 ? 'in_progress' as const : 'pending' as const })) };
+    const slashCommands = [
+      { command: '/help', description: 'Show available commands', implemented: true },
+      { command: '/model', description: 'Switch the active model', implemented: true },
+      { command: '/new', description: 'Start a new conversation', implemented: true },
+      { command: '/sessions', description: 'List saved sessions', implemented: true },
+      { command: '/undo', description: 'Revert the last mutation', implemented: true },
+      { command: '/quit', description: 'Exit Autohand', implemented: true },
+    ];
+    const view = render(<I18nProvider><ThemeProvider><AgentUI fullScreenTranscript={model} state={state} slashCommands={slashCommands} onInstruction={() => {}} onEscape={() => {}} onCtrlC={() => {}} /></ThemeProvider></I18nProvider>);
+    await flush();
+    view.stdin.write('/'); await flush(); await flush();
+    const rows = stripAnsi(view.lastFrame() ?? '').split('\n');
+    expect(rows.length).toBeLessThanOrEqual(24);
+    expect(rows.find(row => row.includes('Tab to accept'))?.trimEnd()).toBe('  Tab to accept · ↑↓ to navigate');
+    for (const [command, description] of [['/help', 'Show available commands'], ['/sessions', 'List saved sessions'], ['/quit', 'Exit Autohand']]) {
+      expect(rows.find(row => row.includes(command))?.trimEnd()).toMatch(new RegExp(`${command} {2}${description}$`));
+    }
+    const composerRow = rows.findIndex(row => row.startsWith('❯'));
+    expect(rows.findIndex(row => row.includes('Tab to accept'))).toBeLessThan(composerRow);
+    expect(rows.slice(-2).join(' ')).toContain('context left');
+  });
+
   it.each([false, true])('finds transcript text while working with queue input enabled=%s', async enableQueueInput => {
     const model = new FullScreenTranscript();
     const onInstruction = vi.fn();

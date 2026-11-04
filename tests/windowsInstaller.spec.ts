@@ -631,7 +631,7 @@ describe('Windows installer first run', () => {
     return { fixture, log, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
   }
 
-  powerShellTest('starts the installed binary with "hello world" when the first run is accepted', () => {
+  powerShellTest('starts the installed binary with the approved orientation prompt when the first run is accepted', () => {
     const { fixture, log, cleanup } = seedFixtureBinary();
     try {
       const result = runPowerShellProbe(`${installerWithoutEntrypoint}
@@ -641,7 +641,7 @@ Write-Output (Start-FirstRun -BinaryPath '${fixture}' -Answer 'yes')
       expect(result.stderr).toBe('');
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('True');
-      expect(readFileSync(log, 'utf8').trim()).toBe('hello world');
+      expect(readFileSync(log, 'utf8').trim()).toBe('What can you do in this folder? Give me 3 quick ideas.');
     } finally {
       cleanup();
     }

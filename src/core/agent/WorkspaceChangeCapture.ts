@@ -8,14 +8,37 @@ import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import fs from 'fs-extra';
 import ignore, { type Ignore } from 'ignore';
 import { createTwoFilesPatch, diffLines } from 'diff';
+import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 
 const MAX_CHANGED_FILES = 40;
 const MAX_TOTAL_PATCH_CHARS = 200_000;
 const MAX_FALLBACK_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_FALLBACK_FILES = 20_000;
+const CLEANUP_RETRIES = 3;
+const CLEANUP_RETRY_DELAY_MS = 100;
+const RETRYABLE_CLEANUP_CODES = new Set(['EBUSY', 'EPERM', 'ENOTEMPTY', 'EMFILE', 'ENFILE']);
+
+async function removeTemporaryIndex(tempRoot: string): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await fs.remove(tempRoot);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | null)?.code;
+      if (attempt < CLEANUP_RETRIES && code && RETRYABLE_CLEANUP_CODES.has(code)) {
+        await delay(CLEANUP_RETRY_DELAY_MS * (attempt + 1));
+        continue;
+      }
+      // Cleanup must not replace a captured review diff or hide a capture failure.
+      writeAutohandDebugLine(`[DEBUG] Workspace change capture temporary index cleanup failed (${tempRoot}): ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+  }
+}
 
 export type WorkspaceFileChangeKind = 'added' | 'modified' | 'deleted';
 
@@ -210,7 +233,7 @@ class GitCaptureBackend implements CaptureBackend<GitSnapshot> {
       }
       return new GitCaptureBackend(workspaceRoot, tempRoot, environment, workspacePrefix, budgetMs);
     } catch (error) {
-      if (tempRoot) await fs.remove(tempRoot);
+      if (tempRoot) await removeTemporaryIndex(tempRoot);
       if (error instanceof WorkspaceChangeCaptureBudgetError) throw error;
       return null;
     }
@@ -278,7 +301,7 @@ class GitCaptureBackend implements CaptureBackend<GitSnapshot> {
   }
 
   async dispose(): Promise<void> {
-    await fs.remove(this.tempRoot);
+    await removeTemporaryIndex(this.tempRoot);
   }
 
   private runGit(args: string[], maxBuffer?: number, timeoutMs?: number): Promise<string> {

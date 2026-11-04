@@ -11,6 +11,24 @@ const data: UsageReportData = { generatedAt: '2026-10-05T12:00:00Z', totalSessio
 afterEach(cleanup);
 
 describe('usage screen keyboard navigation', () => {
+  it('shows external usage without requesting or displaying Autohand quota', async () => {
+    const loadAccount = vi.fn(async () => ({ tier: 'free', freeRemaining: 0 }));
+    const view = render(<ThemeProvider><UsageScreen autohandCloud={false} loadReport={async () => data} loadAccount={loadAccount} loadTraces={async () => null} account="Signed in" onClose={() => {}} rows={30} columns={100} /></ThemeProvider>);
+    await flush();
+    expect(stripAnsi(view.lastFrame() ?? '')).toContain('No Autohand rate limits or quotas apply to this provider.');
+    expect(stripAnsi(view.lastFrame() ?? '')).not.toContain('Account quota');
+    expect(loadAccount).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('loads account quota for Autohand Cloud', async () => {
+    const loadAccount = vi.fn(async () => ({ tier: 'free', freeRemaining: 0 }));
+    const view = render(<ThemeProvider><UsageScreen autohandCloud loadReport={async () => data} loadAccount={loadAccount} loadTraces={async () => null} account="Signed in" onClose={() => {}} rows={30} columns={100} /></ThemeProvider>);
+    await flush();
+    expect(stripAnsi(view.lastFrame() ?? '')).toContain('Account quota · API');
+    expect(loadAccount).toHaveBeenCalledOnce();
+    view.unmount();
+  });
   it('fits a small terminal, changes tabs and ranges, loads traces lazily and closes on Escape', async () => {
     const load = vi.fn(async () => data);
     const traces = vi.fn(async () => null);

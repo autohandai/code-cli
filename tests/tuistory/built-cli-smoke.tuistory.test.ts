@@ -180,7 +180,7 @@ describe('built CLI Tuistory smoke tests', () => {
           model: 'moa',
           baseUrl: nativeToolServer.baseUrl,
         },
-        features: { autohand_inference: true },
+        features: { autohand_inference: true, codeMode: false },
         agent: { maxIterations: 4, sessionRetryLimit: 0 },
         network: { maxRetries: 0, retryDelay: 0 },
       },
@@ -326,7 +326,7 @@ describe('built CLI Tuistory smoke tests', () => {
           model: 'moa',
           baseUrl: nativeServer.baseUrl,
         },
-        features: { autohand_inference: true },
+        features: { autohand_inference: true, codeMode: false },
         agent: { maxIterations: 2, sessionRetryLimit: 0, autoMemory: false },
         network: { maxRetries: 0, retryDelay: 0 },
       },
@@ -708,7 +708,7 @@ describe('built CLI Tuistory smoke tests', () => {
     const session = await trackSession(launchBuiltAutohand([
       '--path', state.workspaceRoot,
       '--config', state.configPath,
-      '-p', 'bring in an accessible UI specialist and delegate a review',
+      '-p', 'bring in an accessible UI specialist and delegate a review', '--yes',
     ], {
       autohandHome: state.autohandHome,
       cwd: state.workspaceRoot,
@@ -716,8 +716,6 @@ describe('built CLI Tuistory smoke tests', () => {
       waitForDataTimeout: 15_000,
     }));
 
-    await session.waitForText('Install sub-agent from the default Autohand catalog?', { timeout: 20_000 });
-    await session.press('enter');
     await waitForExit(session, 60_000);
 
     const output = session.readAll();

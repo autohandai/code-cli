@@ -119,6 +119,44 @@ function wrap(element: React.ReactElement): React.ReactElement {
 }
 
 describe('live goal panel', () => {
+  it('keeps an unavailable-goal warning above a four-row draft when the full-screen footer is crowded', async () => {
+    const source = createLongGoalsSnapshot();
+    const original: GoalSessionSnapshot = { ...source, goal: null,
+      queue: [{ queueId: 'first', objective: source.goal!.objective, source: 'command', createdAt: 1 }, ...source.queue],
+      peers: source.peers.map(peer => ({ ...peer, status: 'paused' })),
+    };
+    const model = new FullScreenTranscript();
+    const onInstruction = vi.fn();
+    const onEditGoalObjective = vi.fn();
+    const view = (goalActivity: GoalSessionSnapshot) => wrap(<AgentUI fullScreenTranscript={model}
+      state={{ ...createInitialUIState(), goalPanelVisible: true, goalActivity }}
+      lineExtensions={{ help: { replaceDefault: true, segments: [{ id: 'status', text: 'Status row one\nStatus row two\nStatus row three' }] } }}
+      onInstruction={onInstruction} onEscape={vi.fn()} onCtrlC={vi.fn()} onEditGoalObjective={onEditGoalObjective} />);
+    const ui = render(view(original));
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain('Goals · 3 total'));
+    ui.stdin.write('\u001b[B');
+    ui.stdin.write('\r');
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain('FULL_FAILURE_TRANSCRIPT'));
+    ui.stdin.write(' preserved draft');
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain('preserved draft'));
+    const composerRow = () => stripAnsi(ui.lastFrame() ?? '').split('\n').findIndex(line => line.includes('▔'.repeat(5)));
+    const baseline = composerRow();
+    ui.rerender(view({ ...original, queue: original.queue.slice(1) }));
+    await vi.waitFor(() => expect(ui.lastFrame()).toContain('Goal is unavailable. Draft kept; Esc cancels.'));
+    const screen = stripAnsi(ui.lastFrame() ?? '');
+    expect(composerRow()).toBe(baseline);
+    expect(screen.indexOf('Goal is unavailable.')).toBeLessThan(screen.indexOf('▔'.repeat(5)));
+    expect(screen).toContain('preserved draft');
+    expect(screen).toContain('Status row three');
+    expect(screen.split('\n').length).toBeLessThanOrEqual(24);
+    ui.stdin.write('\r');
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(onInstruction).not.toHaveBeenCalled();
+    expect(onEditGoalObjective).not.toHaveBeenCalled();
+    ui.stdin.write('\u001b');
+    await vi.waitFor(() => expect(ui.lastFrame()).not.toContain('Draft kept'));
+  });
+
   it('keeps queued and peer goals visible beside the full-screen product header', async () => {
     const goals = createLongGoalsSnapshot();
     const goalActivity: GoalSessionSnapshot = {

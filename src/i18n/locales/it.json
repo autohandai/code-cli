@@ -388,7 +388,10 @@
     "configFile": "~/.autohand/config.json (le tue impostazioni)",
     "agentsFile": "AGENTS.md (istruzioni del progetto per Autohand)",
     "nextSteps": "Prossimi passi:",
-    "tryCommand": "Prova: autohand"
+    "tryCommand": "Prova: autohand",
+    "network": {
+      "timeout": "Lascia vuoto per il valore predefinito del provider, oppure inserisci 5000-600000 ms"
+    }
   },
   "errors": {
     "generic": "Si è verificato un errore: {{message}}",

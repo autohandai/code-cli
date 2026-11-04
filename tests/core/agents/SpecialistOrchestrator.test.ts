@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { UnattendedApprovalTracker } from '../../../src/permissions/unattended.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentDefinition, AgentRegistry } from '../../../src/core/agents/AgentRegistry.js';
 import type { AgentDelegator } from '../../../src/core/agents/AgentDelegator.js';
@@ -459,6 +460,27 @@ describe('SpecialistOrchestrator turn results', () => {
 });
 
 describe('SpecialistOrchestrator execution', () => {
+  it.each(['parallel', 'serial'] as const)('stops later %s specialists after an unattended approval denial', async executionMode => {
+    const delegate = delegator();
+    const tracker = new UnattendedApprovalTracker();
+    Object.assign(delegate, { getAuthorizationOptions: () => ({ unattendedApprovals: tracker }) });
+    const execute = executionMode === 'parallel' ? delegate.delegateParallelForTool : delegate.delegateTaskForTool;
+    vi.mocked(execute).mockImplementation(async () => {
+      tracker.record('write_file');
+      return { success: false, kind: 'authorization', error: 'Approval required for write_file' };
+    });
+    const orchestrator = new SpecialistOrchestrator(delegate, { registry: registryWith([]), maxParallel: 1, offline: true });
+    const result = await orchestrator.execute({
+      objective: 'Review', requestedRoles: ['one', 'two'],
+      selectedAgents: ['one', 'two'].map(role => ({ requestedRole: role, agentName: role, source: 'builtin', matchReason: 'fixture' })),
+      source: 'intent', matchReason: 'fixture', executionMode, unresolvedRoles: [],
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(result.completed).toBe(false);
+    expect(result.batches).toHaveLength(1);
+    expect(result.batches[0].outcome.kind).toBe('authorization');
+  });
+
   it.each(['parallel', 'serial'] as const)('forwards cancellation and stops later %s batches', async executionMode => {
     const delegate = delegator();
     const controller = new AbortController();

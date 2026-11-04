@@ -3,10 +3,12 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { once } from 'node:events';
+import type { ChildProcess } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   WorkspaceFileCollector,
   isSafeMobileWorkspaceRelativePath,
@@ -14,6 +16,34 @@ import {
 import { GitIgnoreParser } from '../../../src/utils/gitIgnore.js';
 
 const temporaryDirectories: string[] = [];
+const gitFixture = vi.hoisted(() => ({
+  code: undefined as string | undefined,
+  child: undefined as ChildProcess | undefined,
+  closed: undefined as Promise<void> | undefined,
+  descendantPid: undefined as number | undefined,
+}));
+vi.mock('node:child_process', async original => {
+  const actual = await original<typeof import('node:child_process')>();
+  return { ...actual, spawn: (...args: Parameters<typeof actual.spawn>) => {
+    if (args[0] !== 'git' || gitFixture.code === undefined) return actual.spawn(...args);
+    const child = actual.spawn(process.execPath, ['-e', gitFixture.code], {
+      ...args[2], detached: process.platform !== 'win32',
+    });
+    gitFixture.child = child;
+    gitFixture.closed = new Promise<void>(resolve => child.once('close', () => resolve()));
+    return child;
+  } };
+});
+const nativeSetTimeout = globalThis.setTimeout;
+const nativeClearTimeout = globalThis.clearTimeout;
+async function boundedSettlement<T>(pending: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = nativeSetTimeout(() => reject(new Error('Workspace scan waited for the inherited stdout pipe to close.')), 3000);
+  });
+  try { return await Promise.race([pending, deadline]); }
+  finally { nativeClearTimeout(timer); }
+}
 
 async function createWorkspace(): Promise<string> {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'autohand-mobile-files-'));
@@ -121,44 +151,64 @@ describe('WorkspaceFileCollector mobile filename query', () => {
 });
 
 describe('WorkspaceFileCollector scan budget', () => {
-  const originalPath = process.env.PATH;
-
-  afterEach(async () => {
-    process.env.PATH = originalPath;
-    await Promise.all(temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true })
-    ));
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
   });
 
-  async function shadowGitWith(script: string): Promise<void> {
-    const binDirectory = await mkdtemp(path.join(os.tmpdir(), 'autohand-fake-git-'));
-    temporaryDirectories.push(binDirectory);
-    const gitPath = path.join(binDirectory, 'git');
-    await writeFile(gitPath, `#!/bin/sh\n${script}\n`, 'utf8');
-    await chmod(gitPath, 0o755);
-    process.env.PATH = `${binDirectory}${path.delimiter}${originalPath ?? ''}`;
-  }
+  afterEach(async () => {
+    try {
+      const child = gitFixture.child;
+      if (child?.pid) {
+        try { process.kill(process.platform === 'win32' ? child.pid : -child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+      }
+      if (gitFixture.descendantPid) { try { process.kill(gitFixture.descendantPid, 'SIGKILL'); } catch {} }
+      await gitFixture.closed;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      gitFixture.code = undefined;
+      gitFixture.child = undefined;
+      gitFixture.closed = undefined;
+      gitFixture.descendantPid = undefined;
+      vi.useRealTimers();
+      await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+    }
+  });
 
   it('stops waiting on git ls-files once the scan budget is spent', async () => {
     const workspace = await createWorkspace();
     await createFile(workspace, 'src/index.ts');
-    await shadowGitWith('printf "src/index.ts\\n"; sleep 5');
+    gitFixture.code = `const { spawn } = require('node:child_process');
+      const child = spawn(process.execPath, ['-e', 'setTimeout(() => process.exit(1), 20000).unref(); setInterval(() => {}, 1000)'], { stdio: 'inherit' });
+      child.once('spawn', () => {
+        require('node:fs').writeFileSync('collector-pids.json', JSON.stringify([process.pid, child.pid]));
+        process.stdout.write('src/index.ts\\n');
+      });`;
     const collector = new WorkspaceFileCollector(workspace, new GitIgnoreParser(workspace), {
       scanBudgetMs: 1_000,
     });
 
     const startedAt = Date.now();
-    const files = await collector.collectWorkspaceFiles(true);
+    const pending = collector.collectWorkspaceFiles(true);
+    const child = gitFixture.child!;
+    await once(child.stdout!, 'data', { signal: AbortSignal.timeout(15_000) });
+    const pids = JSON.parse(await readFile(path.join(workspace, 'collector-pids.json'), 'utf8')) as number[];
+    gitFixture.descendantPid = pids[1];
+    const closed = vi.fn();
+    child.once('close', closed);
+    await vi.advanceTimersByTimeAsync(1000);
+    const files = await boundedSettlement(pending);
 
     expect(Date.now() - startedAt).toBeLessThan(3_000);
     expect(files).toEqual(['src/index.ts']);
+    expect(closed).not.toHaveBeenCalled();
+    expect(() => process.kill(pids[1], 0)).not.toThrow();
   });
 
   it('keeps the complete list when git answers inside the budget', async () => {
     const workspace = await createWorkspace();
     await createFile(workspace, 'src/a.ts');
     await createFile(workspace, 'src/b.ts');
-    await shadowGitWith('printf "src/a.ts\\nsrc/b.ts\\n"');
+    gitFixture.code = 'process.stdout.write("src/a.ts\\nsrc/b.ts\\n")';
     const collector = new WorkspaceFileCollector(workspace, new GitIgnoreParser(workspace), {
       scanBudgetMs: 2_000,
     });
@@ -173,7 +223,7 @@ describe('WorkspaceFileCollector scan budget', () => {
     for (let index = 0; index < 40; index += 1) {
       await createFile(workspace, `deep/${index}/${index}.ts`);
     }
-    await shadowGitWith('exit 1');
+    gitFixture.code = 'process.exitCode = 1';
     const exhausted = new WorkspaceFileCollector(workspace, new GitIgnoreParser(workspace), {
       scanBudgetMs: 0,
     });

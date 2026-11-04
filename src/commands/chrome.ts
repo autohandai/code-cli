@@ -108,7 +108,7 @@ export async function chrome(ctx: ChromeCommandContext, args: string[] = []): Pr
       `Usage: ${chalk.yellow('autohand --browser')} or ${chalk.yellow('autohand --no-browser')}`,
       '',
       'Site-level permissions are inherited from the Chrome extension.',
-      `Learn more: ${chalk.gray('https://autohand.ai/docs/chrome')}`,
+      `Learn more: ${chalk.gray('https://docs.autohand.ai/working-with-autohand-code/chrome')}`,
     ].join('\n');
 
     // Clear previous modal output before re-showing after a toggle.

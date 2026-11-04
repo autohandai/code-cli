@@ -50,6 +50,8 @@ const MARKDOWN_RE = /(?:^|\n)\s*(?:[-*+]\s+|\d+\.\s+|#{1,6}\s+|>\s+)|```|`[^`]+`
 const SUGGESTION_TIMEOUT_MS = 10_000;
 
 export interface SuggestionEngineOptions {
+  isEnabled?: () => boolean;
+  suggest?: (messages: readonly LLMMessage[], signal: AbortSignal) => Promise<string | null>;
   /** When provided, constrains suggestions to only actions achievable with these tools. */
   allowedTools?: string[];
   /** Optional sink for debug lines so interactive UIs can render above composers. */
@@ -61,12 +63,14 @@ export class SuggestionEngine {
   private abortController: AbortController | null = null;
   private readonly toolConstraint: string;
   private readonly debugLogger?: (message: string) => void;
+  private readonly isEnabled: () => boolean;
 
   constructor(
     private readonly llm: LLMProvider,
-    options?: SuggestionEngineOptions,
+    private readonly options?: SuggestionEngineOptions,
   ) {
     this.debugLogger = options?.debugLogger;
+    this.isEnabled = options?.isEnabled ?? (() => true);
     if (options?.allowedTools?.length) {
       this.toolConstraint = `\n\nIMPORTANT: ONLY suggest actions achievable with these tools: ${options.allowedTools.join(', ')}. Do not suggest actions requiring tools the user cannot use.`;
     } else {
@@ -147,6 +151,10 @@ export class SuggestionEngine {
 
   private async executeWithTimeout(messages: LLMMessage[]): Promise<void> {
     this.cancel();
+    if (!this.isEnabled()) {
+      this.suggestion = null;
+      return;
+    }
 
     const controller = new AbortController();
     this.abortController = controller;
@@ -173,8 +181,9 @@ export class SuggestionEngine {
         removeAbortListener = () => controller.signal.removeEventListener('abort', onAbort);
       });
 
+      const suggest = this.options?.suggest;
       const response = await Promise.race([
-        this.llm.complete({
+        suggest ? suggest(messages, controller.signal).then(content => ({ content: content ?? '' })) : this.llm.complete({
           messages,
           maxTokens: 60,
           temperature: 0.7,

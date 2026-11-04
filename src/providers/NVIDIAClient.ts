@@ -12,10 +12,10 @@ import type {
   NetworkSettings,
   FunctionDefinition,
 } from "../types.js";
-import { ApiError, FRIENDLY_MESSAGES, classifyApiError } from "./errors.js";
+import { ApiError, FRIENDLY_MESSAGES, classifyApiError, providerRetryDelay, waitForProviderRetry } from "./errors.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { joinReasoning, splitInlineThinking } from "./inlineThinking.js";
-import { toTextOnlyContent } from "./messagePayload.js";
+import { normalizePromptRoles, toTextOnlyContent } from "./messagePayload.js";
 import { buildChatTemplateKwargs, coerceErrorDetail } from "./openAICompatibleShared.js";
 import { normalizeProviderFinishReason } from "./finishReason.js";
 
@@ -24,6 +24,7 @@ import { normalizeProviderFinishReason } from "./finishReason.js";
  * Only includes fields expected by OpenAI-compatible APIs.
  */
 function sanitizeMessages(messages: MultimodalMessage[]): Record<string, unknown>[] {
+  messages = normalizePromptRoles(messages);
   const systemContent = messages
     .filter((message) => message.role === "system")
     .map((message) => toTextOnlyContent(message.content).trim())
@@ -192,8 +193,7 @@ export class NVIDIAClient {
         }
 
         if (attempt < this.maxRetries) {
-          const delay = this.retryDelay * Math.pow(2, attempt);
-          await this.sleep(delay);
+          await waitForProviderRetry(providerRetryDelay(lastError, this.retryDelay, attempt), request.signal);
         }
       }
     }
@@ -468,7 +468,4 @@ export class NVIDIAClient {
     return false;
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }

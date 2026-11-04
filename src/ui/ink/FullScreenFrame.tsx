@@ -40,7 +40,7 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
   const hint = model.searchQuery !== null
     ? `Find: ${model.searchQuery} · Enter next · Shift+Enter previous · Esc close${model.searchMatched ? '' : ' · No match'}`
     : view.following ? ' ' : `${view.newActivity ? 'New activity · ' : ''}↓ Back to bottom · Ctrl+End${detailsId ? '' : ' / Esc'}`;
-  return <Box flexDirection="column" width={width} height={height} overflow="hidden">
+  return <Box flexDirection="column" width="100%" paddingRight={1} height={height} overflow="hidden">
     <Box flexDirection="column" height={3} flexShrink={0} overflow="hidden">
       <Text wrap="truncate"><Text color={colors.accent}>{'>_ '}</Text><Text bold>Autohand Code</Text><Text color={colors.muted}>{` (v${runtimeVersion})`}</Text></Text>
       <Text color={colors.muted} wrap="truncate">{`   ${displayDirectory}`}</Text>

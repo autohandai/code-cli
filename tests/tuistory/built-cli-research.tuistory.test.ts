@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import fs from 'fs-extra';
 import stripAnsi from 'strip-ansi';
@@ -214,62 +214,70 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
   }, 90_000);
 
   it.each([false, true])('shows deep research status while the model turn is active (full screen: %s)', async (fullScreenMode) => {
+    let releaseResponse!: () => void;
+    const responseGate = new Promise<void>(resolve => { releaseResponse = resolve; });
     const openRouterServer = await createMockOpenRouterSequenceServer([
       JSON.stringify({
-        thought: 'The delayed response should arrive after the live status check.',
+        thought: 'The gated response should arrive after the live status check.',
         toolCalls: [],
         finalResponse: 'Research is still incomplete.',
       }),
-    ], 5_000);
+    ], 0, { responseGate });
     mockServers.push(openRouterServer);
 
-    const state = await createTempAutohandHome({
-      config: {
-        features: { fullScreenMode },
-        openrouter: {
-          baseUrl: openRouterServer.baseUrl,
+    try {
+      const state = await createTempAutohandHome({
+        config: {
+          features: { fullScreenMode },
+          openrouter: {
+            baseUrl: openRouterServer.baseUrl,
+          },
+          ui: {
+            promptSuggestions: false,
+          },
+          agent: {
+            maxIterations: 2,
+          },
         },
-        ui: {
-          promptSuggestions: false,
-        },
-        agent: {
-          maxIterations: 2,
-        },
-      },
-    });
-    tempStates.push(state);
+      });
+      tempStates.push(state);
 
-    const session = await trackSession(
-      launchBuiltAutohand([
-        '--path',
-        state.workspaceRoot,
-        '--config',
-        state.configPath,
-        '--y',
-      ], {
-        autohandHome: state.autohandHome,
-        cwd: state.workspaceRoot,
-        rows: 40,
-        waitForDataTimeout: 15_000,
-      })
-    );
+      const session = await trackSession(
+        launchBuiltAutohand([
+          '--path',
+          state.workspaceRoot,
+          '--config',
+          state.configPath,
+          '--y',
+        ], {
+          autohandHome: state.autohandHome,
+          cwd: state.workspaceRoot,
+          rows: 40,
+          waitForDataTimeout: 15_000,
+        })
+      );
 
-    await waitForComposer(session);
-    await session.type('/deep-research live progress audit');
-    await session.press('enter');
-    await session.waitForText('Deep research started', { timeout: 10_000 });
+      await waitForComposer(session);
+      await session.type('/deep-research live progress audit');
+      await session.press('enter');
+      await session.waitForText('Deep research started', { timeout: 10_000 });
+      await vi.waitFor(() => expect(openRouterServer.requests.length).toBeGreaterThan(0), { timeout: 10_000 });
 
-    await session.type('/deep-research status');
-    await session.press('enter');
-    await session.waitForText('State: Running', { timeout: 3_000 });
-    const activeStatus = session.readAll().replace(/\s+/g, ' ');
+      await session.type('/deep-research status');
+      await session.press('enter');
+      await session.waitForText('State: Running', { timeout: 3_000 });
+      const activeStatus = session.readAll().replace(/\s+/g, ' ');
 
-    expect(activeStatus).toContain('Progress: No task plan recorded yet.');
-    expect(activeStatus).toContain('Report: .autohand/research/topic-live-progress-audit.md (not written yet)');
-    expect(activeStatus).not.toContain('Research is still incomplete.');
+      expect(activeStatus).toContain('Progress: No task plan recorded yet.');
+      expect(activeStatus).toContain('Report: .autohand/research/topic-live-progress-audit.md (not written yet)');
+      expect(activeStatus).not.toContain('Research is still incomplete.');
 
-    await session.waitForText('Deep research incomplete', { timeout: 30_000 });
-    await exitInteractive(session);
+      releaseResponse();
+      await session.waitForText('Deep research incomplete', { timeout: 30_000 });
+      await exitInteractive(session);
+    } finally {
+      releaseResponse();
+    }
   }, 90_000);
 
   it('runs the usage activity dashboard from the interactive TUI', async () => {
@@ -331,10 +339,13 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     mockAuthServers.push(authServer);
     const session = await launchInteractive({
       config: {
-        provider: 'openai',
-        openai: {
-          apiKey: 'tuistory-test-api-key',
-          model: 'gpt-5.5',
+        provider: 'autohandai',
+        autohandai: {
+          plan: 'cloud',
+          authMode: 'account',
+          accountToken: 'tuistory-account-token',
+          model: 'fantail',
+          backgroundCalls: false,
         },
         auth: {
           token: 'tuistory-account-token',
@@ -435,6 +446,7 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
     await session.waitForText('Autohand (Pro) (Autohand AI, moa)', { timeout: 10_000 });
     expect(session.readAll()).not.toContain('Pro · Monthly');
     await session.type('/status');
+    await session.text({ timeout: 10_000, waitFor: text => text.includes('❯ /status') });
     await session.press('enter');
     await session.waitForText('(tab to cycle)', { timeout: 10_000 });
     await session.press('tab');

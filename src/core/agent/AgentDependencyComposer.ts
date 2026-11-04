@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { UnattendedApprovalTracker } from '../../permissions/unattended.js';
 import { resolveRunToolScope } from '../../permissions/runToolScope.js';
 import { RunBudget } from './RunBudget.js';
 import { SessionAutoNamer } from './SessionAutoNamer.js';
@@ -52,7 +53,7 @@ import type {
   ToolImageMimeType,
 } from '../../types.js';
 import { AgentDelegator } from '../agents/AgentDelegator.js';
-import { orchestrationThreadLimit } from './AutohandOrchestration.js';
+import { areProviderBackgroundCallsEnabled, orchestrationThreadLimit } from './AutohandOrchestration.js';
 import { AgentRunStore, type AgentRunsSnapshot, type AgentRunSource } from '../agents/AgentRunStore.js';
 import { createAgentRunLifecycleHandler } from '../agents/AgentRunLifecycle.js';
 import { attachTeamActivityBridge, enableAutomaticCoordinationMode } from './TeamActivityBridge.js';
@@ -66,6 +67,11 @@ import { FeedbackSurveyController } from './FeedbackSurveyController.js';
 import { CODE_MODE_TOOL_NAME, codeModeToolDefinitions, runCodeModeScript, syncCodeModeTool } from './CodeModeRunner.js';
 import { TelemetryManager } from '../../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../../skills/SkillsRegistry.js';
+import { isAdaptiveSkillsEnabled } from '../../skills/feature.js';
+import { createAdaptiveDecisionRuntime, type AdaptiveDecisionRerankRequest } from './AdaptiveDecisionRuntime.js';
+import type { SkillLearningSettings } from '../../skills/SkillLearningRuntime.js';
+import { createGoalPermissionEpoch, createGoalSkillRuntime } from './GoalSkillRuntime.js';
+import { createAgentSkillLearning } from './AgentSkillLearning.js';
 import type { SkillDefinition } from '../../skills/types.js';
 import { CommunitySkillsClient } from '../../skills/CommunitySkillsClient.js';
 import { CommunitySkillsCache } from '../../skills/CommunitySkillsCache.js';
@@ -538,21 +544,28 @@ export function initializeAgentDependencies(
         .map(t => t.name)
         .filter(name => toolFilter.isAllowed(name) && !fullyBlockedTools.has(name));
       host.suggestionEngine = new SuggestionEngine(host.llm, {
+        isEnabled: () => areProviderBackgroundCallsEnabled(runtime.config, host.activeProvider),
+        get suggest() {
+          return isAdaptiveSkillsEnabled(runtime.config)
+            ? (messages: readonly import('../../types.js').LLMMessage[], signal: AbortSignal) => host.adaptiveDecisionRuntime?.suggestNextAction(messages, signal) ?? Promise.resolve(null)
+            : undefined;
+        },
         allowedTools: toolNames,
         debugLogger: (message: string) => host.writeDebugLine(message),
       });
     }
     host.sessionAutoNamer = new SessionAutoNamer({
-      getProvider: () => host.llm,
+      getProvider: () => areProviderBackgroundCallsEnabled(runtime.config, host.activeProvider) ? host.llm : undefined,
       enabled: !runtime.options.bare && runtime.options.offline !== true && runtime.config.ui?.promptSuggestions !== false,
     });
     if (!runtime.options.bare && !runtime.options.ephemeral && !runtime.options.offline
       && !runtime.options.prompt && !runtime.isCommandMode && !runtime.isRpcMode
-      && runtime.config.ui?.repositoryReadiness !== false) {
+      && runtime.config.ui?.repositoryReadiness !== false
+      && areProviderBackgroundCallsEnabled(runtime.config, initialProvider)) {
       host.repositoryReadiness = new RepositoryReadiness({
         workspaceRoot: runtime.repositorySourceRoot ?? runtime.workspaceRoot,
         signal: host.runtimeResourceShutdownController?.signal,
-        getProvider: () => host.llm,
+        getProvider: () => areProviderBackgroundCallsEnabled(runtime.config, host.activeProvider) ? host.llm : undefined,
         notify: message => {
           if (host.inkRenderer?.isRunning()) host.inkRenderer.addNotification(message, { placement: 'transcript' });
           else host.notifyUser(message);
@@ -900,11 +913,18 @@ export function initializeAgentDependencies(
           goalSource: context.goalSource,
         });
       },
-      onGoalActivated: () => activateGoalAutoMode({
+      onPrepareGoalActivation: () => activateGoalAutoMode({
         config: runtime.config,
         isNonInteractive: Boolean(runtime.isCommandMode || runtime.isRpcMode || runtime.options?.prompt),
+        getInteractionMode: () => host.getInteractionMode(), permissionManager: host.permissionManager,
         setInteractionMode: (mode) => { host.setInteractionMode(mode); },
       }),
+      onGoalActivated: () => { activateGoalAutoMode({
+        config: runtime.config,
+        isNonInteractive: Boolean(runtime.isCommandMode || runtime.isRpcMode || runtime.options?.prompt),
+        getInteractionMode: () => host.getInteractionMode(), permissionManager: host.permissionManager,
+        setInteractionMode: (mode) => { host.setInteractionMode(mode); },
+      }); },
       onModalPause: async <T>(fn: () => Promise<T>) => host.withModalPause(fn),
       onLiveCommandStart: (command) => host.inkRenderer?.startLiveCommand(command) ?? '',
       onLiveCommandOutput: (id, stream, chunk) => host.inkRenderer?.appendLiveCommandOutput(id, stream, chunk),
@@ -925,6 +945,7 @@ export function initializeAgentDependencies(
     });
 
     const toolAuthorization = {
+      unattendedApprovals: new UnattendedApprovalTracker(),
       permissionManager: host.permissionManager,
       resolvePermissionContext: (action) => {
         const context = host.actionExecutor.getPermissionContext(action);
@@ -1074,7 +1095,48 @@ export function initializeAgentDependencies(
       getSink: () => host.inkRenderer,
       recorder: host.feedbackManager,
     });
-    host.skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills, 'autohand-user', { accountConfigPath: runtime.config.configPath });
+    host.skillsRegistry = new SkillsRegistry(AUTOHAND_PATHS.skills, 'autohand-user', {
+      accountConfigPath: runtime.config.configPath,
+      adaptiveEnabled: () => isAdaptiveSkillsEnabled(runtime.config),
+      getAdaptiveSettings: () => runtime.config.skills,
+    });
+    host.adaptiveDecisionRuntime = createAdaptiveDecisionRuntime({
+      runtime,
+      getActiveProvider: () => host.activeProvider ?? runtime.config.provider ?? 'openrouter',
+      getLLM: () => host.llm,
+      getEntitlement: () => {
+        const settings = runtime.config.autohandai;
+        const token = runtime.config.auth?.token ?? settings?.accountToken
+          ?? (settings?.authMode === 'api-key' ? settings.apiKey : undefined);
+        return token ? getAuthClient().fetchEntitlement(token, selectedAccountId(runtime.config)) : Promise.resolve(null);
+      },
+    });
+    runtime.skillPolicyEpoch = () => host.adaptiveDecisionRuntime.getPolicyEpoch();
+    host.skillsRegistry.setAdaptiveRerank((request: AdaptiveDecisionRerankRequest) => host.adaptiveDecisionRuntime.rerankSkills(request));
+    runtime.goalContinuity = createGoalSkillRuntime({
+      runtime, runtimeVersion: packageJson.version,
+      getRegistry: () => host.skillsRegistry,
+      getSessionId: () => host.sessionManager.getCurrentSession()?.metadata.sessionId,
+      getActiveProvider: () => host.activeProvider ?? runtime.config.provider ?? 'openrouter',
+      getPermissionEpoch: () => createGoalPermissionEpoch(runtime, host.permissionManager),
+    });
+    host.agentSkillLearning = createAgentSkillLearning({
+      runtime, registry: host.skillsRegistry,
+      getActiveProvider: () => host.activeProvider ?? runtime.config.provider ?? 'openrouter',
+      getLLM: () => host.llm, getPermissionManager: () => host.permissionManager,
+      getPolicyEpoch: () => host.adaptiveDecisionRuntime.getPolicyEpoch(),
+      getLastAnswer: () => {
+        const message = [...host.conversation.history()].reverse().find(item => item.role === 'assistant' && typeof item.content === 'string' && item.content.trim());
+        return typeof message?.content === 'string' ? message.content : '';
+      },
+      persistSettings: async (settings: SkillLearningSettings) => {
+        await saveConfig({ ...runtime.config, skills: { ...runtime.config.skills, learning: settings } });
+        runtime.config.skills = { ...runtime.config.skills, learning: settings };
+      },
+      isUserCommand: () => !host.isInstructionActive,
+    });
+    host.beginSkillLearningTurn = (instruction: string, signal: AbortSignal) => host.agentSkillLearning.beginSkillLearningTurn(instruction, signal);
+    host.finishSkillLearningTurn = (outcome: { instruction: string; success: boolean; aborted: boolean }, signal: AbortSignal) => host.agentSkillLearning.finishSkillLearningTurn(outcome, signal);
     if (!runtime.options.bare) {
       host.skillsRegistry.setCapabilityUsageRecorder((usage: CapabilityUsageInput) =>
         host.memoryManager.recordCapabilityUse(usage)
@@ -1354,11 +1416,11 @@ export function initializeAgentDependencies(
       },
       {
         name: 'skill',
-        description: 'List, inspect, activate, or deactivate loaded skills. Activated skills are added to the session prompt.',
+        description: 'Search authorized local skills, inspect an exact reference, or select/deactivate task instructions. Loading is confirmed by request receipts.',
         parameters: {
           type: 'object',
           properties: {
-            command: { type: 'string', description: 'Skill operation to perform', enum: ['list', 'info', 'activate', 'deactivate'] },
+            command: { type: 'string', description: 'Skill operation to perform', enum: ['list', 'search', 'info', 'activate', 'deactivate'] },
             name: { type: 'string', description: 'Skill name for info, activate, or deactivate' }
           },
           required: ['command']
@@ -1453,9 +1515,28 @@ export function initializeAgentDependencies(
               }),
             }, context?.signal);
           } else if (action.type === 'delegate_task') {
-            outcome = await host.delegator.delegateTaskForTool(action.agent_name, action.task, { signal: context?.signal });
+            const cached = host.specialistOrchestrator.turnResultForAgent(action.agent_name);
+            outcome = cached === undefined
+              ? await host.delegator.delegateTaskForTool(action.agent_name, action.task, { signal: context?.signal })
+              : cached;
           } else if (action.type === 'delegate_parallel') {
-            outcome = await host.delegator.delegateParallelForTool(action.tasks, { signal: context?.signal });
+            const cached: ToolActionOutcome[] = [];
+            const pending = action.tasks.filter(task => {
+              const result = host.specialistOrchestrator.turnResultForAgent(task.agent_name);
+              if (result === undefined) return true;
+              cached.push(result);
+              return false;
+            });
+            const freshOutcome: ToolActionOutcome = pending.length > 0
+              ? await host.delegator.delegateParallelForTool(pending, { signal: context?.signal })
+              : { success: true, output: '' };
+            if (cached.length > 0) {
+              const failure = [...cached, freshOutcome].find(result => !result.success);
+              const output = [...new Set([...cached.map(result => result.output), freshOutcome.output])].filter(Boolean).join('\n');
+              outcome = { ...(failure ?? freshOutcome), output };
+            } else {
+              outcome = freshOutcome;
+            }
           } else if (action.type === 'orchestrate_specialists') {
             result = await host.orchestrateSpecialistsFromTool(action.objective, action.requested_roles, context?.signal);
           } else if (action.type === 'install_specialist_roster') {
@@ -2140,6 +2221,9 @@ export function initializeAgentDependencies(
       completion,
     ) => enqueueMobileComposerCommand(host, command, args, completion);
     const slashContext = {
+      goalContinuity: runtime.goalContinuity,
+      decisionDispatcher: host.adaptiveDecisionRuntime.dispatcher,
+      getSkillLearningContext: () => host.agentSkillLearning.getCommandContext(),
       promptModelSelection: () => host.providerConfigManager.promptModelSelection(),
       createAgentsFile: () => host.createAgentsFile(),
       sessionManager: host.sessionManager,

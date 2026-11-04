@@ -1,11 +1,12 @@
 # Agent Skills System
 
-Agent Skills are modular instruction packages that extend Autohand's AI agent with specialized workflows and domain expertise. Skills provide context-aware guidance, tool permissions, and structured approaches for common development tasks.
+Agent Skills are modular instruction packages that extend Autohand's AI agent with specialized workflows and domain expertise. Skills provide guidance and structured approaches for common development tasks. They do not grant tool permissions.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Quick Start](#quick-start)
+- [Adaptive Skills](#adaptive-skills)
 - [Skill Discovery](#skill-discovery)
 - [SKILL.md Format](#skillmd-format)
 - [Auto-Skill Generation](#auto-skill-generation)
@@ -23,9 +24,27 @@ Skills work like on-demand `AGENTS.md` files that can be activated for specific 
 - **Purpose statement** - What the skill does
 - **Usage examples** - Concrete prompts showing how to use it
 - **Workflow steps** - Actionable procedures for the agent
-- **Tool permissions** - Which tools the skill can use
+- **Tool requirements** - Which tools the workflow needs, subject to the session's permissions
 
 When activated, skills inject their instructions into the agent's context, providing specialized guidance for the task at hand.
+
+## Adaptive Skills
+
+Enable the experimental rollout with `autohand experiments enable adaptive_skills`, then restart. Its config key is `features.adaptiveSkills`, default `false`. This replaces the startup roster with a fixed discovery contract. The complete installed catalog remains available through the `skill` tool's `list`, `search`, and `info` operations; activation attaches full pinned instructions to task context. Use `$skill-name` for explicit invocation, or an exact discovered `skill://` reference to select a specific same-name origin. `/deep-research` reuses its bundled package through that loader.
+
+The visible `Loaded <name> · <source> · this task` status follows actual provider request submission. Its receipt identifies the task, session, request, package revision, and content digest. External adapters that can only attest a handoff report `supplied`. Activation, reading a file, or an older receipt does not establish loading for a new request; a submitted packet does not establish successful execution. Required resources are complete or loading reports the budget, pin, or authorization problem.
+
+Community discovery and approved installation remain available through `find_agent_skills`, `install_agent_skill`, and `/skills install`. `/skills search` searches the community registry, while the `skill` tool's `search` operation searches installed metadata. `/skills new` and `/skills-new` retain interactive local authoring.
+
+The bundled `$workflow-discovery` invoked alone opens a local `/discovery` preview. Its structured ranking contract is supplied by the discovery pipeline, so it does not require users to prepare internal evidence JSON.
+
+Automatic learning is off by default (`skills.learning.enabled: false`). `/skills learning status|on|off` controls that preference; `/skills learn [outcome-id]` requests an explicit draft. Eligible automatic drafts require configured independent acceptance checks and changed artifacts. Greetings, no-op work, clean exits, and activation counts are not verification. Drafts retain their source scope and revision; they do not replace upstream packages or implicitly enable team/public sharing.
+
+Inspect drafts with `/skills learning list` and `/skills inspect <candidate>`, validate with `/skills verify <candidate>`, and remove learned preference with `/skills rollback <candidate>`. `/skills exclude` prevents future learning/preference; `/skills forget` removes learning evidence and queued jobs while retaining package files. Preferred promotion requires a predeclared independent benefit evaluator supplied through the host API. The CLI has no built-in live held-out runner, and preference fails closed when that evaluator is unavailable.
+
+Remote decision features have separate provider, model, feature, background-call, and typed-text consent controls. Weka is limited to eligible authenticated Autohand AI Cloud execution and cannot be the main coding model. Using another provider cannot route Weka through stored Autohand credentials. Goal recovery restores a paused checkpoint with declared pins; `/goal resume` is an explicit user action.
+
+See [adaptive configuration and verification contracts](config-reference.md#adaptive-skills-rollout) for settings and commands. Character counts and local token estimates are separate from provider billing; this rollout makes no statistical task-quality or learned-transfer claim.
 
 ---
 
@@ -190,6 +209,31 @@ Detailed instructions for the AI agent...
 | `allowed-tools` | No | - | Space-delimited list of allowed tools |
 | `metadata` | No | - | Additional key-value metadata |
 
+### Required Resources and Dependencies
+
+An optional package-owned `skill.runtime.json` declares text resources and exact dependencies required by its instructions:
+
+```json
+{
+  "version": 1,
+  "requiredResources": ["references/checks.md"],
+  "dependencies": [
+    {
+      "authority": "autohand:builtin",
+      "packageId": "systematic-debugging",
+      "revision": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "resource": "SKILL.md"
+    }
+  ]
+}
+```
+
+Replace the example revision with the dependency's resolved `sha256:` digest of 64 lowercase hexadecimal characters. Resource paths are relative to their package and cannot escape it. The optional dependency `resource` selects an additional required resource. These declarations add package obligations; they do not expand authorization, tool access, or approval scope.
+
+The revision manifest covers the complete package, including referenced files, scripts, and binary assets. Required instruction resources must be UTF-8 text and are included in full. Other assets remain available in the materialized revision rather than being decoded into prompt text. Archived revisions materialize their exact stored resources, so a changed current file cannot silently replace a pinned script or asset. A workflow that requires script execution still uses ordinary command permissions and records the resulting execution separately.
+
+Malformed declarations, missing required resources, unavailable dependency pins, dependency cycles, package-size limits, and instruction-budget failures are visible loading errors. Required content is never dropped or truncated to make the packet fit.
+
 ---
 
 ## Auto-Skill Bootstrap
@@ -238,11 +282,11 @@ For manual discovery inside a session, use `/skills install`, `/learn`, `find_ag
 
 ## Skills in Sub-Agents and Teammates
 
-Skills are not limited to the lead session. Every delegated sub-agent and every teammate process receives the skills registry, sees declared skills in its system prompt, and can list, inspect, activate, and deactivate skills with the `skill` tool. Activation state is per agent, so activating a skill inside a reviewer does not change the lead's prompt. Agent definitions name their starting skills with a `skills:` frontmatter line; see [Skills per Agent](teams-with-agents.md#skills-per-agent).
+Skills are not limited to the lead session. Delegated sub-agents and teammate processes receive their authorized skills registry and can list, inspect, activate, and deactivate skills with the `skill` tool. Adaptive sessions discover metadata on demand and attach complete task packets. Activation state is per agent, so activating a skill inside a reviewer does not change the lead's prompt. Agent definitions name their starting skills with a `skills:` frontmatter line; see [Skills per Agent](teams-with-agents.md#skills-per-agent).
 
 ## Available Tools
 
-Skills can specify which tools they need via the `allowed-tools` field. Available tools by category:
+Skills can describe which tools they need via the `allowed-tools` field. Session tool policy and approvals still control access. Available tools by category:
 
 ### File Operations
 
@@ -322,11 +366,11 @@ memory tool report lesson candidates to the lead; their tool access is never
 expanded to persist memory. Worker output is not automatically stored, and
 `agent.autoMemory: false` keeps automatic lesson saving disabled.
 
-Skill activations are learned as project capability usage in the canonical
-memory event log. The derived project ranking distinguishes user and agent use,
-so frequently successful skills can inform later sessions without copying skill
-bodies into memory. Slash-command usage follows the same privacy-safe model,
-but commands are only suggested and never automatically executed.
+Skill activations are recorded as project capability usage in the canonical
+memory event log. The derived project ranking distinguishes user and agent use.
+Activation frequency does not establish verified success or benefit and cannot
+promote a learned revision. Slash-command usage follows the same privacy-safe
+model, but commands are only suggested and never automatically executed.
 
 ### Planning
 

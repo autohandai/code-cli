@@ -14,6 +14,7 @@ import type {
 } from "../types.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { normalizeProviderFinishReason } from "./finishReason.js";
+import { ApiError, classifyApiError, providerRetryDelay, waitForProviderRetry } from "./errors.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -94,9 +95,6 @@ export class CerebrasClient {
     this.defaultModel = model;
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 
   async complete(request: LLMRequest): Promise<LLMResponse> {
     const payload: Record<string, unknown> = {
@@ -170,8 +168,7 @@ export class CerebrasClient {
 
         // If we have more attempts left, wait before retrying
         if (attempt < this.maxRetries) {
-          const delay = this.retryDelay * Math.pow(2, attempt); // Exponential backoff
-          await this.sleep(delay);
+          await waitForProviderRetry(providerRetryDelay(lastError, this.retryDelay, attempt), request.signal);
         }
       }
     }
@@ -325,10 +322,12 @@ export class CerebrasClient {
       FRIENDLY_ERRORS[response.status] ||
       `Cerebras API error (${response.status}): ${errorDetail}`;
 
-    return new Error(friendlyMessage);
+    const classified = classifyApiError(response.status, errorDetail, response.headers);
+    return new ApiError(friendlyMessage, classified.code, classified.httpStatus, classified.retryable, classified.retryAfterMs);
   }
 
   private isNonRetryableError(error: Error): boolean {
+    if (error instanceof ApiError) return !error.retryable;
     const message = error.message.toLowerCase();
     // Don't retry auth errors or client errors (4xx except 429 rate limit)
     return (

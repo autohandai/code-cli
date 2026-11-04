@@ -37,16 +37,26 @@ describe('program status at actual prompt boundaries', () => {
     expect(reports[1]).toMatchObject({ kind: flow === 'question' ? 'question' : 'permission' });
   });
 
-  it('does not report blocked for automatically approved actions or questions', async () => {
+  it('does not report blocked for automatically approved permissions', async () => {
     const { status, host, reports } = harness();
     host.runtime.options = { yes: true };
     await status.run(async () => {
       await confirmAgentDangerousAction(host, 'Run a tool?');
       await requestAgentDirectoryAccess(host, '/other');
-      await executeAgentAskFollowupQuestion(host, 'Continue?');
       return true;
     });
     expect(reports.map(report => report.state)).toEqual(['working', 'done']);
+  });
+
+  it('reports the factual question wait under yes and resumes after the real answer', async () => {
+    const { status, host, reports } = harness();
+    host.runtime.options = { yes: true };
+    await status.run(async () => {
+      expect(await executeAgentAskFollowupQuestion(host, 'Which environment?')).toBe('<answer>Staging</answer>');
+      return true;
+    });
+    expect(reports.map(report => report.state)).toEqual(['working', 'blocked', 'working', 'done']);
+    expect(reports[1]).toMatchObject({ kind: 'question' });
   });
 
   it('unwinds the blocked state when a remote permission callback fails', async () => {

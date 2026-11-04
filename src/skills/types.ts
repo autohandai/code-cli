@@ -47,6 +47,7 @@ export interface SkillFrontmatter {
  * Full skill definition including parsed content and source information
  */
 export interface SkillDefinition extends SkillFrontmatter {
+  reference?: import('./SkillRuntime.js').SkillReference;
   /** Full markdown body content (after frontmatter) */
   body: string;
   /** Absolute path to the source SKILL.md file */
@@ -55,6 +56,23 @@ export interface SkillDefinition extends SkillFrontmatter {
   source: SkillSource;
   /** Whether this skill is currently active in the session */
   isActive: boolean;
+}
+
+export interface AdaptiveSkillSettings {
+  excluded?: string[];
+  maxInstructionTokens?: number;
+  learning?: import('./SkillLearningRuntime.js').SkillLearningSettings;
+  decisions?: {
+    enabled?: boolean;
+    provider?: string;
+    model?: string;
+    selection?: boolean;
+    preview?: boolean;
+    learning?: boolean;
+    compaction?: boolean;
+    remotePreview?: boolean;
+    timeoutMs?: number;
+  };
 }
 
 /**

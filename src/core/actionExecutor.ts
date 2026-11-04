@@ -96,6 +96,7 @@ import {
   buildToolPermissionContexts,
   DEFAULT_TOOL_DEFINITIONS,
   shouldPromptForToolPermission,
+  searchToolDefinitions,
   type ToolDefinition,
   type ToolParameter,
 } from './toolManager.js';
@@ -116,6 +117,7 @@ import type { ResourceCoordinatorClient } from '../session/peers/ResourceCoordin
 import type { PeerClient } from '../session/peers/PeerMessaging.js';
 import { executePeerTool, PEER_TOOL_NAMES, validatePeerToolAction } from './peerTools.js';
 import { GoalManager } from '../goals/GoalManager.js';
+import { goalManagerContinuityOptions } from '../goals/GoalContinuity.js';
 import { parseGoalStatus, type GoalMutationResult, type GoalState } from '../goals/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, isGoalFeatureEnabled } from '../goals/feature.js';
 import { initExperiment, runExperiment, logExperiment } from '../autoresearch/tools.js';
@@ -214,6 +216,7 @@ export interface ActionExecutorOptions {
     attemptId?: string;
     decision?: string;
   }) => Promise<void>;
+  onPrepareGoalActivation?: () => (() => void);
   onGoalActivated?: (goal: GoalState) => void | Promise<void>;
   /** Callback to fire after a goal objective has been created. */
   onGoalWrittenCompleted?: (context: {
@@ -453,6 +456,7 @@ export class ActionExecutor {
   private createGoalManager(): GoalManager {
     return new GoalManager(this.runtime.workspaceRoot, {
       sessionId: this.deps.getCurrentSessionId?.() ?? this.sessionId,
+      ...goalManagerContinuityOptions(this.runtime.goalContinuity),
     });
   }
 
@@ -1205,6 +1209,13 @@ export class ActionExecutor {
     }
 
     switch (action.type) {
+      case 'smart_context_cropper': {
+        if (!context?.handleSmartContextCrop) {
+          return this.recordToolFailure(capture, 'operational', 'Context cropping is unavailable for this worker.');
+        }
+        const { type, ...args } = action;
+        return context.handleSmartContextCrop({ tool: type, id: context.toolCallId, args });
+      }
       case 'inspect_work_map': {
         const map = await buildLocalWorkMap(this.runtime.config, {
           since: action.since ?? '30d',
@@ -1705,9 +1716,14 @@ export class ActionExecutor {
             return completed;
           }));
         }
-        const updated = await manager.updateGoal(input);
-        if (action.status === 'active' || updated.started) await this.activateGoal(updated);
-        return formatGoalToolResult(updated);
+        const current = input.status === 'active' ? (await manager.getSessionSnapshot()).goal : undefined;
+        const rollback = current?.checkpoint?.continuity ? this.deps.onPrepareGoalActivation?.() : undefined;
+        try {
+          const updated = await manager.updateGoal({ ...input, ...(current ? { expectedGoalId: current.goalId } : {}) });
+          if (!updated.ok) rollback?.();
+          if (action.status === 'active' || updated.started) await this.activateGoal(updated);
+          return formatGoalToolResult(updated);
+        } catch (error) { rollback?.(); throw error; }
       }
       case 'clear_goal': {
         const manager = this.createGoalManager();
@@ -1753,29 +1769,19 @@ export class ActionExecutor {
         if (!query) {
           throw new Error('tool_search requires a non-empty "query" argument.');
         }
-        const limit = Math.max(1, action.limit ?? 10);
-        const tools = await this.toolsRegistry.listTools(this.getRegisteredTools());
-        const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-        const scored = tools
-          .map((tool) => {
-            const haystack = `${tool.name} ${tool.description}`.toLowerCase();
-            let score = 0;
-            for (const term of terms) {
-              if (tool.name.toLowerCase() === term) {
-                score += 10;
-              } else if (tool.name.toLowerCase().includes(term)) {
-                score += 6;
-              }
-              if (haystack.includes(term)) {
-                score += 2;
-              }
-            }
-            return { tool, score };
-          })
-          .filter((entry) => entry.score > 0)
-          .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
-          .slice(0, limit)
-          .map((entry) => entry.tool);
+        const limit = Number.isFinite(action.limit) ? Math.max(1, Math.min(20, Math.floor(action.limit!))) : 10;
+        const registered = this.getRegisteredTools();
+        const definitions = new Map(registered.map((tool) => [tool.name as string, tool]));
+        const tools = await this.toolsRegistry.listTools(registered);
+        const scored = searchToolDefinitions(tools, query, limit)
+          .map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            source: tool.source,
+            parameters: definitions.get(tool.name)?.parameters
+              ?? this.toolsRegistry.getMetaTool(tool.name)?.parameters
+              ?? { type: 'object', properties: {} },
+          }));
 
         return JSON.stringify(scored, null, 2);
       }
@@ -3863,7 +3869,8 @@ export class ActionExecutor {
   }
 
   private async readBeforeMutationFailure(filePath: string): Promise<string | undefined> {
-    if (resolveStatefulReadMode(this.runtime.config) !== 'enforce') {
+    const mode = resolveStatefulReadMode(this.runtime.config);
+    if (mode === 'off') {
       return undefined;
     }
     const inspection = await this.files.inspectPath(filePath);
@@ -3871,16 +3878,19 @@ export class ActionExecutor {
       return undefined;
     }
     const current = await this.files.hashInspectedFile(inspection);
-    if (!current.revisionStable) {
-      return this.formatReadBeforeMutationFailure(filePath, 'changed');
-    }
     const authorization = await this.readSessionLedger.authorizeMutation(
       inspection.resolvedPath,
       current.sha256,
     );
-    return authorization.allowed
-      ? undefined
-      : this.formatReadBeforeMutationFailure(filePath, authorization.reason);
+    if (!current.revisionStable) {
+      return mode === 'enforce' || authorization.allowed || authorization.reason === 'changed'
+        ? this.formatReadBeforeMutationFailure(filePath, 'changed')
+        : undefined;
+    }
+    if (authorization.allowed || (mode !== 'enforce' && authorization.reason !== 'changed')) {
+      return undefined;
+    }
+    return this.formatReadBeforeMutationFailure(filePath, authorization.reason);
   }
 
   private async enforceReadBeforeMutation(

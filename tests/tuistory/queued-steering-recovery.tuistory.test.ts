@@ -91,11 +91,52 @@ async function persistedUserMessages(home: string): Promise<string[]> {
 }
 
 describe('queued steering and streamed tool-call recovery in the built CLI', () => {
+  it('cancels a long Retry-After recovery with Escape and accepts a new turn immediately', async () => {
+    const server = await createNativeFixture((index, response) => {
+      if (index === 1) {
+        response.writeHead(503, { 'content-type': 'application/json', 'retry-after': '120' });
+        response.end(JSON.stringify({ error: { message: 'Provider temporarily busy' } }));
+      } else jsonReply(response, 'RETRY_CANCEL_RECOVERED');
+    });
+    const state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      features: { autohand_inference: true, automaticSpecialists: false },
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture-only', baseUrl: server.baseUrl, model: 'fantail', backgroundCalls: false, maxConcurrentThreads: 1 },
+      agent: { autoMemory: false, sessionRetryLimit: 1, enableRequestQueue: true },
+      network: { maxRetries: 0, retryDelay: 0 }, ui,
+    } });
+    let session: Session | undefined;
+    try {
+      session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes'], {
+        autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 120, rows: 42,
+      });
+      await session.waitForText('❯', { timeout: 20_000 });
+      await session.type('Check the busy provider.');
+      await session.press('enter');
+      await session.waitForText('Attempting recovery (1/1) in 120s', { timeout: 15_000 });
+      expect(server.requests).toHaveLength(1);
+      await session.press('escape');
+      await session.type('Recover with a new turn.');
+      await session.press('enter');
+      await session.waitForText('RETRY_CANCEL_RECOVERED', { timeout: 10_000 });
+      expect(server.requests).toHaveLength(2);
+      expect(JSON.stringify(server.requests[1].messages)).toContain('Recover with a new turn.');
+      await exitInteractive(session);
+    } finally {
+      session?.close(); await session?.waitForExit(5000);
+      await server.close(); await state.cleanup();
+    }
+  }, 45_000);
+
   it.each([
     { sequence: '\x1b[13;5u', selected: false, fullScreen: false },
     { sequence: '\x1b[27;5;13~', selected: true, fullScreen: false },
     { sequence: '\x1b[13;5u', selected: false, fullScreen: true },
     { sequence: '\x1b[27;5;13~', selected: true, fullScreen: true },
+    { sequence: '\x13', selected: false, fullScreen: false },
+    { sequence: '\x13', selected: true, fullScreen: false },
+    { sequence: '\x13', selected: false, fullScreen: true },
+    { sequence: '\x13', selected: true, fullScreen: true },
   ])('steers queued input into the active request sequence: %j', async options => {
     let releaseFirst = () => {};
     const first = new Promise<void>(resolve => { releaseFirst = resolve; });
@@ -126,7 +167,7 @@ describe('queued steering and streamed tool-call recovery in the built CLI', () 
       }
       expect(pendingQueueSnapshot(screen)).toMatchInlineSnapshot(`
         [
-          "Queue · 1 pending · ctrl+enter steer next",
+          "Queue · 1 pending · ctrl+s or ctrl+enter steer next",
           "1. QUEUE_LATER: leave this for the following turn",
         ]
       `);

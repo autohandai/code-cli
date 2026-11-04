@@ -1,4 +1,5 @@
 import type { Session } from 'tuistory';
+import stripAnsi from 'strip-ansi';
 
 export async function sampleComposerCaret(session: Session, count = 12): Promise<boolean[]> {
   const samples: boolean[] = [];
@@ -22,4 +23,11 @@ export function composerCaretLine(session: Session): string {
   const [column, row] = data.cursor;
   const line = data.lines.slice(-data.rows)[row]?.spans.map((span) => span.text).join('') ?? '';
   return `${line.slice(0, column)}|${line.slice(column)}`.trimEnd();
+}
+
+export function hasElapsedWorkingStatus(output: string): boolean {
+  for (const match of stripAnsi(output).matchAll(/\((\d+)m (\d+)s\b[^)\r\n]*\)[^\r\n]*?\besc to cancel\b/gu)) {
+    if (Number(match[1]) * 60 + Number(match[2]) > 0) return true;
+  }
+  return false;
 }

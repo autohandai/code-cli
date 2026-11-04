@@ -39,7 +39,27 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type BuiltInProviderName = 'autohandai' | 'openrouter' | 'anthropic' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'sakana' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
+export const BUILT_IN_PROVIDER_NAMES = [
+  'autohandai',
+  'openrouter',
+  'anthropic',
+  'ollama',
+  'llamacpp',
+  'openai',
+  'mlx',
+  'llmgateway',
+  'azure',
+  'zai',
+  'sakana',
+  'vertexai',
+  'xai',
+  'cerebras',
+  'nvidia',
+  'deepseek',
+  'bedrock',
+] as const;
+
+export type BuiltInProviderName = (typeof BUILT_IN_PROVIDER_NAMES)[number];
 export type BlueprintLocalProviderName = 'blueprint-local';
 export type CustomProviderId = `custom:${string}`;
 export type ExtensionProviderId = `extension:${string}`;
@@ -64,6 +84,10 @@ export interface ProviderSettings {
   model: string;
   /** Exact model context window from provider metadata or user config. */
   contextWindow?: number;
+  /** Permit optional model calls for readiness, suggestions, titles, memory, and checkpoint advice. */
+  backgroundCalls?: boolean;
+  /** Cap session threads including the lead for this provider (1-64). */
+  maxConcurrentThreads?: number;
   /** Reasoning effort level for reasoning-capable models (e.g., OpenAI) */
   reasoningEffort?: ReasoningEffort;
 }
@@ -95,6 +119,8 @@ export interface CustomProviderModel {
 }
 
 export interface CustomProviderSettings extends ProviderSettings {
+  /** Explicit endpoint capability; requires features.promptCaching to attach a session cache key. */
+  supportsPromptCacheKey?: boolean;
   /** Stable config key and telemetry-safe provider identifier. */
   id: string;
   /** User-facing provider name shown in /model. */
@@ -509,8 +535,10 @@ export interface FeatureFlagSettings {
   awsBedrockProvider?: boolean;
   /** Enable persistent goals across CLI, tools, RPC, and ACP. Defaults to true. */
   slashGoal?: boolean;
-  /** Expose `run_tool_script`: one sandboxed script that calls tools and returns only its result (default: false). */
+  /** Use compact programmatic tool dispatch by default; false restores direct tool selection. */
   codeMode?: boolean;
+  /** Opt in to bounded local skill discovery and revision-pinned task instructions. */
+  adaptiveSkills?: boolean;
   /** Show real-time token usage (tokens up/down + context window occupancy) in the status line. */
   tokenUsageStatus?: boolean;
   /** Enable experimental provider-native prompt cache affinity. */
@@ -814,6 +842,8 @@ export interface SyncSettings {
   enabled?: boolean;
   /** Sync interval in milliseconds (default: 300000 = 5 min) */
   interval?: number;
+  /** Session history budget in MiB (default 100, maximum 1024). */
+  sessionsBudgetMb?: number;
   /** Glob patterns to exclude from sync */
   exclude?: string[];
   /** Include telemetry data in sync (requires user consent, default: false) */
@@ -1096,6 +1126,7 @@ export interface AutohandConfig {
   auth?: AuthSettings;
   /** Community skills settings */
   communitySkills?: CommunitySkillsSettings;
+  skills?: import('./skills/types.js').AdaptiveSkillSettings;
   /** Hooks system settings */
   hooks?: HooksSettings;
   /** Auto-mode settings */
@@ -1284,6 +1315,10 @@ export interface CLIOptions {
   config?: string;
   temperature?: number;
   resumeSessionId?: string;
+  /** SDK-only saved session reference for ordinary RPC startup. */
+  sdkSessionReference?: string;
+  /** SDK-only continuation of this workspace's most recent saved session. */
+  sdkResumeLast?: boolean;
   continue?: boolean;
   resume?: string | boolean;
   /** Keep this run out of session history: nothing saved, no auto-memory, no session sync. */
@@ -1482,6 +1517,8 @@ export interface LLMMessage {
   role: MessageRole;
   content: string;
   name?: string;
+  /** Replaceable runtime state; serialized at the request tail rather than inside the cached policy. */
+  runtimeContextKey?: string;
   /** Tool call ID for tool response messages (required when role is 'tool') */
   tool_call_id?: string;
   /** Tool calls made by the assistant (included when role is 'assistant' and model invoked tools) */
@@ -1931,7 +1968,7 @@ export type AgentAction =
   | { type: 'send_peer_message'; to: string; content: string; topic?: string; replyTo?: string }
   | { type: 'peer_messages'; after?: string; from?: string; replyTo?: string; messageId?: string; waitMs?: number }
   | ({ type: 'coordinate_resource' } & import('./session/peers/ResourceCoordinator.js').ResourceOperation)
-  | { type: 'skill'; command: 'list' | 'info' | 'activate' | 'deactivate'; name?: string }
+  | { type: 'skill'; command: 'list' | 'search' | 'info' | 'activate' | 'deactivate'; name?: string }
   | { type: 'sleep'; seconds: number; reason?: string }
   | { type: 'enter_worktree'; name?: string }
   | { type: 'exit_worktree'; keep?: boolean; discard_changes?: boolean }
@@ -2142,6 +2179,11 @@ export type ToolExecutionResult = {
 } & ToolActionOutcome;
 
 export interface ToolExecutionContext {
+  executeNestedToolCalls?: (
+    calls: ToolCallRequest[],
+    execute: () => Promise<ToolExecutionResult[]>,
+  ) => Promise<ToolExecutionResult[]>;
+  handleSmartContextCrop?: (call: ToolCallRequest) => Promise<string>;
   deferGoalCompletion?: (
     prepared: import('./goals/types.js').GoalMutationResult,
     commit: () => Promise<import('./goals/types.js').GoalMutationResult>,
@@ -2177,6 +2219,9 @@ export interface ToolOutputChunk {
 }
 
 export interface AgentRuntime {
+  goalContinuity?: import('./goals/GoalContinuity.js').GoalRuntimeContinuity;
+  skillTaskId?: string;
+  skillPolicyEpoch?: () => number;
   sessionGitSnapshot?: AutoCommitSnapshot | null;
   sessionGitSnapshotError?: string;
   sessionGitSnapshotFinalized?: boolean;
@@ -2217,7 +2262,8 @@ export interface AgentOutputEvent {
    * model's reply in `content` / `thought` while the completion is still in
    * flight; the whole reply still follows as `message` / `thinking`.
    */
-  type: 'message' | 'message_delta' | 'thinking' | 'thought_delta' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update' | 'peer_update' | 'resource_update' | 'program_status';
+  type: 'message' | 'message_delta' | 'thinking' | 'thought_delta' | 'tool_start' | 'tool_end' | 'error' | 'schedule_triggered' | 'file_modified' | 'team_update' | 'peer_update' | 'resource_update' | 'program_status' | 'skill_attachment';
+  receipt?: import('./skills/SkillRuntime.js').SkillAttachmentReceipt;
   programStatus?: import('./core/agent/AgentProgramStatus.js').ProgramStatusReport;
   peerEvent?: import('./session/peers/PeerProtocol.js').PeerEvent;
   resourceEvent?: import('./session/peers/PeerProtocol.js').PeerEvent;

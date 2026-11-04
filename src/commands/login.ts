@@ -3,6 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { formatSyncSkippedFiles } from '../sync/skipReport.js';
 import chalk from 'chalk';
 import { t } from '../i18n/index.js';
 import { safePrompt } from '../utils/prompt.js';
@@ -436,6 +437,7 @@ async function checkAndRestoreSyncData(
       console.log(chalk.gray('You can sync later with /sync.'));
     } else if (syncResult.success) {
       console.log(chalk.green(`Restored ${syncResult.downloaded} files from cloud.`));
+      for (const line of formatSyncSkippedFiles(syncResult.remoteSkipped, 'Cloud')) console.log(chalk.gray(line));
     } else {
       console.log(chalk.yellow(`Sync restore failed: ${syncResult.error}`));
       console.log(chalk.gray('You can try again later with /sync.'));
@@ -451,7 +453,8 @@ async function restoreMemorySyncData(
   memoryFiles: SyncFileEntry[],
 ): Promise<void> {
   try {
-    await syncService.forceDownloadPaths(memoryFiles.map((file) => file.path));
+    const result = await syncService.forceDownloadPaths(memoryFiles.map((file) => file.path));
+    for (const line of formatSyncSkippedFiles(result.remoteSkipped, 'Cloud')) console.log(chalk.gray(line));
   } catch {
     // Memory restore is automatic and should never block login.
   }

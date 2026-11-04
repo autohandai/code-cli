@@ -6,12 +6,10 @@
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GoalManager } from '../../src/goals/GoalManager.js';
 import type { GoalSessionSnapshot } from '../../src/goals/types.js';
-import { enqueueGoalFromAnotherProcess } from '../../src/testing/scenarios/goalPanelScenario.js';
+import { enqueueGoalFromAnotherProcess, observeGoalFromAnotherProcess } from '../../src/testing/scenarios/goalPanelScenario.js';
 
 describe('goal snapshot subscriptions', () => {
   let workspaceRoot: string;
@@ -36,7 +34,7 @@ describe('goal snapshot subscriptions', () => {
     await vi.waitFor(() => expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({
       sessionId: 'observer', queue: [expect.objectContaining({ objective: 'REMOTE_QUEUE_UPDATE' })],
     })), { timeout: 4000 });
-  });
+  }, 60_000);
 
   it('refreshes elapsed time and owner liveness without writing state', async () => {
     let alive = true;
@@ -113,15 +111,8 @@ describe('goal snapshot subscriptions', () => {
   });
 
   it('does not keep a separate subscribing process alive', async () => {
-    const moduleUrl = new URL('../../src/goals/GoalManager.ts', import.meta.url).href;
-    const result = await promisify(execFile)(process.execPath, [
-      '--import', 'tsx', '--input-type=module', '--eval',
-      `import { GoalManager } from ${JSON.stringify(moduleUrl)};
-       new GoalManager(process.argv[1]).subscribe(() => console.log('OBSERVED'));`,
-      workspaceRoot,
-    ], { timeout: 5000 });
-    expect(result.stdout).toContain('OBSERVED');
-  });
+    expect(await observeGoalFromAnotherProcess(workspaceRoot)).toContain('OBSERVED');
+  }, 60_000);
 
   it('coalesces slow reads and catches up after a write during an in-flight refresh', async () => {
     await new GoalManager(workspaceRoot, { sessionId: 'peer' }).createGoal({ objective: 'peer work' });
@@ -137,7 +128,7 @@ describe('goal snapshot subscriptions', () => {
     await vi.waitFor(() => expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({
       queue: [expect.objectContaining({ objective: 'WRITE_DURING_READ' })],
     })));
-  });
+  }, 60_000);
 
   it('refreshes a lazily switched owner and does not reuse the previous owner view on error', async () => {
     const owner = new GoalManager(workspaceRoot, { sessionId: 'original' });

@@ -1,3 +1,4 @@
+import type { GoalRuntimeContinuity } from '../goals/GoalContinuity.js';
 import type { UndoCommandContext } from '../commands/undo.js';
 /**
  * @license
@@ -37,8 +38,10 @@ import type { InteractionMode } from './agent/InteractionModeController.js';
 import type { AnnouncementManagerContract } from '../announcements/AnnouncementManager.js';
 import type { AccountEntitlement } from '../auth/AuthClient.js';
 import type { GoalEventData } from '../telemetry/types.js';
+import type { DecisionDispatcher } from '../decisions/index.js';
 
 export interface SlashCommandContext {
+    goalContinuity?: GoalRuntimeContinuity;
     listWorkspaceFiles?: () => Promise<void>;
     printGitDiff?: () => void;
     getLastTurn?: UndoCommandContext['getLastTurn'];
@@ -51,6 +54,7 @@ export interface SlashCommandContext {
     startNewSession?: () => Promise<unknown>;
     commandSignal?: AbortSignal;
     backgroundServicesEnabled?: boolean;
+    decisionDispatcher?: DecisionDispatcher;
     setComposerInput?: (text: string) => void;
     sessionManager: SessionManager;
     currentSession?: Session;
@@ -100,6 +104,7 @@ export interface SlashCommandContext {
     announcementManager?: AnnouncementManagerContract;
     /** Skills registry for /skills commands */
     skillsRegistry?: SkillsRegistry;
+    getSkillLearningContext?: () => Promise<import('../commands/skill-learning.js').SkillLearningCommandContext>;
     /** Meta-tools registry for /tools commands */
     toolsRegistry?: ToolsRegistry;
     /** Declarative extension lifecycle service for /extensions commands. */

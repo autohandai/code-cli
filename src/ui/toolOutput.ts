@@ -39,6 +39,8 @@ function boundExpandedOutput(content: string): string {
 
 function formatAskFollowupAnswer(content: string): string {
   const trimmed = content.trim();
+  const unansweredMatch = trimmed.match(/^<unanswered>([\s\S]*)<\/unanswered>$/);
+  if (unansweredMatch) return `Question unanswered: ${unansweredMatch[1].trim() || 'No response channel is available'}`;
   const answerMatch = trimmed.match(/^<answer>([\s\S]*)<\/answer>$/);
   const answer = (answerMatch?.[1] ?? trimmed).trim() || 'No answer provided';
   return `Answer: ${answer}`;

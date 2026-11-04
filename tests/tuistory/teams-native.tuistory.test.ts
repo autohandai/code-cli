@@ -174,7 +174,7 @@ describe('Autohand AI native team IPC inspector', () => {
     const parentRequests = requests.filter((payload) => payload.messages?.some((message) => typeof message.content === 'string' && message.content.startsWith('NATIVE_PARENT_FIXTURE')));
     expect(parentRequests.length).toBeGreaterThanOrEqual(4);
     expect(parentRequests.every((payload) => payload.model === 'moa')).toBe(true);
-    expect(parentRequests[0].tools).toEqual(expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'delegate_task' }) })]));
+    expect(parentRequests[0].tools).toEqual(expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: 'run_tool_script' }) })]));
     await exitInteractive(session);
     sessions.splice(sessions.indexOf(session), 1);
   }, 120_000);
