@@ -646,7 +646,7 @@ export class ClaudeImporter extends BaseImporter {
           await fse.copy(src, stagedPackage, { overwrite: false, errorOnExist: true });
           const published = await withFileLock(`${dest}.lock`, async () => {
             if (await fse.pathExists(dest)) return false;
-            await fse.move(stagedPackage, dest, { overwrite: false });
+            await fse.rename(stagedPackage, dest);
             return true;
           }, { waitTimeoutMs: 1_000 });
           if (published) success++;

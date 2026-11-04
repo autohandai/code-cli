@@ -40,7 +40,7 @@ vi.mock('fs-extra', () => ({
     writeFile: vi.fn().mockResolvedValue(undefined),
     copy: vi.fn().mockResolvedValue(undefined),
     mkdtemp: vi.fn(async (prefix: string) => prefix + "fixture"),
-    move: vi.fn().mockResolvedValue(undefined),
+    rename: vi.fn().mockResolvedValue(undefined),
     remove: vi.fn().mockResolvedValue(undefined),
     stat: vi.fn(),
     realpath: vi.fn(async (file: string) => file),
@@ -928,7 +928,7 @@ describe('ClaudeImporter', () => {
         const result = await importer.import(['skills']);
         expect(result.imported.get('skills')).toMatchObject({ success: 1, failed: 0, skipped: 0 });
         expect(fse.copy).toHaveBeenCalledWith(path.join(skillsDir, 'package'), expect.stringContaining('.autohand-skill-import-'), { overwrite: false, errorOnExist: true });
-        expect(fse.move).toHaveBeenCalledWith(expect.stringContaining('.autohand-skill-import-'), expect.stringContaining(path.join('skills', 'imported-claude', 'package')), { overwrite: false });
+        expect(fse.rename).toHaveBeenCalledWith(expect.stringContaining('.autohand-skill-import-'), expect.stringContaining(path.join('skills', 'imported-claude', 'package')));
       } finally { vi.unstubAllEnvs(); }
     });
 
@@ -940,12 +940,25 @@ describe('ClaudeImporter', () => {
       vi.mocked(fse.copy).mockRejectedValueOnce(new Error('Resource copy failed')).mockResolvedValue(undefined);
       const failed = await importer.import(['skills']);
       expect(failed.imported.get('skills')).toMatchObject({ success: 0, failed: 1 });
-      expect(fse.move).not.toHaveBeenCalled();
+      expect(fse.rename).not.toHaveBeenCalled();
       expect(fse.remove).toHaveBeenCalledOnce();
       const retried = await importer.import(['skills']);
       expect(retried.imported.get('skills')).toMatchObject({ success: 1, failed: 0 });
-      expect(fse.move).toHaveBeenCalledOnce();
+      expect(fse.rename).toHaveBeenCalledOnce();
       expect(fse.remove).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails closed when atomic package publication crosses a filesystem boundary', async () => {
+      const source = path.join(HOME, 'alternate-claude');
+      importer = new ClaudeImporter({ sourceHome: source });
+      vi.mocked(fse.pathExists).mockImplementation(async p => String(p) === source || String(p) === path.join(source, 'skills') || String(p).endsWith('SKILL.md'));
+      vi.mocked(fse.readdir).mockResolvedValue([{ name: 'package', isDirectory: () => true, isFile: () => false }] as never);
+      vi.mocked(fse.rename).mockRejectedValueOnce(Object.assign(new Error('Cross-device rename'), { code: 'EXDEV' }));
+      const result = await importer.import(['skills']);
+      expect(result.imported.get('skills')).toMatchObject({ success: 0, failed: 1 });
+      expect(fse.copy).toHaveBeenCalledOnce();
+      expect(fse.copy).toHaveBeenCalledWith(expect.any(String), expect.stringContaining('.autohand-skill-import-'), expect.any(Object));
+      expect(fse.remove).toHaveBeenCalledOnce();
     });
 
     it('does not overwrite an existing imported folder package', async () => {
