@@ -222,10 +222,12 @@ export async function createMockOllamaServer(models: string[]): Promise<MockOlla
   };
 }
 
-export async function createMockOpenRouterServer(responseContent: string, delayMs = 0): Promise<MockOpenRouterServer> {
-  const server = createServer((request, response) => {
+export async function createMockOpenRouterServer(responseContent: string, delayMs = 0, responseGate?: Promise<void>): Promise<MockOpenRouterServer> {
+  const server = createServer(async (request, response) => {
     if (request.url === '/chat/completions' && request.method === 'POST') {
       request.resume();
+      if (responseGate) await responseGate;
+      if (response.destroyed) return;
       setTimeout(() => {
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(JSON.stringify({

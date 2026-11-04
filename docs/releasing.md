@@ -35,6 +35,8 @@ The installer compatibility workflow uses a read-only GitHub token for alpha rel
 
 Linux validation jobs install ripgrep explicitly because backend-specific search tests require the real executable. Filesystem-walk fallback tests remain separate. MLX HTTP transport tests use a supported-runtime fixture while dedicated provider tests retain the unsupported-platform guard. Windows first-run checks assert the same approved orientation prompt as the Unix installer.
 
+Terminal regression tests should wait for observable screen or output conditions. For working-state repaint checks, hold the mock model response until the expected refresh appears, then release it and check completion and the retained draft. A fixed sleep does not establish that an elapsed-status update occurred on a shared runner.
+
 Before calling a release published, inspect the completed workflow, GitHub release assets and checksums, the npm version and dist-tag, and the Homebrew formula. Keep exact source, artifact, signing, native-runtime, and publication evidence separate. A draft release or an uploaded local package is not a published stable release.
 
 See [workflow details](../.github/workflows/README.md) for the platform matrix and component pins.
