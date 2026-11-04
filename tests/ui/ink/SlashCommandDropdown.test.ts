@@ -38,6 +38,18 @@ const mockSlashCommands: SlashCommand[] = [
 ];
 
 describe('SlashCommandDropdown utilities', () => {
+  it('keeps the selected command visible while scrolling beyond the first five options', () => {
+    const suggestions = Array.from({ length: 12 }, (_, index) => ({ command: `/command-${index}`, description: `Command ${index}` }));
+    const view = render(React.createElement(ThemeProvider, null,
+      React.createElement(SlashCommandDropdown, { visible: true, activeIndex: 8, suggestions })));
+    try {
+      const frame = stripAnsi(view.lastFrame() ?? '');
+      expect(frame).toContain('▸ /command-8');
+      expect(frame).not.toContain('/command-0');
+      expect(frame.split('\n').filter(line => /\/command-/u.test(line))).toHaveLength(5);
+    } finally { view.unmount(); }
+  });
+
   afterEach(() => {
     initTheme('dark');
   });
@@ -136,6 +148,11 @@ describe('SlashCommandDropdown utilities', () => {
   });
 
   describe('buildSlashSuggestions', () => {
+    it('retains every matching command for keyboard navigation by default', () => {
+      const commands = Array.from({ length: 12 }, (_, index) => ({ command: `/command-${index}`, description: `Command ${index}`, implemented: true }));
+      expect(buildSlashSuggestions('', commands)).toHaveLength(commands.length);
+      expect(buildSlashSuggestions('command', commands)).toHaveLength(commands.length);
+    });
     const fuzzySlashCommands: SlashCommand[] = [
       { command: '/clear', description: 'Clear screen', implemented: true },
       { command: '/formatters', description: 'List formatters', implemented: true },
@@ -214,6 +231,11 @@ describe('SlashCommandDropdown utilities', () => {
   });
 
   describe('buildSubcommandSuggestions', () => {
+    it('retains every matching subcommand for keyboard navigation by default', () => {
+      const commands = [{ command: '/skills', description: 'Skills', implemented: true,
+        subcommands: Array.from({ length: 8 }, (_, index) => ({ name: `option-${index}`, description: `Option ${index}` })) }];
+      expect(buildSubcommandSuggestions('/skills ', commands)).toHaveLength(8);
+    });
     const commandsWithRegisteredMultiword: SlashCommand[] = [
       ...mockSlashCommands,
       {

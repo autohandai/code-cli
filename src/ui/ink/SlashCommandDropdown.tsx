@@ -28,9 +28,10 @@ function SlashCommandDropdownComponent({ suggestions, activeIndex, visible }: Sl
   const { theme } = useTheme();
   const width = getPromptBlockWidth(useTerminalWindowSize().columns);
 
+  const startIndex = Math.max(0, Math.min(activeIndex - Math.floor(MAX_SUGGESTIONS / 2), suggestions.length - MAX_SUGGESTIONS));
   const displaySuggestions = useMemo(() =>
-    suggestions.slice(0, MAX_SUGGESTIONS),
-    [suggestions]
+    suggestions.slice(startIndex, startIndex + MAX_SUGGESTIONS),
+    [suggestions, startIndex]
   );
 
   if (!visible || displaySuggestions.length === 0) {
@@ -47,7 +48,7 @@ function SlashCommandDropdownComponent({ suggestions, activeIndex, visible }: Sl
   return (
     <Box flexDirection="column" marginTop={1}>
       {displaySuggestions.map((suggestion, index) => {
-        const isSelected = index === activeIndex;
+        const isSelected = index + startIndex === activeIndex;
         const pointer = isSelected ? '▸' : ' ';
         const cmd = truncateVisible(suggestion.command, commandWidth);
         const desc = suggestion.description ? truncateVisible(suggestion.description, descWidth) : '';
@@ -102,7 +103,7 @@ export function matchSlashCommand(text: string, cursorOffset: number): { seed: s
 export function buildSlashSuggestions(
   seed: string,
   slashCommands: SlashCommand[],
-  limit = MAX_SUGGESTIONS
+  limit = Number.POSITIVE_INFINITY
 ): SlashCommandSuggestion[] {
   const matches = getRankedSlashCommandMatches(seed, slashCommands)
     .slice(0, limit);
@@ -119,7 +120,7 @@ export function buildSlashSuggestions(
 export function buildSubcommandSuggestions(
   input: string,
   slashCommands: SlashCommand[],
-  limit = MAX_SUGGESTIONS
+  limit = Number.POSITIVE_INFINITY
 ): SlashCommandSuggestion[] | null {
   const trimmed = input.replace(/^\s+/, '');
   if (!trimmed.startsWith('/')) return null;

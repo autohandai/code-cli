@@ -3263,7 +3263,7 @@ Start directly in planning mode with `autohand --plan`, or generate a one-shot p
 
 `--plan` conflicts with `--yolo`, `--auto-mode`, and `--auto-commit`. It does not change the `--mode rpc|acp` transport selector.
 
-Autohand provides a rich set of slash commands for interactive use. Type `/` in the REPL to see suggestions.
+Type `/` in the REPL to browse commands with Up/Down. The menu scrolls through every available match and wraps at either end. Type more letters to filter the list, then use Tab to accept the highlighted command. The same navigation works for subcommands such as `/skills `.
 
 ### Session Management
 
