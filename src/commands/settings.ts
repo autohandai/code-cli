@@ -16,7 +16,7 @@ import { getTheme, initTheme, isThemeInitialized, listAvailableThemes, themedFgI
 import { getDefaultThemeName } from '../ui/theme/themes.js';
 import { showModal, showInput, showConfirm, showPassword, type ModalOption } from '../ui/ink/components/Modal.js';
 import { saveConfig } from '../config.js';
-import type { BuiltInProviderName, LoadedConfig } from '../types.js';
+import { BUILT_IN_PROVIDER_NAMES, type BuiltInProviderName, type LoadedConfig } from '../types.js';
 import { DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION, MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from '../core/agents/SessionThreadBudget.js';
 import { TRACE_CONSENT_VERSION } from '../integrations/ahtraces/consent.js';
 
@@ -98,23 +98,7 @@ const SETTING_KEY_ALIASES: Record<string, string> = {
   ui_verbs_activity: 'ui.activityVerbsEnabled',
 };
 
-const CONFIG_PROVIDER_NAMES: readonly BuiltInProviderName[] = [
-  'openrouter',
-  'anthropic',
-  'ollama',
-  'llamacpp',
-  'openai',
-  'mlx',
-  'llmgateway',
-  'azure',
-  'zai',
-  'vertexai',
-  'xai',
-  'cerebras',
-  'nvidia',
-  'deepseek',
-  'bedrock',
-];
+const CONFIG_PROVIDER_NAMES = BUILT_IN_PROVIDER_NAMES.filter(provider => provider !== 'autohandai');
 
 const PROVIDER_CONFIG_FIELD_ALIASES: Record<string, 'apiKey' | 'baseUrl' | 'model'> = {
   apiKey: 'apiKey',

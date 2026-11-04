@@ -39,7 +39,27 @@ type Primitive = string | number | boolean | null;
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
-export type BuiltInProviderName = 'autohandai' | 'openrouter' | 'anthropic' | 'ollama' | 'llamacpp' | 'openai' | 'mlx' | 'llmgateway' | 'azure' | 'zai' | 'sakana' | 'vertexai' | 'xai' | 'cerebras' | 'nvidia' | 'deepseek' | 'bedrock';
+export const BUILT_IN_PROVIDER_NAMES = [
+  'autohandai',
+  'openrouter',
+  'anthropic',
+  'ollama',
+  'llamacpp',
+  'openai',
+  'mlx',
+  'llmgateway',
+  'azure',
+  'zai',
+  'sakana',
+  'vertexai',
+  'xai',
+  'cerebras',
+  'nvidia',
+  'deepseek',
+  'bedrock',
+] as const;
+
+export type BuiltInProviderName = (typeof BUILT_IN_PROVIDER_NAMES)[number];
 export type BlueprintLocalProviderName = 'blueprint-local';
 export type CustomProviderId = `custom:${string}`;
 export type ExtensionProviderId = `extension:${string}`;
