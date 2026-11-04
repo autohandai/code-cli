@@ -3600,7 +3600,11 @@ export class ToolManager {
       || outcome.imageRefs.some(value => typeof value !== 'string' || !TOOL_IMAGE_REF.test(value)))) {
       throw new Error('Tool executor returned malformed runtime image references.');
     }
+    if (outcome.modelOutput !== undefined && typeof outcome.modelOutput !== 'string') {
+      throw new Error('Tool executor returned malformed model output.');
+    }
     const images = {
+      ...(outcome.modelOutput === undefined ? {} : { modelOutput: outcome.modelOutput }),
       ...(outcome.imagePaths === undefined ? {} : { imagePaths: [...outcome.imagePaths] }),
       ...(outcome.imageRefs === undefined ? {} : { imageRefs: [...outcome.imageRefs] }),
     };

@@ -30,7 +30,7 @@ export interface SyncConfig {
  * Default sync configuration
  */
 export const DEFAULT_SYNC_CONFIG: SyncConfig = {
-  enabled: true,
+  enabled: false,
   interval: 5 * 60 * 1000, // 5 minutes
   includeTelemetry: false,
   includeFeedback: false,

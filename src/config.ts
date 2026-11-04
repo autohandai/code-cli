@@ -1493,6 +1493,13 @@ function validateShellSettings(config: AutohandConfig, configPath: string): void
 
 function validateConfig(config: AutohandConfig, configPath: string): void {
   validateShellSettings(config, configPath);
+  if (config.tools !== undefined) {
+    if (!isPlainObject(config.tools)) throw new Error(`tools must be an object in ${configPath}`);
+    const limit = config.tools.maxCommandOutputChars;
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1024)) {
+      throw new Error(`tools.maxCommandOutputChars must be an integer of at least 1024 in ${configPath}`);
+    }
+  }
   if (config.traces !== undefined) {
     if (!isPlainObject(config.traces)) {
       throw new Error(`traces must be an object in ${configPath}`);

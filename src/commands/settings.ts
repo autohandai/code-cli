@@ -375,6 +375,13 @@ export function setConfigSetting(config: LoadedConfig, keyInput: string, rawValu
     return { key: 'provider', value: provider };
   }
 
+  if (key === 'tools.maxCommandOutputChars') {
+    const value = Number(rawValue);
+    if (!Number.isSafeInteger(value) || value < 1024) throw new Error('tools.maxCommandOutputChars must be an integer of at least 1024.');
+    config.tools = { ...config.tools, maxCommandOutputChars: value };
+    return { key, value };
+  }
+
   const providerConfigKey = normalizeProviderConfigKey(key);
   if (providerConfigKey) {
     const current = config[providerConfigKey.provider];

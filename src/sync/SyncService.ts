@@ -185,7 +185,7 @@ export class SyncService {
    * Start the background sync timer
    */
   start(): void {
-    if (this.started || this.stopped) return;
+    if (this.started || this.stopped || !this.config.enabled) return;
     this.started = true;
 
     // Run initial sync with proper error handling
@@ -210,11 +210,20 @@ export class SyncService {
    * Stop the background sync timer
    */
   stop(): void {
-    if (!this.stopped) {
-      this.stopped = true;
-      this.generation++;
-      this.operationController?.abort(new SyncOperationStoppedError());
-    }
+    this.stopped = true;
+    this.pause();
+  }
+
+  /** Pause immediately without making an explicit later opt-in impossible. */
+  setEnabled(enabled: boolean): void {
+    this.config.enabled = enabled;
+    if (enabled) this.start();
+    else this.pause();
+  }
+
+  private pause(): void {
+    this.generation++;
+    this.operationController?.abort(new SyncOperationStoppedError());
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;

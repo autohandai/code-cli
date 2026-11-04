@@ -48,6 +48,17 @@ function makeService() {
 }
 
 describe('CliRuntimeResourceOwner', () => {
+  it('owns an opted-out service without starting it, so /sync can enable it later', async () => {
+    const service = makeService(); const register = vi.fn();
+    const owner = new CliRuntimeResourceOwner<TestAuthUser, TestVersion>({ process: new TestProcess(), stopPing: vi.fn(), setSyncService: register, onSignal: vi.fn() });
+    owner.startBackgroundStartup({ resolveAuthAndVersion: async () => ({ authUser: { id: 'user' }, versionResult: null }),
+      onVersionResult: vi.fn(), shouldCreateSync: () => true, shouldStartSync: () => false, createSyncService: async () => service });
+    await vi.waitFor(() => expect(register).toHaveBeenCalledWith(service));
+    expect(service.start).not.toHaveBeenCalled();
+    await owner.shutdown();
+    expect(service.shutdown).toHaveBeenCalled();
+  });
+
   it('never starts background work when disabled by the launch policy', async () => {
     const stopPing = vi.fn();
     const startPing = vi.fn();

@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
+import { CommandModelOutput, resolveMaxCommandOutputChars } from '../utils/commandModelOutput.js';
+import { formatToolObservation } from './agent/AgentToolOutputRuntime.js';
 import { setBounded } from '../utils/bounded.js';
 import path from 'node:path';
 import fse from 'fs-extra';
@@ -176,6 +178,7 @@ export interface ActionExecutorOptions {
   projectManager?: ProjectManager;
   sessionId?: string;
   getCurrentSessionId?: () => string | undefined;
+  getCommandOutputDirectory?: () => string | undefined;
   onExploration?: (entry: ExplorationEvent) => void;
   toolsRegistry?: ToolsRegistry;
   metaToolService?: MetaToolService;
@@ -260,6 +263,7 @@ const READ_FILE_MAX_BYTES = 128 * 1024;
 const READ_FILE_MAX_LINE_CHARACTERS = 2_000;
 
 interface ToolOutcomeCapture {
+  commandOutput?: CommandModelOutput;
   failure?: ToolFailureOutcome;
   imagePaths?: string[];
 }
@@ -922,9 +926,19 @@ export class ActionExecutor {
     }
 
     const capture: ToolOutcomeCapture = {};
-    const withImages = (outcome: ToolActionOutcome): ToolActionOutcome => capture.imagePaths?.length
-      ? { ...outcome, imagePaths: capture.imagePaths }
-      : outcome;
+    if ((action.type === 'run_command' || action.type === 'shell') && !action.background && (action.type !== 'run_command' || !action.interactive)) {
+      capture.commandOutput = new CommandModelOutput(
+        resolveMaxCommandOutputChars(this.runtime.config.tools?.maxCommandOutputChars),
+        this.deps.getCommandOutputDirectory?.(),
+      );
+    }
+    const withImages = (outcome: ToolActionOutcome): ToolActionOutcome => {
+      if (capture.commandOutput) {
+        const modelOutput = capture.commandOutput.finish(formatToolObservation({ tool: action.type, ...outcome }));
+        outcome = { ...outcome, modelOutput };
+      }
+      return capture.imagePaths?.length ? { ...outcome, imagePaths: capture.imagePaths } : outcome;
+    };
     try {
       const output = await this.withToolActivity(
         action,
@@ -2016,10 +2030,12 @@ export class ActionExecutor {
               shell: true,
               signal: context?.signal,
               onStdout: (chunk) => {
+                capture?.commandOutput?.append(chunk);
                 emitOutput('stdout', chunk);
                 emitLiveOutput('stdout', chunk);
               },
               onStderr: (chunk) => {
+                capture?.commandOutput?.append(chunk);
                 emitOutput('stderr', chunk);
                 emitLiveOutput('stderr', chunk);
               },
@@ -2123,8 +2139,8 @@ export class ActionExecutor {
               cmdStr,
               this.runtime.workspaceRoot,
               {
-                onStdout: (chunk) => this.onLiveCommandOutput!(liveId, 'stdout', chunk),
-                onStderr: (chunk) => this.onLiveCommandOutput!(liveId, 'stderr', chunk),
+                onStdout: (chunk) => { capture?.commandOutput?.append(chunk); this.onLiveCommandOutput!(liveId, 'stdout', chunk); },
+                onStderr: (chunk) => { capture?.commandOutput?.append(chunk); this.onLiveCommandOutput!(liveId, 'stderr', chunk); },
                 preferPty: process.stdin.isTTY && process.stdout.isTTY,
                 columns: process.stdout.columns,
                 rows: process.stdout.rows,
@@ -2195,6 +2211,8 @@ export class ActionExecutor {
               shell: true,
               background: action.background,
               signal: context?.signal,
+              onStdout: chunk => capture?.commandOutput?.append(chunk),
+              onStderr: chunk => capture?.commandOutput?.append(chunk),
               ...(action.background ? {
                 onBackgroundExit: () => {
                   if (fallbackBackgroundRegistryId !== undefined) {
