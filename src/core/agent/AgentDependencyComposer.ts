@@ -1515,9 +1515,28 @@ export function initializeAgentDependencies(
               }),
             }, context?.signal);
           } else if (action.type === 'delegate_task') {
-            outcome = await host.delegator.delegateTaskForTool(action.agent_name, action.task, { signal: context?.signal });
+            const cached = host.specialistOrchestrator.turnResultForAgent(action.agent_name);
+            outcome = cached === undefined
+              ? await host.delegator.delegateTaskForTool(action.agent_name, action.task, { signal: context?.signal })
+              : cached;
           } else if (action.type === 'delegate_parallel') {
-            outcome = await host.delegator.delegateParallelForTool(action.tasks, { signal: context?.signal });
+            const cached: ToolActionOutcome[] = [];
+            const pending = action.tasks.filter(task => {
+              const result = host.specialistOrchestrator.turnResultForAgent(task.agent_name);
+              if (result === undefined) return true;
+              cached.push(result);
+              return false;
+            });
+            const freshOutcome: ToolActionOutcome = pending.length > 0
+              ? await host.delegator.delegateParallelForTool(pending, { signal: context?.signal })
+              : { success: true, output: '' };
+            if (cached.length > 0) {
+              const failure = [...cached, freshOutcome].find(result => !result.success);
+              const output = [...new Set([...cached.map(result => result.output), freshOutcome.output])].filter(Boolean).join('\n');
+              outcome = { ...(failure ?? freshOutcome), output };
+            } else {
+              outcome = freshOutcome;
+            }
           } else if (action.type === 'orchestrate_specialists') {
             result = await host.orchestrateSpecialistsFromTool(action.objective, action.requested_roles, context?.signal);
           } else if (action.type === 'install_specialist_roster') {

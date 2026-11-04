@@ -11,6 +11,13 @@ on:
       - main
       - alpha
       - beta
+      - 'cto/**'
+      - 'nikita/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ahtraces-component:

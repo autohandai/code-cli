@@ -5,6 +5,8 @@
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { minimatch } from 'minimatch';
+import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 
 const WORKFLOW_DIR = path.resolve(import.meta.dirname, '../../.github/workflows');
@@ -49,6 +51,23 @@ function hasFullHistoryCheckout(job: WorkflowJob): boolean {
  * release workflow kept failing because it runs the same suite from its own job.
  */
 describe('CI workflow checkout', () => {
+  it('runs managed branches through PR validation once and cancels superseded revisions', () => {
+    const workflow = parse(readFileSync(path.join(WORKFLOW_DIR, 'ci.yml'), 'utf8')) as {
+      on: { push: { 'branches-ignore': string[] }; pull_request: { branches: string[] }; workflow_dispatch?: unknown };
+      concurrency?: { group: string; 'cancel-in-progress': boolean };
+    };
+    const ignored = workflow.on.push['branches-ignore'];
+    for (const branch of ['cto/f0392-unattended-tool-approval-20261104', 'nikita/import-fixes']) {
+      expect(ignored.some(pattern => minimatch(branch, pattern)), branch).toBe(true);
+    }
+    expect(ignored.some(pattern => minimatch('contributor/feature', pattern))).toBe(false);
+    expect(workflow.on.pull_request.branches).toEqual(['main', 'alpha', 'beta']);
+    expect(workflow.on).toHaveProperty('workflow_dispatch');
+    expect(workflow.concurrency?.['cancel-in-progress']).toBe(true);
+    expect(workflow.concurrency?.group).toContain('github.event.pull_request.number');
+    expect(workflow.concurrency?.group).toContain('github.ref');
+  });
+
   it('offers an opt-in complete proof on a runner with full Git history', () => {
     const proof = readWorkflowJobs().find(job => job.workflow === 'full-proof.yml' && job.name === 'proof');
     expect(proof).toBeDefined();

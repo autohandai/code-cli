@@ -8,6 +8,8 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import * as computerUse from '../../../src/computer/autohandComputerUse.js';
+import { SpecialistOrchestrator } from '../../../src/core/agents/SpecialistOrchestrator.js';
+import type { AgentDelegator } from '../../../src/core/agents/AgentDelegator.js';
 import { GoalManager } from '../../../src/goals/GoalManager.js';
 import { InstructionRunner, type AgentInstructionHost } from '../../../src/core/agent/InstructionRunner.js';
 import { startDeepResearchRun } from '../../../src/deepResearch/session.js';
@@ -1254,6 +1256,19 @@ describe('incomplete turn status', () => {
   });
 });
 
+
+it('clears the previous specialist results when the next turn skips preparation', async () => {
+  const host = createHost();
+  const orchestrator = new SpecialistOrchestrator({} as AgentDelegator);
+  orchestrator.rememberAgentResults([{ agents: ['reviewer'], outcome: { success: true, output: 'Previous turn review' } }]);
+  expect(orchestrator.turnResultForAgent('reviewer')).toBeDefined();
+  Object.assign(host, { beginSpecialistTurn: () => orchestrator.beginTurn() });
+  host.runReactLoop = vi.fn(async () => {
+    expect(orchestrator.turnResultForAgent('reviewer')).toBeUndefined();
+    return { status: 'completed' };
+  });
+  expect(await new InstructionRunner(host).run('Inspect the next diff', { specialistPreparation: 'skip' })).toBe(true);
+});
 
 it('skips automatic specialists for an explicitly scoped native instruction', async () => {
   const host = createHost();

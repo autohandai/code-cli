@@ -154,6 +154,7 @@ export interface AgentInstructionHost {
   installPersistentConsoleBridge(): () => void;
   formatStatusLine(): { left: string; right?: string };
   printUserInstructionToChatLog(instruction: string): void;
+  beginSpecialistTurn?(): void;
   prepareSpecialists?(instruction: string): Promise<string | undefined>;
   setupPersistentInputInterruptHandlers(
     abortController: AbortController,
@@ -433,6 +434,7 @@ export class InstructionRunner {
     host.taskStartedAt = Date.now();
     host.beginTodoActivityTurn?.();
     host.toolManager?.resetUnattendedDenials?.();
+    host.beginSpecialistTurn?.();
     host.totalTokensUsed = 0;
     host.currentTurnActualUsage = {
       kind: 'unavailable',
