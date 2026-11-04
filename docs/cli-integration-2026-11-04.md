@@ -28,7 +28,7 @@ The initial live audit found 23 `cto/*` branches and one `nikita/*` branch. Eigh
 | `cto/f0396-provider-settings-20261104` | `57444de8` | [738](https://github.com/autohandai/code-cli/pull/738) | Configure every canonical third-party provider, including Sakana; retain account authentication for Autohand AI. |
 | `nikita/import-fixes` | `df4560d9` | — | Count folder skills, retain default discovery in place, copy alternate-profile packages without overwriting local packages, and preserve strict global dry-run handling. |
 
-A later GitHub API observation found F0392 at `d9e2d1ee6f1b28757288e8e32be329e41b7e27e8`. Its YOLO-expiry correction was inspected and applied with a regression test in the candidate. Fetching that newer Git object was blocked by DNS in the restricted environment, so ancestry coverage refers to the initial fetched tips; patch coverage of the newer correction is separate.
+A later GitHub API observation found F0392 at `d9e2d1ee6f1b28757288e8e32be329e41b7e27e8`. Its YOLO-expiry correction was inspected and applied with a regression test in the candidate. The newer object was initially unavailable because of DNS restrictions. The final fetch succeeded; its permission fix matched the already integrated implementation and regression coverage. The final merge records that upstream ancestry without changing runtime or test content. All 24 tips in the final refreshed audit are ancestors of the integrated history.
 
 No remote branches were deleted, no PRs merged, and no package published. The draft PRs retain their maintainer review requirements, including Matt's user-facing copy review. A local integration does not establish remote CI success.
 
@@ -69,7 +69,7 @@ The earlier panel/handoff/slash validation reported 40 terminal scenarios passin
 
 The runtime changes were committed before proof began. The later checkpoint scenario/driver-only correction was validated separately with tests, lint, typecheck, and the real terminal scenarios above. Full repository proof remains required before publication.
 
-An earlier normal fetch in the original checkout failed opening `.git/FETCH_HEAD` with `Operation not permitted`. The final normal local fetch and fast-forward succeeded, integrating the candidate through `9cd3f518` into the original checkout. All three pre-existing WIP files retained their exact SHA-256 digests. The candidate commits, documentation, validation logs, and an incremental Git bundle are retained under `.artifacts/remote-branch-review-20261104/` in the original project. Remote Git fetching later also failed DNS resolution; the audit's live GitHub API snapshots and fetched branch tips are recorded separately.
+An earlier normal fetch in the original checkout failed opening `.git/FETCH_HEAD` with `Operation not permitted`. The final normal local fetch and fast-forward succeeded, integrating the candidate through `9cd3f518` into the original checkout. All three pre-existing WIP files retained their exact SHA-256 digests. The candidate commits, documentation, validation logs, and an incremental Git bundle are retained under `.artifacts/remote-branch-review-20261104/` in the original project. Remote fetching also initially failed DNS resolution, then succeeded in the final refresh; the audit's live GitHub API snapshots and fetched branch tips are recorded separately.
 
 For recovery in a checkout that contains the required base commits, inspect local changes and fast-forward the saved history without resetting them:
 
