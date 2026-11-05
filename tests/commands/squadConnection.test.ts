@@ -16,7 +16,7 @@ function fixture() {
     if (path.includes('/transcript')) return { messages: [{ role: 'agent', body: 'Ready for review.' }], live: false };
     throw new Error(`Unexpected request ${path}`);
   });
-  return { connection: new SquadConnection({ bridge: { get, post, put: vi.fn() } }), post, get };
+  return { connection: new SquadConnection({ bridge: { get, post, put: vi.fn(), patch: vi.fn() } }), post, get };
 }
 
 describe('desktop Squad commands', () => {

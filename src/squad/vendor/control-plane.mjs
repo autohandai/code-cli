@@ -3,6 +3,8 @@
 // framings. No I/O here so scripts/check-control-plane.mjs can import it
 // without a bridge. The stdio entry point is mcp-server.mjs.
 
+import { MANAGEMENT_TOOLS } from './management.mjs';
+
 export const SERVER_NAME = 'autohand-squad-control-plane';
 export const SERVER_VERSION = '1';
 export const PROTOCOL_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18'];
@@ -260,12 +262,17 @@ export const TOOLS = [
   },
 ];
 
+TOOLS.push(...MANAGEMENT_TOOLS);
 export const TOOL_NAMES = TOOLS.map((tool) => tool.name);
 
 /** Small JSON-schema subset validator: types, enums, bounds, required, unknown fields. */
 export function validateArgs(schema, input, path = 'arguments') {
   const errors = [];
   const check = (node, value, at) => {
+    if (node.anyOf) {
+      if (!node.anyOf.some(branch => validateArgs(branch, value, at).length === 0)) errors.push(`${at} must match one of the allowed types`);
+      return;
+    }
     if (node.type === 'object') {
       if (value === undefined || value === null) value = {};
       if (typeof value !== 'object' || Array.isArray(value)) { errors.push(`${at} must be an object`); return; }

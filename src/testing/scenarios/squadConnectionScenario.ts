@@ -16,7 +16,7 @@ export async function selectSquadAgentAndMessage(session: Session): Promise<stri
 }
 
 export async function invokeBuiltinSquadMcp(session: Session): Promise<string> {
-  await session.type('List my Squad agents using the built-in MCP.');
+  await session.type("Read Kai's saved Squad profile using the built-in MCP.");
   await session.press('enter');
   return session.text({ timeout: 20000, waitFor: text => text.includes('BUILTIN_SQUAD_MCP_VERIFIED') });
 }

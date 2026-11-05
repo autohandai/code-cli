@@ -4,6 +4,7 @@
 
 ### Added
 
+- Squad MCP now also manages agent profiles, abilities, extra project folders, skills, group chats, channel membership and scheduled routines.
 - Squad is built in as an MCP connection. Select an agent in the running app with `/squad`, send it direct messages with `/message`, and read conversation history and delivery receipts. The connection also reads Squad artifacts and memories.
 
 ## 0.9.10 - 2026-11-04

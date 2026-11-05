@@ -20,13 +20,14 @@ it.each([false, true])('selects a desktop agent, sends and reads messages, and c
       modelCalls++;
       for (const tool of body.tools as Array<{ function?: { name?: string } }> || []) if (tool.function?.name) advertisedTools.add(tool.function.name);
       squadToolReply ||= (body.messages as Array<{ role?: string; content?: string }> || []).some(message => message.role === 'tool' && message.content?.includes('Kai'));
-      squadDiscovered ||= (body.messages as Array<{ role?: string; content?: string }> || []).some(message => message.role === 'tool' && message.content?.includes('mcp__autohand-squad__list_members'));
+      squadDiscovered ||= (body.messages as Array<{ role?: string; content?: string }> || []).some(message => message.role === 'tool' && message.content?.includes('mcp__autohand-squad__get_member_profile'));
       response.writeHead(200, { 'content-type': 'application/json' });
-      const tool = modelCalls === 1 ? { name: 'tool_search', arguments: JSON.stringify({ query: 'mcp__autohand-squad__list_members' }) } : { name: 'run_tool_script', arguments: JSON.stringify({ script: 'return await tools["mcp__autohand-squad__list_members"]({});', description: 'List Squad agents' }) };
+      const tool = modelCalls === 1 ? { name: 'tool_search', arguments: JSON.stringify({ query: 'mcp__autohand-squad__get_member_profile' }) } : { name: 'run_tool_script', arguments: JSON.stringify({ script: 'return await tools["mcp__autohand-squad__get_member_profile"]({member_id: "kai"});', description: 'List Squad agents' }) };
       response.end(JSON.stringify({ id: 'squad-fixture', created: 1, choices: [{ index: 0, finish_reason: modelCalls < 3 ? 'tool_calls' : 'stop', message: { role: 'assistant', content: modelCalls < 3 ? '' : 'BUILTIN_SQUAD_MCP_VERIFIED', ...(modelCalls < 3 ? { tool_calls: [{ id: `list-squad-${modelCalls}`, type: 'function', function: tool }] } : {}) } }], usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 } }));
       return;
     }
     if (url.pathname === '/api/status/snapshot') data = { members: [{ id: 'kai', name: 'Kai', role: 'Engineer' }] };
+    else if (url.pathname === '/api/control-plane/members/kai') data = { id: 'kai', name: 'Kai', personality: 'Precise', revision: 4 };
     else if (url.pathname === '/api/members/presence') data = { presence: { kai: { state: 'working' } } };
     else if (url.pathname === '/api/runs' || url.pathname === '/api/goals') data = [];
     else if (url.pathname === '/api/channels') data = { agentChannelAccess: { kai: { agent: { id: 'kai', name: 'Kai', role: 'Engineer', workspace: '/fixture/member-project' } } } };

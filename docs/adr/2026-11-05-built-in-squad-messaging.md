@@ -83,6 +83,32 @@ check against the installed Squad bridge recognized 18 members with presence;
 it sent zero messages and made no app lifecycle calls. Local evidence is in
 `.artifacts/squad-mcp/compiled-mcp-proof.json` and `live-readonly-proof.json`.
 
+## Expanded operator management
+
+The canonical Squad MCP now exposes 37 tools, adding saved member profiles,
+abilities, directory grants, skill selections, channel settings/membership,
+private groups and scheduled routines. Bundle its `management.mjs` alongside
+the runtime and schemas. This keeps tool behavior identical between Squad
+and CLI without introducing a second client implementation. Management
+requires an updated bridge; a missing member-management endpoint explains
+that the app must be updated, without starting an upgrade.
+
+Profile edits use canonical revisions. Folder grants and skill selections
+apply during later engine preparation, preserving current work. Groups reuse
+private channels and dispatch only explicit recipients; the bridge persists
+replies after client disconnect. Routines require a timezone and are disabled
+by default. Operator powers remain unavailable to managed Squad members.
+The rationale and controlled bridge evidence are in
+[Squad ADR-0181](https://github.com/autohandai/squad/blob/main/docs/adrs/ADR-0181-operator-mcp-manages-saved-members-and-work.md).
+
+Focused CLI validation: typecheck, 13 related unit tests, and the actual
+Tuistory flow in both standard and fullscreen layouts pass. The terminal
+scenario now discovers and calls the new `get_member_profile` tool through
+the ordinary MCP tool-search/permission path, against an isolated fixture.
+Both layouts also pass with the compiled macOS ARM64 executable. The
+required full `bun run proof` is running; its aggregate outcome is recorded
+separately from these focused passes.
+
 ## Consequences
 
 Desktop selection changes the unqualified `/message` recipient for this

@@ -11,6 +11,7 @@
 // computer lifecycle are never exposed; see docs/integration/control-plane.md.
 
 import { randomUUID } from 'node:crypto';
+import { createManagementTools } from './management.mjs';
 
 import {
   DEFAULT_WAIT_MS, MAX_MESSAGES, MAX_WAIT_MS, NOT_AVAILABLE_CODE, POLL_INTERVAL_MS, SERVER_NAME, SERVER_VERSION, TOOLS,
@@ -41,7 +42,8 @@ export function createBridgeClient(origin, { fetchImpl = fetch } = {}) {
     let envelope = null;
     try { envelope = await response.json(); } catch { envelope = null; }
     if (!envelope || envelope.success !== true) {
-      const message = envelope?.error || `${method} ${path} returned HTTP ${response.status}`;
+      const unavailableManagement = response.status === 404 && path.startsWith('/api/control-plane/') && envelope?.error !== 'Member not found.';
+      const message = unavailableManagement ? 'This Squad bridge does not support member management. Update Autohand Squad, then reconnect.' : envelope?.error || `${method} ${path} returned HTTP ${response.status}`;
       throw Object.assign(new Error(message), { status: response.status });
     }
     return envelope.data;
@@ -50,6 +52,7 @@ export function createBridgeClient(origin, { fetchImpl = fetch } = {}) {
     get: (path, options) => call(path, options),
     post: (path, body = {}) => call(path, { method: 'POST', body }),
     put: (path, body = {}) => call(path, { method: 'PUT', body }),
+    patch: (path, body = {}) => call(path, { method: 'PATCH', body }),
   };
 }
 
@@ -413,7 +416,7 @@ export function createTools(bridge) {
 
     async read_memory({ memory_id } = {}) { return bridge.get(`/api/memory/${encodeURIComponent(memory_id)}`); },
   };
-  return tools;
+  return { ...tools, ...createManagementTools(bridge, tools) };
 }
 
 // ---- JSON-RPC -------------------------------------------------------------

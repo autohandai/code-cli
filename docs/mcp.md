@@ -58,7 +58,7 @@ Top-level `autohand squad` still opens the app; `autohand squad agents`,
 work without an interactive agent session. Legacy standalone runtime actions
 remain available, including top-level `autohand squad queue`.
 
-The server exposes the existing channel/run/goal tools plus direct messaging
+The server exposes 37 tools: the existing channel/run/goal tools plus direct messaging
 (`message_member`, `get_conversation`, `get_member_queue`, `wait_for_message`),
 published artifacts (`list_artifacts`, `get_artifact`) and the knowledge
 library (`list_memories`, `read_memory`). These direct messages enter Squad's
@@ -67,6 +67,30 @@ permissions. A receipt means queued, not completed. Paused queues stay paused.
 Repeat `wait_for_message` using the same receipt after a timeout; inspect the
 queue before retrying a send whose response was lost. Creating members and
 changing their models still happens in the app.
+
+Member management is also built in: `get_member_profile`,
+`update_member_profile`, `set_member_abilities`, `add_member_directory`,
+`remove_member_directory`, `list_skills` and `set_member_skills`. Read the
+saved revision before editing; pass `expected_revision` to reject stale
+changes. Folder grants use the existing engine directory settings on later
+turns; current work continues. Skill selection is distinct from installation
+on the next turn. Policy edits preserve other settings and OS grants.
+
+Channels support `get_channel`, `update_channel`, `set_channel_members`,
+`list_channel_threads`, `create_group_chat` and `send_channel_message`.
+Groups are private channels with at least two existing members. Creation
+does not dispatch work. Sending dispatches only explicit `member_ids`;
+omitting them posts without starting agents. Replies persist on the bridge
+even after this CLI disconnects. Check per-recipient receipts before retrying.
+
+Use `list_routines`, `get_routine`, `preview_routine`, `create_routine`,
+`update_routine` and `run_routine` for scheduled work. Schedules require an
+explicit IANA timezone. New routines default to disabled; set `enabled:true`
+to schedule, `enabled:false` to pause, or run a saved routine manually.
+These tools require an updated Squad bridge; older versions return an
+upgrade instruction. The CLI never upgrades or restarts the app automatically.
+The [canonical tool reference](https://github.com/autohandai/squad/blob/main/docs/integration/control-plane.md)
+contains arguments and examples.
 
 Use a current Squad release for Library tools; older app versions may lack
 the artifact or knowledge-library endpoints. Updating the app does not

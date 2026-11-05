@@ -2,6 +2,7 @@ import type { Readable, Writable } from 'node:stream';
 export interface SquadBridge {
   get(path: string): Promise<unknown>;
   post(path: string, body?: Record<string, unknown>): Promise<unknown>;
+  patch(path: string, body?: Record<string, unknown>): Promise<unknown>;
   put(path: string, body?: Record<string, unknown>): Promise<unknown>;
 }
 export function createBridgeClient(origin: string, options?: { fetchImpl?: typeof fetch }): SquadBridge;
