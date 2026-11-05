@@ -3,6 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { SquadConnection } from '../squad/SquadConnection.js';
 import chalk from 'chalk';
 import terminalLink from 'terminal-link';
 import type { SlashCommand } from './slashCommands.js';
@@ -17,6 +18,7 @@ import {
 
 export class SlashCommandHandler {
   private readonly commandMap = new Map<string, SlashCommand>();
+  private readonly squadConnection = new SquadConnection();
 
   constructor(
     private readonly ctx: SlashCommandContext,
@@ -786,7 +788,8 @@ export class SlashCommandHandler {
         }
         case '/message': {
           const { message } = await import('../commands/message.js');
-          return message({ teamManager: this.ctx.teamManager }, args);
+          if (this.ctx.backgroundServicesEnabled === false && args[0] === 'squad') return 'Squad messaging requires background services. Use /message team <name> <text> for a local teammate.';
+          return message({ teamManager: this.ctx.teamManager, squadConnection: this.ctx.backgroundServicesEnabled === false ? undefined : this.squadConnection }, args);
         }
         case '/import': {
           const { execute } = await import('../commands/import.js');
@@ -863,6 +866,10 @@ export class SlashCommandHandler {
         case '/squad': {
           const { squad } = await import('../commands/squad.js');
           return squad({
+            squadConnection: this.squadConnection,
+            onBeforeModal: this.ctx.onBeforeModal,
+            onAfterModal: this.ctx.onAfterModal,
+            isNonInteractive: this.ctx.isNonInteractive,
             workspaceRoot: this.ctx.workspaceRoot,
             config: this.ctx.config,
             onToggleAgentRunsView: this.ctx.onToggleAgentRunsView,

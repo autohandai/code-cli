@@ -484,6 +484,7 @@ export function initializeAgentDependencies(
     runtime.config = applyNoDaemonConfig(runtime.config, runtime.options);
     host.runtimeMcpServers = resolveRuntimeMcpServers(runtime.config, {
       bare: runtime.options.bare || runtime.options.daemon === false,
+      offline: runtime.options.offline,
     });
     const initialProvider = runtime.config.provider ?? 'openrouter';
     const providerSettings = getProviderConfig(runtime.config, initialProvider);

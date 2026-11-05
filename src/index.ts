@@ -9,6 +9,8 @@ const requestsStructuredCommandOutput = process.argv.some((arg) => (
   || arg.startsWith('--output-format=')
 ));
 const requestsProtocolOutput = process.argv.some((arg, index, argv) => (
+  (arg === 'squad' && argv[index + 1] === 'mcp')
+  ||
   arg === '--answer-only'
   || arg === '--setup-only'
   || arg === '--acp'
@@ -364,6 +366,10 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
   configureRunConfigOverlay({ profile, sets: set, ...(sdkSettings ? { sdkSettings } : {}) });
 
   const commandPath = commandPathOf(actionCommand);
+  if (commandPath[0] === 'squad' && actionCommand.args[0] === 'mcp') {
+    if (daemon === false || bare) actionCommand.error(NO_DAEMON_MESSAGE);
+    return;
+  }
   if (daemon === false && (tracesOn || commandPath[0] === 'traces' || commandPath[0] === 'computer' || commandPath[0] === 'squad')) {
     actionCommand.error(NO_DAEMON_MESSAGE);
   }
@@ -991,10 +997,15 @@ program
 
 program
   .command('squad [args...]')
-  .description('Open the Autohand Squad app (installs it if missing); subcommands manage the standalone runtime')
+  .description('Open Squad, list agents, send messages, read history, or serve the built-in MCP')
   .allowUnknownOption(true)
   .allowExcessArguments(true)
   .action(async (args: string[] = []) => {
+    if (args[0] === 'mcp') {
+      try { await (await import('./squad/builtin.js')).runSquadMcp(args.slice(1)); }
+      catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
+      process.exit(0);
+    }
     const rootOptions = program.opts<CLIOptions>();
     const config = await loadConfig(rootOptions.config, process.cwd());
     const workspaceRoot = resolveWorkspaceRoot(config, rootOptions.path);
