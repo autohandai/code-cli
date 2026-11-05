@@ -25,6 +25,7 @@ Install tmux locally, build the CLI, and run:
 
 ```bash
 bun run build
+node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force: true });"
 bun run test:tuistory tests/tuistory/resize-flicker.tuistory.test.ts tests/tuistory/tmux-startup.tuistory.test.ts
 ```
 
@@ -36,4 +37,6 @@ The tmux suite launches a compiled CLI through a real tmux server on a unique te
 
 Native CI availability and per-application results must be assessed from that workflow's completed jobs. A passing PTY suite or a successful XCTest build alone does not prove a native application passed. Failures in app launch, accessibility access, or window resizing fail the native job and preserve its XCTest evidence; they are not silently converted to headless passes.
 
-The regular CI, full proof, and release terminal-test jobs install tmux explicitly. The native matrix runs for terminal-related pull requests and can also be invoked manually. It is separate from package publication.
+Development postinstall intentionally skips Zit downloads. The command above prepares its pinned, checksum-verified binary for the isolation tests; an existing installation can also be selected with `AUTOHAND_TUISTORY_ZIT_BIN`.
+
+The regular CI, full proof, and release terminal-test jobs install tmux and prepare Zit explicitly. The native matrix registers the installed applications with Launch Services and targets their actual application URLs. It runs for terminal-related pull requests and can also be invoked manually. It is separate from package publication.

@@ -8,7 +8,10 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
     throw new Error('Native terminal UI automation runs only on an isolated macOS GitHub Actions runner.');
   }
   const terminal = process.env.AUTOHAND_NATIVE_TERMINAL;
-  if (!terminal || !['iterm2', 'ghostty', 'cmux', 'vscode'].includes(terminal)) {
+  const applications: Record<string, string> = { iterm2: '/Applications/iTerm.app', ghostty: '/Applications/Ghostty.app',
+    cmux: '/Applications/cmux.app', vscode: '/Applications/Visual Studio Code.app' };
+  const application = terminal ? applications[terminal] : undefined;
+  if (!terminal || !application) {
     throw new Error('Choose iterm2, ghostty, cmux, or vscode for AUTOHAND_NATIVE_TERMINAL.');
   }
   const root = process.cwd();
@@ -41,7 +44,7 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
   execFileSync('/usr/bin/python3', ['-c',
     'import json,plistlib,sys\np=sys.argv[1]\nd=plistlib.load(open(p,"rb"))\ne=json.loads(sys.argv[2])\ntargets=[t for c in d.get("TestConfigurations",[]) for t in c["TestTargets"]] if "TestConfigurations" in d else [v for k,v in d.items() if k!="__xctestrun_metadata__" and isinstance(v,dict)]\nfor t in targets: t.setdefault("EnvironmentVariables",{}).update(e)\nplistlib.dump(d,open(p,"wb"))',
     testRun, JSON.stringify({ AUTOHAND_NATIVE_TERMINAL: terminal, AUTOHAND_NATIVE_FIXTURE: fixture,
-      AUTOHAND_NATIVE_PROFILE: profile, GITHUB_ACTIONS: 'true' })], { timeout: 10_000 });
+      AUTOHAND_NATIVE_PROFILE: profile, AUTOHAND_NATIVE_APPLICATION: application, GITHUB_ACTIONS: 'true' })], { timeout: 10_000 });
   const resultBundle = path.join(output, 'NativeTerminal.xcresult');
   return { resultBundle, args: ['test-without-building', '-xctestrun', testRun, '-destination', 'platform=macOS',
     '-parallel-testing-enabled', 'NO', '-resultBundlePath', resultBundle] };

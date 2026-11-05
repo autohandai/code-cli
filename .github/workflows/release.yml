@@ -249,7 +249,9 @@ jobs:
         run: bun run build
 
       - name: Run built terminal tests
-        run: bun run test:tuistory -- --shard=${{ matrix.shard }}/4
+        run: |
+          node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force:true });"
+          bun run test:tuistory -- --shard=${{ matrix.shard }}/4
 
   build:
     needs: [prepare, test, tuistory]

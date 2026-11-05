@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import { TmuxTestServer } from '../../src/testing/drivers/tmux-driver.js';
+import { resolveZitBin } from '../../src/utils/sessionZit.js';
 import { launchTuistorySession, exitInteractive } from '../../src/testing/drivers/tuistory-driver.js';
 import { outputViewport } from '../../src/testing/scenarios/compactOutputScenario.js';
 import { createTempAutohandHome, type TuistoryTempState } from './helpers/autohandTuistory.js';
@@ -49,7 +50,7 @@ describe.skipIf(process.platform === 'win32')('standalone tmux startup', () => {
         AUTOHAND_OFFLINE: '1', AUTOHAND_DISABLE_COMPUTER_USE: '1', AUTOHAND_SKIP_UPDATE_CHECK: '1',
         AUTOHAND_NO_BROWSER: '1', AUTOHAND_SKIP_PING: '1', AUTOHAND_DISABLE_AUTO_REPORT: '1',
         ZIT_HOME: path.join(state.autohandHome, 'zit-home'),
-        ZIT_BIN: process.env.AUTOHAND_TUISTORY_ZIT_BIN ?? path.resolve('vendor', 'zit', `${process.platform}-${process.arch}`, 'zit'),
+        ZIT_BIN: process.env.AUTOHAND_TUISTORY_ZIT_BIN ?? resolveZitBin(),
         AUTOHAND_TMUX_LAUNCHED: undefined },
     });
     await session.waitForText('Plan, search, build anything', { timeout: 20_000 });

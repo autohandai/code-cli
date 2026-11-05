@@ -43,4 +43,8 @@ jobs:
         run: bun run build
 
       - name: Run complete proof
-        run: bun run proof
+        # Git development checkouts intentionally skip Zit in postinstall.
+        # The terminal suite explicitly exercises the real binary.
+        run: |
+          node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force:true });"
+          bun run proof

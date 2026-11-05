@@ -41,6 +41,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y build-essential python3 ripgrep tmux
       - run: bun install --frozen-lockfile
       - run: bun run build
+      - name: Prepare pinned Zit for real isolation tests
+        run: node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force:true });"
       - name: Test compiled startup and rapid resize through real tmux
         run: bun run test:tuistory tests/tuistory/tmux-startup.tuistory.test.ts tests/tuistory/resize-flicker.tuistory.test.ts
 
@@ -72,11 +74,13 @@ jobs:
           set -euo pipefail
           brew install xcodegen ripgrep tmux
           case "$AUTOHAND_NATIVE_TERMINAL" in
-            iterm2) brew install --cask iterm2 ;;
-            ghostty) brew install --cask ghostty ;;
-            cmux) brew install --cask cmux ;;
-            vscode) brew install --cask visual-studio-code ;;
+            iterm2) brew install --cask iterm2; terminal_app=/Applications/iTerm.app ;;
+            ghostty) brew install --cask ghostty; terminal_app=/Applications/Ghostty.app ;;
+            cmux) brew install --cask cmux; terminal_app=/Applications/cmux.app ;;
+            vscode) brew install --cask visual-studio-code; terminal_app='/Applications/Visual Studio Code.app' ;;
           esac
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$terminal_app"
+          defaults read "$terminal_app/Contents/Info" CFBundleIdentifier
           mkdir -p .artifacts/native-terminal
           brew info --json=v2 --installed > .artifacts/native-terminal/installed-versions.json
           # These preferences belong only to this disposable Actions VM.

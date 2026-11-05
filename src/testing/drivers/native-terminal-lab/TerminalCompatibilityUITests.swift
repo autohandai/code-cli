@@ -10,16 +10,14 @@ final class TerminalCompatibilityUITests: XCTestCase {
     private func resizeScenario(streaming: Bool) throws {
         guard environment["GITHUB_ACTIONS"] == "true",
               let terminal = environment["AUTOHAND_NATIVE_TERMINAL"],
+              let application = environment["AUTOHAND_NATIVE_APPLICATION"],
               let fixture = environment["AUTOHAND_NATIVE_FIXTURE"],
               let profile = environment["AUTOHAND_NATIVE_PROFILE"] else {
             XCTFail("This scenario requires an isolated GitHub Actions macOS runner")
             return
         }
         continueAfterFailure = false
-        let bundles = ["iterm2": "com.googlecode.iterm2", "ghostty": "com.mitchellh.ghostty",
-                       "cmux": "com.cmuxterm.app", "vscode": "com.microsoft.VSCode"]
-        let bundle = try XCTUnwrap(bundles[terminal])
-        let app = XCUIApplication(bundleIdentifier: bundle)
+        let app = XCUIApplication(url: URL(fileURLWithPath: application))
         defer { app.terminate() }
         let command = "'" + fixture.replacingOccurrences(of: "'", with: "'\\''") + "'" + (streaming ? " --streaming" : "")
         if terminal == "ghostty" {
