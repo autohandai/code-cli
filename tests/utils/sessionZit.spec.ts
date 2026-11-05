@@ -291,10 +291,10 @@ describe('isSessionZitEnabled', () => {
 });
 
 describe('validateZitOption', () => {
-  it('rejects --zit with --worktree or --tmux', () => {
+  it('rejects --zit with --worktree and permits tmux as a terminal transport', () => {
     expect(validateZitOption({ zit: true, worktree: true })).toContain('--zit cannot be used with --worktree');
     expect(validateZitOption({ zit: 'x', worktree: 'feature' })).toContain('--zit cannot be used with --worktree');
-    expect(validateZitOption({ zit: true, tmux: true })).toContain('--zit cannot be used with --tmux');
+    expect(validateZitOption({ zit: true, tmux: true })).toBeNull();
   });
 
   it('rejects modes that do not run a CLI session', () => {

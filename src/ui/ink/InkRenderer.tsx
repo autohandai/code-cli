@@ -531,9 +531,8 @@ export class InkRenderer {
   };
 
   /**
-   * A resize may reflow the previous frame. Reset its origin in the same write
-   * as Ink's next paint, since its resize listener can defer the actual output.
-   * Clearing from a resize listener would publish an empty intermediate frame.
+   * Erase reflowed rows inside the next paint. iTerm2 archives erase-display
+   * operations into scrollback; cursor-addressed line erases avoid that behavior.
    */
   private resizeFramePrefix = (paint: string): string => {
     if (!this.fullScreenTranscript) return '';
@@ -541,7 +540,7 @@ export class InkRenderer {
     if (this.paintedViewport?.columns === viewport.columns && this.paintedViewport.rows === viewport.rows) return '';
     if (!stripAnsiCodes(paint).trim()) return '';
     this.paintedViewport = viewport;
-    return '\x1b[2J\x1b[H';
+    return Array.from({ length: Math.max(1, viewport.rows ?? 24) }, (_, row) => `\x1b[${row + 1};1H\x1b[2K`).join('') + '\x1b[H';
   };
 
   /**

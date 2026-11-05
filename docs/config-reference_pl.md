@@ -1912,7 +1912,7 @@ Te flagi zastępują ustawienia pliku konfiguracyjnego:
 | Flaga | Opis |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | __AH_KOD_20__ | Uruchom sesję w izolowanym drzewie roboczym git (opcjonalna nazwa drzewa roboczego/oddziału) |
-| __AH_KOD_21__ | Uruchom w dedykowanej sesji tmux (oznacza `--worktree`; nie można używać z `--no-worktree`) |
+| `--tmux` | Uruchom dedykowaną sesję tmux w bieżącym katalogu; obsługuje `--worktree` lub `--zit` |
 | __AH_KOD_24__ | Wyłącz izolację drzewa roboczego git w trybie automatycznym |
 | __AH_KOD_25__ | Automatyczne zatwierdzanie zmian po ukończeniu zadań |
 | __AH_KOD_26__ | Wygeneruj łatkę git bez stosowania zmian |

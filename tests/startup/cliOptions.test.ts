@@ -10,6 +10,7 @@ import {
   normalizePromptAndProtocolOptions,
   normalizeSearchEngineOption,
   normalizeTmuxWorktreeOption,
+  validateZitOption,
   type RootCliOptions,
 } from '../../src/startup/cliOptions.js';
 
@@ -145,15 +146,18 @@ describe('CLI option normalization', () => {
     expect(Reflect.has(options, 'chrome')).toBe(false);
   });
 
-  it('defaults tmux sessions to worktree isolation and rejects an explicit opt-out', () => {
-    const defaults: RootCliOptions = { tmux: true };
-    const conflict: RootCliOptions = { tmux: true, worktree: false };
+  it.each([undefined, false, true, 'chosen-worktree'])('keeps tmux independent of workspace isolation %s', worktree => {
+    const options: RootCliOptions = { tmux: true, worktree };
+    expect(normalizeTmuxWorktreeOption(options)).toBeNull();
+    expect(options.worktree).toBe(worktree);
+  });
 
-    expect(normalizeTmuxWorktreeOption(defaults)).toBeNull();
-    expect(defaults.worktree).toBe(true);
-    expect(normalizeTmuxWorktreeOption(conflict)).toBe(
-      '--tmux cannot be used with --no-worktree',
-    );
+  it('supports a Zit workspace inside tmux without implicitly adding a git worktree', () => {
+    const options: RootCliOptions = { tmux: true, zit: true };
+    expect(validateZitOption(options)).toBeNull();
+    expect(normalizeTmuxWorktreeOption(options)).toBeNull();
+    expect(options.worktree).toBeUndefined();
+    expect(validateZitOption(options)).toBeNull();
   });
 
   it('maps context compaction and canonicalizes search providers', () => {

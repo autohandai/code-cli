@@ -1931,7 +1931,7 @@ Tyto příznaky přepisují nastavení konfiguračního souboru:
 | Vlajka | Popis |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `--worktree [name]` | Spustit relaci v izolovaném pracovním stromu git (volitelný název pracovního stromu/větve) |
-| `--tmux` | Spustit ve vyhrazené relaci tmux (předpokládá `--worktree`; nelze použít s `--no-worktree`) |
+| `--tmux` | Spustit ve vyhrazené relaci tmux v aktuálním adresáři; podporuje `--worktree` nebo `--zit` |
 | `--no-worktree` | Zakázat izolaci pracovního stromu git v automatickém režimu |
 | `--auto-commit` | Automatické potvrzení změn po dokončení úkolů |
 | `--patch` | Vygenerujte git patch bez použití změn |

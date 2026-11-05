@@ -95,7 +95,7 @@ jobs:
 
       - name: Install build tools (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep tmux
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -131,7 +131,7 @@ jobs:
           bun-version-file: package.json
 
       - name: Install build tools (Ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep tmux
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -164,7 +164,7 @@ jobs:
 
       - name: Install build tools (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep tmux
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

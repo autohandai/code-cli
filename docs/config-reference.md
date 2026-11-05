@@ -3092,7 +3092,7 @@ When a noninteractive task needs approval, it stops at the first missing authori
 | Flag                          | Description                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--worktree [name]`           | Run session in isolated git worktree (optional worktree/branch name)                           |
-| `--tmux`                      | Launch in a dedicated tmux session (implies `--worktree`; cannot be used with `--no-worktree`) |
+| `--tmux` | Launch in a dedicated tmux session in the current directory; supports `--worktree` or `--zit` |
 | `--zit [intent]`              | Run session in a disposable Zit workspace, recorded as a Zit change on exit (optional intent)  |
 | `--no-worktree`               | Disable git worktree isolation in auto-mode                                                    |
 | `-c, --continue` | Resume the latest session in this folder, including with `-p`; start fresh when none exists |
@@ -3128,7 +3128,18 @@ What happens:
 
 Inspect the result with `zit status` and `zit show <change>`; accepting the change into the current state is left to you (`zit accept`).
 
-`--zit` cannot be combined with `--worktree`, `--tmux`, `--patch`, `--mode rpc|acp`, or a standalone `--auto-mode` loop.
+`--zit` cannot be combined with `--worktree`, `--patch`, `--mode rpc|acp`, or a standalone `--auto-mode` loop.
+
+`--tmux` uses the current directory by default, including directories outside Git repositories. Workspace isolation is optional:
+
+```bash
+autohand --tmux
+autohand --tmux --worktree my-task
+autohand --tmux --zit
+```
+
+Use `--worktree` or `--zit` when isolation is needed; `--tmux --no-worktree` is also supported.
+
 
 ### Auto-Mode
 

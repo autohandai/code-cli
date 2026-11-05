@@ -1913,7 +1913,7 @@ Questi flag sovrascrivono le impostazioni del file di configurazione:
 | Bandiera | Descrizione |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
 | `--worktree [name]` | Esegui la sessione in un albero di lavoro git isolato (nome albero di lavoro/ramo opzionale) |
-| `--tmux` | Avvia in una sessione tmux dedicata (implica `--worktree`; non può essere utilizzato con `--no-worktree`) |
+| `--tmux` | Avvia una sessione tmux dedicata nella directory corrente; supporta `--worktree` o `--zit` |
 | `--no-worktree` | Disabilita l'isolamento di git worktree in modalità automatica |
 | `--auto-commit` | Effettua il commit automatico delle modifiche dopo aver completato le attività |
 | `--patch` | Genera patch git senza applicare modifiche |

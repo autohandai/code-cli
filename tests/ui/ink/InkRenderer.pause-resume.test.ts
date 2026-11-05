@@ -527,10 +527,11 @@ describe('full-screen renderer lifecycle', () => {
         process.stdout.write('\x1b[?2026l');
         await Promise.resolve();
         const frame = writes.join('');
-        expect(frame).toContain('\x1b[2J\x1b[H');
+        expect(frame).not.toMatch(/\x1b\[(?:[023])?J/u);
+        expect(frame).toContain('\x1b[1;1H\x1b[2K');
         expect(writes).toHaveLength(1);
-        expect(writes[0]).toContain('\x1b[2J\x1b[Hresized frame');
-        expect(frame.indexOf('\x1b[?2026h')).toBeLessThan(frame.indexOf('\x1b[2J\x1b[H'));
+        expect(writes[0]).toContain('\x1b[Hresized frame');
+        expect(frame.indexOf('\x1b[?2026h')).toBeLessThan(frame.indexOf('\x1b[1;1H\x1b[2K'));
         expect(frame.indexOf('resized frame')).toBeLessThan(frame.lastIndexOf('\x1b[?2026l'));
         writes.length = 0;
         process.stdout.write('\x1b[?2026h');
