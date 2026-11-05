@@ -55,6 +55,26 @@ passes on unchanged `main`. Their implementation and timeout budgets were
 left intact. The serial run removes competing test workers without skipping
 coverage; terminal proof follows the rebuilt CLI in the same command.
 
+The complete terminal run executed 538 cases across 110 files: 532 passed,
+four failed and two were skipped, so the overall proof command exited 1.
+The orchestration-toggle and caret cases passed focused reruns; all 20
+resize cases passed a full-file rerun. Console connector synchronization
+failed again at `toolsListed > 0` on both this branch and an independently
+built, unchanged `9d10d59d` checkout. The baseline orchestration file (11
+cases), resize case and caret case passed. These results distinguish the
+existing reproducible connector issue from intermittent terminal failures;
+they do not establish that the full repository proof is green. No production
+orchestration, resize, caret or Console-sync code was changed here.
+
+The new Squad scenarios pass in both full-screen and standard layouts on
+the built Node CLI and compiled macOS ARM64 CLI. Their explicit fixture
+connection also passes with the terminal runner's default opt-out enabled.
+
+Unit and terminal runners disable automatic Squad connections by default,
+including scenarios that launch the CLI through a custom driver. The Squad
+fixture explicitly opts back in against its isolated HTTP server, so generic
+tests do not depend on an installed app or accidentally use its bridge.
+
 The same Tuistory flow also passes with the compiled macOS ARM64 binary
 (`AUTOHAND_SQUAD_TEST_BINARY`), including its automatic MCP self-launch.
 Compiled stdio initialization/tool listing succeeds while the bridge is
