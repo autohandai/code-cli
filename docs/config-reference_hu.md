@@ -1913,7 +1913,7 @@ Ezek a jelzők felülírják a konfigurációs fájl beállításait:
 | zászló | Leírás |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `--worktree [name]` | Munkamenet futtatása elszigetelt git-munkafán (opcionális munkafa/ág neve) |
-| `--tmux` | Indítás egy dedikált tmux munkamenetben (az `--worktree`-t jelenti; nem használható a `--no-worktree` kóddal) |
+| `--tmux` | Indítás dedikált tmux munkamenetben az aktuális könyvtárban; támogatja a `--worktree` és `--zit` kapcsolókat |
 | `--no-worktree` | A git munkafa elkülönítésének letiltása automatikus módban |
 | `--auto-commit` | Változások automatikus véglegesítése a feladatok elvégzése után |
 | `--patch` | Git javítás generálása változtatások alkalmazása nélkül |

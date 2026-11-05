@@ -49,6 +49,11 @@ describe('tmux utils', () => {
     expect(cmd).toContain("'fix user'\"'\"'s test'");
   });
 
+  it.each(['/$bunfs/root/autohand', 'B:/~BUN/root/autohand'])('relaunches a compiled executable instead of its virtual entrypoint %s', entrypoint => {
+    const command = buildTmuxLaunchCommand(['bun', entrypoint, '--tmux', '--zit'], '/opt/Autohand Code/autohand');
+    expect(command).toBe("AUTOHAND_TMUX_LAUNCHED=1 '/opt/Autohand Code/autohand' --zit");
+  });
+
   it('creates a stable tmux session name format', () => {
     const name = createTmuxSessionName();
     expect(name).toMatch(/^autohand-[a-z0-9]+-[a-f0-9]{4}$/);

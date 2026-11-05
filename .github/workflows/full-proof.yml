@@ -34,13 +34,16 @@ jobs:
           bun-version-file: package.json
 
       - name: Install native build tools
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep tmux
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Prepare built CLI fixtures
         run: bun run build
+
+      - name: Prepare pinned Zit for tmux isolation tests
+        run: node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force:true });"
 
       - name: Run complete proof
         run: bun run proof

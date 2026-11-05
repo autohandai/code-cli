@@ -1,0 +1,120 @@
+name: Terminal compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'src/ui/**'
+      - 'src/testing/**'
+      - 'src/utils/tmux.ts'
+      - 'src/startup/cliOptions.ts'
+      - 'src/index.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tests/tuistory/*terminal*'
+      - 'tests/tuistory/*resize*'
+      - 'tests/tuistory/*tmux*'
+      - '.github/workflows/terminal-compatibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terminal-compatibility-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tmux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: sudo apt-get update && sudo apt-get install -y build-essential python3 ripgrep tmux
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Prepare pinned Zit for real isolation tests
+        run: node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force:true });"
+      - name: Test compiled startup and rapid resize through real tmux
+        run: bun run test:tuistory tests/tuistory/tmux-startup.tuistory.test.ts tests/tuistory/resize-flicker.tuistory.test.ts
+
+  native-macos:
+    runs-on: macos-26
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        terminal: [iterm2, ghostty, cmux, vscode]
+    env:
+      AUTOHAND_NATIVE_TERMINAL: ${{ matrix.terminal }}
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      AUTOHAND_SKIP_COMPUTER_CONTROL_INSTALL: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Install native terminal and UI test build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install xcodegen ripgrep tmux
+          case "$AUTOHAND_NATIVE_TERMINAL" in
+            iterm2) brew install --cask iterm2; terminal_app=/Applications/iTerm.app ;;
+            ghostty) brew install --cask ghostty; terminal_app=/Applications/Ghostty.app ;;
+            cmux) brew install --cask cmux; terminal_app=/Applications/cmux.app ;;
+            vscode) brew install --cask visual-studio-code; terminal_app='/Applications/Visual Studio Code.app' ;;
+          esac
+          codesign --verify --deep --strict "$terminal_app"
+          spctl --assess --type execute --verbose "$terminal_app"
+          # Approve only the verified app on this disposable VM for unattended launch.
+          xattr -dr com.apple.quarantine "$terminal_app"
+          /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$terminal_app"
+          defaults read "$terminal_app/Contents/Info" CFBundleIdentifier
+          system_profiler SPDisplaysDataType
+          stat -f 'Console user: %Su' /dev/console
+          mkdir -p .artifacts/native-terminal
+          brew info --json=v2 --installed > .artifacts/native-terminal/installed-versions.json
+          # These preferences belong only to this disposable Actions VM.
+          defaults write com.googlecode.iterm2 EnableAPIServer -bool false
+          defaults write com.googlecode.iterm2 PromptOnQuit -bool false
+          defaults write com.googlecode.iterm2 SUEnableAutomaticChecks -bool false
+          defaults write com.googlecode.iterm2 NSQuitAlwaysKeepsWindows -bool false
+          defaults write com.googlecode.iterm2 ApplePersistenceIgnoreState -bool true
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Run Tuistory with native XCTest window and accessibility checks
+        run: bun run test:tuistory tests/tuistory/native-terminal.tuistory.test.ts
+      - name: Export native screen captures
+        if: always()
+        shell: bash
+        run: |
+          result=".artifacts/native-terminal/$AUTOHAND_NATIVE_TERMINAL/NativeTerminal.xcresult"
+          if [ -d "$result" ]; then
+            xcrun xcresulttool export attachments --path "$result" --output-path ".artifacts/native-terminal/$AUTOHAND_NATIVE_TERMINAL/screenshots"
+          fi
+      - name: Preserve native screenshots and XCTest results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-terminal-${{ matrix.terminal }}
+          path: |
+            .artifacts/native-terminal/installed-versions.json
+            .artifacts/native-terminal/**/*.xcresult
+            .artifacts/native-terminal/**/screenshots
+          if-no-files-found: error
+          retention-days: 7

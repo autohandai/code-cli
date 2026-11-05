@@ -1913,7 +1913,7 @@ Ces indicateurs remplacent les paramètres du fichier de configuration :
 | Drapeau | Descriptif |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `--worktree [name]` | Exécuter la session dans un arbre de travail git isolé (nom de l'arbre de travail/de la branche facultatif) |
-| `--tmux` | Lancer dans une session tmux dédiée (implique `--worktree` ; ne peut pas être utilisé avec `--no-worktree`) |
+| `--tmux` | Lancer une session tmux dédiée dans le répertoire courant ; accepte `--worktree` ou `--zit` |
 | `--no-worktree` | Désactiver l'isolation de git worktree en mode automatique |
 | `--auto-commit` | Valider automatiquement les modifications après avoir terminé les tâches |
 | `--patch` | Générer le patch git sans appliquer les modifications |

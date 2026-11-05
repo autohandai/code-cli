@@ -135,12 +135,6 @@ export function normalizeTmuxWorktreeOption(options: RootCliOptions): string | n
     return null;
   }
   if (options.daemon === false) return '--tmux cannot be used with --no-daemon';
-  if (options.worktree === false) {
-    return '--tmux cannot be used with --no-worktree';
-  }
-  if (options.worktree === undefined) {
-    options.worktree = true;
-  }
   return null;
 }
 
@@ -150,9 +144,6 @@ export function validateZitOption(options: RootCliOptions): string | null {
   }
   if (options.worktree !== undefined && options.worktree !== false) {
     return '--zit cannot be used with --worktree; choose one isolation mode';
-  }
-  if (isTmuxEnabled(options.tmux)) {
-    return '--zit cannot be used with --tmux (--tmux implies --worktree)';
   }
   if (options.patch) {
     return '--zit cannot be used with --patch';

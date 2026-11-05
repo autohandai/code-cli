@@ -480,7 +480,7 @@ program
   .addOption(new Option('--sdk-resume-last').hideHelp())
   .option('--teammate-mode <mode>', 'Legacy team display preference; live team view stays in the lead terminal')
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
-  .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')
+  .option('--tmux', 'Launch in a dedicated tmux session (supports --worktree or --zit)')
   .option('--zit [intent]', 'Run session in a disposable Zit workspace, recorded as a Zit change on exit (optional intent)')
   // Auto-mode options
   .option('--auto-mode [prompt]', 'Enable interactive auto-mode, or start a standalone loop with an inline task')
@@ -621,8 +621,6 @@ program
       process.exit(1);
     }
 
-    // tmux sessions are intended to run with isolated worktrees by default.
-    // Respect explicit --no-worktree (opts.worktree === false) as invalid with --tmux.
     const tmuxOptionError = normalizeTmuxWorktreeOption(opts);
     if (tmuxOptionError) {
       console.error(chalk.red(tmuxOptionError));

@@ -1913,7 +1913,7 @@ Bu bayraklar yapılandırma dosyası ayarlarını geçersiz kılar:
 | Bayrak | Açıklama |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--worktree [name]` | Oturumu yalıtılmış git çalışma ağacında çalıştırın (isteğe bağlı çalışma ağacı/dal adı) |
-| `--tmux` | Özel bir tmux oturumunda başlat (`--worktree` anlamına gelir; `--no-worktree` ile kullanılamaz) |
+| `--tmux` | Geçerli dizinde özel bir tmux oturumu başlat; `--worktree` veya `--zit` desteklenir |
 | `--no-worktree` | Otomatik modda git çalışma ağacı izolasyonunu devre dışı bırakın |
 | `--auto-commit` | Görevleri tamamladıktan sonra değişiklikleri otomatik olarak uygula |
 | `--patch` | Değişiklikleri uygulamadan git yamasını oluşturun |

@@ -20,7 +20,7 @@ export class PtyDriver {
   down(): void { this.type('\x1b[B'); }
   ctrlC(): void { this.type('\x03'); }
   resize(cols: number, rows: number): void { this.terminal?.resize(cols, rows); }
-  snapshot(): string { return stripVTControlCharacters(this.output); }
+  snapshot(): string { return stripVTControlCharacters(this.output.replaceAll('\x1b[1E', '\n')); }
   close(): void { this.terminal?.kill(); }
 
   async waitFor(expected: string | RegExp, timeout = 10_000, after = 0): Promise<void> {
