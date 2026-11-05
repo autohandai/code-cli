@@ -81,6 +81,8 @@ jobs:
           esac
           /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$terminal_app"
           defaults read "$terminal_app/Contents/Info" CFBundleIdentifier
+          system_profiler SPDisplaysDataType
+          stat -f 'Console user: %Su' /dev/console
           mkdir -p .artifacts/native-terminal
           brew info --json=v2 --installed > .artifacts/native-terminal/installed-versions.json
           # These preferences belong only to this disposable Actions VM.
@@ -93,6 +95,14 @@ jobs:
       - run: bun run build
       - name: Run Tuistory with native XCTest window and accessibility checks
         run: bun run test:tuistory tests/tuistory/native-terminal.tuistory.test.ts
+      - name: Export native screen captures
+        if: always()
+        shell: bash
+        run: |
+          result=".artifacts/native-terminal/$AUTOHAND_NATIVE_TERMINAL/NativeTerminal.xcresult"
+          if [ -d "$result" ]; then
+            xcrun xcresulttool export attachments --path "$result" --output-path ".artifacts/native-terminal/$AUTOHAND_NATIVE_TERMINAL/screenshots"
+          fi
       - name: Preserve native screenshots and XCTest results
         if: always()
         uses: actions/upload-artifact@v7
@@ -101,5 +111,6 @@ jobs:
           path: |
             .artifacts/native-terminal/installed-versions.json
             .artifacts/native-terminal/**/*.xcresult
+            .artifacts/native-terminal/**/screenshots
           if-no-files-found: error
           retention-days: 7

@@ -18,7 +18,7 @@ final class TerminalCompatibilityUITests: XCTestCase {
         }
         continueAfterFailure = false
         let app = XCUIApplication(url: URL(fileURLWithPath: application))
-        defer { app.terminate() }
+        defer { if app.state != .notRunning { app.terminate() } }
         let command = "'" + fixture.replacingOccurrences(of: "'", with: "'\\''") + "'" + (streaming ? " --streaming" : "")
         if terminal == "ghostty" {
             app.launchArguments = ["--config-default-files=false", "--confirm-close-surface=false", "-e", "/bin/sh", "-c", command]
@@ -26,7 +26,23 @@ final class TerminalCompatibilityUITests: XCTestCase {
             app.launchArguments = ["--user-data-dir", profile, "--extensions-dir", profile + "/extensions", "--disable-extensions",
                                    "--disable-workspace-trust", "--skip-welcome", "--skip-release-notes", "--new-window"]
         }
-        app.launch()
+        let launch = expectation(description: "Launch the installed terminal through macOS")
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.arguments = app.launchArguments
+        configuration.environment = app.launchEnvironment
+        configuration.createsNewApplicationInstance = true
+        var launchError: Error?
+        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: application), configuration: configuration) { _, error in
+            launchError = error
+            launch.fulfill()
+        }
+        wait(for: [launch], timeout: 30)
+        let desktop = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        desktop.name = "\(terminal)-launch"
+        desktop.lifetime = .keepAlways
+        add(desktop)
+        XCTAssertNil(launchError)
+        app.activate()
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 30), app.debugDescription)
         if terminal != "ghostty" {
