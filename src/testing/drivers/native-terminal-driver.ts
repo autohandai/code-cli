@@ -25,6 +25,7 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
   await mkdir(path.join(profile, 'User'), { recursive: true });
   await writeFile(path.join(profile, 'User', 'settings.json'), JSON.stringify({
     'editor.accessibilitySupport': 'on', 'workbench.startupEditor': 'none', 'window.restoreWindows': 'none',
+    'workbench.panel.opensMaximized': 'always',
     'update.mode': 'none', 'security.workspace.trust.enabled': false,
     'terminal.integrated.enablePersistentSessions': false, 'terminal.integrated.scrollback': 5000,
   }));

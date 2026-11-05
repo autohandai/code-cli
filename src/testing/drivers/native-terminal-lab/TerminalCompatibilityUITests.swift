@@ -22,7 +22,7 @@ final class TerminalCompatibilityUITests: XCTestCase {
         defer { if app.state != .notRunning { app.terminate() } }
         let command = "'" + fixture.replacingOccurrences(of: "'", with: "'\\''") + "'" + (streaming ? " --streaming" : "")
         if terminal == "ghostty" {
-            app.launchArguments = ["--config-default-files=false", "--confirm-close-surface=false", "-e", "/bin/sh", "-c", command]
+            app.launchArguments = ["--config-default-files=false", "--confirm-close-surface=false"]
         } else if terminal == "vscode" {
             app.launchArguments = ["--user-data-dir", profile, "--extensions-dir", profile + "/extensions", "--disable-extensions",
                                    "--disable-workspace-trust", "--skip-welcome", "--skip-release-notes", "--new-window"]
@@ -46,15 +46,30 @@ final class TerminalCompatibilityUITests: XCTestCase {
         app.activate()
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 30), app.debugDescription)
-        if terminal != "ghostty" {
-            if terminal == "vscode" { app.typeKey("`", modifierFlags: .control) }
-            let terminalView = app.textViews.firstMatch
-            XCTAssertTrue(terminalView.waitForExistence(timeout: 20), app.debugDescription)
-            app.typeText(command + "\n")
+        if terminal == "vscode" { app.typeKey("`", modifierFlags: .control) }
+        let terminalView = app.textViews.firstMatch
+        XCTAssertTrue(terminalView.waitForExistence(timeout: 20), app.debugDescription)
+        NSPasteboard.general.clearContents()
+        XCTAssertTrue(NSPasteboard.general.writeObjects([command as NSString]))
+        app.typeKey("v", modifierFlags: .command)
+        app.typeKey(.return, modifierFlags: [])
+        var startupValue = ""
+        let ready = NSPredicate { _, _ in
+            startupValue = self.terminalValue(app)
+            return startupValue.contains("RESIZE_HISTORY retained text")
         }
-        let ready = NSPredicate { _, _ in self.terminalValue(app).contains("RESIZE_HISTORY retained text") }
-        expectation(for: ready, evaluatedWith: app)
-        waitForExpectations(timeout: 30)
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: app)], timeout: 30) == .completed else {
+            let text = XCTAttachment(string: String(startupValue.suffix(16_000)))
+            text.name = "\(terminal)-startup-terminal"
+            text.lifetime = .keepAlways
+            add(text)
+            let screen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            screen.name = "\(terminal)-startup-screen"
+            screen.lifetime = .keepAlways
+            add(screen)
+            XCTFail("The native terminal did not display the fixture history marker")
+            return
+        }
         for (index, delta) in [CGVector(dx: -160, dy: -100), CGVector(dx: 240, dy: 160),
                                CGVector(dx: -200, dy: -120), CGVector(dx: 160, dy: 100)].enumerated() {
             let frame = window.frame
@@ -79,7 +94,7 @@ final class TerminalCompatibilityUITests: XCTestCase {
         }
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey(.leftArrow, modifierFlags: [])
-        app.typeText("X")
+        app.typeKey("x", modifierFlags: .shift)
         let edited = NSPredicate { _, _ in self.terminalValue(app).contains("taXil") }
         expectation(for: edited, evaluatedWith: app)
         waitForExpectations(timeout: 10)
