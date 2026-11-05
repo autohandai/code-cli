@@ -77,8 +77,8 @@ tests do not depend on an installed app or accidentally use its bridge.
 
 The same Tuistory flow also passes with the compiled macOS ARM64 binary
 (`AUTOHAND_SQUAD_TEST_BINARY`), including its automatic MCP self-launch.
-Compiled stdio initialization/tool listing succeeds while the bridge is
-offline with protocol-only stdout and 18 tools. A separate read-only roster
+Before the management expansion, compiled stdio initialization/tool listing
+succeeded offline with protocol-only stdout and 18 tools. A separate read-only roster
 check against the installed Squad bridge recognized 18 members with presence;
 it sent zero messages and made no app lifecycle calls. Local evidence is in
 `.artifacts/squad-mcp/compiled-mcp-proof.json` and `live-readonly-proof.json`.
@@ -105,9 +105,23 @@ Focused CLI validation: typecheck, 13 related unit tests, and the actual
 Tuistory flow in both standard and fullscreen layouts pass. The terminal
 scenario now discovers and calls the new `get_member_profile` tool through
 the ordinary MCP tool-search/permission path, against an isolated fixture.
-Both layouts also pass with the compiled macOS ARM64 executable. The
-required full `bun run proof` is running; its aggregate outcome is recorded
-separately from these focused passes.
+Both layouts also pass with the compiled macOS ARM64 executable. Its offline
+stdio smoke now lists all 37 tools with protocol-only stdout. The
+required full `AUTOHAND_TEST_WORKERS=1 AUTOHAND_TUISTORY_WORKERS=2 bun run proof`
+completed: lint/typecheck and all unit files passed (965 files; 13,787 tests,
+80 skipped). Terminal results were 108 passing files and two failing files
+(527 passed tests, nine failed, two skipped). Console connector sync failed
+at `toolsListed > 0`, previously reproduced on the unchanged base. The
+extension file had one nonzero process exit and seven explicit `ENOSPC`
+fixture-creation failures. This is not a green local aggregate result.
+
+All 24 reported CI checks on implementation commit `3478d59a` passed,
+including the four terminal shards and Windows terminal checks; the optional
+manual `proof` job was skipped. Local aggregate evidence is in
+`.artifacts/squad-mcp/management-proof.log`. After removing an obsolete generated binary, the focused extension file
+passed all 12 tests. The full local aggregate remains failed; this rerun does
+not replace it. These results do not claim a published CLI or installed
+Squad upgrade.
 
 ## Consequences
 

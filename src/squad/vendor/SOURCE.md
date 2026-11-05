@@ -2,7 +2,7 @@
 
 Canonical repository: https://github.com/autohandai/squad
 
-Revision: `e609c417c5d17a0496b1d34dd9a0ed1e8274ff53`
+Revision: `4056752878c9319ed31f5ba05466254dfcde5d40`
 
 `control-plane.mjs`, `runtime.mjs` and `management.mjs` are unchanged copies of
 `server/control-plane/` at that revision, under the accompanying MIT license.
