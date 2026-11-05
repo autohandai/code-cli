@@ -42,9 +42,8 @@ jobs:
       - name: Prepare built CLI fixtures
         run: bun run build
 
+      - name: Prepare pinned Zit for tmux isolation tests
+        run: node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force:true });"
+
       - name: Run complete proof
-        # Git development checkouts intentionally skip Zit in postinstall.
-        # The terminal suite explicitly exercises the real binary.
-        run: |
-          node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force:true });"
-          bun run proof
+        run: bun run proof

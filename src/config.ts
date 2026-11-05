@@ -2196,13 +2196,13 @@ export async function saveValidatedAuth(config: LoadedConfig, validatedToken: st
     if (config.auth) persisted.auth = config.auth;
     else delete persisted.auth;
     await writeConfigData(config.configPath, persisted as Record<string, unknown>, {}, writePath);
-  });
+  }, { waitTimeoutMs: 5_000 });
 }
 
 export async function saveConfig(config: LoadedConfig, options: SaveConfigOptions = {}): Promise<void> {
   const writePath = await resolveConfigWritePath(config.configPath);
   await fs.ensureDir(path.dirname(writePath));
-  await withFileLock(`${writePath}.lock`, () => saveConfigSnapshot(config, options, writePath));
+  await withFileLock(`${writePath}.lock`, () => saveConfigSnapshot(config, options, writePath), { waitTimeoutMs: 5_000 });
 }
 
 async function saveConfigSnapshot(

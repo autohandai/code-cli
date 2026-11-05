@@ -4,9 +4,10 @@ import XCTest
 final class TerminalCompatibilityUITests: XCTestCase {
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
 
-    func testIdleResize() throws { try resizeScenario(streaming: false) }
-    func testStreamingResize() throws { try resizeScenario(streaming: true) }
+    @MainActor func testIdleResize() throws { try resizeScenario(streaming: false) }
+    @MainActor func testStreamingResize() throws { try resizeScenario(streaming: true) }
 
+    @MainActor
     private func resizeScenario(streaming: Bool) throws {
         guard environment["GITHUB_ACTIONS"] == "true",
               let terminal = environment["AUTOHAND_NATIVE_TERMINAL"],

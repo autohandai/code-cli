@@ -248,10 +248,11 @@ jobs:
       - name: Build CLI for terminal tests
         run: bun run build
 
+      - name: Prepare pinned Zit for tmux isolation tests
+        run: node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force:true });"
+
       - name: Run built terminal tests
-        run: |
-          node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force:true });"
-          bun run test:tuistory -- --shard=${{ matrix.shard }}/4
+        run: bun run test:tuistory -- --shard=${{ matrix.shard }}/4
 
   build:
     needs: [prepare, test, tuistory]

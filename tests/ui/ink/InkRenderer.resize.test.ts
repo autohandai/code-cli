@@ -30,6 +30,7 @@ vi.mock('ink', () => {
     Transform: (() => null) as any,
     measureElement: vi.fn(),
   };
+
 });
 
 // Mock safeSetRawMode to actually call setRawMode so our spy tracks it
@@ -288,6 +289,41 @@ describe('terminal resize painting', () => {
         for (let row = 1; row <= 24; row++) {
           expect(writes.join('')).toContain(`\x1b[${row};1H\x1b[2K`);
         }
+      } finally { await renderer.stop(); }
+    });
+  });
+
+  it.each([true, false])('handles Ink overflow clears without losing scrollback with fullScreen=%s', async fullScreenMode => {
+    await withInteractiveTerminal(async writes => {
+      const renderer = new InkRenderer({ fullScreenMode, onInstruction() {}, onEscape() {}, onCtrlC() {} });
+      try {
+        renderer.start();
+        await Promise.resolve();
+        writes.length = 0;
+        process.stdout.write('\x1b[?2026h');
+        process.stdout.write('\x1b[2J\x1b[3J\x1b[Hoverflow frame');
+        process.stdout.write('\x1b[?2026l');
+        await Promise.resolve();
+        if (fullScreenMode) {
+          expect(writes.join('')).not.toMatch(/\x1b\[(?:[023])?J/u);
+          expect(writes.join('')).toContain('\x1b[1;1H\x1b[2K');
+        } else expect(writes.join('')).toContain('\x1b[2J\x1b[3J\x1b[H');
+        expect(writes.join('')).toContain('\x1b[Hoverflow frame');
+      } finally { await renderer.stop(); }
+    });
+  });
+  it.each([true, false])('keeps line advancement inside the viewport with fullScreen=%s', async fullScreenMode => {
+    await withInteractiveTerminal(async writes => {
+      const renderer = new InkRenderer({ fullScreenMode, onInstruction() {}, onEscape() {}, onCtrlC() {} });
+      try {
+        renderer.start();
+        await Promise.resolve();
+        writes.length = 0;
+        process.stdout.write('\x1b[?2026h');
+        process.stdout.write('first row\nlast row\n');
+        process.stdout.write('\x1b[?2026l');
+        await Promise.resolve();
+        expect(writes.join('')).toContain(fullScreenMode ? 'first row\x1b[1Elast row\x1b[1E' : 'first row\nlast row\n');
       } finally { await renderer.stop(); }
     });
   });

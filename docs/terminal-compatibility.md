@@ -13,11 +13,13 @@ Plain `--tmux` runs in the current directory and does not require Git. `--worktr
 
 ## Resize regression
 
-iTerm2 archives an erase-display operation into scrollback. Sending `CSI 2 J` before a full-screen repaint therefore accumulated entire old frames. Moving the cursor home without erasing rows prevented that accumulation but left stale composer rows when the window grew. The renderer now clears each visible row with cursor-addressed erase-line operations, then returns home and paints in the same synchronized write. It neither emits an intermediate empty frame nor uses erase-display for this resize reset. See [iTerm2's erase-display implementation](https://github.com/gnachman/iTerm2/blob/master/sources/VT100Screen/VT100ScreenMutableState.m).
+iTerm2 archives an erase-display operation into scrollback. Sending `CSI 2 J` before a full-screen repaint therefore accumulated entire old frames. Moving the cursor home without erasing rows prevented that accumulation but left stale composer rows when the window grew. The renderer now clears each visible row with cursor-addressed erase-line operations, then returns home and paints in the same synchronized write. It also translates Ink overflow resets into row erases and advances full-screen lines with cursor movement that clamps at the bottom row. This prevents a frame arriving before SIGWINCH has settled from scrolling into history. See [iTerm2's erase-display implementation](https://github.com/gnachman/iTerm2/blob/master/sources/VT100Screen/VT100ScreenMutableState.m).
 
 The regression was reproduced in native iTerm2 3.7.7 with its Python API disabled: resizing increased the header, history marker, and draft counts from one to four. With the corrected renderer, each remained exactly one through four window sizes, including shrinking and growing. Screenshots and accessibility text were checked separately from the headless tests.
 
 Compiled Bun executables also need to relaunch their real `process.execPath` inside tmux. Their virtual entrypoint (`/$bunfs/...` or `~BUN/...`) is internal to the executable and cannot be passed to a separate Bun process. Startup tests exercise a real compiled CLI rather than mocking this argument layout alone.
+
+Startup authentication and Console connector synchronization can save configuration concurrently. Those writes wait up to five seconds for the configuration lock, so a brief competing write does not discard connector updates. Connector startup and later removal are checked through the running CLI even when file synchronization is unavailable.
 
 ## Automated coverage
 

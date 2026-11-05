@@ -401,7 +401,7 @@ const AgentUIWrapper = forwardRef<AgentUIWrapperHandle, AgentUIWrapperProps>(
  * On unsupported terminals the CSI sequences are silently ignored, so this
  * is safe to enable unconditionally.
  */
-function patchStdoutForSyncOutput(framePrefix: (paint: string) => string, shouldBatchOutput: () => boolean): () => void {
+function patchStdoutForSyncOutput(preparePaint: (paint: string) => string, shouldBatchOutput: () => boolean): () => void {
   const originalWrite = process.stdout.write;
   const chunks: Buffer[] = [];
   let pendingBytes = 0;
@@ -438,15 +438,10 @@ function patchStdoutForSyncOutput(framePrefix: (paint: string) => string, should
     if (str === '\x1b[?2026h') inkFrameActive = true;
     else if (str === '\x1b[?2026l') inkFrameActive = false;
     else {
-      const prefix = inkFrameActive ? framePrefix(str) : '';
-      const content = typeof chunk === 'string'
-        ? Buffer.from(chunk, typeof encodingOrCallback === 'string' ? encodingOrCallback : 'utf8')
+      const prepared = inkFrameActive ? preparePaint(str) : str;
+      const content = prepared !== str || typeof chunk === 'string'
+        ? Buffer.from(prepared, typeof encodingOrCallback === 'string' ? encodingOrCallback : 'utf8')
         : Buffer.from(chunk);
-      if (prefix) {
-        const origin = Buffer.from(prefix);
-        chunks.push(origin);
-        pendingBytes += origin.length;
-      }
       chunks.push(content);
       pendingBytes += content.length;
     }
@@ -540,7 +535,22 @@ export class InkRenderer {
     if (this.paintedViewport?.columns === viewport.columns && this.paintedViewport.rows === viewport.rows) return '';
     if (!stripAnsiCodes(paint).trim()) return '';
     this.paintedViewport = viewport;
-    return Array.from({ length: Math.max(1, viewport.rows ?? 24) }, (_, row) => `\x1b[${row + 1};1H\x1b[2K`).join('') + '\x1b[H';
+    return this.eraseFullScreenRows();
+  };
+
+  private eraseFullScreenRows(): string {
+    return Array.from({ length: Math.max(1, process.stdout.rows ?? 24) }, (_, row) => `\x1b[${row + 1};1H\x1b[2K`).join('') + '\x1b[H';
+  }
+
+  private prepareFramePaint = (paint: string): string => {
+    if (!this.fullScreenTranscript || !this.instance) return paint;
+    const prefix = this.resizeFramePrefix(paint);
+    const inkOverflowClear = '\x1b[2J\x1b[3J\x1b[H';
+    // A frame can arrive before SIGWINCH updates React. Cursor motion clamps at
+    // the new bottom row; line feeds would scroll the stale frame into history.
+    const safePaint = paint.replaceAll(inkOverflowClear, '\x1b[H').replaceAll(/\r?\n/gu, '\x1b[1E');
+    if (!paint.includes(inkOverflowClear)) return prefix + safePaint;
+    return (prefix || this.eraseFullScreenRows()) + safePaint;
   };
 
   /**
@@ -560,7 +570,7 @@ export class InkRenderer {
     try {
       // Enable synchronized output wrapping to eliminate flicker from partial
       // frame updates. Must happen before Ink starts writing to stdout.
-      this.unpatchedStdout = patchStdoutForSyncOutput(this.resizeFramePrefix, () => this.instance !== null);
+      this.unpatchedStdout = patchStdoutForSyncOutput(this.prepareFramePaint, () => this.instance !== null);
 
       // Shift+Enter, Alt+Enter and Esc are only distinguishable when the
       // terminal encodes modified keys. Ink parses the kitty CSI u form; iTerm2,

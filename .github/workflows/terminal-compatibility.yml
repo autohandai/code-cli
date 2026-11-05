@@ -79,6 +79,10 @@ jobs:
             cmux) brew install --cask cmux; terminal_app=/Applications/cmux.app ;;
             vscode) brew install --cask visual-studio-code; terminal_app='/Applications/Visual Studio Code.app' ;;
           esac
+          codesign --verify --deep --strict "$terminal_app"
+          spctl --assess --type execute --verbose "$terminal_app"
+          # Approve only the verified app on this disposable VM for unattended launch.
+          xattr -dr com.apple.quarantine "$terminal_app"
           /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$terminal_app"
           defaults read "$terminal_app/Contents/Info" CFBundleIdentifier
           system_profiler SPDisplaysDataType
