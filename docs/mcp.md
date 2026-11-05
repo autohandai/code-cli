@@ -4,6 +4,7 @@ Autohand includes a built-in MCP client that connects to external MCP servers, e
 
 ## Table of Contents
 
+- [Built-in Autohand Squad](#built-in-autohand-squad)
 - [Overview](#overview)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
@@ -26,6 +27,91 @@ MCP is an open protocol for connecting AI agents to external tools. Autohand's M
 - **Namespaced tools** -- MCP tools are prefixed to avoid collisions with built-in tools
 - **Non-blocking startup** -- servers connect in the background without delaying the prompt
 - **Interactive management** -- toggle servers on/off with the `/mcp` command
+
+## Built-in Autohand Squad
+
+Autohand Code adds `autohand-squad` to its runtime MCP servers automatically.
+It uses this CLI's bundled stdio server, so no separate MCP install or saved
+configuration is needed. Tools are available through normal tool discovery
+and permission checks, under `mcp__autohand-squad__<tool>`.
+
+Open the Squad app, then in an interactive CLI session:
+
+```text
+/squad                          choose an agent with the keyboard
+/squad agents                   list agent IDs and presence
+/squad select kai               select by ID or exact name
+/message Please review this     message the selected agent
+/message squad iris Review this message another agent explicitly
+/squad history                  read the selected agent's replies
+/squad queue                    inspect delivery receipts and pause state
+/message team local Check this  message a local CLI teammate
+/squad clear                    clear the selected desktop recipient
+/squad app                      open or install the app
+```
+
+Selection belongs to the current CLI session. An explicit one-off recipient
+does not change it. Local `/message <name> <text>` behavior continues when no
+desktop recipient is selected. Escape cancels the picker and restores input.
+Top-level `autohand squad` still opens the app; `autohand squad agents`,
+`autohand squad message <agent-id> <text>` and `autohand squad history <agent-id>`
+work without an interactive agent session. Legacy standalone runtime actions
+remain available, including top-level `autohand squad queue`.
+
+The server exposes 37 tools: the existing channel/run/goal tools plus direct messaging
+(`message_member`, `get_conversation`, `get_member_queue`, `wait_for_message`),
+published artifacts (`list_artifacts`, `get_artifact`) and the knowledge
+library (`list_memories`, `read_memory`). These direct messages enter Squad's
+durable conversation queue, wait behind busy work and retain saved member
+permissions. A receipt means queued, not completed. Paused queues stay paused.
+Repeat `wait_for_message` using the same receipt after a timeout; inspect the
+queue before retrying a send whose response was lost. Creating members and
+changing their models still happens in the app.
+
+Member management is also built in: `get_member_profile`,
+`update_member_profile`, `set_member_abilities`, `add_member_directory`,
+`remove_member_directory`, `list_skills` and `set_member_skills`. Read the
+saved revision before editing; pass `expected_revision` to reject stale
+changes. Folder grants use the existing engine directory settings on later
+turns; current work continues. Skill selection is distinct from installation
+on the next turn. Policy edits preserve other settings and OS grants.
+
+Channels support `get_channel`, `update_channel`, `set_channel_members`,
+`list_channel_threads`, `create_group_chat` and `send_channel_message`.
+Groups are private channels with at least two existing members. Creation
+does not dispatch work. Sending dispatches only explicit `member_ids`;
+omitting them posts without starting agents. Replies persist on the bridge
+even after this CLI disconnects. Check per-recipient receipts before retrying.
+
+Use `list_routines`, `get_routine`, `preview_routine`, `create_routine`,
+`update_routine` and `run_routine` for scheduled work. Schedules require an
+explicit IANA timezone. New routines default to disabled; set `enabled:true`
+to schedule, `enabled:false` to pause, or run a saved routine manually.
+These tools require an updated Squad bridge; older versions return an
+upgrade instruction. The CLI never upgrades or restarts the app automatically.
+The [canonical tool reference](https://github.com/autohandai/squad/blob/main/docs/integration/control-plane.md)
+contains arguments and examples.
+
+Use a current Squad release for Library tools; older app versions may lack
+the artifact or knowledge-library endpoints. Updating the app does not
+require reinstalling the CLI's built-in MCP.
+
+Bridge discovery: explicit `AUTOHAND_SQUAD_BRIDGE_URL`, then
+`$AUTOHAND_SQUAD_HOME/web-server.json` (default `~/.autohand/squad`), then
+`http://127.0.0.1:19821`. Only loopback origins are accepted; redirects are
+refused. MCP initialization succeeds while the app is offline, and calls
+explain how to open it. Startup does not install or start Squad.
+
+Disable with `AUTOHAND_DISABLE_SQUAD=1` or `mcp.enabled: false`. Bare, offline
+and no-daemon sessions do not add this built-in server. An existing configured
+`autohand-squad`/`autohand_squad` entry wins. A CLI launched as a managed Squad
+member keeps its identity-scoped connection and never receives operator
+access to another member's private memories.
+
+For another MCP client, use `autohand squad mcp` as the command/arguments
+(`--bridge http://127.0.0.1:19821` is optional). It emits protocol messages
+only on stdout. See the [Squad control-plane reference](https://github.com/autohandai/squad/blob/main/docs/integration/control-plane.md)
+for the complete tool schemas and scope.
 
 ---
 

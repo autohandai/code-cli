@@ -2513,6 +2513,7 @@ export class AutohandAgent {
     this.runtime.config.mcp = mcp;
     this.runtimeMcpServers = resolveRuntimeMcpServers(this.runtime.config, {
       bare: this.runtime.options.bare || this.runtime.options.daemon === false,
+      offline: this.runtime.options.offline,
     });
     await this.mcpManager.disconnectAll();
     if (mcp?.enabled !== false) {

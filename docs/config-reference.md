@@ -2491,6 +2491,13 @@ sync:
 
 Configure MCP (Model Context Protocol) servers to extend Autohand with external tools.
 
+The effective runtime list also includes the built-in `autohand-squad` server;
+it is not written into this configuration or synced to your account. Set
+`AUTOHAND_DISABLE_SQUAD=1` to opt out, or `mcp.enabled: false` to disable all
+MCP connections. Bare, offline and no-daemon sessions omit it, as do managed
+Squad members with an existing identity-scoped connection. See
+[built-in Squad commands and bridge discovery](mcp.md#built-in-autohand-squad).
+
 ```json
 {
   "mcp": {

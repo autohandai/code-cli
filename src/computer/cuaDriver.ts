@@ -3,6 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { ensureSquadMcpServer, type SquadMcpOptions } from '../squad/builtin.js';
 import { execFile } from 'node:child_process';
 import { accessSync, constants as fsConstants, statSync } from 'node:fs';
 import os from 'node:os';
@@ -268,7 +269,7 @@ export function ensureCuaMcpServer(
 /** Build the effective MCP list without persisting Autohand's built-in entry. */
 export function resolveRuntimeMcpServers(
   config: LoadedConfig,
-  options: Parameters<typeof ensureCuaMcpServer>[1] = {},
+  options: Parameters<typeof ensureCuaMcpServer>[1] & SquadMcpOptions = {},
 ): McpServerConfigEntry[] {
   const runtimeConfig = {
     ...config,
@@ -277,6 +278,8 @@ export function resolveRuntimeMcpServers(
       : {},
   } as LoadedConfig;
   ensureCuaMcpServer(runtimeConfig, options);
+  const squad = ensureSquadMcpServer(runtimeConfig, options);
+  if (squad) runtimeConfig.mcp = { ...runtimeConfig.mcp, servers: [...(runtimeConfig.mcp?.servers ?? []), squad] };
   return runtimeConfig.mcp?.servers ?? [];
 }
 
