@@ -466,7 +466,7 @@ export function createRpcHandler(tools, { bridgeUrl } = {}) {
           protocolVersion: negotiateProtocol(params?.protocolVersion),
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-          instructions: `Coordinates the Autohand Squad bridge at ${bridgeUrl}. Use list_members to select an agent, message_member for a queued direct conversation, get_conversation for history and wait_for_message for its reply. Also reads Library artifacts and memories, channels and independent runs/goals. Approvals, deletion, credentials and computer lifecycle stay in the app.`,
+          instructions: `Coordinates the Autohand Squad bridge at ${bridgeUrl}. Use list_members to select an agent, message_member for a queued direct conversation, get_conversation for history and wait_for_message for its reply. Use get_member_profile before revision-checked profile, ability, folder or skill edits. Channels support private groups and explicit recipient dispatch; routines support timezone previews, saved schedules and manual runs. Also reads Library artifacts and memories and independent runs/goals. Approvals, deletion, credentials and computer lifecycle stay in the app.`,
         };
       } else if (method === 'ping') {
         result = {};
