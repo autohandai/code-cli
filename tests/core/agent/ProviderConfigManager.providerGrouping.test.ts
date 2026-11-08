@@ -330,4 +330,48 @@ describe("ProviderConfigManager grouped provider selection", () => {
 
     expect(configureProvider).toHaveBeenCalledWith("autohandai");
   });
+  it("leaves the active Autohand provider and model unchanged when removing another provider", async () => {
+    runtime.config.provider = "autohandai";
+    runtime.config.autohandai = { authMode: "account", accountToken: "fixture", model: "fantail" };
+    runtime.options.model = "fantail";
+    mockShowConfirm.mockResolvedValueOnce(true);
+    const internals = manager as unknown as { removeCustomProvider(id: "custom:zeta-gateway"): Promise<void>; resetLlmClient(provider: string, model: string): void };
+    const reset = vi.spyOn(internals, "resetLlmClient").mockImplementation(() => {});
+    await internals.removeCustomProvider("custom:zeta-gateway");
+    expect(runtime.config.provider).toBe("autohandai");
+    expect(runtime.options.model).toBe("fantail");
+    expect(runtime.config.customProviders["zeta-gateway"]).toBeUndefined();
+    expect(reset).not.toHaveBeenCalled();
+    expect(mockSaveConfig).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the signed-in Autohand account when removing the active provider", async () => {
+    runtime.config.provider = "custom:zeta-gateway";
+    runtime.config.auth = { token: "fixture-account" };
+    runtime.config.autohandai = { model: "fantail" };
+    runtime.options.model = "zeta-large";
+    mockShowConfirm.mockResolvedValueOnce(true);
+    const internals = manager as unknown as { removeCustomProvider(id: "custom:zeta-gateway"): Promise<void>; resetLlmClient(provider: string, model: string): void };
+    const reset = vi.spyOn(internals, "resetLlmClient").mockImplementation(() => {});
+    await internals.removeCustomProvider("custom:zeta-gateway");
+    expect(runtime.config.provider).toBe("autohandai");
+    expect(runtime.options.model).toBe("fantail");
+    expect(runtime.config.autohandai.authMode).toBe("account");
+    expect(reset).toHaveBeenCalledWith("autohandai", "fantail");
+  });
+
+  it("keeps an active provider when a signed-out user cancels the replacement picker", async () => {
+    runtime.config.provider = "custom:zeta-gateway";
+    runtime.options.model = "zeta-large";
+    mockShowConfirm.mockResolvedValueOnce(true);
+    mockShowModal.mockResolvedValueOnce(null);
+    const internals = manager as unknown as { removeCustomProvider(id: "custom:zeta-gateway"): Promise<void>; resetLlmClient(provider: string, model: string): void };
+    vi.spyOn(internals, "resetLlmClient").mockImplementation(() => {});
+    await internals.removeCustomProvider("custom:zeta-gateway");
+    expect(runtime.config.provider).toBe("custom:zeta-gateway");
+    expect(runtime.config.customProviders["zeta-gateway"]).toBeDefined();
+    expect(lastProviderModalOptions().some(option => option.value === "custom:zeta-gateway")).toBe(false);
+    expect(mockSaveConfig).not.toHaveBeenCalled();
+  });
+
 });

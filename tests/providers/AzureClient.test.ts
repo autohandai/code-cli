@@ -381,4 +381,26 @@ describe('AzureClient', () => {
       expect(response.finishReason).toBe('tool_calls');
     });
   });
+  describe("reasoning-model request parameters", () => {
+    it.each(["gpt-5.3-codex", "gpt-6.1-terra", "o3", "o4-mini"])("uses completion tokens without temperature for %s", async model => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ id: "reasoning", choices: [{ message: { content: "Done", tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: "{}" } }] }, finish_reason: "tool_calls" }] })));
+      const client = new AzureClient({ model, resourceName: "fixture", deploymentName: "custom-deployment", apiKey: "fixture", authMethod: "api-key" });
+      const response = await client.complete({ messages: [{ role: "user", content: "Read the file" }], maxTokens: 4096, temperature: 0.2, tools: [{ name: "read_file", description: "Read a file", parameters: { type: "object", properties: {} } }] });
+      const payload = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
+      expect(payload.max_completion_tokens).toBe(4096);
+      expect(payload).not.toHaveProperty("max_tokens");
+      expect(payload).not.toHaveProperty("temperature");
+      expect(response.toolCalls?.[0].function.name).toBe("read_file");
+    });
+    it("uses a request model override and keeps gpt-4o parameters unchanged", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "legacy", choices: [{ message: { content: "Done" }, finish_reason: "stop" }] })));
+      const client = new AzureClient({ model: "gpt-5.3-codex", resourceName: "fixture", deploymentName: "custom-deployment", apiKey: "fixture", authMethod: "api-key" });
+      await client.complete({ model: "gpt-4o", messages: [{ role: "user", content: "Hi" }], temperature: 0 });
+      const payload = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
+      expect(payload.max_tokens).toBe(16000);
+      expect(payload.temperature).toBe(0);
+      expect(payload).not.toHaveProperty("max_completion_tokens");
+    });
+  });
+
 });

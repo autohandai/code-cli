@@ -200,9 +200,11 @@ export class ProviderConfigManager {
     }
   }
 
-  private async promptProviderSelection(): Promise<void> {
+  private async promptProviderSelection(excludedProvider?: ProviderName): Promise<void> {
     // Use ProviderFactory to get platform-aware list (includes MLX on Apple Silicon).
-    const allProviders = ProviderFactory.getProviderNames(this.runtime.config);
+    const allProviders = ProviderFactory.getProviderNames(this.runtime.config).filter(
+      provider => provider !== excludedProvider,
+    );
 
     const options = buildProviderSelectionOptions({
       providers: allProviders,
@@ -2505,21 +2507,37 @@ export class ProviderConfigManager {
       return;
     }
 
+    const wasActive = this.getActiveProvider() === provider;
+    const accountToken = this.runtime.config.auth?.token ?? this.runtime.config.autohandai?.accountToken;
+    if (wasActive && !accountToken) {
+      await this.promptProviderSelection(provider);
+      if (this.getActiveProvider() === provider) return;
+    }
+
     const nextCustomProviders = { ...(this.runtime.config.customProviders ?? {}) };
     delete nextCustomProviders[id];
     this.runtime.config.customProviders =
       Object.keys(nextCustomProviders).length > 0 ? nextCustomProviders : undefined;
 
-    this.runtime.config.provider = "openrouter";
-    const fallbackModel =
-      getProviderConfig(this.runtime.config, "openrouter")?.model ??
-      getProviderDefaultModel("openrouter", "openrouter/auto");
-    this.runtime.options.model = fallbackModel;
+    if (wasActive && accountToken) {
+      const settings = this.runtime.config.autohandai;
+      const fallbackModel = (settings?.plan !== "local" ? settings?.model : undefined)
+        ?? getProviderDefaultModel("autohandai", "fantail");
+      this.runtime.config.autohandai = {
+        ...settings,
+        plan: "cloud",
+        authMode: "account",
+        accountToken,
+        model: fallbackModel,
+      };
+      this.runtime.config.provider = "autohandai";
+      this.runtime.options.model = fallbackModel;
+      this.resetLlmClient("autohandai", fallbackModel);
+      this.resetContextPercent();
+      this.emitStatus();
+    }
 
     await saveConfig(this.runtime.config);
-    this.resetLlmClient("openrouter", fallbackModel);
-    this.resetContextPercent();
-    this.emitStatus();
 
     console.log(
       chalk.green(

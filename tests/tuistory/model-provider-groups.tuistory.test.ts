@@ -517,4 +517,24 @@ describe('/model provider and Autohand plan journeys Tuistory', () => {
     await session.press('escape');
     await closeInteractive(session);
   });
+  it('removes an inactive custom provider without switching the active hosted model', async () => {
+    const { session, state } = await launchInteractive(configuredAutohandCloud);
+    await openProviderList(session);
+    await session.press('up');
+    await session.press('up');
+    await session.press('enter');
+    await session.text({ timeout: 30_000, waitFor: text => text.includes('Remove custom provider') });
+    await session.type('5');
+    await session.text({ timeout: 30_000, waitFor: text => text.includes('Remove Acme Gateway from your custom providers?') });
+    await session.press('up');
+    await session.press('enter');
+    const composer = await session.text({ timeout: 30_000, waitFor: text => text.includes('Acme Gateway') && text.includes('removed') && text.includes('❯') });
+    expect(composer).toContain('Autohand AI, fantail');
+    const saved = JSON.parse(await readFile(state.configPath, 'utf8'));
+    expect(saved.provider).toBe('autohandai');
+    expect(saved.autohandai.model).toBe('fantail');
+    expect(saved.customProviders?.['acme-gateway']).toBeUndefined();
+    await closeInteractive(session);
+  });
+
 });
