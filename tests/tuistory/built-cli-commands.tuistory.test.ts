@@ -482,7 +482,7 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
     expect(rawOutput.lastIndexOf('\u001b[<u')).toBeGreaterThan(rawOutput.indexOf('\u001b[>1u'));
   });
 
-  it('auto-initializes git for an empty workspace before rendering the composer', async () => {
+  it('starts an empty non-Git workspace without initializing Git', async () => {
     const state = await createTempAutohandHome({
       initializeGit: false,
       writePackageJson: false,
@@ -498,7 +498,9 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
 
     await waitForComposer(session);
 
-    expect(await fs.pathExists(path.join(state.workspaceRoot, '.git'))).toBe(true);
+    expect(await fs.pathExists(path.join(state.workspaceRoot, '.git'))).toBe(false);
+    expect(await fs.pathExists(path.join(state.workspaceRoot, '.gitignore'))).toBe(false);
+    expect(session.readAll()).not.toContain('Initialized git repository');
 
     await exitInteractive(session);
   });

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Start chat and file work in ordinary folders without initializing Git or creating an ignore file. Existing repositories still show their branch; initialize Git only when you choose to use it.
+
 ## 0.9.10 - 2026-11-04
 
 ### Added
