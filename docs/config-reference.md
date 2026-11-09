@@ -174,6 +174,15 @@ The flag skips trace-daemon reconciliation, settings sync, pings, account pollin
 
 `/new` archives the current session and starts a new session ID with fresh conversation and accounting state. It does not wait for an inference or memory-extraction call.
 
+## Project folders and Git
+
+A workspace can be an ordinary folder. Starting Autohand does not initialize
+Git or create `.gitignore`, including in empty folders. Existing repositories
+are detected for branch information. Git is optional for chat and file work;
+Git operations require Git to be installed and a repository chosen by you.
+Initialize a repository only when you want version control, for example by
+explicitly asking the agent to run `git init` or running it yourself.
+
 ## Bare Mode
 
 Bare mode starts Autohand with only explicitly requested context and runtime integrations. Enable it with either:

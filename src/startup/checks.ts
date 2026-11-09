@@ -13,7 +13,6 @@ import fs from 'fs-extra';
 import { resolveRipgrepCommand } from '../utils/ripgrep.js';
 
 const GIT_COMMAND_TIMEOUT_MS = 5_000;
-const GIT_INIT_TIMEOUT_MS = 15_000;
 let toolCheckResultsPromise: Promise<CheckResult[]> | undefined;
 
 function getCurrentBunVersion(): string | undefined {
@@ -51,8 +50,8 @@ const REQUIRED_TOOLS: ToolCheck[] = [
     name: 'git',
     command: 'git',
     versionFlag: '--version',
-    required: true,
-    description: 'Version control (required for file tracking, undo, and git operations)',
+    required: false,
+    description: 'Version control (optional; needed for Git operations)',
     installHints: {
       darwin: 'brew install git',
       linux: 'sudo apt install git  # or: sudo dnf install git',
@@ -246,20 +245,6 @@ export async function validateWorkspacePath(
 }
 
 /**
- * Check if a directory is empty (no significant files)
- * Hidden files like .DS_Store are ignored, but .git counts as significant
- */
-function isEmptyDirectory(dir: string): boolean {
-  try {
-    const entries = fs.readdirSync(dir);
-    const significantEntries = entries.filter(e => !e.startsWith('.') || e === '.git');
-    return significantEntries.length === 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Run a git command and return trimmed stdout, or undefined on failure
  */
 function runGitCommand(args: string[], cwd: string, timeoutMs: number = GIT_COMMAND_TIMEOUT_MS): Promise<string | undefined> {
@@ -314,7 +299,7 @@ function readGitHeadBranch(workspaceRoot: string): string | undefined {
 
 /**
  * Check if inside a git repository
- * If directory is empty and not a git repo, auto-initialize git
+ * Repository detection never initializes or edits the workspace.
  */
 async function checkGitRepo(workspaceRoot: string): Promise<{ isGitRepo: boolean; branch?: string; initialized?: boolean }> {
   // First check if .git directory exists (works even with no commits)
@@ -331,34 +316,6 @@ async function checkGitRepo(workspaceRoot: string): Promise<{ isGitRepo: boolean
       isGitRepo: true,
       branch
     };
-  }
-
-  // Not a git repo - check if empty and auto-init
-  if (isEmptyDirectory(workspaceRoot)) {
-    const initResult = await runGitCommand(['init'], workspaceRoot, GIT_INIT_TIMEOUT_MS);
-
-    if (initResult !== undefined || fs.existsSync(`${workspaceRoot}/.git/HEAD`)) {
-      // On macOS, create .gitignore with .DS_Store
-      if (os.platform() === 'darwin') {
-        try {
-          const gitignorePath = `${workspaceRoot}/.gitignore`;
-          if (!fs.existsSync(gitignorePath)) {
-            fs.writeFileSync(gitignorePath, '.DS_Store\n');
-          }
-        } catch {
-          // Ignore errors creating .gitignore
-        }
-      }
-
-      // Get the default branch name
-      const branch = await getGitBranch(workspaceRoot) || 'main';
-
-      return {
-        isGitRepo: true,
-        branch,
-        initialized: true
-      };
-    }
   }
 
   return { isGitRepo: false };
@@ -389,7 +346,7 @@ export interface StartupCheckResults {
     writable: boolean;
     isGitRepo: boolean;
     branch?: string;
-    /** True if git was auto-initialized for an empty directory */
+    /** Legacy result field; startup no longer initializes repositories. */
     initialized?: boolean;
     error?: string;
   };
@@ -433,7 +390,7 @@ export async function runStartupChecks(workspaceRoot: string): Promise<StartupCh
       writable: workspaceCheck.writable,
       isGitRepo: gitCheck.isGitRepo,
       branch: gitCheck.branch,
-      initialized: gitCheck.initialized,
+      initialized: false,
       error: workspaceCheck.error
     },
     allRequiredMet,
@@ -447,12 +404,6 @@ export async function runStartupChecks(workspaceRoot: string): Promise<StartupCh
 export function printStartupCheckResults(results: StartupCheckResults, verbose = false): void {
   const missingRequired = results.tools.filter(t => t.required && !t.installed);
   const missingOptional = results.tools.filter(t => !t.required && !t.installed);
-
-  // Show git initialization message if it happened
-  if (results.workspace.initialized) {
-    console.log(chalk.green('✓ Initialized git repository'));
-    console.log();
-  }
 
   // Only print tool issues if there are problems or verbose mode
   if (missingRequired.length === 0 && !verbose) {

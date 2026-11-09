@@ -7,9 +7,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
+import { execFileSync } from 'node:child_process';
 import { runStartupChecks, validateWorkspacePath } from '../src/startup/checks.js';
 
-describe('Git Auto-Init for Empty Directories', () => {
+describe('Optional Git at startup', () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -27,25 +28,25 @@ describe('Git Auto-Init for Empty Directories', () => {
     }
   });
 
-  describe('isEmptyDirectory detection', () => {
-    it('treats directory with no files as empty', async () => {
+  describe('read-only repository detection', () => {
+    it('starts an empty workspace without initializing Git', async () => {
       // tempDir is empty by default
       const result = await runStartupChecks(tempDir);
 
-      // Should have auto-initialized git
-      expect(result.workspace.isGitRepo).toBe(true);
-      expect(result.workspace.initialized).toBe(true);
+      expect(result.workspace.isGitRepo).toBe(false);
+      expect(result.workspace.initialized).toBeFalsy();
+      expect(await fs.readdir(tempDir)).toEqual([]);
     });
 
-    it('treats directory with only hidden files (like .DS_Store) as empty', async () => {
+    it('preserves hidden files without creating a repository', async () => {
       // Add a hidden file that should be ignored
       await fs.writeFile(path.join(tempDir, '.DS_Store'), 'test');
 
       const result = await runStartupChecks(tempDir);
 
-      // Should still auto-initialize git
-      expect(result.workspace.isGitRepo).toBe(true);
-      expect(result.workspace.initialized).toBe(true);
+      expect(result.workspace.isGitRepo).toBe(false);
+      expect(result.workspace.initialized).toBeFalsy();
+      expect(await fs.readdir(tempDir)).toEqual(['.DS_Store']);
     });
 
     it('does NOT treat directory with .git as empty', async () => {
@@ -95,44 +96,35 @@ describe('Git Auto-Init for Empty Directories', () => {
     });
   });
 
-  describe('git initialization behavior', () => {
-    it('creates .git directory when initializing', async () => {
-      const result = await runStartupChecks(tempDir);
-
-      expect(result.workspace.initialized).toBe(true);
-      expect(await fs.pathExists(path.join(tempDir, '.git'))).toBe(true);
+  describe('Git is an explicit project choice', () => {
+    it('does not create a Git directory or ignore file after repeated startup checks', async () => {
+      await runStartupChecks(tempDir);
+      await runStartupChecks(tempDir);
+      expect(await fs.pathExists(path.join(tempDir, '.git'))).toBe(false);
+      expect(await fs.pathExists(path.join(tempDir, '.gitignore'))).toBe(false);
     });
 
-    it('sets branch name after initialization', async () => {
+    it('keeps a non-Git project writable and Git tooling optional', async () => {
       const result = await runStartupChecks(tempDir);
-
-      expect(result.workspace.initialized).toBe(true);
-      expect(result.workspace.branch).toBeDefined();
-      // Branch should be 'main' or 'master' depending on git config
-      expect(['main', 'master']).toContain(result.workspace.branch);
+      expect(result.workspace.writable).toBe(true);
+      expect(result.workspace.isGitRepo).toBe(false);
+      expect(result.workspace.branch).toBeUndefined();
+      expect(result.tools.find(tool => tool.name === 'git')?.required).toBe(false);
     });
 
-    it('creates .gitignore with .DS_Store on macOS', async () => {
-      const result = await runStartupChecks(tempDir);
-
-      expect(result.workspace.initialized).toBe(true);
-
-      // Only check for .gitignore on macOS
-      if (process.platform === 'darwin') {
-        const gitignorePath = path.join(tempDir, '.gitignore');
-        expect(await fs.pathExists(gitignorePath)).toBe(true);
-
-        const content = await fs.readFile(gitignorePath, 'utf8');
-        expect(content).toContain('.DS_Store');
-      }
+    it('preserves an existing ignore file', async () => {
+      await fs.writeFile(path.join(tempDir, '.gitignore'), 'private-files/\n');
+      await runStartupChecks(tempDir);
+      expect(await fs.readFile(path.join(tempDir, '.gitignore'), 'utf8')).toBe('private-files/\n');
+      expect(await fs.pathExists(path.join(tempDir, '.git'))).toBe(false);
     });
   });
 
   describe('existing git repo detection', () => {
     it('detects existing git repo and does NOT re-initialize', async () => {
-      // First call initializes git
+      execFileSync('git', ['init', '-b', 'chosen-branch'], { cwd: tempDir, stdio: 'ignore' });
       const firstResult = await runStartupChecks(tempDir);
-      expect(firstResult.workspace.initialized).toBe(true);
+      expect(firstResult.workspace.initialized).toBeFalsy();
 
       // Second call should detect existing repo, not initialize again
       const secondResult = await runStartupChecks(tempDir);
@@ -141,12 +133,11 @@ describe('Git Auto-Init for Empty Directories', () => {
     });
 
     it('detects branch in existing repo', async () => {
-      // Initialize git
-      await runStartupChecks(tempDir);
+      execFileSync('git', ['init', '-b', 'chosen-branch'], { cwd: tempDir, stdio: 'ignore' });
 
       // Run again and check branch detection
       const result = await runStartupChecks(tempDir);
-      expect(result.workspace.branch).toBeDefined();
+      expect(result.workspace.branch).toBe('chosen-branch');
     });
 
     it('detects branch directly from git HEAD when git commands are unavailable', async () => {

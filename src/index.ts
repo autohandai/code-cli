@@ -2001,7 +2001,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     }
 
     // Run startup checks synchronously before prompt to prevent output racing.
-    // git init, tool checks etc. must finish printing BEFORE the prompt renders.
+    // Read-only repository and tool checks finish before the prompt renders.
     if (!options.bare) {
       try {
         const checkResults = await awaitCliLifecycleStep(
