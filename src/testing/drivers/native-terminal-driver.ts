@@ -22,14 +22,24 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
   const bun = execFileSync('/bin/sh', ['-c', 'command -v bun'], { encoding: 'utf8' }).trim();
   await writeFile(fixture, `#!/bin/sh\nset -eu\ncd ${quote(root)}\nexport AUTOHAND_HOME=${quote(path.join(output, 'home'))}\nexport CI=false\nexec ${quote(bun)} src/testing/scenarios/resizeFlickerScenario.tsx --full-screen --multiline "$@"\n`, { mode: 0o755 });
   const profile = path.join(output, 'vscode-profile');
-  await mkdir(path.join(profile, 'User'), { recursive: true });
-  await writeFile(path.join(profile, 'User', 'settings.json'), JSON.stringify({
+  const settings = {
     'chat.disableAIFeatures': true,
     'editor.accessibilitySupport': 'on', 'workbench.startupEditor': 'none', 'window.restoreWindows': 'none',
     'workbench.panel.opensMaximized': 'always',
     'update.mode': 'none', 'security.workspace.trust.enabled': false,
     'terminal.integrated.enablePersistentSessions': false, 'terminal.integrated.scrollback': 5000,
-  }));
+  };
+  const launchArguments: Record<string, string[]> = {};
+  for (const mode of ['idle', 'streaming']) {
+    const isolatedProfile = path.join(profile, mode);
+    await mkdir(path.join(isolatedProfile, 'User'), { recursive: true });
+    await writeFile(path.join(isolatedProfile, 'User', 'settings.json'), JSON.stringify(settings));
+    launchArguments[mode] = terminal === 'vscode'
+      ? ['--user-data-dir', isolatedProfile, '--extensions-dir', path.join(isolatedProfile, 'extensions'),
+        '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',
+        '--force-renderer-accessibility', '--new-window']
+      : terminal === 'ghostty' ? ['--config-default-files=false', '--confirm-close-surface=false'] : [];
+  }
   const project = path.resolve('src/testing/drivers/native-terminal-lab');
   for (const source of ['Host.swift', 'TerminalCompatibilityUITests.swift']) {
     await copyFile(path.join(project, source), path.join(output, source));
@@ -46,7 +56,8 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
   execFileSync('/usr/bin/python3', ['-c',
     'import json,plistlib,sys\np=sys.argv[1]\nd=plistlib.load(open(p,"rb"))\ne=json.loads(sys.argv[2])\ntargets=[t for c in d.get("TestConfigurations",[]) for t in c["TestTargets"]] if "TestConfigurations" in d else [v for k,v in d.items() if k!="__xctestrun_metadata__" and isinstance(v,dict)]\nfor t in targets: t.setdefault("EnvironmentVariables",{}).update(e)\nplistlib.dump(d,open(p,"wb"))',
     testRun, JSON.stringify({ AUTOHAND_NATIVE_TERMINAL: terminal, AUTOHAND_NATIVE_FIXTURE: fixture,
-      AUTOHAND_NATIVE_PROFILE: profile, AUTOHAND_NATIVE_APPLICATION: application, GITHUB_ACTIONS: 'true' })], { timeout: 10_000 });
+      AUTOHAND_NATIVE_LAUNCH_ARGUMENTS: JSON.stringify(launchArguments),
+      AUTOHAND_NATIVE_APPLICATION: application, GITHUB_ACTIONS: 'true' })], { timeout: 10_000 });
   const resultBundle = path.join(output, 'NativeTerminal.xcresult');
   return { resultBundle, args: ['test-without-building', '-xctestrun', testRun, '-destination', 'platform=macOS',
     '-parallel-testing-enabled', 'NO', '-resultBundlePath', resultBundle] };

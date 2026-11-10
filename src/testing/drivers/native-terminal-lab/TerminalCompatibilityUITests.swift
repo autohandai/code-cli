@@ -1,11 +1,60 @@
 import AppKit
 import XCTest
 
+private struct NativeAccessibilityText {
+    var label = ""
+    var title = ""
+    var value = ""
+
+    var strings: [String] { [label, title, value] }
+    var content: String { [value, label, title].first { !$0.isEmpty } ?? "" }
+}
+
+private func localNetworkDenialButton(dialog: [NativeAccessibilityText], buttons: [NativeAccessibilityText]) -> Int? {
+    let text = dialog.flatMap(\.strings).joined(separator: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    guard text.contains("find devices on local networks") else { return nil }
+    return buttons.firstIndex { text in
+        text.strings.contains { $0.replacingOccurrences(of: "’", with: "'") == "Don't Allow" }
+    }
+}
+
 final class TerminalCompatibilityUITests: XCTestCase {
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
 
     @MainActor func testIdleResize() throws { try resizeScenario(streaming: false) }
     @MainActor func testStreamingResize() throws { try resizeScenario(streaming: true) }
+
+    func testLocalNetworkPermissionUsesStaticTextValueAndButtonTitle() {
+        let dialog = [NativeAccessibilityText(value: "Allow “iTerm” to find devices on local networks?")]
+        XCTAssertEqual(localNetworkDenialButton(dialog: dialog, buttons: [
+            NativeAccessibilityText(label: "action-button-1", title: "Allow"),
+            NativeAccessibilityText(label: "action-button-2", title: "Don’t Allow")
+        ]), 1)
+    }
+
+    func testLocalNetworkPermissionPreservesLabelBasedAccessibility() {
+        XCTAssertEqual(localNetworkDenialButton(dialog: [
+            NativeAccessibilityText(label: "Allow “iTerm” to find devices on local networks?")
+        ], buttons: [NativeAccessibilityText(label: "Don't Allow")]), 0)
+    }
+
+    func testLocalNetworkPermissionRecognizesWrappedValues() {
+        XCTAssertEqual(localNetworkDenialButton(dialog: [
+            NativeAccessibilityText(value: "Allow “iTerm” to find devices on\nlocal networks?")
+        ], buttons: [NativeAccessibilityText(value: "Don’t Allow")]), 0)
+    }
+
+    func testLocalNetworkPermissionDoesNotDismissOtherAlertsOrGrantAccess() {
+        XCTAssertNil(localNetworkDenialButton(dialog: [NativeAccessibilityText(value: "Allow notifications?")],
+                                             buttons: [NativeAccessibilityText(title: "Don't Allow")]))
+        XCTAssertNil(localNetworkDenialButton(dialog: [NativeAccessibilityText(value: "find devices on local networks")],
+                                             buttons: [NativeAccessibilityText(title: "Allow")]))
+    }
+
+    func testAccessibilityContentDoesNotDuplicateMirroredAttributes() {
+        XCTAssertEqual(NativeAccessibilityText(label: "RESIZE_HISTORY retained text", title: "RESIZE_HISTORY retained text",
+                                              value: "RESIZE_HISTORY retained text").content, "RESIZE_HISTORY retained text")
+    }
 
     @MainActor
     private func resizeScenario(streaming: Bool) throws {
@@ -13,34 +62,29 @@ final class TerminalCompatibilityUITests: XCTestCase {
               let terminal = environment["AUTOHAND_NATIVE_TERMINAL"],
               let application = environment["AUTOHAND_NATIVE_APPLICATION"],
               let fixture = environment["AUTOHAND_NATIVE_FIXTURE"],
-              let profile = environment["AUTOHAND_NATIVE_PROFILE"] else {
+              let arguments = environment["AUTOHAND_NATIVE_LAUNCH_ARGUMENTS"]?.data(using: .utf8) else {
             XCTFail("This scenario requires an isolated GitHub Actions macOS runner")
             return
         }
         continueAfterFailure = false
         let interruption = addUIInterruptionMonitor(withDescription: "Deny local network access for the offline terminal fixture") { alert in
-            let text = ([alert.label] + alert.staticTexts.allElementsBoundByIndex.map(\.label)).joined(separator: "\n")
-            guard text.contains("find devices on local networks") else { return false }
-            for label in ["Don’t Allow", "Don't Allow"] {
-                let deny = alert.buttons[label]
-                if deny.exists {
-                    deny.click()
-                    print("NATIVE_TERMINAL_DENIED_LOCAL_NETWORK")
-                    return true
-                }
-            }
-            return false
+            let buttons = alert.buttons.allElementsBoundByIndex
+            let text = ([alert] + alert.staticTexts.allElementsBoundByIndex).map(self.accessibilityText)
+            guard let denied = localNetworkDenialButton(dialog: text, buttons: buttons.map(self.accessibilityText)) else { return false }
+            buttons[denied].click()
+            print("NATIVE_TERMINAL_DENIED_LOCAL_NETWORK")
+            return true
         }
-        defer { removeUIInterruptionMonitor(interruption) }
+        addTeardownBlock { self.removeUIInterruptionMonitor(interruption) }
         let app = XCUIApplication(url: URL(fileURLWithPath: application))
-        defer { if app.state != .notRunning { app.terminate() } }
+        addTeardownBlock { if app.state != .notRunning { app.terminate() } }
         let command = "'" + fixture.replacingOccurrences(of: "'", with: "'\\''") + "'" + (streaming ? " --streaming" : "")
-        if terminal == "ghostty" {
-            app.launchArguments = ["--config-default-files=false", "--confirm-close-surface=false"]
-        } else if terminal == "vscode" {
-            app.launchArguments = ["--user-data-dir", profile, "--extensions-dir", profile + "/extensions", "--disable-extensions",
-                                   "--disable-workspace-trust", "--skip-welcome", "--skip-release-notes", "--new-window"]
+        let modes = try JSONDecoder().decode([String: [String]].self, from: arguments)
+        guard let launchArguments = modes[streaming ? "streaming" : "idle"] else {
+            XCTFail("Missing isolated launch arguments for the native scenario")
+            return
         }
+        app.launchArguments = launchArguments
         let launch = expectation(description: "Launch the installed terminal through macOS")
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.arguments = app.launchArguments
@@ -58,25 +102,37 @@ final class TerminalCompatibilityUITests: XCTestCase {
         add(desktop)
         XCTAssertNil(launchError)
         app.activate()
-        let window = app.windows.firstMatch
+        var window = app.windows.firstMatch
         guard window.waitForExistence(timeout: 30) else {
             attachStartupFailure(app, terminal: terminal, phase: "window")
             XCTFail("The native terminal did not create a window")
             return
         }
+        if terminal == "iterm2" {
+            window.click()
+            let previousWindowCount = app.windows.count
+            app.typeKey("n", modifierFlags: .command)
+            let newWindow = NSPredicate { _, _ in app.windows.count > previousWindowCount }
+            guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: newWindow, object: app)], timeout: 10) == .completed else {
+                attachStartupFailure(app, terminal: terminal, phase: "fresh-window")
+                XCTFail("iTerm2 did not create a fresh terminal window")
+                return
+            }
+            window = app.windows.firstMatch
+        }
         if terminal == "vscode" {
-            guard app.webViews.firstMatch.waitForExistence(timeout: 30) else {
+            guard app.menuBars.menuBarItems["Terminal"].waitForExistence(timeout: 30) else {
                 attachStartupFailure(app, terminal: terminal, phase: "workbench")
                 XCTFail("VS Code did not display its workbench")
                 return
             }
             dismissCopilotSignIn(app)
-            app.typeKey("`", modifierFlags: [.control, .shift])
+            openVSCodeTerminal(app)
         }
-        let terminalView = app.textViews.firstMatch
+        let terminalView = window.textViews.firstMatch
         let terminalReady = NSPredicate { _, _ in
             if terminal == "vscode", self.dismissCopilotSignIn(app) {
-                app.typeKey("`", modifierFlags: [.control, .shift])
+                self.openVSCodeTerminal(app)
                 return false
             }
             return terminalView.exists
@@ -93,7 +149,7 @@ final class TerminalCompatibilityUITests: XCTestCase {
         app.typeKey(.return, modifierFlags: [])
         var startupValue = ""
         let ready = NSPredicate { _, _ in
-            startupValue = self.terminalValue(app)
+            startupValue = self.terminalValue(window)
             return startupValue.contains("RESIZE_HISTORY retained text")
         }
         guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: app)], timeout: 30) == .completed else {
@@ -115,12 +171,12 @@ final class TerminalCompatibilityUITests: XCTestCase {
             corner.press(forDuration: 0.1, thenDragTo: corner.withOffset(delta))
             XCTAssertNotEqual(window.frame.size, frame.size, "The native window did not resize")
             let settled = NSPredicate { _, _ in
-                let value = self.terminalValue(app)
+                let value = self.terminalValue(window)
                 return value.contains("RESIZE_HISTORY retained text") && value.contains("preserved draft")
             }
             expectation(for: settled, evaluatedWith: app)
             waitForExpectations(timeout: 10)
-            let content = terminalValue(app)
+            let content = terminalValue(window)
             XCTAssertEqual(content.components(separatedBy: "Autohand Code").count - 1, 1, content)
             XCTAssertEqual(content.components(separatedBy: "RESIZE_HISTORY retained text").count - 1, 1, content)
             XCTAssertEqual(content.components(separatedBy: "preserved draft").count - 1, 1, content)
@@ -133,14 +189,14 @@ final class TerminalCompatibilityUITests: XCTestCase {
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey("x", modifierFlags: .shift)
-        let edited = NSPredicate { _, _ in self.terminalValue(app).contains("taXil") }
+        let edited = NSPredicate { _, _ in self.terminalValue(window).contains("taXil") }
         expectation(for: edited, evaluatedWith: app)
         waitForExpectations(timeout: 10)
         app.typeKey(.escape, modifierFlags: [])
         app.typeKey("c", modifierFlags: .control)
         app.typeKey("c", modifierFlags: .control)
         app.typeKey("c", modifierFlags: .control)
-        let exit = NSPredicate { _, _ in self.terminalValue(app).contains("RESIZE_PTY_EXIT") || app.state == .notRunning }
+        let exit = NSPredicate { _, _ in self.terminalValue(window).contains("RESIZE_PTY_EXIT") || app.state == .notRunning }
         expectation(for: exit, evaluatedWith: app)
         waitForExpectations(timeout: 15)
         print(streaming ? "NATIVE_TERMINAL_STREAMING_PASS" : "NATIVE_TERMINAL_IDLE_PASS")
@@ -157,6 +213,14 @@ final class TerminalCompatibilityUITests: XCTestCase {
         return true
     }
 
+    private func openVSCodeTerminal(_ app: XCUIApplication) {
+        app.menuBars.menuBarItems["Terminal"].click()
+        let command = app.menuBars.menuItems["New Terminal"]
+        XCTAssertTrue(command.waitForExistence(timeout: 10), "VS Code did not expose Terminal > New Terminal")
+        XCTAssertTrue(command.isEnabled, "VS Code disabled Terminal > New Terminal")
+        command.click()
+    }
+
     @MainActor
     private func attachStartupFailure(_ app: XCUIApplication, terminal: String, phase: String) {
         let hierarchy = XCTAttachment(string: String(app.debugDescription.suffix(16_000)))
@@ -169,13 +233,17 @@ final class TerminalCompatibilityUITests: XCTestCase {
         add(screen)
     }
 
-    private func terminalValue(_ app: XCUIApplication) -> String {
-        let values = app.textViews.allElementsBoundByIndex.compactMap { $0.value as? String }
+    private func accessibilityText(_ element: XCUIElement) -> NativeAccessibilityText {
+        NativeAccessibilityText(label: element.label, title: element.title, value: element.value as? String ?? "")
+    }
+
+    private func terminalValue(_ window: XCUIElement) -> String {
+        let values = window.textViews.allElementsBoundByIndex.compactMap { $0.value as? String }
         if let terminal = values.filter({ $0.contains("RESIZE_HISTORY retained text") }).max(by: { $0.count < $1.count }) {
             return terminal
         }
         if environment["AUTOHAND_NATIVE_TERMINAL"] == "vscode" {
-            return app.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: "\n")
+            return window.staticTexts.allElementsBoundByIndex.map { accessibilityText($0).content }.joined(separator: "\n")
         }
         return values.max(by: { $0.count < $1.count }) ?? ""
     }

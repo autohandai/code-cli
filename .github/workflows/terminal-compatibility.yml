@@ -120,6 +120,6 @@ jobs:
             .artifacts/native-terminal/**/*.xcresult
             .artifacts/native-terminal/**/screenshots
             .artifacts/native-terminal/**/xcodebuild.log
-            .artifacts/native-terminal/**/vscode-profile/User/settings.json
+            .artifacts/native-terminal/**/vscode-profile/**/settings.json
           if-no-files-found: error
           retention-days: 7

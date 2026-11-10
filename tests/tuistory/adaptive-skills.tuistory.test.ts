@@ -34,7 +34,7 @@ function expectBoundedStartupRequest(request: Record<string, unknown>): void {
 }
 
 describe('adaptive skills in the built CLI', () => {
-  it.each([14, 1_000])('captures eager and adaptive greetings with %i local skills and zero prepared packets', async localSkills => {
+  it.each([14, 1_000])('captures compact and adaptive greetings with %i local skills and zero prepared packets', async localSkills => {
     const policies: string[] = [];
     for (const adaptiveSkills of [false, true]) {
       const fixture = await launch({ adaptiveSkills, localSkills, turns: [{ content: 'ADAPTIVE_GREETING_DONE' }, { content: 'ADAPTIVE_SECOND_GREETING_DONE' }] });
@@ -46,15 +46,19 @@ describe('adaptive skills in the built CLI', () => {
         const first = requestText(fixture.server.requests[0]);
         expect(first).not.toContain('[Skill packet ');
         expect(first).not.toContain('ADAPTIVE_FIXTURE_BODY_');
+        expect(first).not.toContain('Adaptive fixture workflow');
         expect(await readAdaptiveSkillReceipts(fixture)).toEqual([]);
+        const fixtureNames = new Set(startupSkillContext(fixture.server.requests[0]).match(/\badaptive-fixture-\d+\b/g) ?? []);
         if (adaptiveSkills) {
           expectBoundedStartupRequest(fixture.server.requests[0]);
           expect(first).toContain(SKILL_DISCOVERY_CONTRACT);
-          expect(first).not.toContain('Adaptive fixture workflow');
           expect(first).not.toContain('<available_skills>');
+          expect(fixtureNames.size).toBe(0);
           expect(estimateTokens(startupSkillContext(fixture.server.requests[0]))).toBeLessThanOrEqual(512);
         } else {
-          expect(first).toContain('Adaptive fixture workflow');
+          expect(fixtureNames.size).toBe(localSkills);
+          expect(fixtureNames.has('adaptive-fixture-0')).toBe(true);
+          expect(fixtureNames.has(`adaptive-fixture-${localSkills - 1}`)).toBe(true);
         }
         const prefix = fixture.server.requests.map(request => JSON.stringify(requestMessages(request)[0]));
         expect(new Set(prefix).size).toBe(1);

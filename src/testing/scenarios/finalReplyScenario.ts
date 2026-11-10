@@ -1,11 +1,10 @@
 import type { Session } from 'tuistory';
 
-export async function startReviewedReply(session: Session): Promise<void> {
+export async function startReviewedReply(session: Session, waitForReview: () => Promise<void>): Promise<void> {
   await session.waitForText('❯', { timeout: 20_000 });
   await session.type('Read package.json and give the verified facts.');
   await session.press('enter');
-  await session.waitForText('REVIEW_PENDING_ANSWER', { timeout: 20_000 });
-  await session.waitForText('completion review is pending', { timeout: 10_000 });
+  await waitForReview();
 }
 
 export async function configureExaSearch(session: Session): Promise<void> {

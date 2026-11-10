@@ -19,6 +19,16 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+function preparedLaunchArguments(): unknown {
+  const environmentWrite = vi.mocked(execFileSync).mock.calls.find(([file]) => file === '/usr/bin/python3');
+  const environment: unknown = JSON.parse(String(environmentWrite?.[1]?.[3]));
+  if (!environment || typeof environment !== 'object' || !('AUTOHAND_NATIVE_LAUNCH_ARGUMENTS' in environment)
+    || typeof environment.AUTOHAND_NATIVE_LAUNCH_ARGUMENTS !== 'string') {
+    throw new Error('Native test launch arguments were not passed to XCTest');
+  }
+  return JSON.parse(environment.AUTOHAND_NATIVE_LAUNCH_ARGUMENTS);
+}
+
 describe('native terminal automation boundary', () => {
   it('refuses to launch or terminate applications on a developer machine', async () => {
     vi.stubEnv('GITHUB_ACTIONS', 'false');
@@ -33,7 +43,7 @@ describe('native terminal automation boundary', () => {
     await expect(prepareNativeTerminalTest()).rejects.toThrow('Choose iterm2, ghostty, cmux, or vscode');
   });
 
-  it('prepares a disposable VS Code profile without Copilot onboarding while retaining terminal accessibility and scrollback', async () => {
+  it.each(['idle', 'streaming'])('prepares an isolated %s VS Code profile with native renderer accessibility', async mode => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     vi.stubEnv('GITHUB_ACTIONS', 'true');
     vi.stubEnv('CI', 'true');
@@ -41,7 +51,7 @@ describe('native terminal automation boundary', () => {
 
     const test = await prepareNativeTerminalTest();
 
-    const profile = path.resolve('.artifacts/native-terminal/vscode/vscode-profile');
+    const profile = path.resolve('.artifacts/native-terminal/vscode/vscode-profile', mode);
     const settingsWrite = vi.mocked(writeFile).mock.calls.find(([file]) => file === path.join(profile, 'User/settings.json'));
     expect(settingsWrite).toBeDefined();
     const settings: unknown = JSON.parse(String(settingsWrite?.[1]));
@@ -52,8 +62,32 @@ describe('native terminal automation boundary', () => {
       'terminal.integrated.enablePersistentSessions': false,
       'terminal.integrated.scrollback': 5000,
     });
+    const launchArguments = preparedLaunchArguments();
+    expect(launchArguments).toMatchObject({
+      [mode]: expect.arrayContaining([
+        '--force-renderer-accessibility', '--user-data-dir', profile,
+        '--extensions-dir', path.join(profile, 'extensions'), '--disable-extensions',
+      ]),
+    });
+    expect(launchArguments).toMatchObject({
+      idle: expect.not.arrayContaining([path.resolve('.artifacts/native-terminal/vscode/vscode-profile/streaming')]),
+      streaming: expect.not.arrayContaining([path.resolve('.artifacts/native-terminal/vscode/vscode-profile/idle')]),
+    });
     expect(test.args[0]).toBe('test-without-building');
     expect(test.resultBundle).toBe(path.resolve('.artifacts/native-terminal/vscode/NativeTerminal.xcresult'));
     expect(execFileSync).not.toHaveBeenCalledWith('/usr/bin/xcodebuild', expect.arrayContaining(['test-without-building']), expect.anything());
+  });
+
+  it.each([
+    { terminal: 'iterm2', arguments: [] },
+    { terminal: 'cmux', arguments: [] },
+    { terminal: 'ghostty', arguments: ['--config-default-files=false', '--confirm-close-surface=false'] },
+  ])('preserves the $terminal launch arguments for both native scenarios', async fixture => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    vi.stubEnv('CI', 'true');
+    vi.stubEnv('AUTOHAND_NATIVE_TERMINAL', fixture.terminal);
+    await prepareNativeTerminalTest();
+    expect(preparedLaunchArguments()).toEqual({ idle: fixture.arguments, streaming: fixture.arguments });
   });
 });

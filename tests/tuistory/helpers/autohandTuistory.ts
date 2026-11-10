@@ -66,6 +66,7 @@ export interface MockNativeToolServer extends MockOpenRouterServer {
 export interface MockNativeAssistantTurn {
   content: string;
   delayMs?: number;
+  responseGate?: Promise<void>;
   toolCall?: {
     id: string;
     name: string;
@@ -372,6 +373,19 @@ export async function createMockAutohandAINativeSequenceServer(
 
     const turn = turns[Math.min(requests.length - 1, turns.length - 1)]
       ?? { content: '' };
+    const responseGate = turn.responseGate;
+    if (responseGate) {
+      await new Promise<void>(resolve => {
+        const finish = () => {
+          response.off('close', finish);
+          resolve();
+        };
+        response.once('close', finish);
+        void responseGate.then(finish, () => { response.destroy(); finish(); });
+        if (response.destroyed) finish();
+      });
+      if (response.destroyed) return;
+    }
     if (turn.delayMs) {
       await new Promise<void>(resolve => {
         const finish = () => {
