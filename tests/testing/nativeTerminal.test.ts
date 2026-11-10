@@ -41,7 +41,7 @@ function preparedLaunchArguments(): Record<string, string[]> {
 }
 
 describe('native terminal automation boundary', () => {
-  it.each(['idle', 'streaming'])('installs a single native buffer-copy binding in the isolated %s VS Code profile', async mode => {
+  it.each(['idle', 'streaming'])('focuses the existing terminal before each native copy in the isolated %s VS Code profile', async mode => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     vi.stubEnv('GITHUB_ACTIONS', 'true');
     vi.stubEnv('CI', 'true');
@@ -52,8 +52,12 @@ describe('native terminal automation boundary', () => {
     expect(bindingWrite).toBeDefined();
     const bindings: unknown = JSON.parse(String(bindingWrite?.[1]));
     expect(bindings).toEqual([{
-      key: 'ctrl+shift+y', command: 'runCommands', when: 'terminalFocus', args: {
-        commands: ['workbench.action.terminal.selectAll', 'workbench.action.terminal.copyAndClearSelection'],
+      key: 'ctrl+shift+y', command: 'runCommands', when: 'terminalIsOpen', args: {
+        commands: [
+          'workbench.action.terminal.focus',
+          'workbench.action.terminal.selectAll',
+          'workbench.action.terminal.copyAndClearSelection',
+        ],
       },
     }]);
     expect(copyFile).toHaveBeenCalledWith(evidence, path.join('/private/tmp/ah-vsc-123456', mode, 'User/keybindings.json'));

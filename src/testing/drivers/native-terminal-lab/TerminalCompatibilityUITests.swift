@@ -7,39 +7,6 @@ private struct NativeAccessibilityText {
     var value = ""
 
     var strings: [String] { [label, title, value] }
-    var content: String { [value, label, title].first { !$0.isEmpty } ?? "" }
-}
-
-private struct NativeReadoutNode {
-    var isTextView = false
-    var elementType: XCUIElement.ElementType = .other
-    var frame = CGRect.zero
-    var text = NativeAccessibilityText()
-    var children: [NativeReadoutNode] = []
-}
-
-private func nativeCodeTerminalBuffer<Snapshot>(_ capture: () throws -> Snapshot,
-                                                children: (Snapshot) -> [Snapshot],
-                                                textViewValue: (Snapshot) -> String?,
-                                                screenBuffer: (Snapshot) -> String? = { _ in nil },
-                                                maximumNodes: Int = 2_048) rethrows -> String {
-    var pending = [try capture()]
-    var visited = 0
-    var values: [String] = []
-    var screens: [String] = []
-    while let node = pending.popLast() {
-        guard visited < maximumNodes else { return "" }
-        visited += 1
-        if let value = textViewValue(node) { values.append(value) }
-        if let screen = screenBuffer(node) { screens.append(screen) }
-        guard screens.count <= 1 else { return "" }
-        let descendants = children(node)
-        guard descendants.count <= maximumNodes - visited - pending.count else { return "" }
-        pending.append(contentsOf: descendants.reversed())
-    }
-    if let screen = screens.first { return screen }
-    return values.filter { $0.contains("RESIZE_HISTORY retained text") }.max { $0.count < $1.count }
-        ?? values.max { $0.count < $1.count } ?? ""
 }
 
 private struct NativeWindowFrame: Equatable {
@@ -64,42 +31,9 @@ private func nativeFixtureMoveFrame(current: CGRect, target: CGRect, bounds: CGR
     return bounds.contains(proposed) ? proposed : nil
 }
 
-private func nativeCodeScreenRows<Snapshot>(_ capture: () throws -> Snapshot, windowFrame: CGRect,
-                                            children: (Snapshot) -> [Snapshot],
-                                            elementType: (Snapshot) -> XCUIElement.ElementType,
-                                            frame: (Snapshot) -> CGRect, value: (Snapshot) -> String?,
-                                            maximumNodes: Int = 2_048) rethrows -> String {
-    let snapshot = try capture()
-    let windows = children(snapshot).filter { elementType($0) == .window && frame($0) == windowFrame }
-    guard windows.count == 1 else { return "" }
-    return nativeCodeTerminalBuffer({ windows[0] }, children: children,
-        textViewValue: { elementType($0) == .textView ? value($0) : nil },
-        screenBuffer: { node in
-            guard elementType(node) == .other else { return nil }
-            let rows = children(node)
-            let viewport = frame(node)
-            guard rows.count >= 2, rows.count <= maximumNodes / 2,
-                  viewport.width > 0, viewport.height > 0, windowFrame.contains(viewport) else { return nil }
-            var previous: CGRect?
-            var values: [String] = []
-            for row in rows {
-                let position = frame(row)
-                let contents = children(row)
-                guard elementType(row) == .group, contents.count == 1,
-                      elementType(contents[0]) == .staticText, let text = value(contents[0]),
-                      position.width > 0, position.height > 0,
-                      abs(position.minX - viewport.minX) <= 1,
-                      position.maxY <= viewport.maxY + 1 else { return nil }
-                if let previous {
-                    guard abs(previous.maxY - position.minY) <= 1,
-                          abs(previous.height - position.height) <= 1 else { return nil }
-                } else if abs(position.minY - viewport.minY) > 1 { return nil }
-                values.append(text)
-                previous = position
-            }
-            guard let last = previous, viewport.maxY - last.maxY <= last.height + 1 else { return nil }
-            return values.joined(separator: "\n")
-        }, maximumNodes: maximumNodes)
+private func nativeCopiedTerminalBuffer(baseline: Int, observed: Int, value: String?) -> String? {
+    guard observed > baseline else { return nil }
+    return value
 }
 
 private struct NativeTerminalReadout {
@@ -155,85 +89,11 @@ private func nativeTerminalInputReady(terminal: String, textViewExists: Bool, sp
     terminal == "vscode" ? splitTerminalEnabled : textViewExists
 }
 
-private func nativeReadoutUsesCopiedBuffer(terminal: String, accessibilityHasFixture: Bool, copiedBufferHasFixture: Bool) -> Bool {
-    terminal == "vscode" && !accessibilityHasFixture && copiedBufferHasFixture
-}
-
 final class TerminalCompatibilityUITests: XCTestCase {
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
 
     @MainActor func testIdleResize() throws { try resizeScenario(streaming: false) }
     @MainActor func testStreamingResize() throws { try resizeScenario(streaming: true) }
-
-    private func screenRows(_ values: [String], origin: CGPoint = CGPoint(x: 73, y: 101)) -> NativeReadoutNode {
-        NativeReadoutNode(elementType: .other,
-            frame: CGRect(origin: origin, size: CGSize(width: 731, height: CGFloat(values.count) * 14 + 6)),
-            children: values.enumerated().map { index, value in
-                let row = CGRect(x: origin.x, y: origin.y + CGFloat(index) * 14, width: 731, height: 14)
-                return NativeReadoutNode(elementType: .group, frame: row, children: [
-                    NativeReadoutNode(elementType: .staticText, frame: row.offsetBy(dx: 0, dy: 2),
-                                      text: NativeAccessibilityText(value: value))
-                ])
-            })
-    }
-
-    private func screenReadout(_ snapshot: NativeReadoutNode, maximumNodes: Int = 2_048) -> String {
-        nativeCodeScreenRows({ snapshot }, windowFrame: CGRect(x: 20, y: 33, width: 784, height: 550),
-            children: { $0.children }, elementType: { $0.elementType }, frame: { $0.frame },
-            value: { $0.text.value }, maximumNodes: maximumNodes)
-    }
-
-    func testNativeScreenRowsReadTheFreshAppWindowAndExcludeAnnouncementSiblingsByStructure() {
-        let values = ["Autohand Code", "\u{00a0}", "RESIZE_HISTORY retained text", "preserved draft", "RESIZE_STREAM 365"]
-        let current = NativeReadoutNode(elementType: .window, frame: CGRect(x: 20, y: 33, width: 784, height: 550), children: [
-            NativeReadoutNode(elementType: .staticText, text: NativeAccessibilityText(value: values.joined() + values.joined())),
-            screenRows(values)
-        ])
-        var captures = 0
-        let value = nativeCodeScreenRows({ captures += 1; return NativeReadoutNode(children: [current]) }, windowFrame: current.frame,
-            children: { $0.children }, elementType: { $0.elementType }, frame: { $0.frame }, value: { $0.text.value })
-        XCTAssertEqual(value, values.joined(separator: "\n"))
-        XCTAssertEqual(captures, 1)
-        let sparseOldWindow = NativeReadoutNode(elementType: .window, frame: current.frame,
-            children: [NativeReadoutNode(elementType: .button)])
-        XCTAssertEqual(screenReadout(NativeReadoutNode(children: [sparseOldWindow])), "")
-    }
-
-    func testNativeScreenRowsPreserveDuplicateAndBlankRowsWithoutChoosingACleanCandidate() {
-        let values = ["RESIZE_HISTORY retained text", "", "RESIZE_HISTORY retained text", "preserved draft"]
-        var window = NativeReadoutNode(elementType: .window, frame: CGRect(x: 20, y: 33, width: 784, height: 550), children: [screenRows(values)])
-        XCTAssertEqual(screenReadout(NativeReadoutNode(children: [window])), values.joined(separator: "\n"))
-        window.children.append(screenRows(["RESIZE_HISTORY retained text", "preserved draft"]))
-        XCTAssertEqual(screenReadout(NativeReadoutNode(children: [window])), "")
-    }
-
-    func testNativeScreenRowsPreserveTextScaledBeyondTheCapturedListWidth() {
-        let values = ["Autohand Code", "RESIZE_HISTORY retained text", "", "RESIZE_HISTORY retained text", "preserved draft"]
-            + Array(repeating: "\u{00a0}", count: 22)
-        var rows = screenRows(values)
-        rows.frame.size = CGSize(width: 651, height: 378)
-        for index in rows.children.indices {
-            rows.children[index].frame.size.width = index == 0 ? 182 : 686
-            rows.children[index].children[0].frame = rows.children[index].frame.offsetBy(dx: 0, dy: 2)
-        }
-        let nativeFrame = CGRect(x: 20, y: 33, width: 744, height: 510)
-        let window = NativeReadoutNode(elementType: .window, frame: nativeFrame, children: [rows])
-        let content = nativeCodeScreenRows({ NativeReadoutNode(children: [window]) }, windowFrame: nativeFrame,
-            children: { $0.children }, elementType: { $0.elementType }, frame: { $0.frame }, value: { $0.text.value })
-        XCTAssertEqual(content, values.joined(separator: "\n"))
-        XCTAssertEqual(content.components(separatedBy: "RESIZE_HISTORY retained text").count - 1, 2)
-    }
-
-    func testNativeScreenRowsRejectStaleGeometryBudgetsAndNonConsecutiveRows() {
-        var window = NativeReadoutNode(elementType: .window, frame: CGRect(x: 20, y: 33, width: 784, height: 550),
-            children: [screenRows(["RESIZE_HISTORY retained text", "preserved draft"])])
-        XCTAssertEqual(screenReadout(NativeReadoutNode(children: [window]), maximumNodes: 3), "")
-        window.frame.size.width += 1
-        XCTAssertEqual(screenReadout(NativeReadoutNode(children: [window])), "")
-        window.frame.size.width -= 1
-        window.children[0].children.reverse()
-        XCTAssertEqual(screenReadout(NativeReadoutNode(children: [window])), "")
-    }
 
     func testNativeViewportDoesNotMoveAWindowWhoseWidthIgnoredTheShrink() {
         let bounds = CGRect(x: 0, y: 0, width: 1024, height: 768)
@@ -259,6 +119,24 @@ final class TerminalCompatibilityUITests: XCTestCase {
         XCTAssertNil(nativeFixtureWindow([NativeWindowFrame(processIdentifier: 6736, windowIdentifier: 102, frame: resized.frame)], identity: identity))
         XCTAssertNil(nativeFixtureWindow([resized, identity], identity: identity))
         XCTAssertNil(nativeFixtureWindow([NativeWindowFrame(processIdentifier: 6737, windowIdentifier: 101, frame: resized.frame)], identity: identity))
+    }
+
+    func testNativeReadoutRejectsStaleClipboardValuesEvenWhenAllMarkersArePresent() {
+        let stale = "Autohand Code\nRESIZE_HISTORY retained text\npreserved draft\nRESIZE_STREAM 313"
+        XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 18, value: stale))
+        XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 17, value: stale))
+        XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 19, value: nil))
+    }
+
+    func testNativeReadoutPreservesEveryByteAndDuplicateInAFreshNativeCopy() {
+        let raw = "Autohand Code\r\nRESIZE_HISTORY retained text\n\nRESIZE_HISTORY retained text\n  preserved draft  \nRESIZE_STREAM 382\n"
+        let fresh = nativeCopiedTerminalBuffer(baseline: 18, observed: 19, value: raw)
+        XCTAssertEqual(fresh, raw)
+        XCTAssertEqual(fresh.map { Array($0.utf8) }, Array(raw.utf8))
+        XCTAssertEqual(fresh?.components(separatedBy: "RESIZE_HISTORY retained text").count, 3)
+        var readout = NativeTerminalReadout(read: { fresh }, requiresStreaming: true)
+        XCTAssertTrue(readout.capture())
+        XCTAssertEqual(readout.frame, raw)
     }
 
     func testNativeReadoutWaitsForTheHeaderBeforeAcceptingACompleteFrame() {
@@ -332,53 +210,6 @@ final class TerminalCompatibilityUITests: XCTestCase {
         XCTAssertNil(readout.frame)
     }
 
-    func testNativeReadoutIgnoresAnnouncementsAndRowMirrorsWhenNoCompleteTextViewExists() {
-        let announcement = "Autohand Code RESIZE_HISTORY retained text preserved draft"
-        let root = NativeReadoutNode(children: [
-            NativeReadoutNode(text: NativeAccessibilityText(value: announcement + announcement)),
-            NativeReadoutNode(text: NativeAccessibilityText(value: "RESIZE_HISTORY retained text")),
-            NativeReadoutNode(text: NativeAccessibilityText(value: "preserved draft"))
-        ])
-        let accessibility = nativeCodeTerminalBuffer({ root }, children: { $0.children },
-            textViewValue: { $0.isTextView ? $0.text.value : nil })
-        XCTAssertEqual(accessibility, "", "Announcements and individual rows are not a native terminal buffer")
-        let copied = announcement + "\n" + announcement
-        let useCopied = nativeReadoutUsesCopiedBuffer(terminal: "vscode",
-            accessibilityHasFixture: accessibility.contains("RESIZE_HISTORY retained text"),
-            copiedBufferHasFixture: copied.contains("RESIZE_HISTORY retained text"))
-        XCTAssertTrue(useCopied)
-        let content = useCopied ? copied : accessibility
-        XCTAssertEqual(content, copied)
-        XCTAssertEqual(content.components(separatedBy: "RESIZE_HISTORY retained text").count - 1, 2,
-                       "A duplicated copied frame must still fail the native count assertion")
-    }
-
-    func testNativeReadoutCapturesOneSnapshotAndPreservesRawBufferDuplicates() {
-        let buffer = "Autohand Code\nRESIZE_HISTORY retained text\nRESIZE_HISTORY retained text\npreserved draft\ntaXil"
-        let root = NativeReadoutNode(children: [
-            NativeReadoutNode(text: NativeAccessibilityText(value: buffer + buffer)),
-            NativeReadoutNode(isTextView: true, text: NativeAccessibilityText(label: buffer, value: buffer)),
-            NativeReadoutNode(text: NativeAccessibilityText(value: "RESIZE_HISTORY retained text"))
-        ])
-        var captures = 0
-        let value = nativeCodeTerminalBuffer({ captures += 1; return root }, children: { $0.children },
-            textViewValue: { $0.isTextView ? $0.text.value : nil })
-        XCTAssertEqual(captures, 1)
-        XCTAssertEqual(value, buffer)
-        XCTAssertEqual(value.components(separatedBy: "RESIZE_HISTORY retained text").count - 1, 2)
-    }
-
-    func testNativeReadoutFailsClosedWhenTheSnapshotExceedsItsNodeBudget() {
-        let root = NativeReadoutNode(children: [
-            NativeReadoutNode(isTextView: true, text: NativeAccessibilityText(value: "Autohand Code RESIZE_HISTORY retained text")),
-            NativeReadoutNode()
-        ])
-        XCTAssertEqual(nativeCodeTerminalBuffer({ root }, children: { $0.children },
-            textViewValue: { $0.isTextView ? $0.text.value : nil }, maximumNodes: 2), "")
-        XCTAssertEqual(nativeCodeTerminalBuffer({ root }, children: { $0.children },
-            textViewValue: { $0.isTextView ? $0.text.value : nil }, maximumNodes: 3), "Autohand Code RESIZE_HISTORY retained text")
-    }
-
     func testNativeViewportShrinksBeforeMovingAFullWidthWindow() {
         let display = CGRect(x: 0, y: 0, width: 1024, height: 768)
         let available = CGRect(x: 0, y: 31, width: 1024, height: 674)
@@ -395,13 +226,6 @@ final class TerminalCompatibilityUITests: XCTestCase {
         XCTAssertFalse(nativeTerminalInputReady(terminal: "vscode", textViewExists: true, splitTerminalEnabled: false))
         XCTAssertFalse(nativeTerminalInputReady(terminal: "iterm2", textViewExists: false, splitTerminalEnabled: true))
         XCTAssertTrue(nativeTerminalInputReady(terminal: "iterm2", textViewExists: true, splitTerminalEnabled: false))
-    }
-
-    func testNativeInputReadoutRequiresTheActualFixtureBeforeUsingTheCopiedBuffer() {
-        XCTAssertTrue(nativeReadoutUsesCopiedBuffer(terminal: "vscode", accessibilityHasFixture: false, copiedBufferHasFixture: true))
-        XCTAssertFalse(nativeReadoutUsesCopiedBuffer(terminal: "vscode", accessibilityHasFixture: false, copiedBufferHasFixture: false))
-        XCTAssertFalse(nativeReadoutUsesCopiedBuffer(terminal: "vscode", accessibilityHasFixture: true, copiedBufferHasFixture: true))
-        XCTAssertFalse(nativeReadoutUsesCopiedBuffer(terminal: "iterm2", accessibilityHasFixture: false, copiedBufferHasFixture: true))
     }
 
     func testNativeViewportKeepsAllFourResizesWithinTheDisplayAndLargeEnoughForHistory() {
@@ -441,11 +265,6 @@ final class TerminalCompatibilityUITests: XCTestCase {
                                              buttons: [NativeAccessibilityText(title: "Don't Allow")]))
         XCTAssertNil(localNetworkDenialButton(dialog: [NativeAccessibilityText(value: "find devices on local networks")],
                                              buttons: [NativeAccessibilityText(title: "Allow")]))
-    }
-
-    func testAccessibilityContentDoesNotDuplicateMirroredAttributes() {
-        XCTAssertEqual(NativeAccessibilityText(label: "RESIZE_HISTORY retained text", title: "RESIZE_HISTORY retained text",
-                                              value: "RESIZE_HISTORY retained text").content, "RESIZE_HISTORY retained text")
     }
 
     @MainActor
@@ -569,8 +388,8 @@ final class TerminalCompatibilityUITests: XCTestCase {
             guard let identity = nativeIdentity else { return nil }
             return self.currentCodeWindow(app, identity: identity)
         })
-        let readTerminal: (Bool) -> String? = { copied in
-            if let identity = nativeIdentity { return self.codeTerminalValue(app, identity: identity, useCopiedBuffer: copied) }
+        let readTerminal: () -> String? = {
+            if let identity = nativeIdentity { return self.codeTerminalValue(app, identity: identity) }
             return self.terminalValue(window)
         }
         if terminal != "vscode" { terminalView.click() }
@@ -579,20 +398,8 @@ final class TerminalCompatibilityUITests: XCTestCase {
         app.typeKey("v", modifierFlags: .command)
         app.typeKey(.return, modifierFlags: [])
         var startupValue = ""
-        var accessibilityStartup = ""
-        var copiedStartup = ""
-        var useCopiedBuffer = false
         let ready = NSPredicate { _, _ in
-            accessibilityStartup = readTerminal(false) ?? ""
-            startupValue = accessibilityStartup
-            if !startupValue.contains("RESIZE_HISTORY retained text"), terminal == "vscode" {
-                copiedStartup = readTerminal(true) ?? ""
-                accessibilityStartup = readTerminal(false) ?? ""
-                useCopiedBuffer = nativeReadoutUsesCopiedBuffer(terminal: terminal,
-                    accessibilityHasFixture: accessibilityStartup.contains("RESIZE_HISTORY retained text"),
-                    copiedBufferHasFixture: copiedStartup.contains("RESIZE_HISTORY retained text"))
-                startupValue = useCopiedBuffer ? copiedStartup : accessibilityStartup
-            }
+            startupValue = readTerminal() ?? ""
             return startupValue.contains("RESIZE_HISTORY retained text")
         }
         guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: app)], timeout: 30) == .completed else {
@@ -608,9 +415,8 @@ final class TerminalCompatibilityUITests: XCTestCase {
             return
         }
         if terminal == "vscode" {
-            print("NATIVE_TERMINAL_READOUT vscode \(useCopiedBuffer ? "native-copy" : "accessibility")")
-            let evidence = XCTAttachment(string: "Readout: \(useCopiedBuffer ? "native-copy" : "accessibility")\nAccessibility:\n"
-                + String(accessibilityStartup.prefix(7_900)) + "\nCopied buffer:\n" + String(copiedStartup.prefix(7_900)))
+            print("NATIVE_TERMINAL_READOUT vscode native-copy")
+            let evidence = XCTAttachment(string: "Readout: native-copy\nCopied buffer:\n" + String(startupValue.prefix(16_000)))
             evidence.name = "vscode-\(streaming ? "streaming" : "idle")-readout-preflight"
             evidence.lifetime = .keepAlways
             add(evidence)
@@ -629,7 +435,7 @@ final class TerminalCompatibilityUITests: XCTestCase {
             }
             XCTAssertNotEqual(window.frame.size, frame.size, "The native window did not resize")
             XCTAssertTrue(displayBounds.contains(window.frame), "The resized fixture window left the display bounds")
-            var readout = NativeTerminalReadout(read: { readTerminal(useCopiedBuffer) }, requiresStreaming: streaming)
+            var readout = NativeTerminalReadout(read: { readTerminal() }, requiresStreaming: streaming)
             let settled = NSPredicate { _, _ in readout.capture() }
             guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: window)], timeout: 10) == .completed,
                   let content = readout.frame else {
@@ -653,14 +459,14 @@ final class TerminalCompatibilityUITests: XCTestCase {
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey("x", modifierFlags: .shift)
-        let edited = NSPredicate { _, _ in readTerminal(useCopiedBuffer)?.contains("taXil") == true }
+        let edited = NSPredicate { _, _ in readTerminal()?.contains("taXil") == true }
         expectation(for: edited, evaluatedWith: app)
         waitForExpectations(timeout: 10)
         app.typeKey(.escape, modifierFlags: [])
         app.typeKey("c", modifierFlags: .control)
         app.typeKey("c", modifierFlags: .control)
         app.typeKey("c", modifierFlags: .control)
-        let exit = NSPredicate { _, _ in app.state == .notRunning || readTerminal(useCopiedBuffer)?.contains("RESIZE_PTY_EXIT") == true }
+        let exit = NSPredicate { _, _ in app.state == .notRunning || readTerminal()?.contains("RESIZE_PTY_EXIT") == true }
         expectation(for: exit, evaluatedWith: app)
         waitForExpectations(timeout: 15)
         print(streaming ? "NATIVE_TERMINAL_STREAMING_PASS" : "NATIVE_TERMINAL_IDLE_PASS")
@@ -794,17 +600,12 @@ final class TerminalCompatibilityUITests: XCTestCase {
         return windows[0]
     }
 
-    private func codeTerminalValue(_ app: XCUIApplication, identity: NativeWindowFrame, useCopiedBuffer: Bool) -> String? {
+    private func codeTerminalValue(_ app: XCUIApplication, identity: NativeWindowFrame) -> String? {
         guard let native = nativeFixtureWindow(visibleNativeWindows(processIdentifier: identity.processIdentifier), identity: identity) else {
             XCTFail("VS Code changed the fixture's native window ID, process, or window count")
             return nil
         }
-        let value: String?
-        if useCopiedBuffer { value = copiedTerminalValue(app) }
-        else {
-            value = try? nativeCodeScreenRows({ try app.snapshot() }, windowFrame: native.frame,
-                children: { $0.children }, elementType: { $0.elementType }, frame: { $0.frame }, value: { $0.value as? String })
-        }
+        let value = copiedTerminalValue(app)
         guard nativeFixtureWindow(visibleNativeWindows(processIdentifier: identity.processIdentifier), identity: identity) == native else { return nil }
         return value
     }
@@ -814,17 +615,21 @@ final class TerminalCompatibilityUITests: XCTestCase {
         pasteboard.clearContents()
         let generation = pasteboard.changeCount
         window.typeKey("y", modifierFlags: [.control, .shift])
-        let written = NSPredicate { _, _ in pasteboard.changeCount > generation && pasteboard.string(forType: .string) != nil }
+        let written = NSPredicate { _, _ in
+            nativeCopiedTerminalBuffer(baseline: generation, observed: pasteboard.changeCount,
+                                       value: pasteboard.string(forType: .string)) != nil
+        }
         guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: written, object: pasteboard)], timeout: 2) == .completed,
-              pasteboard.changeCount > generation, let value = pasteboard.string(forType: .string) else {
+              let value = nativeCopiedTerminalBuffer(baseline: generation, observed: pasteboard.changeCount,
+                                                    value: pasteboard.string(forType: .string)) else {
             print("NATIVE_TERMINAL_COPY_UNAVAILABLE baseline=\(generation) observed=\(pasteboard.changeCount)")
             return nil
         }
+        print("NATIVE_TERMINAL_COPY_FRESH baseline=\(generation) observed=\(pasteboard.changeCount) bytes=\(value.utf8.count)")
         return value
     }
 
-    private func terminalValue(_ window: XCUIElement, useCopiedBuffer: Bool = false) -> String? {
-        if useCopiedBuffer { return copiedTerminalValue(window) }
+    private func terminalValue(_ window: XCUIElement) -> String? {
         let values = window.textViews.allElementsBoundByIndex.compactMap { $0.value as? String }
         if let terminal = values.filter({ $0.contains("RESIZE_HISTORY retained text") }).max(by: { $0.count < $1.count }) {
             return terminal

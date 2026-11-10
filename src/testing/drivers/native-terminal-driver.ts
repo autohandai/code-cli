@@ -39,8 +39,12 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
     const keybindingsFile = path.join(evidenceProfile, 'User', 'keybindings.json');
     if (runtimeProfile) {
       await writeFile(keybindingsFile, JSON.stringify([{
-        key: 'ctrl+shift+y', command: 'runCommands', when: 'terminalFocus', args: {
-          commands: ['workbench.action.terminal.selectAll', 'workbench.action.terminal.copyAndClearSelection'],
+        key: 'ctrl+shift+y', command: 'runCommands', when: 'terminalIsOpen', args: {
+          commands: [
+            'workbench.action.terminal.focus',
+            'workbench.action.terminal.selectAll',
+            'workbench.action.terminal.copyAndClearSelection',
+          ],
         },
       }]));
     }
