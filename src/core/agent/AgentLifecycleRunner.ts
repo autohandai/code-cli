@@ -50,7 +50,7 @@ import { shouldForceAgentIdleLogout } from './AgentSessionAccounting.js';
 import {
   consumeAgentInkSubmittedInstructionEcho,
 } from './AgentUIRuntime.js';
-import { renderAgentSlashCommandResult, shouldPreserveComposerDraftAfterCommand } from './AgentCommandRuntime.js';
+import { renderAgentSlashCommandResult } from './AgentCommandRuntime.js';
 import {
   createQueuedAgentInstruction,
   resolveActiveGoalContinuation,
@@ -1960,10 +1960,9 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
                 host.writeDebugLine?.bind(host)
               );
               if (host.ui || host.inkRenderer) {
+                // Submission already consumed its text; current input belongs
+                // to a later draft or a command prefill.
                 host.setComposerIdle();
-                if (!shouldPreserveComposerDraftAfterCommand(command)) {
-                  host.clearComposerInput();
-                }
                 // Return to the top of the loop so the idle-wait path can await
                 // the next Composer submission without falling through to
                 // instruction.startsWith('/') which would throw on null.

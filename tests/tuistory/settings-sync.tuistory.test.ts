@@ -96,7 +96,16 @@ describe('built settings sync health', () => {
       timeout: 5000,
       waitFor: screen => screen.includes('Completed in') && screen.includes('Plan, search, build anything'),
     });
-    await session.type(command); await session.press('enter');
+    await session.type(command);
+    // Keep Enter separate from command text when the CLI reader is descheduled.
+    await waitForTerminalScreen(session, {
+      timeout: 5000,
+      waitFor: screen => screen.split('\n')
+        .map(line => line.trim())
+        .filter(line => line.startsWith('❯ '))
+        .at(-1) === `❯ ${command}`,
+    });
+    await session.press('enter');
     await session.waitForText(command === '/status' ? 'Settings:' : 'Settings Sync:');
     await session.waitForText('Download failed: 404');
     await delay(3000);

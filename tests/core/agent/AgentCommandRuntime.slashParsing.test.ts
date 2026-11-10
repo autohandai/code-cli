@@ -138,6 +138,23 @@ describe('renderAgentSlashCommandResult', () => {
 });
 
 describe('runAgentSlashCommandWithInput', () => {
+  it.each(['cancel', 'prefill', 'error'] as const)('preserves input owned by the next turn after a modal %s', async outcome => {
+    let draft = '';
+    const host = {
+      runtime: { options: {}, config: {} },
+      inkRenderer: { isRunning: () => true, clearInput: () => { draft = ''; } },
+      handleSlashCommand: async () => {
+        draft = outcome === 'prefill' ? '/model next-provider' : 'next instruction';
+        if (outcome === 'error') throw new Error('modal failed');
+        return null;
+      },
+    };
+    const command = runAgentSlashCommandWithInput(host, '/model', []);
+    if (outcome === 'error') await expect(command).rejects.toThrow('modal failed');
+    else await command;
+    expect(draft).toBe(outcome === 'prefill' ? '/model next-provider' : 'next instruction');
+  });
+
   it('preserves text entered as the composer returns from status', async () => {
     let draft = '/status';
     const host = {

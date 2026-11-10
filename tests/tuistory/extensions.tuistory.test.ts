@@ -5,7 +5,7 @@
  */
 import fs from 'fs-extra';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import {
   createTempAutohandHome,
@@ -24,6 +24,7 @@ import {
   driveExtensionBuilderAuthoring,
 } from '../../src/testing/scenarios/extensionBuilderAuthoringDemo.js';
 import { showDocumentFactoryInstruction } from '../../src/testing/scenarios/documentFactoryScenario.js';
+import { waitForTerminalScreen } from '../../src/testing/drivers/tuistory-driver.js';
 
 const EXAMPLE_IDS = [
   'autohand.code-health',
@@ -270,6 +271,64 @@ describe('built extensions CLI Tuistory E2E', () => {
     await exitInteractive(session);
   }, 90_000);
 
+  it.each([false, true].flatMap(fullScreenMode => (['existing', 'different', 'same'] as const)
+    .map(draftKind => ({ fullScreenMode, draftKind }))))('preserves $draftKind composer input through controlled slash completion (full screen: $fullScreenMode)', async ({ fullScreenMode, draftKind }) => {
+    const state = await createTempAutohandHome({ config: { features: { fullScreenMode } } });
+    tempStates.push(state);
+    const source = path.join(state.workspaceRoot, 'completion-gate');
+    const started = path.join(state.workspaceRoot, 'command-started');
+    const release = path.join(state.workspaceRoot, 'command-release');
+    await fs.outputJson(path.join(source, 'autohand.extension.json'), {
+      schemaVersion: 1, extensionApi: 1, id: 'autohand.completion-gate', name: 'Completion gate',
+      version: '1.0.0', description: 'Controlled slash completion fixture.', contributes: { runtime: ['dist/extension.mjs'] },
+    });
+    await fs.outputFile(path.join(source, 'dist/extension.mjs'), `
+import fs from 'node:fs';
+export function activate(api) {
+  api.commands.register({command:'/draft-gate', description:'Controlled completion', execute:async () => {
+    await new Promise(resolve => {
+      const check=()=>{if(fs.existsSync(${JSON.stringify(release)})){watcher.close();resolve();}};
+      const watcher=fs.watch(${JSON.stringify(state.workspaceRoot)},check);
+      fs.writeFileSync(${JSON.stringify(started)},'started');check();
+    });
+    return 'GATED_COMMAND_FINISHED';
+  }});
+  api.keybindings.register({key:'ctrl+k', command:'/draft-gate', when:'always'});
+  api.ui.setStatusLine({segments:[{id:'gate-ready',text:'gate:ready'}]});
+}
+`);
+    const installation = await runBuiltCommand(state, ['extensions', 'install', source, '--trust']);
+    expect(installation.exitCode, installation.output).toBe(0);
+    const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot,
+    });
+    sessions.push(session);
+    const showsDraft = (screen: string, draft: string) => screen.split('\n')
+      .map(line => line.trimStart()).filter(line => line.startsWith('❯ ')).at(-1) === `❯ ${draft}`;
+    try {
+      await session.waitForText('gate:ready', { timeout: 20_000 });
+      await session.type('draft before keybinding');
+      await waitForTerminalScreen(session, { timeout: 10_000, waitFor: screen => showsDraft(screen, 'draft before keybinding') });
+      await session.press(['ctrl', 'k']);
+      await vi.waitFor(async () => expect(await fs.readFile(started, 'utf8')).toBe('started'), { timeout: 10_000 });
+      await waitForTerminalScreen(session, { timeout: 10_000, waitFor: screen => showsDraft(screen, 'draft before keybinding') });
+      const draft = draftKind === 'existing' ? 'draft before keybinding' : draftKind === 'same' ? '/draft-gate' : 'new draft during command';
+      if (draftKind !== 'existing') {
+        await session.press(['ctrl', 'c']);
+        await session.type(draft);
+        await waitForTerminalScreen(session, { timeout: 10_000, waitFor: screen => showsDraft(screen, draft) });
+      }
+      expect(session.getRawOutput()).not.toContain('GATED_COMMAND_FINISHED');
+      await fs.writeFile(release, 'ready');
+      await session.waitForText('GATED_COMMAND_FINISHED', { timeout: 10_000 });
+      await waitForTerminalScreen(session, { timeout: 10_000, waitFor: screen => showsDraft(screen, draft) });
+      await exitInteractive(session);
+      expect(session.exitInfo?.exitCode).toBe(0);
+    } finally {
+      await fs.writeFile(release, 'ready');
+    }
+  });
+
   it.each([false, true])('runs trusted slash commands, Ink views, line segments, flags, and keybindings (full screen: %s)', async (fullScreenMode) => {
     const state = await createTempAutohandHome({ config: { features: { fullScreenMode } } });
     tempStates.push(state);
@@ -311,8 +370,15 @@ describe('built extensions CLI Tuistory E2E', () => {
     await session.press(['ctrl', 'k']);
     await session.waitForText('Target: quality-assurance', { timeout: 10_000 });
     await session.press('escape');
+    await waitForTerminalScreen(session, {
+      timeout: 10_000,
+      waitFor: screen => screen.includes('❯ Plan, search, build anything')
+        && !screen.includes('Target: quality-assurance'),
+    });
 
-    await session.type('/extensions disable autohand.runtime-showcase');
+    const disableCommand = '/extensions disable autohand.runtime-showcase';
+    await session.type(disableCommand);
+    await waitForTerminalScreen(session, { timeout: 10_000, waitFor: screen => screen.includes(`❯ ${disableCommand}`) });
     await session.press('enter');
     await session.waitForText('Disabled autohand.runtime-showcase', { timeout: 10_000 });
     await session.type('/deploy');

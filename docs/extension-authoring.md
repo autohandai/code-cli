@@ -187,6 +187,8 @@ api.commands.register({
 
 Every view receives `close(value?)`, `workspaceRoot`, and the command `args`, plus the properties supplied to `context.ui.open`. Autohand owns modal pause/resume, alternate-screen cleanup, Escape, and Ctrl+C behavior. Components may build menus, dialogs, custom renderers, or editor-like interfaces with normal Ink composition.
 
+Closing a view restores the composer. Finishing, cancelling, or failing the earlier command preserves existing drafts, later typing, and command prefills.
+
 ## Status and help lines
 
 Append, hide, or replace line segments through the existing line-extension contract:
