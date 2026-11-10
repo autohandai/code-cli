@@ -36,6 +36,15 @@ private func nativeCopiedTerminalBuffer(baseline: Int, observed: Int, value: Str
     return value
 }
 
+private func nativeCopiedTerminalObservation(baseline: Int, read: () -> (generation: Int, value: String?),
+                                             wait: () -> Bool) -> String? {
+    let immediate = read()
+    if let value = nativeCopiedTerminalBuffer(baseline: baseline, observed: immediate.generation, value: immediate.value) { return value }
+    guard wait() else { return nil }
+    let sample = read()
+    return nativeCopiedTerminalBuffer(baseline: baseline, observed: sample.generation, value: sample.value)
+}
+
 private struct NativeCopyEvidence {
     private(set) var records: [Data] = []
     private(set) var dropped = 0
@@ -273,6 +282,47 @@ final class TerminalCompatibilityUITests: XCTestCase {
         XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 18, value: stale))
         XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 17, value: stale))
         XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 19, value: nil))
+    }
+
+    func testNativeReadoutAlreadyFreshCopyReturnsRawDataWithoutEnteringTheWaiter() {
+        var waits = 0
+        var reads = 0
+        let raw = "Autohand Code\r\nRESIZE_HISTORY retained text\nRESIZE_HISTORY retained text\n  preserved draft  "
+        let value = nativeCopiedTerminalObservation(baseline: 18, read: {
+            reads += 1
+            return (19, raw)
+        }, wait: { waits += 1; return true })
+        XCTAssertEqual(value, raw)
+        XCTAssertEqual(reads, 1)
+        XCTAssertEqual(waits, 0)
+    }
+
+    func testNativeReadoutStaleAndMissingCopiesUseTheExistingWaiter() {
+        for initial in ["stale", nil] {
+            var generation = 18
+            var value = initial
+            var waits = 0
+            var reads = 0
+            let result = nativeCopiedTerminalObservation(baseline: 18, read: {
+                reads += 1
+                return (generation, value)
+            }, wait: {
+                waits += 1
+                generation = 19
+                value = "fresh\n\nraw"
+                return true
+            })
+            XCTAssertEqual(result, "fresh\n\nraw")
+            XCTAssertEqual(waits, 1)
+            XCTAssertEqual(reads, 2)
+        }
+    }
+
+    func testNativeReadoutMissingOrStillStaleCopiesFailClosed() {
+        var waits = 0
+        XCTAssertNil(nativeCopiedTerminalObservation(baseline: 18, read: { (18, "stale") }, wait: { waits += 1; return true }))
+        XCTAssertEqual(waits, 1)
+        XCTAssertNil(nativeCopiedTerminalObservation(baseline: 18, read: { (19, nil) }, wait: { false }))
     }
 
     func testNativeReadoutGateRequiresViewportProgressAndANewerResumedChunk() {
@@ -974,13 +1024,16 @@ final class TerminalCompatibilityUITests: XCTestCase {
         }
         window.typeKey("y", modifierFlags: [.control, .shift])
         keyFinished = Date().timeIntervalSince1970
-        let written = NSPredicate { _, _ in
-            nativeCopiedTerminalBuffer(baseline: generation, observed: pasteboard.changeCount,
-                                       value: pasteboard.string(forType: .string)) != nil
-        }
-        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: written, object: pasteboard)], timeout: 2) == .completed,
-              let value = nativeCopiedTerminalBuffer(baseline: generation, observed: pasteboard.changeCount,
-                                                    value: pasteboard.string(forType: .string)) else {
+        let fresh = nativeCopiedTerminalObservation(baseline: generation, read: {
+            (pasteboard.changeCount, pasteboard.string(forType: .string))
+        }, wait: {
+            let written = NSPredicate { _, _ in
+                nativeCopiedTerminalBuffer(baseline: generation, observed: pasteboard.changeCount,
+                                           value: pasteboard.string(forType: .string)) != nil
+            }
+            return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: written, object: pasteboard)], timeout: 2) == .completed
+        })
+        guard let value = fresh else {
             print("NATIVE_TERMINAL_COPY_UNAVAILABLE baseline=\(generation) observed=\(pasteboard.changeCount)")
             return nil
         }
