@@ -266,7 +266,7 @@ events and writes exactly one final `result` or `error` object to stdout.
 | `--permissions`                 |       | Display current permission settings and exit                                     |
 | `--login`                       |       | Sign in to your Autohand Code account                                            |
 | `--logout`                      |       | Sign out of your Autohand Code account                                           |
-| `--sync-settings [bool]`        |       | Enable/disable settings sync (default: true for logged users)                    |
+| `--sync-settings [bool]`        |       | Enable/disable settings sync (default: false; explicit opt-in required)            |
 | `--patch`                       |       | Generate git patch without applying changes                                      |
 | `--output <file>`               |       | Output file for patch (default: stdout)                                          |
 | `--mode <mode>`                 |       | Run mode: interactive (default), rpc, or acp                                     |
@@ -423,7 +423,7 @@ Node installs use `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` for requests, inclu
 | `/goals complete`  | Mark the current goal complete and advance queued work when completion requirements are met |
 | `/goals clear`     | Clear this session's current goal while retaining queued work                   |
 | `/goals templates` | List reusable goal templates                                                    |
-| `/squad`           | Open/manage the local Autohand Squad runtime                                     |
+| `/squad`           | Select an agent in the running Squad app; `/squad app` opens or installs it       |
 | `/go`              | Pair this session with the Autohand Code iOS app                                 |
 | `/sync`            | Sync settings across devices                                                     |
 | `/add-dir`         | Add additional workspace directory                                               |
@@ -436,11 +436,17 @@ Node installs use `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` for requests, inclu
 | `/mcp install`     | Install validated Official MCP Registry servers (stdio and HTTP)                |
 | `/team`            | Manage team collaboration                                                        |
 | `/tasks`           | List team tasks                                                                  |
-| `/message`         | Send team message                                                                |
+| `/message`         | Message the selected Squad agent or a local CLI teammate                          |
 | `/import`          | Import data from Claude, Codex, Gemini, Cursor, OpenCode, Kimi, Grok hooks, and other agents |
 | `/repeat`          | Repeat previous actions                                                          |
 | `/browser`         | Browser integration                                                              |
 | `/review`          | Code review                                                                      |
+
+Squad MCP is built in. Select an agent with `/squad`, then use `/message <text>`
+and `/squad history`. `/message squad <agent-id> <text>` addresses an agent
+explicitly; `/message team <name> <text>` addresses your local CLI team.
+See [Squad connection and commands](docs/mcp.md#built-in-autohand-squad) for
+delivery receipts, Library tools, bridge discovery and opt-out settings.
 
 Persistent goal data remains in the workspace across conversations, but execution does not silently transfer work owned by another live session. Bare `/goal` inspects prior state and starts the next queued item when this session has no goal and no live peer owns the backlog. Use `/goal resume` to resume this session's paused goal or explicitly start queued work.
 

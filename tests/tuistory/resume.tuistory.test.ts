@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
 import fs from 'fs-extra';
 import type { Session } from 'tuistory';
-import { chooseOlderResumeSession, chooseResumeSession, runMarkdownResumeScenario, runResumedTurnScenario, seedMarkdownResumeScenario, seedResumeScenario } from '../../src/testing/scenarios/resumeScenario.js';
+import { chooseOlderResumeSession, chooseResumeSession, createResumeLoadGate, runMarkdownResumeScenario, runResumedTurnScenario, seedMarkdownResumeScenario, seedResumeScenario, typeDuringResumeLoad } from '../../src/testing/scenarios/resumeScenario.js';
 import {
   createTempAutohandHome, createMockOpenRouterSequenceServer, exitInteractive, launchBuiltAutohand, waitForExit,
   type TuistoryTempState,
@@ -37,6 +37,53 @@ async function launch(args: string[], seed = true, olderSessionCount = 0) {
 }
 
 describe('resume startup Tuistory', () => {
+  it.each([
+    { fullScreenMode: false, submitDuringLoad: false },
+    { fullScreenMode: false, submitDuringLoad: true },
+    { fullScreenMode: true, submitDuringLoad: false },
+    { fullScreenMode: true, submitDuringLoad: true },
+  ])('keeps the composer editable during session loading, fullscreen=$fullScreenMode, submit=$submitDuringLoad', async ({ fullScreenMode, submitDuringLoad }) => {
+    const server = await createMockOpenRouterSequenceServer([JSON.stringify({ finalResponse: 'RESUME_DRAFT_ACCEPTED' })]);
+    const state = await createTempAutohandHome({ config: {
+      features: { fullScreenMode, automaticSpecialists: false },
+      openrouter: { baseUrl: server.baseUrl }, ui: { promptSuggestions: false },
+      agent: { autoMemory: false, enableRequestQueue: false, maxIterations: 3, sessionRetryLimit: 0 },
+    } });
+    states.push(state);
+    await seedResumeScenario(state.autohandHome, state.workspaceRoot);
+    const gate = await createResumeLoadGate(state.autohandHome, 'resume-newer');
+    const session = await launchBuiltAutohand(['resume', 'resume-newer', '--config', state.configPath, '--yes'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot,
+      runtimeArgs: [`--import=${gate.importSpecifier}`], cols: 120, rows: 36,
+    });
+    sessions.push(session);
+    try {
+      await vi.waitFor(async () => expect(await fs.pathExists(gate.startedPath)).toBe(true), { timeout: 15_000 });
+      expect(await typeDuringResumeLoad(session)).toContain('❯ draft typed during restore');
+      if (submitDuringLoad) await session.press('enter');
+      expect(server.requests).toHaveLength(0);
+      await gate.release();
+      if (!submitDuringLoad) {
+        await session.waitForText('Added a vitest case that resizes', { timeout: 15_000 });
+        expect(await session.text({ immediate: true })).toContain('❯ draft typed during restore');
+        expect(server.requests).toHaveLength(0);
+        await session.press('enter');
+      }
+      await session.waitForText('RESUME_DRAFT_ACCEPTED', { timeout: 20_000 });
+      expect(await session.text({ immediate: true })).toContain('draft typed during restore');
+      expect(server.requests).toHaveLength(1);
+      expect(JSON.stringify(server.requests[0])).toContain('Investigate why the terminal caret disappears');
+      expect(JSON.stringify(server.requests[0])).toContain('draft typed during restore');
+      await exitInteractive(session);
+      expect((await fs.readJson(path.join(state.autohandHome, 'sessions', 'index.json'))).sessions).toHaveLength(3);
+      expect(session.exitInfo?.exitCode).toBe(0);
+    } finally {
+      await gate.release();
+      session.close();
+      await server.close();
+    }
+  }, 45_000);
+
   it.each([false, true])('accepts the first resumed turn while MCP remains silent, fullscreen=%s', async fullScreenMode => {
     const server = await createMockOpenRouterSequenceServer([JSON.stringify({ finalResponse: 'RESUME_TURN_ACCEPTED' })]);
     const state = await createTempAutohandHome({ config: {
@@ -95,7 +142,7 @@ describe('resume startup Tuistory', () => {
   });
 
   it.each([
-    { args: ['--last'], expected: 'resume-active' },
+    { args: ['--last'], expected: 'resume-newer' },
     { args: ['--last', '--all'], expected: 'elsewhere-session' },
   ])('resumes the latest active session for $args', async ({ args, expected }) => {
     const { session, state } = await launch(args);

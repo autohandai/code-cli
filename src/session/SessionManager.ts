@@ -372,7 +372,9 @@ export class SessionManager {
             const activeAt = Date.parse(metadata.lastActiveAt);
             return Number.isFinite(activeAt) ? activeAt : Date.parse(metadata.createdAt) || 0;
         };
-        return sessions.reduce<SessionMetadata | null>((latest, session) => {
+        const conversations = sessions.filter(session => session.messageCount > 0);
+        const candidates = conversations.length > 0 ? conversations : sessions;
+        return candidates.reduce<SessionMetadata | null>((latest, session) => {
             return !latest || activityTime(session) > activityTime(latest) ? session : latest;
         }, null);
     }
@@ -582,6 +584,11 @@ export class Session {
 
     isEphemeral(): boolean {
         return !this.persist;
+    }
+
+    /** Artifact persistence follows the same boundary as the session transcript. */
+    getArtifactDirectory(): string | undefined {
+        return this.persist ? this.sessionDir : undefined;
     }
 
     private async ensureSessionDir(): Promise<void> {

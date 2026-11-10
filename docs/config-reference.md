@@ -121,6 +121,7 @@ Precedence, lowest first: config file, workspace `.autohand` overlays, environme
 | `AUTOHAND_YES`                         | Auto-confirm all prompts                         | `1`                              |
 | `AUTOHAND_NO_BANNER`                   | Disable startup banner                           | `1`                              |
 | `AUTOHAND_STREAM_TOOL_OUTPUT`          | Stream tool output in real-time                  | `1`                              |
+| `AUTOHAND_MAX_COMMAND_OUTPUT_CHARS`    | Override the model-visible command-output limit; integer of at least `1024` | `30000` |
 | `AUTOHAND_DEBUG`                       | Enable debug logging                             | `1`                              |
 | `AUTOHAND_THINKING_LEVEL`              | Set reasoning depth level                        | `normal`                         |
 | `AUTOHAND_CLIENT_NAME`                 | Client/editor identifier (set by ACP extensions) | `zed`                            |
@@ -1736,6 +1737,20 @@ git add -A && git commit -m "feat: add user dashboard with charts"
 
 ---
 
+## Command Output Limits
+
+Foreground `run_command` and `shell` results sent to the model are limited to 30,000 characters by default, including combined stdout, stderr, and truncation details. Head and tail output retain the beginning and final result. The same limit applies inside Code Mode scripts and when live output streaming is enabled.
+
+```json
+{
+  "tools": {
+    "maxCommandOutputChars": 30000
+  }
+}
+```
+
+`tools.maxCommandOutputChars` accepts integers of at least `1024`. `AUTOHAND_MAX_COMMAND_OUTPUT_CHARS` takes precedence when it contains a valid limit. This is a ceiling: output that fits remains intact; after overflow, a compact head/tail preview uses half the ceiling (at least `1024` characters), including its header and archive marker. Larger configured limits scale that preview. Terminal display limits remain separate. Saved sessions retain the complete raw command output as a private session artifact when truncation is needed; ephemeral sessions create no output archive.
+
 ## Shell Settings
 
 Choose the shell used by `run_command`, foreground and background `!` commands, and streaming shells, and control their environment. Hook commands and MCP server processes have their own launchers and are not affected.
@@ -1959,6 +1974,8 @@ Load custom agent definitions from external directories.
 ## Skills System
 
 Skills are instruction packages that provide specialized instructions to the AI agent. They work like on-demand `AGENTS.md` files that can be activated for specific tasks.
+
+The default CLI and ACP prompt lists installed skill names. Descriptions are available through `skill info` or `skill list`, and activating a skill loads its instructions. Active skill bodies and project instructions remain in the prompt. This avoids repeating the full description catalog on every provider request, including when adaptive skills are disabled.
 
 ### Adaptive Skills Rollout
 
@@ -2355,7 +2372,7 @@ To enable, set share.enabled: true in your config file.
 
 ## Settings Sync
 
-Autohand can sync your configuration across devices for logged-in users. Settings are stored securely in Cloudflare R2 and encrypted before upload.
+Autohand can sync your configuration across devices for logged-in users. Background sync is off by default and requires explicit opt-in. Settings are stored securely in Cloudflare R2 and encrypted before upload.
 
 ```json
 {
@@ -2371,7 +2388,7 @@ Autohand can sync your configuration across devices for logged-in users. Setting
 
 | Field              | Type     | Default         | Description                                        |
 | ------------------ | -------- | --------------- | -------------------------------------------------- |
-| `enabled`          | boolean  | `true` (logged) | Enable/disable settings sync                       |
+| `enabled`          | boolean  | `false`         | Enable/disable settings sync                       |
 | `interval`         | number   | `300000`        | Sync interval in milliseconds (default: 5 minutes) |
 | `exclude`          | string[] | `[]`            | Glob patterns to exclude from sync                 |
 | `includeTelemetry` | boolean  | `false`         | Sync telemetry data (requires user consent)        |
@@ -2379,6 +2396,8 @@ Autohand can sync your configuration across devices for logged-in users. Setting
 | `sessionsBudgetMb` | number | `100` | Session-history budget in MiB, capped at `1024`; complete sessions are selected within the budget |
 
 Open `/status` or `/sync` to inspect state and sync actions. Press Esc to return to the conversation. These panels retain visible output when launched through `bun run dev`, including after a renderer handoff.
+
+Use `/sync on` to enable background sync in the current process and save the preference. `/sync off` immediately cancels the timer and pending sync work before saving the disabled preference. Turning sync back on starts it again in the same process.
 
 A normal sync can continue transferring healthy settings when a remote saved-session object returns HTTP 404. It withholds the affected session's requested files, the session index, and uploads for that session; existing local files and the remote manifest records remain intact. The panel retains an incomplete-history warning. This does not recover missing cloud bytes or establish that the conversation was downloaded successfully. Retry from a device that still has the complete session, or restore its backup. Force operations, missing download URLs, non-session 404s, authentication failures, and other download failures remain errors. Session downloads are staged privately on disk with bounded storage before publication. Other sync roots have a 100 MiB budget; the aggregate limit is 2 GiB and 5,000 manifest files.
 
@@ -2388,13 +2407,13 @@ A normal sync can continue transferring healthy settings when a remote saved-ses
 # Disable sync for this session
 autohand --sync-settings=false
 
-# Enable sync (default for logged users)
+# Explicitly enable sync for this session
 autohand --sync-settings
 ```
 
 ### What Gets Synced
 
-By default, these items are synced for logged-in users:
+When sync is enabled, these items are included by default:
 
 - **Configuration** (`config.json`) - API keys are encrypted before upload
 - **Custom agents** (`agents/`)
@@ -2499,6 +2518,13 @@ sync:
 ## MCP Settings
 
 Configure MCP (Model Context Protocol) servers to extend Autohand with external tools.
+
+The effective runtime list also includes the built-in `autohand-squad` server;
+it is not written into this configuration or synced to your account. Set
+`AUTOHAND_DISABLE_SQUAD=1` to opt out, or `mcp.enabled: false` to disable all
+MCP connections. Bare, offline and no-daemon sessions omit it, as do managed
+Squad members with an existing identity-scoped connection. See
+[built-in Squad commands and bridge discovery](mcp.md#built-in-autohand-squad).
 
 ```json
 {
@@ -3101,7 +3127,7 @@ When a noninteractive task needs approval, it stops at the first missing authori
 | Flag                          | Description                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--worktree [name]`           | Run session in isolated git worktree (optional worktree/branch name)                           |
-| `--tmux`                      | Launch in a dedicated tmux session (implies `--worktree`; cannot be used with `--no-worktree`) |
+| `--tmux` | Launch in a dedicated tmux session in the current directory; supports `--worktree` or `--zit` |
 | `--zit [intent]`              | Run session in a disposable Zit workspace, recorded as a Zit change on exit (optional intent)  |
 | `--no-worktree`               | Disable git worktree isolation in auto-mode                                                    |
 | `-c, --continue` | Resume the latest session in this folder, including with `-p`; start fresh when none exists |
@@ -3137,7 +3163,18 @@ What happens:
 
 Inspect the result with `zit status` and `zit show <change>`; accepting the change into the current state is left to you (`zit accept`).
 
-`--zit` cannot be combined with `--worktree`, `--tmux`, `--patch`, `--mode rpc|acp`, or a standalone `--auto-mode` loop.
+`--zit` cannot be combined with `--worktree`, `--patch`, `--mode rpc|acp`, or a standalone `--auto-mode` loop.
+
+`--tmux` uses the current directory by default, including directories outside Git repositories. Workspace isolation is optional:
+
+```bash
+autohand --tmux
+autohand --tmux --worktree my-task
+autohand --tmux --zit
+```
+
+Use `--worktree` or `--zit` when isolation is needed; `--tmux --no-worktree` is also supported.
+
 
 ### Auto-Mode
 
@@ -3168,7 +3205,7 @@ Claude imports count both flat skill files and folders containing `SKILL.md`. De
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--login`                     | Sign in to your Autohand account                                                               |
 | `--logout`                    | Sign out of your Autohand account                                                              |
-| `--sync-settings`             | Enable/disable settings sync (default: true for logged users)                                  |
+| `--sync-settings [bool]`      | Explicitly enable or disable settings sync (default: false)                                   |
 
 ### Setup & Info
 
@@ -3287,6 +3324,8 @@ Type `/` in the REPL to browse commands with Up/Down. The menu scrolls through e
 ### Session Management
 
 From the shell, `autohand resume` opens a picker scoped to the current working directory. Use `--path <path>` to select another workspace, `--all` to browse every project, or `--last` to resume the most recently active session. `--last --all` selects the most recently active session across projects. Older metadata without a valid activity timestamp falls back to creation time.
+
+The composer is editable while managers and saved history load, including when request queueing is disabled. Drafts survive restoration. If you submit before restoration finishes, that instruction waits and then runs once with the restored conversation; opening a saved session alone does not submit work. Saved goals still require explicit resumption.
 
 `autohand resume <reference>` accepts a saved session name (set with `/rename` or `--rename`, matched case-insensitively), a full session ID, a unique ID prefix, or a saved session directory/file. A name wins over an ID prefix. Ambiguous or missing references exit with an error, and a name shared by several sessions lists their ID prefixes. Explicit references cannot be combined with `--last` or `--all`. `--config`, `--model`, and `--offline` remain available. `-c` continues the latest session; use `--auto-commit` for automatic commits.
 

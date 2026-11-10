@@ -1415,7 +1415,11 @@ async function restoreHostGoalCheckpoint(host: AgentLifecycleHost, sessionId: st
   if (!restored.ok) throw new Error(restored.message ?? 'Goal checkpoint recovery was refused.');
 }
 
-export async function restoreAgentSessionState(host: AgentLifecycleHost, sessionOrId: string | Session) {
+export interface RestoreAgentSessionOptions {
+  preserveVisibleMessages?: boolean;
+}
+
+export async function restoreAgentSessionState(host: AgentLifecycleHost, sessionOrId: string | Session, options: RestoreAgentSessionOptions = {}) {
     resetSessionGitSnapshot(host.runtime);
     const session = typeof sessionOrId === 'string'
       ? await host.sessionManager.loadSession(sessionOrId)
@@ -1474,7 +1478,10 @@ export async function restoreAgentSessionState(host: AgentLifecycleHost, session
     await host.injectProjectKnowledge();
     host.updateContextUsage(host.conversation.history());
     if (host.inkRenderer?.setChatMessages) {
-      host.inkRenderer.setChatMessages(host.restoredChatMessages);
+      const visibleMessages = options.preserveVisibleMessages
+        ? host.inkRenderer.getState?.().chatMessages ?? []
+        : [];
+      host.inkRenderer.setChatMessages([...host.restoredChatMessages, ...visibleMessages]);
     }
     if (host.goalActivityManager?.getSessionSnapshot) {
       host.goalActivitySnapshot = await host.goalActivityManager.getSessionSnapshot();
@@ -1510,90 +1517,80 @@ export async function attachAgentSession(
   }
 
 export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: string): Promise<void> {
-    // Initialize managers and pre-load files in parallel
-    await host.initializeManagers();
-
-    // Prepare MCP startup coordinator so auto-connect servers are identified
-    // before the interactive loop begins (mirrors runAgentInteractive).
-    host.mcpStartupCoordinator.prepareForInteractiveStartup();
-
-    // Start MCP connections in background (non-blocking, like fresh session startup).
-    // Guarded on mcpManager existence so a missing manager or a synchronous
-    // connectAll throw cannot escape before the try/finally below installs and
-    // removes the exit signal handlers.
-    if (host.mcpManager && host.runtime.config.mcp?.enabled !== false) {
-      try {
-        host.mcpStartupCoordinator.markConnectStarted();
-        host.mcpReady = host.mcpManager
-          .connectAll(host.runtimeMcpServers ?? host.runtime.config.mcp?.servers ?? [])
-          .then(() => { if (!isRuntimeResourceShutdownStarted(host)) host.syncMcpTools(); })
-          .catch(() => { /* individual server errors already captured by connectAll */ })
-          .finally(() => { if (!isRuntimeResourceShutdownStarted(host)) host.mcpStartupCoordinator.markSummaryPending(); });
-      } catch {
-        // A synchronous connectAll throw must not escape before the try/finally
-        // below installs and removes the exit signal handlers.
-      }
-    }
-
-    // Mark init as complete BEFORE the try so both the success path and the
-    // fallback path (which creates a new session) leave initDone true and
-    // initReady awaitable. Without this, describeStartupWait() returns
-    // STARTUP_WAIT_STATUS and ensureInitComplete() hangs, freezing the composer.
-    //
-    // initReady is a resolved promise rather than performBackgroundInit() on
-    // purpose: the resumed session is already restored, and the background-init
-    // pipeline calls resetConversationContext() and sessionManager.createSession(),
-    // which would wipe the restored conversation and double-create a session.
-    host.initDone = true;
-    host.initReady = Promise.resolve();
-
-    // Install exit signal handlers to stop queue processing immediately on SIGINT/SIGTERM.
-    // Installed before the try so both the success path and the fallback path
-    // (which creates a new session) have handlers active during the interactive
-    // loop. Removed in the finally block after the loop exits.
     host.installExitSignalHandlers();
-
     try {
-      const session = await host.restoreSessionState(sessionId);
-      host.sessionStartedAt = Date.now();
-      const providerSettings = getHostProviderSettings(host);
-      await startHostActiveAgentHeartbeat(host);
+      await initializeInteractiveComposer(host);
+      if (host.useInkRenderer && host.inkRenderer) host.setComposerIdle();
 
-      console.log(chalk.cyan(`\n📂 Resumed session ${sessionId}`));
+      await host.initializeManagers();
+      if (host.shouldExit || isRuntimeResourceShutdownStarted(host)) return;
 
-      // Start telemetry for resumed session
-      await host.telemetryManager.startSession(
-        sessionId,
-        session.metadata.model,
-        host.activeProvider,
-        host.sessionStartedAt,
-        buildProviderTelemetryMetadata(providerSettings)
-      );
+      // Prepare MCP startup coordinator so auto-connect servers are identified
+      // before the interactive loop begins (mirrors runAgentInteractive).
+      host.mcpStartupCoordinator.prepareForInteractiveStartup();
 
-      // Start interactive loop
-      await host.runInteractiveLoop();
-    } catch (error) {
-      console.error(chalk.red(`Failed to resume session: ${(error as Error).message}`));
-      await host.telemetryManager.trackError({
-        type: 'session_resume_failed',
-        message: (error as Error).message,
-        context: 'resumeSession'
-      });
-      // Fallback to new session
-      const providerSettings = getHostProviderSettings(host);
-      const model = host.runtime?.options?.model ?? providerSettings?.model ?? 'unconfigured';
-      host.sessionStartedAt = Date.now();
-      const workspaceRoot = host.runtime?.workspaceRoot ?? process.cwd();
-      const fallbackSession = await host.sessionManager.createSession(workspaceRoot, model);
-      await startHostActiveAgentHeartbeat(host);
-      await host.telemetryManager.startSession(
-        fallbackSession.metadata.sessionId,
-        model,
-        host.activeProvider,
-        host.sessionStartedAt,
-        buildProviderTelemetryMetadata(providerSettings)
-      );
-      await host.runInteractiveLoop();
+      if (host.mcpManager && host.runtime.config.mcp?.enabled !== false) {
+        try {
+          host.mcpStartupCoordinator.markConnectStarted();
+          host.mcpReady = host.mcpManager
+            .connectAll(host.runtimeMcpServers ?? host.runtime.config.mcp?.servers ?? [])
+            .then(() => { if (!isRuntimeResourceShutdownStarted(host)) host.syncMcpTools(); })
+            .catch(() => { /* individual server errors already captured by connectAll */ })
+            .finally(() => { if (!isRuntimeResourceShutdownStarted(host)) host.mcpStartupCoordinator.markSummaryPending(); });
+        } catch {
+          // A failed optional handshake must not prevent restoring the conversation.
+        }
+      }
+
+      // The interactive loop starts only after restoration. Fresh-session background
+      // initialization would clear that history and create an unwanted second session.
+      host.initDone = true;
+      host.initReady = Promise.resolve();
+
+      try {
+        const session = await host.restoreSessionState(sessionId, { preserveVisibleMessages: true });
+        if (host.shouldExit || isRuntimeResourceShutdownStarted(host)) return;
+        host.sessionStartedAt = Date.now();
+        const providerSettings = getHostProviderSettings(host);
+        await startHostActiveAgentHeartbeat(host);
+
+        console.log(chalk.cyan(`\n📂 Resumed session ${sessionId}`));
+
+        // Start telemetry for resumed session
+        await host.telemetryManager.startSession(
+          sessionId,
+          session.metadata.model,
+          host.activeProvider,
+          host.sessionStartedAt,
+          buildProviderTelemetryMetadata(providerSettings)
+        );
+
+        // Start interactive loop
+        await host.runInteractiveLoop();
+      } catch (error) {
+        if (host.shouldExit || isRuntimeResourceShutdownStarted(host)) return;
+        console.error(chalk.red(`Failed to resume session: ${(error as Error).message}`));
+        await host.telemetryManager.trackError({
+          type: 'session_resume_failed',
+          message: (error as Error).message,
+          context: 'resumeSession'
+        });
+        // Fallback to new session
+        const providerSettings = getHostProviderSettings(host);
+        const model = host.runtime?.options?.model ?? providerSettings?.model ?? 'unconfigured';
+        host.sessionStartedAt = Date.now();
+        const workspaceRoot = host.runtime?.workspaceRoot ?? process.cwd();
+        const fallbackSession = await host.sessionManager.createSession(workspaceRoot, model);
+        await startHostActiveAgentHeartbeat(host);
+        await host.telemetryManager.startSession(
+          fallbackSession.metadata.sessionId,
+          model,
+          host.activeProvider,
+          host.sessionStartedAt,
+          buildProviderTelemetryMetadata(providerSettings)
+        );
+        await host.runInteractiveLoop();
+      }
     } finally {
       // Clean up signal handlers on success, error, or fallback path.
       // They are re-installed by runAgentInteractive on the next fresh session.

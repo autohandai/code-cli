@@ -10,7 +10,7 @@
  * Sync configuration stored in config.json
  */
 export interface SyncConfig {
-  /** Enable/disable sync (default: true for logged users) */
+  /** Enable/disable sync (default: false; explicit opt-in required) */
   enabled: boolean;
   /** Sync interval in ms (default: 300000 = 5 min) */
   interval: number;
@@ -30,7 +30,7 @@ export interface SyncConfig {
  * Default sync configuration
  */
 export const DEFAULT_SYNC_CONFIG: SyncConfig = {
-  enabled: true,
+  enabled: false,
   interval: 5 * 60 * 1000, // 5 minutes
   includeTelemetry: false,
   includeFeedback: false,

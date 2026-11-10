@@ -33,7 +33,7 @@ export interface LaunchBuiltAutohandOptions {
   runtimeCommand?: string;
   runtimeArgs?: string[];
   inputCommand?: string[];
-  entrypoint?: string;
+  entrypoint?: string | null;
   autohandHome?: string;
   cwd?: string;
   env?: Record<string, string | undefined>;
@@ -1275,6 +1275,7 @@ export async function launchBuiltAutohand(
     AUTOHAND_OFFLINE: '1',
     AUTOHAND_NO_BROWSER: '1',
     AUTOHAND_DISABLE_COMPUTER_USE: '1',
+    AUTOHAND_DISABLE_SQUAD: '1',
     // Hermetic version resolution: an ambient AUTOHAND_VERSION_SOURCE (e.g.
     // when the suite runs inside an Autohand session) would otherwise make
     // the built CLI report a git-derived version instead of the manifest one.
@@ -1288,7 +1289,7 @@ export async function launchBuiltAutohand(
     : launchTuistorySession;
   return await launch({
     command: options.runtimeCommand ?? process.execPath,
-    args: [...options.runtimeArgs ?? [], options.entrypoint ?? path.join(root, 'dist/index.js'), ...args],
+    args: [...options.runtimeArgs ?? [], ...(options.entrypoint === null ? [] : [options.entrypoint ?? path.join(root, 'dist/index.js')]), ...args],
     cwd: options.cwd ?? root,
     env,
     cols: options.cols ?? 120,

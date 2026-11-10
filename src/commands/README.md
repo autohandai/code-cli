@@ -40,7 +40,8 @@ Each command is a separate TypeScript file that exports:
 | `/experiments` | `features.ts` | List and toggle experiments |
 | `/goal` | `goal.ts` | Manage session-attached persistent goals, budgets, templates, and queued work; bare `/goal` recovers a stranded queue only when no live peer owns it. Enabled by default from 0.9.9; explicit `slash_goal` settings are preserved. |
 | `/goals` | `goal.ts` | Open the live goal queue with keyboard and mouse editing. Accepts `/goal` subcommands and returns the queue as text without an interactive panel. Shares `slash_goal`; `/experiments enable slash_goals` enables the same local feature. |
-| `/squad` | `squad.ts`, `squadDesktop.ts` | Open the Autohand Squad app, installing the latest release when missing; subcommands manage the standalone runtime. |
+| `/squad` | `squad.ts`, `squadConnection.ts` | Select an agent in the running Squad app; `/squad agents`, `select`, `history`, `queue`, and `clear` manage the desktop recipient. `/squad app` opens or installs the app. |
+| `/message` | `message.ts` | Send text to the selected Squad agent, `/message squad <agent-id> <text>` to an explicit agent, or `/message team <name> <text>` to a local CLI teammate. Without a desktop selection, existing `/message <name> <text>` team behavior remains. |
 | `/squad view` | `squad.ts` | Inspect recorded independent Squad sessions for the current workspace |
 | `/usage` | `usage.ts` | Show Autohand plan limits and project token activity |
 | `/statusline` | `statusline.ts` | Configure composer status-line fields |

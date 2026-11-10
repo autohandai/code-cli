@@ -24,6 +24,8 @@ export function handleAgentToolOutput(
   if (process.env.AUTOHAND_STREAM_TOOL_OUTPUT !== '1') {
     return;
   }
+  // Commands supply one bounded final observation; live chunks remain terminal-only.
+  if (chunk.tool === 'run_command' || chunk.tool === 'shell') return;
   if (!chunk.toolCallId || !chunk.data) {
     return;
   }
@@ -37,6 +39,7 @@ export function queueAgentToolMessageChunk(
   toolCallId: string,
   stream?: 'stdout' | 'stderr'
 ): void {
+  if (name === 'run_command' || name === 'shell') return;
   const session = host.sessionManager.getCurrentSession();
   if (!session) return;
 
@@ -76,6 +79,7 @@ export async function saveAgentToolMessage(
 }
 
 export function formatToolObservation(result: ToolExecutionResult): string {
+  if (result.modelOutput !== undefined) return result.modelOutput;
   if (result.success) return result.output ?? '(no output)';
   if (!result.output) return result.error ?? 'Tool failed without error message';
   if (!result.error || result.output.includes(result.error)) return result.output;

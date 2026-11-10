@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
+process.env.AUTOHAND_DISABLE_SQUAD = '1';
+
 const workerCount = process.env.AUTOHAND_TUISTORY_WORKERS === '2' ? 2 : 1;
 const distEntry = path.resolve(import.meta.dirname, 'dist/index.js');
 

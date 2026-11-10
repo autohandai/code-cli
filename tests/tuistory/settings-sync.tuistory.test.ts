@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import { setTimeout as delay } from 'node:timers/promises';
-import { readFile, access } from 'node:fs/promises';
+import { readFile, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepareMissingSettingsSyncDownloadScenario, prepareSettingsSyncFailureScenario } from '../../src/testing/scenarios/settingsSyncScenario.js';
@@ -17,6 +17,33 @@ let session: Session | undefined;
 let state: TuistoryTempState | undefined;
 afterEach(async () => { session?.close(); await state?.cleanup(); session = undefined; state = undefined; });
 describe('built settings sync health', () => {
+  it('keeps sync opted out by default and toggles the live service without restarting the CLI', async () => {
+    state = await createTempAutohandHome({ config: { api: { baseUrl: 'https://sync.example.invalid' } } });
+    const config = JSON.parse(await readFile(state.configPath, 'utf8')) as Record<string, unknown>;
+    delete config.sync;
+    await writeFile(state.configPath, JSON.stringify(config));
+    const preload = await prepareSettingsSyncFailureScenario(state.autohandHome);
+    session = await launchBuiltAutohand(['--config', state.configPath], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot,
+      env: { NODE_OPTIONS: `--import=${preload}` }, cols: 120, rows: 40,
+    });
+    await session.waitForText('Plan, search, build anything');
+    await session.type('/sync status'); await session.press('enter');
+    await session.waitForText('Service Running');
+    expect(await session.readAll()).not.toContain('413 fixture');
+    await session.type('/sync on'); await session.press('enter');
+    await session.waitForText('Settings sync enabled.');
+    await session.waitForText('413 fixture: session store unavailable');
+    expect(JSON.parse(await readFile(state.configPath, 'utf8')).sync.enabled).toBe(true);
+    await session.type('/sync off'); await session.press('enter');
+    await session.waitForText('Settings sync disabled.');
+    expect(JSON.parse(await readFile(state.configPath, 'utf8')).sync.enabled).toBe(false);
+    await session.type('AFTER_SYNC_TOGGLE_DRAFT');
+    await session.waitForText('AFTER_SYNC_TOGGLE_DRAFT');
+    expect(session.exitInfo).toBeNull();
+    await exitInteractive(session);
+  });
+
   it('syncs healthy settings with a visible incomplete-history warning and usable full-screen panels', async () => {
     state = await createTempAutohandHome({ config: {
       features: { fullScreenMode: true }, sync: { enabled: true, interval: 60000 },

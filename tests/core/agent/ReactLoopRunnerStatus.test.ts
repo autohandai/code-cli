@@ -43,6 +43,32 @@ import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 import { PromptCacheToolSet } from '../../../src/core/agent/PromptCache.js';
 
 describe('ReactLoopRunner composer status', () => {
+  it('publishes one confirmed reply only after the required completion review approves it', async () => {
+    const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [
+      { tool: 'run_command', args: { command: 'seq 1 400000' } },
+    ] }) }).mockResolvedValue({ content: '400000' });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    host.toolManager.execute = vi.fn().mockResolvedValue([{ tool: 'run_command', success: true, output: '400000' }]);
+    const pending = Promise.withResolvers<{ verdict: 'approved'; feedback: string }>();
+    const review = vi.fn(() => pending.promise);
+    host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review });
+    host.captureAdvisorDiff = async () => 'No workspace changes';
+    const turn = runAgentReactLoop(host, new AbortController());
+    try {
+      await vi.waitFor(() => expect(review).toHaveBeenCalledOnce());
+      expect(vi.mocked(host.emitOutput).mock.calls.filter(([event]) => event.type === 'message')).toEqual([]);
+      pending.resolve({ verdict: 'approved', feedback: 'Command evidence verified.' });
+      expect(await turn).toEqual({ status: 'completed' });
+      const messages = vi.mocked(host.emitOutput).mock.calls.filter(([event]) => event.type === 'message');
+      expect(messages.map(([event]) => event.content)).toEqual(['400000']);
+      expect(review).toHaveBeenCalledWith('completion', expect.any(Object));
+    } finally {
+      pending.resolve({ verdict: 'approved', feedback: 'Command evidence verified.' });
+      await turn;
+    }
+  });
+
   it('refuses an oversized prepared request before spending a provider call', async () => {
     const complete = vi.fn().mockResolvedValue({ id: 'too-large', created: 1, content: 'Done.', raw: {} });
     const host = createReactLoopTestHost(complete, new ReactionParser());

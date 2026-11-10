@@ -1,0 +1,32 @@
+name: TerminalLab
+options:
+  bundleIdPrefix: ai.autohand.testing
+  deploymentTarget:
+    macOS: '14.0'
+settings:
+  CODE_SIGNING_ALLOWED: NO
+  SWIFT_VERSION: '5.0'
+targets:
+  TerminalLab:
+    type: application
+    platform: macOS
+    sources: [Host.swift]
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+  TerminalLabUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [TerminalCompatibilityUITests.swift]
+    dependencies:
+      - target: TerminalLab
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      TEST_TARGET_NAME: TerminalLab
+schemes:
+  TerminalLab:
+    build:
+      targets:
+        TerminalLab: all
+        TerminalLabUITests: [test]
+    test:
+      targets: [TerminalLabUITests]

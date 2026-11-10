@@ -13,6 +13,7 @@ import { ProviderNotConfiguredError } from '../../providers/ProviderFactory.js';
 import { getManagedComputerUsePermissionIssue } from '../../computer/autohandComputerUse.js';
 import { showConfirm } from '../../ui/ink/components/Modal.js';
 import { matchesComputerControlIntent } from '../../skills/computerControlIntent.js';
+import { isComputerUseMcpServer } from '../../computer/cuaDriver.js';
 import { ApiError } from '../../providers/errors.js';
 import { formatRecoveryWait, resolveSessionRecoveryDelay } from './sessionRecoveryDelay.js';
 import {
@@ -102,6 +103,7 @@ function readCompletedTurnUsage(host: AgentInstructionHost): TurnUsage {
 }
 
 export interface AgentInstructionHost {
+  beginComputerUseAutoMode?(): () => void;
   toolManager?: { resetUnattendedDenials?(): void; getUnattendedDenials?(): string[] };
   extensionReloadController?: Pick<import('../../extensions/ExtensionReloadController.js').ExtensionReloadController, 'withStableExtensions'>;
   repositoryReadiness?: Pick<import('./RepositoryReadiness.js').RepositoryReadiness, 'markTurnCompleted'> | null;
@@ -225,17 +227,35 @@ interface DeepResearchInstructionState {
 type FinalizeResearch = (turnSucceeded: boolean) => Promise<boolean>;
 
 export class InstructionRunner {
+  private computerUseModeScope?: { restore?: () => void };
+
   constructor(private readonly host: AgentInstructionHost) {}
 
   async run(instruction: string, options: RunInstructionOptions = {}): Promise<boolean> {
+    const parentScope = this.computerUseModeScope;
+    const scope: { restore?: () => void } = {};
+    this.computerUseModeScope = scope;
     const execute = async (): Promise<boolean> => {
       while (true) {
         const result = await this.runAttempt(instruction, options);
         if (result !== 'retry-provider') return result;
       }
     };
-    return this.host.extensionReloadController
-      ? this.host.extensionReloadController.withStableExtensions(execute) : execute();
+    try {
+      return await (this.host.extensionReloadController
+        ? this.host.extensionReloadController.withStableExtensions(execute) : execute());
+    } finally {
+      try { scope.restore?.(); }
+      finally { this.computerUseModeScope = parentScope; }
+    }
+  }
+
+  activateComputerUseAutoMode(): boolean {
+    const scope = this.computerUseModeScope;
+    if (!scope || scope.restore || this.host.runtime.options.restricted || this.host.runtime.options.dryRun
+      || this.host.permissionManager?.getMode() === 'restricted') return false;
+    scope.restore = this.host.beginComputerUseAutoMode?.();
+    return scope.restore !== undefined;
   }
 
   private async runAttempt(instruction: string, options: RunInstructionOptions): Promise<boolean | 'retry-provider'> {
@@ -406,6 +426,10 @@ export class InstructionRunner {
     if (abortController.signal.aborted) {
       if (!host.runtime.isRpcMode) console.log(chalk.yellow('Request canceled.'));
       return false;
+    }
+    if (matchesComputerControlIntent(instruction)
+      && host.runtimeMcpServers?.some(server => server.autoConnect !== false && isComputerUseMcpServer(server))) {
+      this.activateComputerUseAutoMode();
     }
     if (deepResearch.runId) {
       await markDeepResearchRunStarted(host.runtime.workspaceRoot, deepResearch.runId);

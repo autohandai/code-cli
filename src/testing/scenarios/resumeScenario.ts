@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import fs from 'fs-extra';
 import type { Session as TerminalSession } from 'tuistory';
 import { Session, SessionManager } from '../../session/SessionManager.js';
@@ -34,6 +35,45 @@ export async function inspectSdkSessionResume(session: TerminalSession): Promise
 }
 
 interface FixtureMessage { role: 'user' | 'assistant'; content: string; }
+
+export async function createResumeLoadGate(autohandHome: string, sessionId: string) {
+  const releasePath = path.join(autohandHome, 'resume.release');
+  const startedPath = path.join(autohandHome, 'resume.loading');
+  const preloadPath = path.join(autohandHome, 'resume-load-gate.mjs');
+  const conversationPath = path.join(autohandHome, 'sessions', sessionId, 'conversation.jsonl');
+  await fs.writeFile(preloadPath, `
+import fs from 'node:fs';
+const readFile = fs.readFile;
+fs.readFile = function(file, ...args) {
+  if (String(file) !== ${JSON.stringify(conversationPath)}) return readFile.call(this, file, ...args);
+  fs.writeFileSync(${JSON.stringify(startedPath)}, 'loading');
+  const signal = AbortSignal.timeout(20000);
+  let released = false;
+  const watcher = fs.watch(${JSON.stringify(autohandHome)}, check);
+  function release() {
+    if (released) return;
+    released = true;
+    watcher.close();
+    signal.removeEventListener('abort', release);
+    readFile.call(fs, file, ...args);
+  }
+  function check() { if (fs.existsSync(${JSON.stringify(releasePath)})) release(); }
+  signal.addEventListener('abort', release, { once: true });
+  check();
+};
+`);
+  return {
+    importSpecifier: pathToFileURL(preloadPath).href,
+    startedPath,
+    release: () => fs.writeFile(releasePath, 'ready'),
+  };
+}
+
+export async function typeDuringResumeLoad(session: TerminalSession): Promise<string> {
+  await session.waitForText('❯', { timeout: 5_000 });
+  await session.type('draft typed during restore');
+  return session.text({ timeout: 5_000, waitFor: text => text.includes('❯ draft typed during restore') });
+}
 
 interface FixtureSession {
   sessionId: string;

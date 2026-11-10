@@ -8,12 +8,13 @@ import readline from 'node:readline';
 import { StdinBuffer } from '../ui/StdinBuffer.js';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import { loadConfig, saveConfig } from '../config.js';
-import type { AutohandConfig } from '../types.js';
+import type { AutohandConfig, LoadedConfig } from '../types.js';
 import { formatSyncSkippedFiles } from '../sync/skipReport.js';
 import type { SyncSkippedFiles } from '../sync/rootBudgets.js';
 import type { SyncService } from '../sync/SyncService.js';
 import {
   getSyncService as getRuntimeSyncService,
+  setBackgroundSyncEnabled,
   setSyncService as setRuntimeSyncService,
 } from '../sync/runtimeSyncService.js';
 import { createCommandTheme } from './commandTheme.js';
@@ -56,11 +57,22 @@ export function getSyncService(): SyncService | null {
 export async function sync(ctx: SlashCommandContext, args: string[] = []): Promise<string | null> {
   const config = await loadConfig();
   const isLoggedIn = Boolean(config.auth?.token && config.auth?.user);
+  if (args[0] === 'off') {
+    await updateSyncEnabled(config, false);
+    console.log(createCommandTheme().accent(t('commands.sync.disabled')));
+    return null;
+  }
 
   if (!isLoggedIn) {
     const theme = createCommandTheme();
     console.log(theme.warning('\nSettings sync requires authentication.'));
     console.log(theme.muted('Run /login to sign in and enable cloud sync.\n'));
+    return null;
+  }
+
+  if (args[0] === 'on') {
+    await updateSyncEnabled(config, true);
+    console.log(createCommandTheme().accent(t('commands.sync.enabled')));
     return null;
   }
 
@@ -76,6 +88,14 @@ export async function sync(ctx: SlashCommandContext, args: string[] = []): Promi
   await renderSyncUI(data, ctx);
 
   return null;
+}
+
+async function updateSyncEnabled(config: LoadedConfig, enabled: boolean): Promise<void> {
+  // Stop the timer and in-flight work before the asynchronous config write.
+  if (!enabled) setBackgroundSyncEnabled(false);
+  config.sync = { ...config.sync, enabled };
+  await saveConfig(config);
+  if (enabled) setBackgroundSyncEnabled(true);
 }
 
 async function gatherSyncData(ctx: SlashCommandContext, config: AutohandConfig): Promise<SyncData> {
@@ -97,7 +117,7 @@ async function gatherSyncData(ctx: SlashCommandContext, config: AutohandConfig):
   }
 
   return {
-    enabled: config.sync?.enabled !== false,
+    enabled: syncService ? status.enabled : config.sync?.enabled === true,
     isRunning: syncService?.isRunning ?? false,
     lastSync: status.lastSync,
     lastError: status.lastError,
@@ -198,11 +218,11 @@ function renderSyncUI(data: SyncData, ctx: SlashCommandContext): Promise<void> {
         // Toggle sync enabled
         try {
           const config = await loadConfig();
-          const newEnabled = config.sync?.enabled === false;
-          config.sync = { ...config.sync, enabled: newEnabled };
-          await saveConfig(config);
+          const newEnabled = config.sync?.enabled !== true;
+          await updateSyncEnabled(config, newEnabled);
           if (closed) return;
           data.enabled = newEnabled;
+          data.isRunning = data.syncService?.isRunning ?? false;
           console.log(createCommandTheme().accent(`\n${newEnabled ? t('commands.sync.enabled') : t('commands.sync.disabled')}`));
           await sleep(1000);
           render();

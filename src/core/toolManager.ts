@@ -131,6 +131,7 @@ export interface ToolDefinition {
 }
 
 export interface ToolManagerOptions {
+  onToolRequested?: (toolName: string) => boolean;
   getActiveProvider?: () => string;
   executor: (action: AgentAction, context?: ToolExecutionContext) => Promise<ToolActionOutcome>;
   confirmApproval: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
@@ -2526,6 +2527,7 @@ export const EXIT_PLAN_MODE_TOOL_DEFINITION: ToolDefinition = {
 };
 
 export class ToolManager {
+  private readonly onToolRequested?: ToolManagerOptions['onToolRequested'];
   private readonly unattendedApprovals: UnattendedApprovalTracker;
 
   getUnattendedDenials(): string[] { return this.unattendedApprovals.tools; }
@@ -2546,6 +2548,7 @@ export class ToolManager {
   private readonly onAdditionalContext?: ToolAuthorizationOptions['onAdditionalContext'];
 
   constructor(options: ToolManagerOptions) {
+    this.onToolRequested = options.onToolRequested;
     this.unattendedApprovals = options.authorization?.unattendedApprovals ?? new UnattendedApprovalTracker();
     this.getActiveProvider = options.getActiveProvider;
     this.executor = options.executor;
@@ -2765,8 +2768,7 @@ export class ToolManager {
 
     // Get plan mode manager to check read-only enforcement
     const planModeManager = getPlanModeManager();
-    const isInPlanningPhase = planModeManager.isEnabled() && planModeManager.getPhase() === 'planning';
-    const readOnlyTools = isInPlanningPhase ? new Set(planModeManager.getReadOnlyTools()) : null;
+    const readOnlyTools = new Set(planModeManager.getReadOnlyTools());
 
     // Phase 1: Pre-flight + Approval (sequential)
     // Categorize each call as rejected, denied, or ready-to-execute
@@ -2812,12 +2814,6 @@ export class ToolManager {
       // Check if tool is allowed in current context
       if (!this.isToolAllowed(call.tool)) {
         reject(`Tool '${call.tool}' is not available in the current context (${this.toolFilter.getContext()})`, 'authorization');
-        continue;
-      }
-
-      // Check plan mode restrictions - only read-only tools allowed during planning phase
-      if (readOnlyTools && !readOnlyTools.has(call.tool)) {
-        reject(`Tool '${call.tool}' is not available in plan mode. Only read-only tools are allowed during planning. Use 'plan' tool to create a plan, then accept it to execute write operations.`, 'authorization');
         continue;
       }
 
@@ -2938,6 +2934,22 @@ export class ToolManager {
               hookPromptOverride = false;
             }
           }
+        }
+
+        if (this.onToolRequested?.(call.tool)) {
+          policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
+          if (policyEvaluation.denied) {
+            reject(`Tool '${call.tool}' was denied by the permission policy.`);
+            continue;
+          }
+          permissionContext = policyEvaluation.promptContext;
+          policyRequiresPrompt = policyEvaluation.requiresPrompt
+            && shouldPromptForToolPermission(call.tool, requiresApproval, permissionContext.tool);
+        }
+        if (planModeManager.isEnabled() && planModeManager.getPhase() === 'planning'
+          && !readOnlyTools.has(call.tool)) {
+          reject(`Tool '${call.tool}' is not available in plan mode. Only read-only tools are allowed during planning. Use 'plan' tool to create a plan, then accept it to execute write operations.`, 'authorization');
+          continue;
         }
 
         let shouldPrompt = hookPromptOverride ?? policyRequiresPrompt;
@@ -3600,7 +3612,11 @@ export class ToolManager {
       || outcome.imageRefs.some(value => typeof value !== 'string' || !TOOL_IMAGE_REF.test(value)))) {
       throw new Error('Tool executor returned malformed runtime image references.');
     }
+    if (outcome.modelOutput !== undefined && typeof outcome.modelOutput !== 'string') {
+      throw new Error('Tool executor returned malformed model output.');
+    }
     const images = {
+      ...(outcome.modelOutput === undefined ? {} : { modelOutput: outcome.modelOutput }),
       ...(outcome.imagePaths === undefined ? {} : { imagePaths: [...outcome.imagePaths] }),
       ...(outcome.imageRefs === undefined ? {} : { imageRefs: [...outcome.imageRefs] }),
     };

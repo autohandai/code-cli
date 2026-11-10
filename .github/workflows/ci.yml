@@ -13,6 +13,7 @@ on:
       - beta
       - 'cto/**'
       - 'nikita/**'
+      - 'repair/**'
   workflow_dispatch:
 
 concurrency:
@@ -81,6 +82,8 @@ jobs:
         shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -95,7 +98,7 @@ jobs:
 
       - name: Install build tools (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep tmux
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -131,13 +134,16 @@ jobs:
           bun-version-file: package.json
 
       - name: Install build tools (Ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep tmux
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Build CLI for terminal tests
         run: bun run build
+
+      - name: Prepare pinned Zit for tmux isolation tests
+        run: node --input-type=module -e "import { installZit } from './scripts/install-zit.mjs'; await installZit({ force:true });"
 
       - name: Run built terminal tests
         run: bun run test:tuistory -- --shard=${{ matrix.shard }}/4
@@ -164,7 +170,7 @@ jobs:
 
       - name: Install build tools (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 make g++ ripgrep tmux
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

@@ -329,3 +329,19 @@ describe('feature gating of the script tool', () => {
   });
 });
 
+
+
+describe('bounded command observations through code mode', () => {
+  it.each([true, false])('passes the bounded command observation to the guest, success=%s', async success => {
+    const { host } = createHost(call => success
+      ? { tool: call.tool, success: true, output: 'RAW'.repeat(100000), modelOutput: 'BOUNDED command output' }
+      : { tool: call.tool, success: false, kind: 'command', error: 'RAW'.repeat(100000), output: 'RAW'.repeat(100000), modelOutput: 'BOUNDED command failure' });
+    const result = await runCodeModeScript(host, INPUT, sandbox(async call => {
+      const [outcome] = await call([{ tool: 'run_command', args: { command: 'seq 1 400000' } }]);
+      expect(JSON.stringify(outcome)).not.toContain('RAW');
+      expect(JSON.stringify(outcome)).toContain('BOUNDED');
+      return { result: JSON.stringify(outcome) };
+    }));
+    expect(result.success).toBe(true);
+  });
+});

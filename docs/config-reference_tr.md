@@ -1352,7 +1352,7 @@ Autohand, oturum açmış kullanıcılar için yapılandırmanızı cihazlar ara
 ```
 | Alan | Tür | Varsayılan | Açıklama |
 | ------------------ | -------- | --------------- | -------------------------------------------------- |
-| `enabled` | boole | `true` (günlüğe kaydedildi) | Ayarların senkronizasyonunu etkinleştirme/devre dışı bırakma |
+| `enabled` | boole | `false` | Ayarların senkronizasyonunu etkinleştirme/devre dışı bırakma |
 | `interval` | sayı | `300000` | Milisaniye cinsinden senkronizasyon aralığı (varsayılan: 5 dakika) |
 | `exclude` | dize[] | `[]` | Senkronizasyondan hariç tutulacak küre desenleri |
 | `includeTelemetry` | boole | `false` | Telemetri verilerini senkronize edin (kullanıcının iznini gerektirir) |
@@ -1363,12 +1363,12 @@ Autohand, oturum açmış kullanıcılar için yapılandırmanızı cihazlar ara
 # Disable sync for this session
 autohand --sync-settings=false
 
-# Enable sync (default for logged users)
+# Explicitly enable sync (disabled by default)
 autohand --sync-settings
 ```
 ### Neler Senkronize Edilir?
 
-Varsayılan olarak bu öğeler oturum açmış kullanıcılar için senkronize edilir:
+Senkronizasyon etkinleştirildiğinde şu öğeler senkronize edilir:
 
 - **Yapılandırma** (`config.json`) - API anahtarları yüklemeden önce şifrelenir
 - **Özel temsilciler** (`agents/`)
@@ -1421,7 +1421,7 @@ Uygulama oturum açma belirteci, `Authorization` üstbilgisinde yalnızca yapıl
 
 ### Nasıl Çalışır?
 
-1. **Başlangıçta**: Oturum açtıysanız senkronizasyon hizmeti otomatik olarak başlar
+1. **Başlangıçta**: Hizmet yalnızca oturum açtıysanız ve senkronizasyonu açıkça etkinleştirdiyseniz otomatik başlar
 2. **Her 5 dakikada bir**: Ayarlar, bulut depolama alanıyla karşılaştırılır
 3. **Bulut kazanır**: Önce uzaktan yapılan değişiklikler indirilir
 4. **Yerel yüklemeler**: Yeni yerel değişiklikler yüklendi
@@ -1913,7 +1913,7 @@ Bu bayraklar yapılandırma dosyası ayarlarını geçersiz kılar:
 | Bayrak | Açıklama |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--worktree [name]` | Oturumu yalıtılmış git çalışma ağacında çalıştırın (isteğe bağlı çalışma ağacı/dal adı) |
-| `--tmux` | Özel bir tmux oturumunda başlat (`--worktree` anlamına gelir; `--no-worktree` ile kullanılamaz) |
+| `--tmux` | Geçerli dizinde özel bir tmux oturumu başlat; `--worktree` veya `--zit` desteklenir |
 | `--no-worktree` | Otomatik modda git çalışma ağacı izolasyonunu devre dışı bırakın |
 | `--auto-commit` | Görevleri tamamladıktan sonra değişiklikleri otomatik olarak uygula |
 | `--patch` | Değişiklikleri uygulamadan git yamasını oluşturun |
@@ -1946,7 +1946,7 @@ Bu bayraklar yapılandırma dosyası ayarlarını geçersiz kılar:
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--login` | Autohand hesabınızda oturum açın |
 | `--logout` | Autohand hesabınızdan çıkış yapın |
-| `--sync-settings` | Ayarların senkronizasyonunu etkinleştirme/devre dışı bırakma (varsayılan: oturum açmış kullanıcılar için doğru) |
+| `--sync-settings` | Ayarların senkronizasyonunu etkinleştirme/devre dışı bırakma (varsayılan: false) |
 
 ### Kurulum ve Bilgi
 

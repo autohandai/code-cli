@@ -51,6 +51,15 @@ function hasFullHistoryCheckout(job: WorkflowJob): boolean {
  * release workflow kept failing because it runs the same suite from its own job.
  */
 describe('CI workflow checkout', () => {
+  it('fetches committed main for every job running the CLI option contract guard', () => {
+    const jobs = readWorkflowJobs();
+    for (const [workflow, name] of [['ci.yml', 'test'], ['release.yml', 'test'], ['full-proof.yml', 'proof']]) {
+      const job = jobs.find(job => job.workflow === workflow && job.name === name);
+      expect(job, `${workflow}:${name}`).toBeDefined();
+      expect(hasFullHistoryCheckout(job!), `${workflow}:${name}`).toBe(true);
+    }
+  });
+
   it('runs managed branches through PR validation once and cancels superseded revisions', () => {
     const workflow = parse(readFileSync(path.join(WORKFLOW_DIR, 'ci.yml'), 'utf8')) as {
       on: { push: { 'branches-ignore': string[] }; pull_request: { branches: string[] }; workflow_dispatch?: unknown };

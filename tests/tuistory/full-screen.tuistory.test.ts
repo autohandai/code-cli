@@ -2,7 +2,7 @@
 import { renderAutohandLogo } from '../../src/utils/asciiArt.js';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import { isTerminalMouseTrackingEnabled } from '../../src/testing/scenarios/mouseScrollbackScenario.js';
 import { composerCaretLine } from '../../src/testing/assertions/composerCaret.js';
@@ -159,8 +159,9 @@ describe('full-screen terminal', () => {
     expect(screens.paged).not.toContain('live-row-1\n');
     expect(screens.resized).toContain('preserved draft');
     expect(session.getRawOutput().indexOf('\x1b[?7l')).toBeGreaterThan(session.getRawOutput().indexOf('\x1b[?1049h'));
-    const clearedAt = screens.resizeOutput.indexOf('\x1b[2J\x1b[H');
+    const clearedAt = screens.resizeOutput.indexOf('\x1b[1;1H\x1b[2K');
     expect(clearedAt).toBeGreaterThanOrEqual(0);
+    expect(screens.resizeOutput).not.toMatch(/\x1b\[(?:[023])?J/u);
     expect(screens.resizeOutput.indexOf('Autohand Code', clearedAt)).toBeGreaterThan(clearedAt);
     const resizedRows = screens.resized.split('\n');
     expect(resizedRows[0]).toContain('Autohand Code');
@@ -193,7 +194,9 @@ describe('full-screen terminal', () => {
     await session.waitIdle();
     const narrow = outputViewport(session);
     const narrowRows = narrow.split('\n');
-    expect(session.getRawOutput().slice(resizeOffset)).toContain('\x1b[2J\x1b[H');
+    const resizePaint = session.getRawOutput().slice(resizeOffset);
+    expect(resizePaint).toContain('\x1b[1;1H\x1b[2K');
+    expect(resizePaint).not.toMatch(/\x1b\[(?:[023])?J/u);
     expect(narrowRows[0]).toContain('Autohand Code');
     expect(menuRows(narrow).map(row => row.split(/ {2}/u)[0])).toEqual(menuRows(wide).map(row => row.split(/ {2}/u)[0]));
     expect(narrowRows.filter(row => row.includes('Tab to accept'))).toHaveLength(1);
@@ -265,15 +268,17 @@ describe('full-screen terminal', () => {
     await session.type('?');
     await session.waitForText('Keyboard shortcuts');
     await session.waitIdle();
-    expect(composerRow()).toBe(baseline);
-    const screen = outputViewport(session).split('\n');
-    expect(screen.findIndex(line => line.includes('Keyboard shortcuts'))).toBeLessThan(baseline);
-    if (columns >= 110) {
-      expect(screen.find(line => line.includes('Compose'))).toContain('Session');
-      expect(screen.find(line => line.includes('Compose'))).toContain('Transcript');
-      expect(screen.find(line => line.includes('/whatityped'))).toMatch(/\/whatityped\s+Typed history/);
-    }
-    expect(composerCaretLine(session)).toMatch(/^❯ \|/);
+    await vi.waitFor(() => {
+      expect(composerRow()).toBe(baseline);
+      const screen = outputViewport(session!).split('\n');
+      expect(screen.findIndex(line => line.includes('Keyboard shortcuts'))).toBeLessThan(baseline);
+      if (columns >= 110) {
+        expect(screen.find(line => line.includes('Compose'))).toContain('Session');
+        expect(screen.find(line => line.includes('Compose'))).toContain('Transcript');
+        expect(screen.find(line => line.includes('/whatityped'))).toMatch(/\/whatityped\s+Typed history/);
+      }
+      expect(composerCaretLine(session!)).toMatch(/^❯ \|/);
+    }, { timeout: 5_000, interval: 20 });
     await session.type('?');
     await session.type('still editable');
     await session.waitForText('❯ still editable');

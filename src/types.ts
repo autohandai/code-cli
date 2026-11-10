@@ -838,7 +838,7 @@ export interface ShareSettings {
 
 /** Settings sync configuration */
 export interface SyncSettings {
-  /** Enable/disable sync (default: true for logged users) */
+  /** Enable/disable background sync (default: false; explicitly opt in). */
   enabled?: boolean;
   /** Sync interval in milliseconds (default: 300000 = 5 min) */
   interval?: number;
@@ -1114,6 +1114,8 @@ export interface AutohandConfig {
   network?: NetworkSettings;
   /** Child-process controls for shell tools and `!` commands. */
   shell?: ShellSettings;
+  /** Model-facing command output; terminal capture retains its independent limit. */
+  tools?: { maxCommandOutputChars?: number };
   /** Named run profiles selected with `--profile <name>`; each is a partial config layered for that run only. */
   profiles?: Record<string, ConfigProfile>;
   externalAgents?: ExternalAgentsConfig;
@@ -1377,7 +1379,7 @@ export interface CLIOptions {
   logout?: boolean;
   /** Submit feedback */
   feedback?: boolean;
-  /** Enable/disable settings sync (default: true for logged users, false otherwise) */
+  /** Enable/disable settings sync (default: false; explicit opt-in required) */
   syncSettings?: boolean;
   /** Generate git patch without applying changes */
   patch?: boolean;
@@ -2155,7 +2157,10 @@ export interface ToolImageRegistrationResult {
   error?: string;
 }
 
-export type ToolActionOutcome =
+export type ToolActionOutcome = {
+  /** Bounded model observation, separate from terminal and diagnostic output. */
+  modelOutput?: string;
+} & (
   | {
       success: true;
       output?: string;
@@ -2172,7 +2177,7 @@ export type ToolActionOutcome =
       exitCode?: number | null;
       imagePaths?: string[];
       imageRefs?: string[];
-    };
+    });
 
 export type ToolExecutionResult = {
   tool: AgentAction['type'];

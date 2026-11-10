@@ -73,7 +73,7 @@ describe('default Autohand AI orchestration', () => {
     });
     try {
       expect(await runOrchestrationScenario(session)).toContain('ORCHESTRATION_VERIFIED');
-      // The scenario can see the provisional answer before its completion audit.
+      // The verified answer is published after its completion audit.
       await vi.waitFor(() => expect(audited).toBe(true), { timeout: 10_000 });
       expect(waitingWorkers).toHaveLength(3);
       const workers = requests.filter(request => request.model === 'fantail');

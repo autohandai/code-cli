@@ -80,7 +80,7 @@ import { fetchRegistryWithFallback, installSkillWithSecurity } from '../../skill
 import { McpClientManager } from '../../mcp/McpClientManager.js';
 import { compactComputerUseResult, COMPUTER_USE_TOOL_PREFIX } from '../../computer/computerUseOutput.js';
 import { ComputerUseLifecycle } from '../../computer/ComputerUseLifecycle.js';
-import { resolveRuntimeMcpServers } from '../../computer/cuaDriver.js';
+import { isComputerUseMcpServer, resolveRuntimeMcpServers } from '../../computer/cuaDriver.js';
 import {
   findCommunityMcpServers,
   installCommunityMcpServer,
@@ -484,6 +484,7 @@ export function initializeAgentDependencies(
     runtime.config = applyNoDaemonConfig(runtime.config, runtime.options);
     host.runtimeMcpServers = resolveRuntimeMcpServers(runtime.config, {
       bare: runtime.options.bare || runtime.options.daemon === false,
+      offline: runtime.options.offline,
     });
     const initialProvider = runtime.config.provider ?? 'openrouter';
     const providerSettings = getProviderConfig(runtime.config, initialProvider);
@@ -854,6 +855,7 @@ export function initializeAgentDependencies(
       toolsRegistry: host.toolsRegistry,
       getRegisteredTools: () => host.toolManager?.listDefinitions() ?? [],
       getCurrentSessionId: () => host.sessionManager?.getCurrentSession?.()?.metadata?.sessionId,
+      getCommandOutputDirectory: () => host.sessionManager?.getCurrentSession?.()?.getArtifactDirectory?.(),
       memoryManager: host.memoryManager,
       permissionManager: host.permissionManager,
       onFileModified: (filePath, changeType, toolCallId) => {
@@ -1472,6 +1474,11 @@ export function initializeAgentDependencies(
     const customPolicy = blockedTools.length > 0 ? { blockedTools } : undefined;
 
     host.toolManager = new ToolManager({
+      onToolRequested: tool => {
+        const parsed = McpClientManager.parseMcpToolName(tool);
+        const server = parsed && host.runtimeMcpServers?.find((entry: { name: string }) => entry.name === parsed.serverName);
+        return server && isComputerUseMcpServer(server) ? host.activateComputerUseAutoMode?.() === true : false;
+      },
       getActiveProvider: () => host.activeProvider ?? runtime.config.provider ?? 'openrouter',
       maxConcurrency: runtime.config.agent?.parallelToolConcurrency ?? 5,
       executor: async (action, context) => {

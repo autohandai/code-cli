@@ -370,6 +370,7 @@ async function checkAndRestoreSyncData(
   userId: string,
   config: LoadedConfig
 ): Promise<void> {
+  if (config.sync?.enabled !== true) return;
   try {
     // Create sync service to check for cloud data
     const syncService = createSyncService({

@@ -46,7 +46,7 @@ export interface SystemPromptBuilderOptions {
   getContextMemories: () => Promise<string>;
   loadInstructionFiles: () => Promise<string[]>;
   listSkills: () => PromptSkillSummary[];
-  /** Names-only skill index; defaults to on for ACP clients (see isAcpClient). */
+  /** Names-only discovery by default; false explicitly requests descriptions. */
   compactSkillIndex?: boolean;
   getActiveSkills: () => PromptSkillSummary[];
   getTeam: () => PromptTeam | null;
@@ -70,11 +70,6 @@ function hasCodexSkillInstallerMarkers(skill: PromptSkillSummary): boolean {
 function shouldAddAutohandSkillCompatibilityOverride(skill: PromptSkillSummary): boolean {
   return Boolean(skill.source && VENDOR_SKILL_SOURCES.includes(skill.source))
     || hasCodexSkillInstallerMarkers(skill);
-}
-
-/** True inside `autohand --mode acp` (runAcpMode sets AUTOHAND_CLIENT_NAME). */
-function isAcpClient(): boolean {
-  return process.env.AUTOHAND_CLIENT_NAME === 'acp';
 }
 
 /** Compact, stable skill index for the system prompt: sorted names, active ones marked. */
@@ -492,11 +487,7 @@ export class SystemPromptBuilder {
     const allSkills = adaptiveSkills ? [] : this.options.listSkills();
     if (allSkills.length > 0) {
       parts.push('', '## Available Skills');
-      if (this.options.compactSkillIndex ?? isAcpClient()) {
-        // Protocol hosts (the desktop app over ACP) get names only: the full
-        // catalog is ~60 KB (~15k tokens) per request and dominated time-to-first-
-        // token for simple prompts. The model pulls details on demand. Terminal
-        // users keep the full catalog below.
+      if (this.options.compactSkillIndex !== false) {
         parts.push(
           'Skills are specialized instruction packages. When one of these names looks relevant, use the `skill` tool with command `info` to read its description, then `activate` to load it (`list` shows every skill with its description).'
         );

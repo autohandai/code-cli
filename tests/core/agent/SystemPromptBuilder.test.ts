@@ -346,13 +346,28 @@ describe('SystemPromptBuilder', () => {
     expect(prompt).toContain('canonical memory event history');
   });
 
-  it('keeps the full skill catalog for terminal (non-ACP) sessions', async () => {
+  it('preserves an explicit request for the full skill catalog', async () => {
     const prompt = await createBuilder({
       compactSkillIndex: false,
       listSkills: vi.fn(() => [{ name: 'alpha-docs', description: 'Documentation helper' }]),
     }).build();
 
     expect(prompt).toContain('- **alpha-docs**: Documentation helper');
+  });
+
+  it('defaults to names-only discovery in CLI sessions while preserving active skill instructions', async () => {
+    const description = 'CATALOG_DESCRIPTION '.repeat(1000);
+    const prompt = await createBuilder({
+      listSkills: () => [
+        { name: 'zeta-review', description },
+        { name: 'alpha-docs', description, isActive: true },
+      ],
+      getActiveSkills: () => [{ name: 'alpha-docs', description, body: 'MANDATORY_ACTIVE_SKILL_RULE' }],
+    }).build();
+    expect(prompt).toContain('alpha-docs [ACTIVE], zeta-review');
+    expect(prompt).toContain('command `info`');
+    expect(prompt).toContain('MANDATORY_ACTIVE_SKILL_RULE');
+    expect(prompt).not.toContain('CATALOG_DESCRIPTION');
   });
 
   it('keeps adaptive discovery independent of catalog size and active skill text', async () => {

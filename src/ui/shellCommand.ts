@@ -636,6 +636,7 @@ export async function executeShellCommandAsync(
       }
       finish({
         success: false,
+        ...(stdout.length > 0 ? { output: stdout.toString() } : {}),
         error: stderr.toString() || error.stderr?.toString() || error.message || 'Unknown error'
       });
     });
@@ -659,6 +660,7 @@ export async function executeShellCommandAsync(
 
       finish({
         success: false,
+        ...(stdout.length > 0 ? { output: stdout.toString() } : {}),
         error: errorMessage
       });
     });

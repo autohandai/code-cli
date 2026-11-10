@@ -444,7 +444,7 @@ describe('SlashCommandHandler', () => {
 
     expect(result).toBe('Autohand Squad is ready.');
     expect(mockSquad).toHaveBeenCalledWith(
-      { workspaceRoot: '/tmp/workspace', config: ctx.config },
+      expect.objectContaining({ workspaceRoot: '/tmp/workspace', config: ctx.config, squadConnection: expect.anything() }),
       ['--port', '19999'],
     );
   });

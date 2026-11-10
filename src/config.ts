@@ -1493,6 +1493,13 @@ function validateShellSettings(config: AutohandConfig, configPath: string): void
 
 function validateConfig(config: AutohandConfig, configPath: string): void {
   validateShellSettings(config, configPath);
+  if (config.tools !== undefined) {
+    if (!isPlainObject(config.tools)) throw new Error(`tools must be an object in ${configPath}`);
+    const limit = config.tools.maxCommandOutputChars;
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1024)) {
+      throw new Error(`tools.maxCommandOutputChars must be an integer of at least 1024 in ${configPath}`);
+    }
+  }
   if (config.traces !== undefined) {
     if (!isPlainObject(config.traces)) {
       throw new Error(`traces must be an object in ${configPath}`);
@@ -2196,13 +2203,13 @@ export async function saveValidatedAuth(config: LoadedConfig, validatedToken: st
     if (config.auth) persisted.auth = config.auth;
     else delete persisted.auth;
     await writeConfigData(config.configPath, persisted as Record<string, unknown>, {}, writePath);
-  });
+  }, { waitTimeoutMs: 5_000 });
 }
 
 export async function saveConfig(config: LoadedConfig, options: SaveConfigOptions = {}): Promise<void> {
   const writePath = await resolveConfigWritePath(config.configPath);
   await fs.ensureDir(path.dirname(writePath));
-  await withFileLock(`${writePath}.lock`, () => saveConfigSnapshot(config, options, writePath));
+  await withFileLock(`${writePath}.lock`, () => saveConfigSnapshot(config, options, writePath), { waitTimeoutMs: 5_000 });
 }
 
 async function saveConfigSnapshot(

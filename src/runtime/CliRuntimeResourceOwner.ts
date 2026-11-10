@@ -25,6 +25,8 @@ export interface CliBackgroundStartup<
     versionResult: VersionResult | null;
   }>;
   onVersionResult(result: VersionResult): void;
+  /** Prepare a disabled service so the user can opt in during this process. */
+  shouldCreateSync?(authUser: AuthUser): boolean;
   shouldStartSync(authUser: AuthUser): boolean;
   createSyncService(authUser: AuthUser): Promise<Service>;
 }
@@ -168,7 +170,9 @@ export class CliRuntimeResourceOwner<
     if (versionResult) {
       startup.onVersionResult(versionResult);
     }
-    if (!authUser || !startup.shouldStartSync(authUser)) return;
+    if (!authUser) return;
+    const shouldStart = startup.shouldStartSync(authUser);
+    if (!shouldStart && !startup.shouldCreateSync?.(authUser)) return;
 
     const service = await startup.createSyncService(authUser);
     if (!this.isGenerationActive(generation)) {
@@ -178,7 +182,7 @@ export class CliRuntimeResourceOwner<
 
     this.syncService = service;
     try {
-      service.start();
+      if (shouldStart) service.start();
       if (!this.isGenerationActive(generation)) {
         this.syncService = null;
         await this.stopService(service);

@@ -568,6 +568,8 @@ describe('release workflow', () => {
       path: 'binaries',
     });
     expect(verifyStep?.run).toContain('codesign --verify --strict --verbose=4');
+    expect(verifyStep?.run).toContain('codesign --verify --strict -R=notarized --check-notarization "$binary"');
+    expect(verifyStep?.run).toContain('codesign --verify --strict -R=notarized --check-notarization "$ahtraces"');
     expect(verifyStep?.run).toContain('"$binary" --version < /dev/null');
     expect(verifyStep?.run).toContain('ahtraces');
     expect(verifyStep?.run).toContain('Autohand Computer Use.app');

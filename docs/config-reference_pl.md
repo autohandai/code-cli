@@ -1352,7 +1352,7 @@ Autohand może zsynchronizować Twoją konfigurację na różnych urządzeniach 
 ```
 | Pole | Wpisz | Domyślne | Opis |
 | ------------------ | -------- | --------------- | -------------------------------------------------- |
-| __AH_KOD_0__ | wartość logiczna | `true` (zalogowany) | Włącz/wyłącz synchronizację ustawień |
+| __AH_KOD_0__ | wartość logiczna | `false` | Włącz/wyłącz synchronizację ustawień |
 | __AH_KOD_2__ | numer | __AH_KOD_3__ | Interwał synchronizacji w milisekundach (domyślnie: 5 minut) |
 | __AH_KOD_4__ | ciąg[] | __AH_KOD_5__ | Wzory globalne do wykluczenia z synchronizacji |
 | __AH_KOD_6__ | wartość logiczna | __AH_KOD_7__ | Synchronizuj dane telemetryczne (wymaga zgody użytkownika) |
@@ -1363,12 +1363,12 @@ Autohand może zsynchronizować Twoją konfigurację na różnych urządzeniach 
 # Disable sync for this session
 autohand --sync-settings=false
 
-# Enable sync (default for logged users)
+# Explicitly enable sync (disabled by default)
 autohand --sync-settings
 ```
 ### Co jest synchronizowane
 
-Domyślnie te elementy są synchronizowane dla zalogowanych użytkowników:
+Po włączeniu synchronizacji synchronizowane są następujące elementy:
 
 - **Konfiguracja** (`config.json`) – klucze API są szyfrowane przed przesłaniem
 - **Agenci celni** (`agents/`)
@@ -1421,7 +1421,7 @@ Token logowania aplikacji jest wysyłany w nagłówku `Authorization` wyłączni
 
 ### Jak to działa
 
-1. **Przy uruchomieniu**: Jeśli jesteś zalogowany, usługa synchronizacji uruchomi się automatycznie
+1. **Przy uruchomieniu**: Usługa uruchamia się automatycznie, jeśli jesteś zalogowany i jawnie włączysz synchronizację
 2. **Co 5 minut**: Ustawienia są porównywane z danymi przechowywanymi w chmurze
 3. **Chmura wygrywa**: Najpierw pobierane są zmiany zdalne
 4. **Przesłanie lokalne**: Przesyłane są nowe zmiany lokalne
@@ -1912,7 +1912,7 @@ Te flagi zastępują ustawienia pliku konfiguracyjnego:
 | Flaga | Opis |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | __AH_KOD_20__ | Uruchom sesję w izolowanym drzewie roboczym git (opcjonalna nazwa drzewa roboczego/oddziału) |
-| __AH_KOD_21__ | Uruchom w dedykowanej sesji tmux (oznacza `--worktree`; nie można używać z `--no-worktree`) |
+| `--tmux` | Uruchom dedykowaną sesję tmux w bieżącym katalogu; obsługuje `--worktree` lub `--zit` |
 | __AH_KOD_24__ | Wyłącz izolację drzewa roboczego git w trybie automatycznym |
 | __AH_KOD_25__ | Automatyczne zatwierdzanie zmian po ukończeniu zadań |
 | __AH_KOD_26__ | Wygeneruj łatkę git bez stosowania zmian |
@@ -1945,7 +1945,7 @@ Te flagi zastępują ustawienia pliku konfiguracyjnego:
 | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | __AH_KOD_14__ | Zaloguj się na swoje konto Autohand |
 | __AH_KOD_15__ | Wyloguj się ze swojego konta Autohand |
-| __AH_KOD_16__ | Włącz/wyłącz synchronizację ustawień (domyślnie: true dla zalogowanych użytkowników) |
+| __AH_KOD_16__ | Włącz/wyłącz synchronizację ustawień (domyślnie: false) |
 
 ### Konfiguracja i informacje
 

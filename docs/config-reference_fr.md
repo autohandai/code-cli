@@ -1352,7 +1352,7 @@ Autohand peut synchroniser votre configuration sur tous les appareils pour les u
 ```
 | Champ | Tapez | Par défaut | Descriptif |
 | ------------------ | -------- | --------------- | -------------------------------------------------- |
-| `enabled` | booléen | `true` (enregistré) | Activer/désactiver la synchronisation des paramètres |
+| `enabled` | booléen | `false` | Activer/désactiver la synchronisation des paramètres |
 | `interval` | numéro | `300000` | Intervalle de synchronisation en millisecondes (par défaut : 5 minutes) |
 | `exclude` | chaîne[] | `[]` | Modèles Glob à exclure de la synchronisation |
 | `includeTelemetry` | booléen | `false` | Synchroniser les données de télémétrie (nécessite le consentement de l'utilisateur) |
@@ -1363,12 +1363,12 @@ Autohand peut synchroniser votre configuration sur tous les appareils pour les u
 # Disable sync for this session
 autohand --sync-settings=false
 
-# Enable sync (default for logged users)
+# Explicitly enable sync (disabled by default)
 autohand --sync-settings
 ```
 ### Ce qui est synchronisé
 
-Par défaut, ces éléments sont synchronisés pour les utilisateurs connectés :
+Lorsque la synchronisation est activée, ces éléments sont synchronisés :
 
 - **Configuration** (`config.json`) - Les clés API sont cryptées avant le téléchargement
 - **Agents personnalisés** (`agents/`)
@@ -1421,7 +1421,7 @@ Le jeton de connexion de l’application n’est envoyé dans l’en-tête `Auth
 
 ### Comment ça marche
 
-1. **Au démarrage** : si vous êtes connecté, le service de synchronisation démarre automatiquement
+1. **Au démarrage** : le service démarre automatiquement si vous êtes connecté et avez explicitement activé la synchronisation
 2. **Toutes les 5 minutes** : les paramètres sont comparés au stockage cloud
 3. **Le cloud gagne** : les modifications à distance sont téléchargées en premier
 4. **Téléchargements locaux** : les nouvelles modifications locales sont téléchargées
@@ -1913,7 +1913,7 @@ Ces indicateurs remplacent les paramètres du fichier de configuration :
 | Drapeau | Descriptif |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `--worktree [name]` | Exécuter la session dans un arbre de travail git isolé (nom de l'arbre de travail/de la branche facultatif) |
-| `--tmux` | Lancer dans une session tmux dédiée (implique `--worktree` ; ne peut pas être utilisé avec `--no-worktree`) |
+| `--tmux` | Lancer une session tmux dédiée dans le répertoire courant ; accepte `--worktree` ou `--zit` |
 | `--no-worktree` | Désactiver l'isolation de git worktree en mode automatique |
 | `--auto-commit` | Valider automatiquement les modifications après avoir terminé les tâches |
 | `--patch` | Générer le patch git sans appliquer les modifications |
@@ -1946,7 +1946,7 @@ Ces indicateurs remplacent les paramètres du fichier de configuration :
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `--login` | Connectez-vous à votre compte Autohand |
 | `--logout` | Déconnectez-vous de votre compte Autohand |
-| `--sync-settings` | Activer/désactiver la synchronisation des paramètres (par défaut : vrai pour les utilisateurs connectés) |
+| `--sync-settings` | Activer/désactiver la synchronisation des paramètres (par défaut : false) |
 
 ### Configuration et informations
 
