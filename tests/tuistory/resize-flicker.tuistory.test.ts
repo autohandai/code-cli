@@ -1,5 +1,6 @@
 /** @license Apache-2.0 */
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
@@ -14,6 +15,48 @@ let state: TuistoryTempState | undefined;
 afterEach(async () => { session?.close(); await state?.cleanup(); session = undefined; state = undefined; });
 
 describe('terminal resize frames', () => {
+  it('records bounded write timing and viewport metadata without storing terminal content', async () => {
+    state = await createTempAutohandHome();
+    const metadata = path.join(state.autohandHome, 'write-metadata.jsonl');
+    session = await launchTuistorySession({
+      command: 'bun',
+      args: [path.resolve('src/testing/scenarios/resizeFlickerScenario.tsx'), '--full-screen', '--streaming', '--multiline'],
+      cwd: process.cwd(), cols: 100, rows: 30, waitForDataTimeout: 15_000,
+      env: { ...process.env, AUTOHAND_HOME: state.autohandHome, CI: 'false', FORCE_COLOR: '0',
+        AUTOHAND_RESIZE_WRITE_METADATA: metadata },
+    });
+    const initial = await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => /RESIZE_STREAM [1-9]\d*/u.test(screen) });
+    const initialCounter = Number(initial.match(/RESIZE_STREAM (\d+)/u)?.[1]);
+    session.resize({ cols: 90, rows: 28 });
+    await vi.waitFor(async () => {
+      const records: unknown[] = (await readFile(metadata, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+      expect(records).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'write-start', columns: 90, rows: 28, sequence: expect.any(Number),
+          timestamp: expect.any(Number), streamed: expect.any(Number), bytes: expect.any(Number) }),
+        expect.objectContaining({ kind: 'write-return', sequence: expect.any(Number),
+          timestamp: expect.any(Number), backpressured: expect.any(Boolean) }),
+        expect.objectContaining({ kind: 'complete', sequence: expect.any(Number), timestamp: expect.any(Number) }),
+      ]));
+      expect(records.every(record => typeof record === 'object' && record !== null && !('output' in record))).toBe(true);
+      expect(Buffer.byteLength(await readFile(metadata, 'utf8'))).toBeLessThanOrEqual(1024 * 1024);
+    }, { timeout: 5_000 });
+    await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => Number(screen.match(/RESIZE_STREAM (\d+)/u)?.[1]) > initialCounter });
+    await session.press('left');
+    await session.press('left');
+    await session.type('X');
+    const edited = await waitForTerminalScreen(session, { timeout: 5_000, waitFor: screen => screen.includes('taXil') });
+    expect(edited.match(/Autohand Code/gu)).toHaveLength(1);
+    expect(edited.match(/RESIZE_HISTORY retained text/gu)).toHaveLength(1);
+    expect(edited.match(/preserved draft/gu)).toHaveLength(1);
+    await session.press('escape');
+    await session.waitForText('RESIZE_STREAM_COMPLETE');
+    await exitInteractive(session);
+    expect(session.exitInfo?.exitCode).toBe(0);
+    expect(session.getRawOutput()).toContain('RESIZE_PTY_EXIT');
+  });
+
   it('clips older history at the native 57x19 viewport and restores it when the streaming multiline viewport grows', async () => {
     state = await createTempAutohandHome();
     session = await launchTuistorySession({

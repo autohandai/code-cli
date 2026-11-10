@@ -41,6 +41,19 @@ function preparedLaunchArguments(): Record<string, string[]> {
 }
 
 describe('native terminal automation boundary', () => {
+  it('retains separate fixture write timing for each native scenario', async () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    vi.stubEnv('CI', 'true');
+    vi.stubEnv('AUTOHAND_NATIVE_TERMINAL', 'vscode');
+    await prepareNativeTerminalTest();
+    const fixture = vi.mocked(writeFile).mock.calls.find(([file]) => String(file).endsWith('Fixture.command'));
+    expect(fixture?.[1]).toContain('AUTOHAND_RESIZE_WRITE_METADATA=');
+    expect(fixture?.[1]).toContain('write-metadata-${fixture_mode}.jsonl');
+    expect(fixture?.[1]).toContain('fixture_mode=streaming');
+    expect(fixture?.[1]).toContain('fixture_mode=idle');
+  });
+
   it.each(['idle', 'streaming'])('focuses the existing terminal before each native copy in the isolated %s VS Code profile', async mode => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     vi.stubEnv('GITHUB_ACTIONS', 'true');

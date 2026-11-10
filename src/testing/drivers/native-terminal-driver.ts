@@ -20,7 +20,7 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
   const fixture = path.join(output, 'Autohand Terminal Fixture.command');
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
   const bun = execFileSync('/bin/sh', ['-c', 'command -v bun'], { encoding: 'utf8' }).trim();
-  await writeFile(fixture, `#!/bin/sh\nset -eu\ncd ${quote(root)}\nexport AUTOHAND_HOME=${quote(path.join(output, 'home'))}\nexport CI=false\nexec ${quote(bun)} src/testing/scenarios/resizeFlickerScenario.tsx --full-screen --multiline "$@"\n`, { mode: 0o755 });
+  await writeFile(fixture, `#!/bin/sh\nset -eu\ncd ${quote(root)}\nexport AUTOHAND_HOME=${quote(path.join(output, 'home'))}\nexport CI=false\nif [ "\${1-}" = --streaming ]; then fixture_mode=streaming; else fixture_mode=idle; fi\nexport AUTOHAND_RESIZE_WRITE_METADATA=${quote(output)}/write-metadata-\${fixture_mode}.jsonl\nexec ${quote(bun)} src/testing/scenarios/resizeFlickerScenario.tsx --full-screen --multiline "$@"\n`, { mode: 0o755 });
   const profile = path.join(output, 'vscode-profile');
   const runtimeProfile = terminal === 'vscode' ? await mkdtemp('/private/tmp/ah-vsc-') : undefined;
   const settings = {

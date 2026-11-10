@@ -36,6 +36,44 @@ private func nativeCopiedTerminalBuffer(baseline: Int, observed: Int, value: Str
     return value
 }
 
+private struct NativeCopyEvidence {
+    private(set) var records: [Data] = []
+    private(set) var dropped = 0
+    private var bytes = 0
+
+    mutating func append(_ record: Data) {
+        let size = record.count + 1
+        guard size <= 2 * 1024 * 1024 - 64 else {
+            dropped += 1
+            return
+        }
+        while records.count >= 128 || size > 2 * 1024 * 1024 - 64 - bytes {
+            bytes -= records.removeFirst().count + 1
+            dropped += 1
+        }
+        records.append(record)
+        bytes += size
+    }
+}
+
+private struct NativeCopySample: Encodable {
+    let phase: String
+    let started: TimeInterval
+    let finished: TimeInterval
+    let baseline: Int
+    let previousGeneration: Int
+    let previousRaw: String?
+    let previousTypes: [String]
+    let keyFinished: TimeInterval
+    let observed: Int
+    let types: [String]
+    let raw: String?
+    let available: Bool
+    let processIdentifier: Int32
+    let windowIdentifier: UInt32
+    let frame: CGRect
+}
+
 private struct NativeTerminalReadout {
     let read: () -> String?
     let requiresStreaming: Bool
@@ -91,6 +129,9 @@ private func nativeTerminalInputReady(terminal: String, textViewExists: Bool, sp
 
 final class TerminalCompatibilityUITests: XCTestCase {
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
+    private var copyEvidence = NativeCopyEvidence()
+    private var copyPhase = "startup"
+    private var copyEvidencePath: URL?
 
     @MainActor func testIdleResize() throws { try resizeScenario(streaming: false) }
     @MainActor func testStreamingResize() throws { try resizeScenario(streaming: true) }
@@ -126,6 +167,37 @@ final class TerminalCompatibilityUITests: XCTestCase {
         XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 18, value: stale))
         XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 17, value: stale))
         XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 19, value: nil))
+    }
+
+    func testNativeReadoutEvidenceRetainsPartialUnavailableAndCompleteSamplesUnchanged() throws {
+        var evidence = NativeCopyEvidence()
+        let partial = "RESIZE_STREAM 400\r\n"
+        let complete = "Autohand Code\nRESIZE_HISTORY retained text\npreserved draft\nRESIZE_STREAM 449\nRESIZE_STREAM 449"
+        for raw in [partial, nil, complete] {
+            evidence.append(Data((raw ?? "unavailable").utf8))
+        }
+        XCTAssertEqual(evidence.records, [Data(partial.utf8), Data("unavailable".utf8), Data(complete.utf8)])
+        XCTAssertEqual(evidence.dropped, 0)
+        XCTAssertEqual(evidence.records.last, Data(complete.utf8), "Diagnostic capture must preserve duplicate raw rows")
+    }
+
+    func testNativeReadoutEvidenceBoundsTheRecordCountAndBytesWithoutChangingSamples() {
+        var countBounded = NativeCopyEvidence()
+        for index in 0..<129 { countBounded.append(Data("raw-\(index)".utf8)) }
+        XCTAssertEqual(countBounded.records.count, 128)
+        XCTAssertEqual(countBounded.dropped, 1)
+        XCTAssertEqual(countBounded.records.first, Data("raw-1".utf8))
+        XCTAssertEqual(countBounded.records.last, Data("raw-128".utf8))
+        var bytesBounded = NativeCopyEvidence()
+        let oversized = Data(repeating: 65, count: 2 * 1024 * 1024 + 1)
+        bytesBounded.append(oversized)
+        XCTAssertTrue(bytesBounded.records.isEmpty)
+        XCTAssertEqual(bytesBounded.dropped, 1)
+        bytesBounded.append(Data("still raw".utf8))
+        XCTAssertEqual(bytesBounded.records, [Data("still raw".utf8)])
+        bytesBounded.append(Data(repeating: 66, count: 2 * 1024 * 1024 - 65))
+        XCTAssertEqual(bytesBounded.records.count, 1)
+        XCTAssertEqual(bytesBounded.dropped, 2)
     }
 
     func testNativeReadoutPreservesEveryByteAndDuplicateInAFreshNativeCopy() {
@@ -278,6 +350,19 @@ final class TerminalCompatibilityUITests: XCTestCase {
             return
         }
         continueAfterFailure = false
+        if terminal == "vscode" {
+            copyEvidence = NativeCopyEvidence()
+            copyPhase = "startup"
+            copyEvidencePath = URL(fileURLWithPath: fixture).deletingLastPathComponent()
+                .appendingPathComponent("copy-samples-\(streaming ? "streaming" : "idle").jsonl")
+            addTeardownBlock {
+                let records = self.copyEvidence.records.map { String(decoding: $0, as: UTF8.self) }.joined(separator: "\n")
+                let attachment = XCTAttachment(string: records + "\n{\"dropped\":\(self.copyEvidence.dropped)}\n")
+                attachment.name = "vscode-\(streaming ? "streaming" : "idle")-copy-samples"
+                attachment.lifetime = .keepAlways
+                self.add(attachment)
+            }
+        }
         let interruption = addUIInterruptionMonitor(withDescription: "Deny local network access for the offline terminal fixture") { alert in
             let buttons = alert.buttons.allElementsBoundByIndex
             let text = ([alert] + alert.staticTexts.allElementsBoundByIndex).map(self.accessibilityText)
@@ -422,6 +507,7 @@ final class TerminalCompatibilityUITests: XCTestCase {
             add(evidence)
         }
         for (index, delta) in nativeResizeDeltas.enumerated() {
+            copyPhase = "resize-\(index)"
             if let identity = nativeIdentity {
                 guard let current = currentCodeWindow(app, identity: identity) else { return }
                 window = current
@@ -459,11 +545,13 @@ final class TerminalCompatibilityUITests: XCTestCase {
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey("x", modifierFlags: .shift)
+        copyPhase = "cursor"
         let edited = NSPredicate { _, _ in readTerminal()?.contains("taXil") == true }
         expectation(for: edited, evaluatedWith: app)
         waitForExpectations(timeout: 10)
         app.typeKey(.escape, modifierFlags: [])
         app.typeKey("c", modifierFlags: .control)
+        copyPhase = "exit"
         app.typeKey("c", modifierFlags: .control)
         app.typeKey("c", modifierFlags: .control)
         let exit = NSPredicate { _, _ in app.state == .notRunning || readTerminal()?.contains("RESIZE_PTY_EXIT") == true }
@@ -605,16 +693,39 @@ final class TerminalCompatibilityUITests: XCTestCase {
             XCTFail("VS Code changed the fixture's native window ID, process, or window count")
             return nil
         }
-        let value = copiedTerminalValue(app)
+        let value = copiedTerminalValue(app, native: native)
         guard nativeFixtureWindow(visibleNativeWindows(processIdentifier: identity.processIdentifier), identity: identity) == native else { return nil }
         return value
     }
 
-    private func copiedTerminalValue(_ window: XCUIElement) -> String? {
+    private func copiedTerminalValue(_ window: XCUIElement, native: NativeWindowFrame) -> String? {
         let pasteboard = NSPasteboard.general
+        let started = Date().timeIntervalSince1970
+        let previousGeneration = pasteboard.changeCount
+        let previousRaw = pasteboard.string(forType: .string)
+        let previousTypes = pasteboard.types?.map(\.rawValue) ?? []
         pasteboard.clearContents()
         let generation = pasteboard.changeCount
+        var keyFinished = started
+        var available = false
+        var copied: String?
+        defer {
+            let sample = NativeCopySample(phase: copyPhase, started: started, finished: Date().timeIntervalSince1970,
+                                          baseline: generation, previousGeneration: previousGeneration, previousRaw: previousRaw,
+                                          previousTypes: previousTypes, keyFinished: keyFinished, observed: pasteboard.changeCount,
+                                          types: pasteboard.types?.map(\.rawValue) ?? [], raw: copied ?? pasteboard.string(forType: .string),
+                                          available: available, processIdentifier: native.processIdentifier,
+                                          windowIdentifier: native.windowIdentifier, frame: native.frame)
+            if let record = try? JSONEncoder().encode(sample) {
+                copyEvidence.append(record)
+                if let path = copyEvidencePath {
+                    let records = copyEvidence.records.map { String(decoding: $0, as: UTF8.self) }.joined(separator: "\n")
+                    try? (records + "\n{\"dropped\":\(copyEvidence.dropped)}\n").write(to: path, atomically: true, encoding: .utf8)
+                }
+            }
+        }
         window.typeKey("y", modifierFlags: [.control, .shift])
+        keyFinished = Date().timeIntervalSince1970
         let written = NSPredicate { _, _ in
             nativeCopiedTerminalBuffer(baseline: generation, observed: pasteboard.changeCount,
                                        value: pasteboard.string(forType: .string)) != nil
@@ -626,6 +737,8 @@ final class TerminalCompatibilityUITests: XCTestCase {
             return nil
         }
         print("NATIVE_TERMINAL_COPY_FRESH baseline=\(generation) observed=\(pasteboard.changeCount) bytes=\(value.utf8.count)")
+        copied = value
+        available = true
         return value
     }
 
