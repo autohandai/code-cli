@@ -1,5 +1,6 @@
 /** @license Apache-2.0 */
-import { open } from 'node:fs/promises';
+import { open, rename, writeFile } from 'node:fs/promises';
+import { createResizeWriteMetadata } from './resizeWriteMetadata.js';
 
 interface StreamPosition { counter: number; columns: number; rows: number }
 interface StreamCommand extends StreamPosition { id: number; action: 'observe' | 'resume' }
@@ -34,9 +35,25 @@ export class ResizeStreamGate {
   private disposed = false;
   private pending: Promise<void> | undefined;
   private failure: unknown;
+  private revision = 0;
+  private readonly state: ReturnType<typeof createResizeWriteMetadata>;
 
   constructor(file: string, private readonly record: (value: object) => void,
-    private readonly read: () => Promise<unknown> = () => readCommand(file)) {}
+    private readonly read: () => Promise<unknown> = () => readCommand(file), persist?: (content: string) => Promise<void>) {
+    const stateFile = `${file}.state.json`;
+    this.state = createResizeWriteMetadata(stateFile, { maxRecords: 1, maxBytes: 512,
+      persist: persist ?? (async content => {
+        await writeFile(`${stateFile}.pending`, content.split('\n', 1)[0] ?? '');
+        await rename(`${stateFile}.pending`, stateFile);
+      }),
+    });
+  }
+
+  private publishState(): void {
+    if (!this.last) return;
+    this.state.record({ kind: 'stream-state', command: this.command?.id ?? 0, revision: ++this.revision,
+      emittedCommand: this.emittedCommand, ...this.last, paused: this.paused });
+  }
 
   refresh(): Promise<void> {
     if (this.disposed || this.failure) return Promise.resolve();
@@ -47,6 +64,7 @@ export class ResizeStreamGate {
       if (command.id <= (this.command?.id ?? 0)) return;
       this.command = command;
       this.paused = false;
+      this.publishState();
     }).catch(error => {
       if (!this.disposed && !(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) this.failure = error;
     }).finally(() => { this.pending = undefined; });
@@ -59,11 +77,16 @@ export class ResizeStreamGate {
     void this.refresh();
     const command = this.command;
     const last = this.last;
+    if (this.paused && last && (last.columns !== viewport.columns || last.rows !== viewport.rows)) {
+      this.paused = false;
+      this.publishState();
+    }
     if (!this.paused && command?.action === 'observe' && last && this.emittedCommand === command.id && last.counter > command.counter
       && (last.columns !== command.columns || last.rows !== command.rows)
       && last.columns === viewport.columns && last.rows === viewport.rows) {
       this.paused = true;
       this.record({ kind: 'stream-gate', command: command.id, ...last, paused: true });
+      this.publishState();
     }
     return !this.paused;
   }
@@ -73,10 +96,12 @@ export class ResizeStreamGate {
     this.last = position;
     this.emittedCommand = this.command?.id ?? 0;
     this.record({ kind: 'stream-chunk', command: this.command?.id ?? 0, ...position, paused: false });
+    this.publishState();
   }
 
   async dispose(): Promise<void> {
     this.disposed = true;
     if (this.pending) await this.pending;
+    await this.state.flush();
   }
 }

@@ -53,9 +53,28 @@ describe('terminal resize frames', () => {
     expect(frame.match(/RESIZE_HISTORY retained text/gu)).toHaveLength(1);
     expect(frame.match(/preserved draft/gu)).toHaveLength(1);
     expect((await records()).filter(record => record.kind === 'stream-chunk').at(-1)?.counter).toBe(paused);
-    await command({ id: 2, action: 'resume', counter: paused, columns: 90, rows: 28 });
+    session.resize({ cols: 110, rows: 32 });
+    const intermediate = paused;
+    await vi.waitFor(async () => {
+      const ack = (await records()).filter(record => record.kind === 'stream-gate' && record.command === 1 && record.paused === true).at(-1);
+      expect(ack).toMatchObject({ columns: 110, rows: 32 });
+      paused = Number(ack?.counter);
+      expect(paused).toBeGreaterThan(intermediate);
+    });
+    await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => screen.includes('taXil') && screen.includes(`RESIZE_STREAM ${paused} retained streamed text`) });
+    await vi.waitFor(async () => {
+      const snapshot = await readFile(`${control}.state.json`, 'utf8');
+      expect(Buffer.byteLength(snapshot)).toBeLessThanOrEqual(512);
+      expect(JSON.parse(snapshot)).toMatchObject({ kind: 'stream-state', command: 1, emittedCommand: 1,
+        counter: paused, columns: 110, rows: 32, paused: true });
+    });
+    await command({ id: 2, action: 'resume', counter: paused, columns: 110, rows: 32 });
     await vi.waitFor(async () => {
       expect((await records()).some(record => record.kind === 'stream-chunk' && record.command === 2 && Number(record.counter) > paused)).toBe(true);
+      const snapshot: Record<string, unknown> = JSON.parse(await readFile(`${control}.state.json`, 'utf8'));
+      expect(snapshot).toMatchObject({ command: 2, emittedCommand: 2, columns: 110, rows: 32, paused: false });
+      expect(Number(snapshot.counter)).toBeGreaterThan(paused);
     });
     await session.press('escape');
     await session.waitForText('RESIZE_STREAM_COMPLETE');
