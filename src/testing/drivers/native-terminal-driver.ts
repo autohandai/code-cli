@@ -25,7 +25,7 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
   const runtimeProfile = terminal === 'vscode' ? await mkdtemp('/private/tmp/ah-vsc-') : undefined;
   const settings = {
     'chat.disableAIFeatures': true,
-    'editor.accessibilitySupport': 'on', 'workbench.startupEditor': 'none', 'window.restoreWindows': 'none',
+    'editor.accessibilitySupport': 'off', 'workbench.startupEditor': 'none', 'window.restoreWindows': 'none',
     'workbench.panel.opensMaximized': 'always',
     'update.mode': 'none', 'security.workspace.trust.enabled': false,
     'terminal.integrated.enablePersistentSessions': false, 'terminal.integrated.scrollback': 5000,
@@ -57,7 +57,7 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
     launchArguments[mode] = terminal === 'vscode'
       ? ['--user-data-dir', isolatedProfile, '--extensions-dir', path.join(isolatedProfile, 'extensions'),
         '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',
-        '--force-renderer-accessibility', '--new-window']
+        '--new-window']
       : terminal === 'ghostty' ? ['--config-default-files=false', '--confirm-close-surface=false'] : [];
   }
   const project = path.resolve('src/testing/drivers/native-terminal-lab');

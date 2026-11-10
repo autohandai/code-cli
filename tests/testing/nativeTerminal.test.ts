@@ -103,7 +103,7 @@ describe('native terminal automation boundary', () => {
     await expect(prepareNativeTerminalTest()).rejects.toThrow('Choose iterm2, ghostty, cmux, or vscode');
   });
 
-  it.each(['idle', 'streaming'])('prepares an isolated %s VS Code profile with native renderer accessibility', async mode => {
+  it.each(['idle', 'streaming'])('prepares an isolated %s VS Code profile for graphical terminal use', async mode => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     vi.stubEnv('GITHUB_ACTIONS', 'true');
     vi.stubEnv('CI', 'true');
@@ -116,9 +116,9 @@ describe('native terminal automation boundary', () => {
     const settingsWrite = vi.mocked(writeFile).mock.calls.find(([file]) => file === path.join(profile, 'User/settings.json'));
     expect(settingsWrite).toBeDefined();
     const settings: unknown = JSON.parse(String(settingsWrite?.[1]));
-    expect(settings).toMatchObject({
+    expect.soft(settings).toMatchObject({
       'chat.disableAIFeatures': true,
-      'editor.accessibilitySupport': 'on',
+      'editor.accessibilitySupport': 'off',
       'window.restoreWindows': 'none',
       'terminal.integrated.enablePersistentSessions': false,
       'terminal.integrated.scrollback': 5000,
@@ -126,10 +126,11 @@ describe('native terminal automation boundary', () => {
     const launchArguments = preparedLaunchArguments();
     expect(launchArguments).toMatchObject({
       [mode]: expect.arrayContaining([
-        '--force-renderer-accessibility', '--user-data-dir', runtimeProfile,
+        '--user-data-dir', runtimeProfile,
         '--extensions-dir', path.join(runtimeProfile, 'extensions'), '--disable-extensions',
       ]),
     });
+    expect.soft(launchArguments[mode]?.some(argument => argument.startsWith('--force-renderer-accessibility'))).toBe(false);
     expect(launchArguments).toMatchObject({
       idle: expect.not.arrayContaining([path.join('/private/tmp/ah-vsc-123456', 'streaming')]),
       streaming: expect.not.arrayContaining([path.join('/private/tmp/ah-vsc-123456', 'idle')]),
