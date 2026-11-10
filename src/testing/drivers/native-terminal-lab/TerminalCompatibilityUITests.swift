@@ -104,12 +104,19 @@ private func nativeCodeScreenRows<Snapshot>(_ capture: () throws -> Snapshot, wi
 
 private struct NativeTerminalReadout {
     let read: () -> String?
+    let requiresStreaming: Bool
     private(set) var frame: String?
+
+    init(read: @escaping () -> String?, requiresStreaming: Bool = false) {
+        self.read = read
+        self.requiresStreaming = requiresStreaming
+    }
 
     mutating func capture() -> Bool {
         frame = read()
         guard let value = frame else { return false }
-        return value.contains("RESIZE_HISTORY retained text") && value.contains("preserved draft")
+        return value.contains("Autohand Code") && value.contains("RESIZE_HISTORY retained text")
+            && value.contains("preserved draft") && (!requiresStreaming || value.contains("RESIZE_STREAM "))
     }
 }
 
@@ -254,6 +261,39 @@ final class TerminalCompatibilityUITests: XCTestCase {
         XCTAssertNil(nativeFixtureWindow([NativeWindowFrame(processIdentifier: 6737, windowIdentifier: 101, frame: resized.frame)], identity: identity))
     }
 
+    func testNativeReadoutWaitsForTheHeaderBeforeAcceptingACompleteFrame() {
+        let partial = "RESIZE_HISTORY retained text\npreserved draft\nRESIZE_STREAM 293"
+        let complete = "Autohand Code\n" + partial
+        var reads = 0
+        var readout = NativeTerminalReadout(read: { reads += 1; return reads == 1 ? partial : complete }, requiresStreaming: true)
+        XCTAssertFalse(readout.capture())
+        XCTAssertTrue(readout.capture())
+        XCTAssertEqual(readout.frame, complete)
+        XCTAssertEqual(reads, 2)
+        var duplicate = NativeTerminalReadout(read: { "Autohand Code\n" + complete }, requiresStreaming: true)
+        XCTAssertTrue(duplicate.capture())
+        XCTAssertEqual(duplicate.frame?.components(separatedBy: "Autohand Code").count, 3,
+                       "Presence readiness must leave duplicate headers for the exact-count assertion")
+    }
+
+    func testNativeReadoutPermanentlyMissingHeaderFailsTheUnchangedReadinessDeadline() {
+        var readout = NativeTerminalReadout(read: { "RESIZE_HISTORY retained text\npreserved draft" })
+        XCTAssertFalse(readout.capture())
+        let ready = NSPredicate { _, _ in readout.capture() }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: nil)], timeout: 0.01), .timedOut)
+    }
+
+    func testNativeReadoutRequiresTheStreamMarkerOnlyForStreamingScenarios() {
+        var value = "Autohand Code\nRESIZE_HISTORY retained text\npreserved draft"
+        var idle = NativeTerminalReadout(read: { value })
+        XCTAssertTrue(idle.capture())
+        var streaming = NativeTerminalReadout(read: { value }, requiresStreaming: true)
+        XCTAssertFalse(streaming.capture())
+        value += "\nRESIZE_STREAM 341"
+        XCTAssertTrue(streaming.capture())
+        XCTAssertEqual(streaming.frame, value)
+    }
+
     func testNativeReadoutAssertsAgainstTheAcceptedFreshFrameWithoutCopyingAgain() {
         let raw = "Autohand Code\nRESIZE_HISTORY retained text\npreserved draft\nRESIZE_STREAM 308"
         var reads = 0
@@ -278,7 +318,7 @@ final class TerminalCompatibilityUITests: XCTestCase {
         var reads = 0
         var readout = NativeTerminalReadout(read: {
             reads += 1
-            return reads == 1 ? "RESIZE_HISTORY retained text\npreserved draft" : nil
+            return reads == 1 ? "Autohand Code\nRESIZE_HISTORY retained text\npreserved draft" : nil
         })
         XCTAssertTrue(readout.capture())
         XCTAssertFalse(readout.capture())
@@ -589,7 +629,7 @@ final class TerminalCompatibilityUITests: XCTestCase {
             }
             XCTAssertNotEqual(window.frame.size, frame.size, "The native window did not resize")
             XCTAssertTrue(displayBounds.contains(window.frame), "The resized fixture window left the display bounds")
-            var readout = NativeTerminalReadout(read: { readTerminal(useCopiedBuffer) })
+            var readout = NativeTerminalReadout(read: { readTerminal(useCopiedBuffer) }, requiresStreaming: streaming)
             let settled = NSPredicate { _, _ in readout.capture() }
             guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: window)], timeout: 10) == .completed,
                   let content = readout.frame else {
