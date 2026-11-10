@@ -27,3 +27,10 @@ export function buildChatTemplateKwargs(kwargs: NvidiaChatTemplateKwargs): Recor
   if (kwargs.clear_thinking !== undefined) result.clear_thinking = kwargs.clear_thinking;
   return result;
 }
+
+export function usesMaxCompletionTokens(model: string): boolean {
+  const lower = model.toLowerCase();
+  const generation = /^gpt-(\d+)(?:$|[.\-_])/.exec(lower)?.[1];
+  return (generation !== undefined && Number(generation) >= 5)
+    || /^o[134](?:$|[-_.])/.test(lower);
+}

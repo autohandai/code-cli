@@ -26,7 +26,7 @@ import {
     type ToolDefinition,
     type ToolManagerOptions,
 } from '../toolManager.js';
-import { ToolFilter } from '../toolFilter.js';
+import { ToolFilter, limitToolSelection } from '../toolFilter.js';
 import { ActionExecutor } from '../actionExecutor.js';
 import {
     AgentDelegator,
@@ -453,7 +453,6 @@ export class SubAgent {
 
         // Get function definitions for LLM function calling
         const definitions = this.toolManager.toFunctionDefinitions();
-        const tools = selectCodeModeTools(definitions, this.llm.getCapabilities?.().maxTools) ?? definitions;
         const providerSettings = this.options.featureConfig
             ? getProviderConfig(this.options.featureConfig, this.llm.getName?.() as ProviderName | undefined)
             : null;
@@ -474,6 +473,9 @@ export class SubAgent {
             this.consumePendingInstructions();
             this.refreshSkillsPrompt();
             await peerRuntime?.safeBoundary();
+            const maxTools = this.llm.getCapabilities?.().maxTools;
+            const tools = selectCodeModeTools(definitions, maxTools)
+                ?? limitToolSelection(definitions, definitions, this.conversation.history(), maxTools);
             const withholdToolsForRequest = withholdToolsNextRequest;
             withholdToolsNextRequest = false;
             const requestTools = this.supportsNativeToolCalling

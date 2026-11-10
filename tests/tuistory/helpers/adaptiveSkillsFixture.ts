@@ -142,6 +142,8 @@ export async function saveAdaptiveRequestCapture(fixture: AdaptiveSkillsFixture,
     const skillContext = startupSkillContext(request);
     return { index, messageChars: text.length, estimatedMessageTokens: estimateTokens(text),
       startupSkillContextChars: skillContext.length, estimatedStartupSkillContextTokens: estimateTokens(skillContext),
+      startupFixtureNameEntries: new Set(skillContext.match(/\badaptive-fixture-\d+\b/g) ?? []).size,
+      startupFixtureDescriptionEntries: (skillContext.match(/Adaptive fixture workflow \d+/g) ?? []).length,
       nativeSchemaChars: tools.length, estimatedNativeSchemaTokens: estimateTokens(tools), nativeToolNames: nativeToolNames(request),
       nativeSchemaSha256: hash(tools), leadingPolicySha256: hash(JSON.stringify(firstMessage)),
       preparedPacketCount: (text.match(/\[Skill packet skill:\/\//g) ?? []).length,

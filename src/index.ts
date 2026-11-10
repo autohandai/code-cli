@@ -9,6 +9,8 @@ const requestsStructuredCommandOutput = process.argv.some((arg) => (
   || arg.startsWith('--output-format=')
 ));
 const requestsProtocolOutput = process.argv.some((arg, index, argv) => (
+  (arg === 'squad' && argv[index + 1] === 'mcp')
+  ||
   arg === '--answer-only'
   || arg === '--setup-only'
   || arg === '--acp'
@@ -338,7 +340,7 @@ import { isDiscoveryInvocation, registerDiscoveryCommand } from './discovery/cli
 
 installProcessErrorHandlers();
 
-const program = new Command();
+export const program = new Command();
 
 const collectRepeatable = (value: string, previous: string[] = []): string[] => [...previous, value];
 
@@ -364,6 +366,10 @@ program.hook('preAction', async (thisCommand, actionCommand) => {
   configureRunConfigOverlay({ profile, sets: set, ...(sdkSettings ? { sdkSettings } : {}) });
 
   const commandPath = commandPathOf(actionCommand);
+  if (commandPath[0] === 'squad' && actionCommand.args[0] === 'mcp') {
+    if (daemon === false || bare) actionCommand.error(NO_DAEMON_MESSAGE);
+    return;
+  }
   if (daemon === false && (tracesOn || commandPath[0] === 'traces' || commandPath[0] === 'computer' || commandPath[0] === 'squad')) {
     actionCommand.error(NO_DAEMON_MESSAGE);
   }
@@ -465,7 +471,7 @@ program
     .conflicts('tracesOn'))
   .option('--login', 'Sign in to your Autohand account', false)
   .option('--logout', 'Sign out of your Autohand account', false)
-  .option('--sync-settings [bool]', 'Enable/disable settings sync (default: true for logged users)')
+  .option('--sync-settings [bool]', 'Enable/disable settings sync (default: false)')
   .option('--patch', 'Generate git patch without applying changes (requires --prompt)', false)
   .option('--output <file>', 'Output file for patch (default: stdout, used with --patch)')
   .option('--mode <mode>', 'Run mode: interactive (default), rpc, or acp', 'interactive')
@@ -480,7 +486,7 @@ program
   .addOption(new Option('--sdk-resume-last').hideHelp())
   .option('--teammate-mode <mode>', 'Legacy team display preference; live team view stays in the lead terminal')
   .option('--worktree [name]', 'Run session in isolated git worktree (optional name)')
-  .option('--tmux', 'Launch in a dedicated tmux session (implies --worktree)')
+  .option('--tmux', 'Launch in a dedicated tmux session (supports --worktree or --zit)')
   .option('--zit [intent]', 'Run session in a disposable Zit workspace, recorded as a Zit change on exit (optional intent)')
   // Auto-mode options
   .option('--auto-mode [prompt]', 'Enable interactive auto-mode, or start a standalone loop with an inline task')
@@ -621,8 +627,6 @@ program
       process.exit(1);
     }
 
-    // tmux sessions are intended to run with isolated worktrees by default.
-    // Respect explicit --no-worktree (opts.worktree === false) as invalid with --tmux.
     const tmuxOptionError = normalizeTmuxWorktreeOption(opts);
     if (tmuxOptionError) {
       console.error(chalk.red(tmuxOptionError));
@@ -991,10 +995,15 @@ program
 
 program
   .command('squad [args...]')
-  .description('Open the Autohand Squad app (installs it if missing); subcommands manage the standalone runtime')
+  .description('Open Squad, list agents, send messages, read history, or serve the built-in MCP')
   .allowUnknownOption(true)
   .allowExcessArguments(true)
   .action(async (args: string[] = []) => {
+    if (args[0] === 'mcp') {
+      try { await (await import('./squad/builtin.js')).runSquadMcp(args.slice(1)); }
+      catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
+      process.exit(0);
+    }
     const rootOptions = program.opts<CLIOptions>();
     const config = await loadConfig(rootOptions.config, process.cwd());
     const workspaceRoot = resolveWorkspaceRoot(config, rootOptions.path);
@@ -2053,11 +2062,8 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
         onVersionResult: (versionResult) => {
           agentHolder.current?.setVersionCheckResult(versionResult);
         },
-        shouldStartSync: () => Boolean(
-          config.auth?.token
-          && options.syncSettings !== false
-          && config.sync?.enabled !== false
-        ),
+        shouldCreateSync: () => Boolean(config.auth?.token),
+        shouldStartSync: () => Boolean(config.auth?.token && (options.syncSettings ?? config.sync?.enabled ?? false)),
         createSyncService: async (authUser) => {
           const { createSyncService, DEFAULT_SYNC_CONFIG, SyncApiClient } = await import('./sync/index.js');
           let lastUnavailableCount = 0;
@@ -2077,7 +2083,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
             config: {
               ...DEFAULT_SYNC_CONFIG,
               ...config.sync,
-              enabled: true,
+              enabled: options.syncSettings ?? config.sync?.enabled ?? false,
             },
             onSyncFailure: async (reason) => {
               const oneLine = reason.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').slice(0, 300).replace(/[.\s]+$/u, '');

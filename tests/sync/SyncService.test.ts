@@ -208,6 +208,32 @@ describe('SyncService', () => {
       });
     });
 
+    it('restarts immediately after a paused in-flight operation settles when opted back in', async () => {
+      const pendingManifest = Promise.withResolvers<SyncManifest | null>();
+      const service = createSyncService({ authToken: 'test-token', userId: 'test-user',
+        config: { enabled: true, interval: 60000 }, apiClient: mockApiClient });
+      (service as unknown as { basePath: string }).basePath = tempDir;
+      vi.spyOn(service as unknown as { syncCodingAgentControlPlane: () => Promise<void> }, 'syncCodingAgentControlPlane').mockResolvedValue(undefined);
+      vi.mocked(mockApiClient.getRemoteManifest)
+        .mockImplementationOnce(() => pendingManifest.promise)
+        .mockRejectedValueOnce(new Error('second-generation fixture boundary'));
+      const first = service.sync();
+      try {
+        await vi.waitFor(() => expect(mockApiClient.getRemoteManifest).toHaveBeenCalledOnce());
+        const signal = vi.mocked(mockApiClient.getRemoteManifest).mock.calls[0][1];
+        service.setEnabled(false);
+        expect(signal?.aborted).toBe(true);
+        service.setEnabled(true);
+        pendingManifest.resolve(null);
+        await first;
+        await vi.waitFor(() => expect(mockApiClient.getRemoteManifest).toHaveBeenCalledTimes(2));
+      } finally {
+        pendingManifest.resolve(null);
+        await first;
+        await service.shutdown({ timeoutMs: 100 });
+      }
+    });
+
     it.each([
       {
         label: 'config',

@@ -44,7 +44,7 @@ async function measureStartupPrompt(entries: ReturnType<typeof createAdaptiveCat
     getActiveSkills: () => { activeInstructionReads++; return []; },
   }).build();
   const section = startupSkillSection(prompt);
-  return { adaptiveSkills, catalogReads, activeInstructionReads, systemPromptChars: prompt.length, estimatedSystemPromptTokens: estimateTokens(prompt),
+  return { adaptiveSkills, skillIndexMode: adaptiveSkills ? 'discovery-contract' : 'names-only', catalogReads, activeInstructionReads, systemPromptChars: prompt.length, estimatedSystemPromptTokens: estimateTokens(prompt),
     leadingPolicySha256: sha256(prompt), skillSectionChars: section.length, estimatedSkillSectionTokens: estimateTokens(section),
     skillSectionSha256: sha256(section), systemPrompt: prompt };
 }
@@ -109,6 +109,7 @@ async function main(): Promise<void> {
     costs: { paidInferenceRequests: 0, providerBilledTokens: null, providerBilledCost: null },
     adaptiveStartupPrefixInvariant: new Set([...startupPrompts.values()].map(prompt => prompt.adaptive.leadingPolicySha256)).size === 1,
     limitations: ['Fixture selection cases are deterministic contracts, not a powered task-quality or learned-transfer experiment.',
+      'The legacy startupPrompts.eager key now measures the default names-only index; descriptions are loaded on demand.',
       'Character counts and heuristic token estimates are separate metrics; no provider usage, billing, or prompt-cache savings are measured.',
       'Cold lookup includes constructing the metadata token cache; fixture JSON parsing and filesystem catalog discovery are excluded.',
       'Multilingual cases demonstrate lexical Unicode metadata matching, not translation or cross-language semantic retrieval.',
@@ -116,7 +117,7 @@ async function main(): Promise<void> {
     results };
   const rows = results.map(result => `| ${result.catalogSize} | ${result.authorizedCompatibleEntries} | ${result.cold.p50Ms} | ${result.cold.p95Ms} | ${result.warm.p50Ms} | ${result.warm.p95Ms} | ${result.fixtureCases.filter(fixture => fixture.passed).length}/${result.fixtureCases.length} |`).join('\n');
   const promptRows = results.map(result => `| ${result.catalogSize} | ${result.startupPrompts.eager.skillSectionChars} | ${result.startupPrompts.eager.estimatedSkillSectionTokens} | ${result.startupPrompts.adaptive.skillSectionChars} | ${result.startupPrompts.adaptive.estimatedSkillSectionTokens} |`).join('\n');
-  const markdown = `# Adaptive skills deterministic evaluation\n\nGenerated ${report.generatedAt}. Commit ${report.repositoryCommit}; working tree modified.\n\nNo inference or paid calls. No task-quality, learning, or reuse claim.\n\n| Catalog | Authorized compatible | Cold p50 ms | Cold p95 ms | Warm p50 ms | Warm p95 ms | Fixture cases |\n| --- | --- | --- | --- | --- | --- | --- |\n${rows}\n\n| Catalog | Eager skill chars | Eager estimated tokens | Adaptive skill chars | Adaptive estimated tokens |\n| --- | --- | --- | --- | --- |\n${promptRows}\n\nAdaptive full startup prefix invariant across catalog sizes: ${report.adaptiveStartupPrefixInvariant}. Constant discovery contract: ${SKILL_DISCOVERY_CONTRACT.length} characters; ${estimateTokens(SKILL_DISCOVERY_CONTRACT)} estimated tokens using the repository character heuristic. Actual request context is measured separately.\n\n${report.limitations.map(value => `- ${value}`).join('\n')}\n`;
+  const markdown = `# Adaptive skills deterministic evaluation\n\nGenerated ${report.generatedAt}. Commit ${report.repositoryCommit}; working tree modified.\n\nNo inference or paid calls. No task-quality, learning, or reuse claim.\n\n| Catalog | Authorized compatible | Cold p50 ms | Cold p95 ms | Warm p50 ms | Warm p95 ms | Fixture cases |\n| --- | --- | --- | --- | --- | --- | --- |\n${rows}\n\n| Catalog | Default names-only chars | Default estimated tokens | Adaptive skill chars | Adaptive estimated tokens |\n| --- | --- | --- | --- | --- |\n${promptRows}\n\nAdaptive full startup prefix invariant across catalog sizes: ${report.adaptiveStartupPrefixInvariant}. Constant discovery contract: ${SKILL_DISCOVERY_CONTRACT.length} characters; ${estimateTokens(SKILL_DISCOVERY_CONTRACT)} estimated tokens using the repository character heuristic. Actual request context is measured separately.\n\n${report.limitations.map(value => `- ${value}`).join('\n')}\n`;
   await mkdir(outputRoot, { recursive: true });
   await writeFile(path.join(outputRoot, 'adaptive-skills-benchmark.json'), `${JSON.stringify(report, null, 2)}\n`);
   await writeFile(path.join(outputRoot, 'adaptive-skills-benchmark.md'), markdown);

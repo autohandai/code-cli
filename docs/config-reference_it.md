@@ -1352,7 +1352,7 @@ Autohand può sincronizzare la tua configurazione su tutti i dispositivi per gli
 ```
 | Campo | Digitare | Predefinito | Descrizione |
 | ------------------ | -------- | --------------- | -------------------------------------------------- |
-| `enabled` | booleano | `true` (registrato) | Abilita/disabilita la sincronizzazione delle impostazioni |
+| `enabled` | booleano | `false` | Abilita/disabilita la sincronizzazione delle impostazioni |
 | `interval` | numero | `300000` | Intervallo di sincronizzazione in millisecondi (impostazione predefinita: 5 minuti) |
 | `exclude` | stringa[] | `[]` | Modelli globali da escludere dalla sincronizzazione |
 | `includeTelemetry` | booleano | `false` | Sincronizza i dati di telemetria (richiede il consenso dell'utente) |
@@ -1363,12 +1363,12 @@ Autohand può sincronizzare la tua configurazione su tutti i dispositivi per gli
 # Disable sync for this session
 autohand --sync-settings=false
 
-# Enable sync (default for logged users)
+# Explicitly enable sync (disabled by default)
 autohand --sync-settings
 ```
 ### Cosa viene sincronizzato
 
-Per impostazione predefinita, questi elementi vengono sincronizzati per gli utenti che hanno effettuato l'accesso:
+Quando la sincronizzazione è attivata, vengono sincronizzati questi elementi:
 
 - **Configurazione** (`config.json`) - Le chiavi API vengono crittografate prima del caricamento
 - **Agenti personalizzati** (`agents/`)
@@ -1421,7 +1421,7 @@ Il token di accesso dell’applicazione viene inviato nell’intestazione `Autho
 
 ### Come funziona
 
-1. **All'avvio**: se hai effettuato l'accesso, il servizio di sincronizzazione si avvia automaticamente
+1. **All'avvio**: il servizio si avvia automaticamente se hai effettuato l’accesso e hai attivato esplicitamente la sincronizzazione
 2. **Ogni 5 minuti**: le impostazioni vengono confrontate con l'archiviazione nel cloud
 3. **Il cloud vince**: le modifiche remote vengono scaricate per prime
 4. **Caricamenti locali**: vengono caricate nuove modifiche locali
@@ -1913,7 +1913,7 @@ Questi flag sovrascrivono le impostazioni del file di configurazione:
 | Bandiera | Descrizione |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
 | `--worktree [name]` | Esegui la sessione in un albero di lavoro git isolato (nome albero di lavoro/ramo opzionale) |
-| `--tmux` | Avvia in una sessione tmux dedicata (implica `--worktree`; non può essere utilizzato con `--no-worktree`) |
+| `--tmux` | Avvia una sessione tmux dedicata nella directory corrente; supporta `--worktree` o `--zit` |
 | `--no-worktree` | Disabilita l'isolamento di git worktree in modalità automatica |
 | `--auto-commit` | Effettua il commit automatico delle modifiche dopo aver completato le attività |
 | `--patch` | Genera patch git senza applicare modifiche |
@@ -1946,7 +1946,7 @@ Questi flag sovrascrivono le impostazioni del file di configurazione:
 | ----------------------- | ---------------------------------------------------------------------------------------- |
 | `--login` | Accedi al tuo account Autohand |
 | `--logout` | Esci dal tuo account Autohand |
-| `--sync-settings` | Abilita/disabilita la sincronizzazione delle impostazioni (impostazione predefinita: true per gli utenti registrati) |
+| `--sync-settings` | Abilita/disabilita la sincronizzazione delle impostazioni (impostazione predefinita: false) |
 
 ### Configurazione e informazioni
 

@@ -23,9 +23,11 @@ export async function sessions(ctx: {
         : undefined;
 
     try {
-        const allSessions = await ctx.sessionManager.listSessions(
+        const storedSessions = await ctx.sessionManager.listSessions(
             projectFilter ? { project: projectFilter } : undefined
         );
+
+        const allSessions = storedSessions.filter(session => session.messageCount > 0);
 
         if (allSessions.length === 0) {
             console.log(chalk.gray(t('commands.sessions.noSessions')));

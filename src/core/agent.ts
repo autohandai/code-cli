@@ -210,6 +210,7 @@ import {
   type FreshAgentSessionRecord,
   type FreshAgentSessionStateHost,
   type RunAgentCommandModeOptions,
+  type RestoreAgentSessionOptions,
 } from './agent/AgentLifecycleRunner.js';
 import { promptForAgentInstruction, type AgentPromptInstructionHost } from './agent/PromptInstructionReader.js';
 import {
@@ -828,8 +829,8 @@ export class AutohandAgent {
     };
   }
 
-  private async restoreSessionState(session: string | import('../session/SessionManager.js').Session) {
-    return restoreAgentSessionState(this, session);
+  private async restoreSessionState(session: string | import('../session/SessionManager.js').Session, options?: RestoreAgentSessionOptions) {
+    return restoreAgentSessionState(this, session, options);
   }
 
   async attachSession(sessionId: string): Promise<{ sessionId: string; model: string; workspaceRoot: string; messageCount: number }> {
@@ -2380,6 +2381,21 @@ export class AutohandAgent {
     this.syncInteractiveAutomodePermissions();
   }
 
+  private activateComputerUseAutoMode(): boolean {
+    return this.instructionRunner.activateComputerUseAutoMode();
+  }
+
+  private beginComputerUseAutoMode(): () => void {
+    const restore = this.interactionModeController.enterTemporaryMode('automode');
+    this.inkRenderer?.setInteractionMode?.(this.getInteractionMode());
+    this.persistentInput?.setStatusLine(this.formatStatusLine());
+    return () => {
+      restore();
+      this.inkRenderer?.setInteractionMode?.(this.getInteractionMode());
+      this.persistentInput?.setStatusLine(this.formatStatusLine());
+    };
+  }
+
   private getInteractionMode(): InteractionMode {
     return this.interactionModeController.getMode();
   }
@@ -2513,6 +2529,7 @@ export class AutohandAgent {
     this.runtime.config.mcp = mcp;
     this.runtimeMcpServers = resolveRuntimeMcpServers(this.runtime.config, {
       bare: this.runtime.options.bare || this.runtime.options.daemon === false,
+      offline: this.runtime.options.offline,
     });
     await this.mcpManager.disconnectAll();
     if (mcp?.enabled !== false) {

@@ -12,6 +12,7 @@ import type {
   FunctionDefinition,
   MultimodalMessage,
 } from "../types.js";
+import { usesMaxCompletionTokens } from "./openAICompatibleShared.js";
 import { AzureTokenManager } from "./azure/tokenManager.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { normalizeProviderFinishReason } from "./finishReason.js";
@@ -157,10 +158,12 @@ export class AzureClient {
   }
 
   async complete(request: LLMRequest): Promise<LLMResponse> {
+    const model = request.model ?? this.defaultModel;
     const payload: Record<string, unknown> = {
       messages: sanitizeMessages(request.messages),
-      temperature: request.temperature ?? 0.2,
-      max_tokens: request.maxTokens ?? 16000,
+      ...(usesMaxCompletionTokens(model)
+        ? { max_completion_tokens: request.maxTokens ?? 16000 }
+        : { temperature: request.temperature ?? 0.2, max_tokens: request.maxTokens ?? 16000 }),
       stream: request.stream ?? false,
     };
 

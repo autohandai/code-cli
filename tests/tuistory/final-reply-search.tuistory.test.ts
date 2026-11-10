@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { startReviewedReply, configureExaSearch, changeSearchInSettings, configureRouterPolicy } from '../../src/testing/scenarios/finalReplyScenario.js';
@@ -6,13 +6,15 @@ import { createMockAutohandAINativeSequenceServer, createTempAutohandHome, exitI
 
 const ui = { promptSuggestions: false, showCompletionNotification: false, terminalBell: false };
 describe('final reply visibility and search setup', () => {
-  it.each([false, true])('keeps a reply visible while review is pending; cancel=%s', async cancel => {
+  it.each([false, true])('holds the candidate until review and preserves rejected or interrupted drafts; cancel=%s', async cancel => {
+    const changesReview = Promise.withResolvers<void>();
+    const approvalReview = Promise.withResolvers<void>();
     const server = await createMockAutohandAINativeSequenceServer([
       { content: 'Reading facts.', toolCall: { id: 'read', name: 'read_file', args: { path: 'package.json' } } },
       { content: 'REVIEW_PENDING_ANSWER: package facts checked.' },
-      { content: '{"verdict":"changes_requested","feedback":"Verify the version too."}', delayMs: 5000 },
+      { content: '{"verdict":"changes_requested","feedback":"Verify the version too."}', responseGate: changesReview.promise },
       { content: 'REVIEW_REVISED_ANSWER: package and version checked.' },
-      { content: '{"verdict":"approved","feedback":"Verified."}' },
+      { content: '{"verdict":"approved","feedback":"Verified."}', responseGate: approvalReview.promise },
     ]);
     const state = await createTempAutohandHome({ config: {
       provider: 'autohandai', autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa', orchestration: true, baseUrl: server.baseUrl },
@@ -23,25 +25,44 @@ describe('final reply visibility and search setup', () => {
     let session: Awaited<ReturnType<typeof launchBuiltAutohand>> | undefined;
     try {
       session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes'], { autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 120, rows: 50 });
-      await startReviewedReply(session);
+      await startReviewedReply(session, () => vi.waitFor(() => expect(server.requests).toHaveLength(3), { timeout: 20_000 }));
+      expect(JSON.stringify(server.requests[2])).toContain('independent Moa advisor');
+      expect(session.getRawOutput()).not.toContain('REVIEW_PENDING_ANSWER');
+      expect(session.getRawOutput()).not.toContain('REVIEW_REVISED_ANSWER');
       expect(session.getRawOutput()).not.toContain('Completed in');
       if (cancel) {
         await session.press('escape');
         await session.waitForText('completion review was interrupted', { timeout: 15_000 });
         expect(session.getRawOutput()).not.toContain('Completed in');
+        expect(session.getRawOutput()).not.toContain('REVIEW_REVISED_ANSWER');
+        expect(server.requests).toHaveLength(3);
       } else {
+        changesReview.resolve();
+        await session.waitForText('completion review requested changes');
+        await vi.waitFor(() => expect(server.requests).toHaveLength(5), { timeout: 20_000 });
+        expect(session.getRawOutput()).toContain('Draft — completion is not confirmed');
+        expect(session.getRawOutput()).toContain('REVIEW_PENDING_ANSWER');
+        expect(session.getRawOutput()).not.toContain('REVIEW_REVISED_ANSWER');
+        expect(session.getRawOutput()).not.toContain('Completed in');
+        approvalReview.resolve();
         await session.waitForText('REVIEW_REVISED_ANSWER', { timeout: 20_000 });
         await session.waitForText('Completed in', { timeout: 20_000 });
         expect(session.getRawOutput()).toContain('completion review requested changes');
       }
       expect(session.getRawOutput()).toContain('REVIEW_PENDING_ANSWER');
+      expect(session.getRawOutput()).toContain('Draft — completion is not confirmed');
       await exitInteractive(session);
+      expect(session.exitInfo?.exitCode).toBe(0);
       const sessionsRoot = path.join(state.autohandHome, 'sessions');
       const dirs = (await readdir(sessionsRoot, { withFileTypes: true })).filter(entry => entry.isDirectory());
       const histories = await Promise.all(dirs.map(entry => readFile(path.join(sessionsRoot, entry.name, 'conversation.jsonl'), 'utf8')));
       expect(histories.join('\n')).toContain('REVIEW_PENDING_ANSWER');
       expect(histories.join('\n')).toContain(cancel ? 'completion review was interrupted' : 'completion review requested changes');
+      if (cancel) expect(histories.join('\n')).not.toContain('REVIEW_REVISED_ANSWER');
+      else expect(histories.join('\n')).toContain('REVIEW_REVISED_ANSWER');
     } finally {
+      changesReview.resolve();
+      approvalReview.resolve();
       session?.close();
       await session?.waitForExit(5000);
       await server.close(); await state.cleanup();

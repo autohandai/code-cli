@@ -517,4 +517,54 @@ describe('/model provider and Autohand plan journeys Tuistory', () => {
     await session.press('escape');
     await closeInteractive(session);
   });
+  it('removes an inactive custom provider without switching the active hosted model', async () => {
+    const { session, state } = await launchInteractive(configuredAutohandCloud);
+    await openProviderList(session);
+    await session.press('up');
+    await session.press('up');
+    await session.press('enter');
+    await session.text({ timeout: 30_000, waitFor: text => text.includes('Remove custom provider') });
+    await session.type('5');
+    await session.text({ timeout: 30_000, waitFor: text => text.includes('Remove Acme Gateway from your custom providers?') });
+    await session.press('up');
+    await session.press('enter');
+    const composer = await session.text({ timeout: 30_000, waitFor: text => text.includes('Acme Gateway') && text.includes('removed') && text.includes('❯') });
+    expect(composer).toContain('Autohand AI, fantail');
+    const saved = JSON.parse(await readFile(state.configPath, 'utf8'));
+    expect(saved.provider).toBe('autohandai');
+    expect(saved.autohandai.model).toBe('fantail');
+    expect(saved.customProviders?.['acme-gateway']).toBeUndefined();
+    await closeInteractive(session);
+  });
+
+  it('restores the signed-in cloud account without retaining an old local endpoint when removing the active provider', async () => {
+    const localEndpoint = 'http://127.0.0.1:8080/v1';
+    const { session, state } = await launchInteractive({
+      provider: 'custom:acme-gateway',
+      autohandai: {
+        plan: 'local', model: 'mlx-community/previous-model', baseUrl: localEndpoint,
+        accountToken: 'fixture-account', accountId: 'selected-account', port: 8080,
+        serverCommand: 'mlx_lm.server --model previous-model', contextWindow: 8192,
+      },
+    });
+    await session.type('/model');
+    await session.press('enter');
+    await session.text({ timeout: 30000, waitFor: text => text.includes('Remove custom provider') });
+    await session.type('5');
+    await session.text({ timeout: 30000, waitFor: text => text.includes('Remove Acme Gateway from your custom providers?') });
+    await session.press('up');
+    await session.press('enter');
+    const composer = await session.text({ timeout: 30000, waitFor: text => text.includes('removed') && text.includes('❯') });
+    expect(composer).toContain('Autohand AI');
+    const saved = JSON.parse(await readFile(state.configPath, 'utf8'));
+    expect(saved.provider).toBe('autohandai');
+    expect(saved.customProviders?.['acme-gateway']).toBeUndefined();
+    expect(saved.autohandai).toMatchObject({ plan: 'cloud', authMode: 'account', accountId: 'selected-account' });
+    expect(saved.autohandai.baseUrl).not.toBe(localEndpoint);
+    expect(saved.autohandai.model).not.toBe('mlx-community/previous-model');
+    expect(saved.autohandai.port).toBeUndefined();
+    expect(saved.autohandai.serverCommand).toBeUndefined();
+    await closeInteractive(session);
+  });
+
 });

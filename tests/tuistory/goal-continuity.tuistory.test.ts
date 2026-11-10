@@ -35,7 +35,10 @@ describe('built CLI pinned checkpoint startup', () => {
         autohandHome: state.autohandHome, cwd: state.workspaceRoot, env: { AUTOHAND_AUTH_API_URL: `${auth.baseUrl}/api/auth` },
       });
       await inspectRecoveredCheckpointAndRefuseStaleResume(terminal, async () => {
-        expect((await manager.getSessionSnapshot()).goal?.status).toBe('paused');
+        await vi.waitFor(async () => {
+          expect((await manager.getSessionSnapshot()).goal?.status).toBe('paused');
+          expect(server.requests).toHaveLength(0);
+        }, { timeout: 15_000 });
         expect(server.requests).toHaveLength(0);
       });
       const restored = await manager.getSessionSnapshot();

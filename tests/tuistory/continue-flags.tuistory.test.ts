@@ -39,12 +39,33 @@ describe('continue and resume startup flags', () => {
     expect(output).toMatch(/\n\s+--auto-commit\s/);
     expect(output).not.toContain('-c, --auto-commit');
   });
-  it.each(['-c', '--continue', '-r resume-active', '--resume resume-active'])('%s resumes the current-folder session', async flags => {
-    const { session } = await launch(flags.split(' '));
-    await session.waitForText('Resumed session resume-active', { timeout: 30_000 });
+  it.each(['-c', '--continue'])('%s skips the newer empty launch and restores the current-folder conversation', async flag => {
+    const { session, state } = await launch([flag]);
+    await session.waitForText('Resumed session resume-newer', { timeout: 30_000 });
+    await session.waitForText('Added a vitest case that resizes the mock terminal');
+    expect(session.readAll()).not.toContain('Resumed session resume-active');
     expect(session.readAll()).not.toContain('Resumed session elsewhere-session');
+    expect(session.readAll()).not.toContain("Set up the elsewhere project's linting config");
     await session.waitForText('❯');
     await exitInteractive(session);
+    const manager = new SessionManager(path.join(state.autohandHome, 'sessions'));
+    const restored = await manager.loadSession('resume-newer');
+    expect(restored.getMessages()).toHaveLength(4);
+    expect(restored.getMessages().map(message => message.content)).toContain('Investigate why the terminal caret disappears after a resize.');
+    expect((await manager.loadSession('resume-active')).getMessages()).toHaveLength(0);
+    expect(session.exitInfo?.exitCode).toBe(0);
+  });
+  it.each(['-r', '--resume'])('%s resume-active explicitly resumes the selected empty session', async flag => {
+    const { session, state } = await launch([flag, 'resume-active']);
+    await session.waitForText('Resumed session resume-active', { timeout: 30_000 });
+    expect(session.readAll()).not.toContain('Resumed session resume-newer');
+    expect(session.readAll()).not.toContain('Resumed session elsewhere-session');
+    expect(session.readAll()).not.toContain('Added a vitest case that resizes the mock terminal');
+    await session.waitForText('❯');
+    await exitInteractive(session);
+    const manager = new SessionManager(path.join(state.autohandHome, 'sessions'));
+    expect((await manager.loadSession('resume-active')).getMessages()).toHaveLength(0);
+    expect(session.exitInfo?.exitCode).toBe(0);
   });
   it('-r opens the existing picker and allows cancellation', async () => {
     const { session, state } = await launch(['-r']);

@@ -1352,7 +1352,7 @@ A Autohand szinkronizálhatja a konfigurációt az eszközök között a bejelen
 ```
 | Mező | Típus | Alapértelmezett | Leírás |
 | ------------------- | -------- | ---------------- | --------------------------------------------------- |
-| `enabled` | logikai | `true` (naplózva) | Beállítások szinkronizálásának engedélyezése/letiltása |
+| `enabled` | logikai | `false` | Beállítások szinkronizálásának engedélyezése/letiltása |
 | `interval` | szám | `300000` | Szinkronizálási idő ezredmásodpercben (alapértelmezett: 5 perc) |
 | `exclude` | string[] | `[]` | Globális minták a szinkronizálásból kizárandó |
 | `includeTelemetry` | logikai | `false` | Telemetriai adatok szinkronizálása (felhasználói hozzájárulás szükséges) |
@@ -1363,12 +1363,12 @@ A Autohand szinkronizálhatja a konfigurációt az eszközök között a bejelen
 # Disable sync for this session
 autohand --sync-settings=false
 
-# Enable sync (default for logged users)
+# Explicitly enable sync (disabled by default)
 autohand --sync-settings
 ```
 ### Mi lesz szinkronizálva
 
-Alapértelmezés szerint ezek az elemek szinkronizálva vannak a bejelentkezett felhasználók számára:
+Ha a szinkronizálás engedélyezve van, a következő elemek szinkronizálódnak:
 
 - **Konfiguráció** (`config.json`) - Az API-kulcsok a feltöltés előtt titkosítva vannak
 - **Egyéni ügynökök** (`agents/`)
@@ -1421,7 +1421,7 @@ Az alkalmazás bejelentkezési tokenje az `Authorization` fejlécben csak olyan 
 
 ### Hogyan működik
 
-1. **Indításkor**: Ha be van jelentkezve, a szinkronizálási szolgáltatás automatikusan elindul
+1. **Indításkor**: A szolgáltatás akkor indul automatikusan, ha be van jelentkezve, és kifejezetten engedélyezte a szinkronizálást
 2. **5 percenként**: A beállításokat összehasonlítja a felhőalapú tárolással
 3. **A felhő nyer**: A távoli módosítások letöltése először történik meg
 4. **Helyi feltöltések**: Új helyi módosítások kerülnek feltöltésre
@@ -1913,7 +1913,7 @@ Ezek a jelzők felülírják a konfigurációs fájl beállításait:
 | zászló | Leírás |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `--worktree [name]` | Munkamenet futtatása elszigetelt git-munkafán (opcionális munkafa/ág neve) |
-| `--tmux` | Indítás egy dedikált tmux munkamenetben (az `--worktree`-t jelenti; nem használható a `--no-worktree` kóddal) |
+| `--tmux` | Indítás dedikált tmux munkamenetben az aktuális könyvtárban; támogatja a `--worktree` és `--zit` kapcsolókat |
 | `--no-worktree` | A git munkafa elkülönítésének letiltása automatikus módban |
 | `--auto-commit` | Változások automatikus véglegesítése a feladatok elvégzése után |
 | `--patch` | Git javítás generálása változtatások alkalmazása nélkül |
@@ -1946,7 +1946,7 @@ Ezek a jelzők felülírják a konfigurációs fájl beállításait:
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `--login` | Jelentkezzen be Autohand-fiókjába |
 | `--logout` | Jelentkezzen ki Autohand-fiókjából |
-| `--sync-settings` | A beállítások szinkronizálásának engedélyezése/letiltása (alapértelmezett: igaz a bejelentkezett felhasználók számára) |
+| `--sync-settings` | A beállítások szinkronizálásának engedélyezése/letiltása (alapértelmezett: false) |
 
 ### Beállítás és információ
 

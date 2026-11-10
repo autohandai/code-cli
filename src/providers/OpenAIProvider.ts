@@ -4,13 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { LLMProvider } from './LLMProvider.js';
+import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
 import type { ContentPart, MultimodalMessage, LLMRequest, LLMResponse, LLMToolCall, FunctionDefinition, ReasoningEffort, OpenAISettings, OpenAIChatGPTAuth } from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { isChatGPTAuthExpired, refreshChatGPTAuth } from './openaiAuth.js';
 import { normalizeLLMUsage } from './usage.js';
 import { normalizeProviderFinishReason } from './finishReason.js';
 import { normalizeOutboundMessages } from './messagePayload.js';
+import { usesMaxCompletionTokens } from './openAICompatibleShared.js';
 import {
     getProviderDefaultModel,
     getProviderModelIds,
@@ -214,9 +215,10 @@ export class OpenAIProvider implements LLMProvider {
         this.model = model;
     }
 
-    getCapabilities(): { nativeToolCalling: boolean } {
+    getCapabilities(): LLMProviderCapabilities {
         return {
             nativeToolCalling: true,
+            maxTools: 128,
         };
     }
 
@@ -254,13 +256,13 @@ export class OpenAIProvider implements LLMProvider {
             temperature: request.temperature || 0.7,
             // Newer OpenAI models (gpt-5.x, o-series) require max_completion_tokens
             // instead of max_tokens. Use the correct parameter based on model.
-            ...(this.usesMaxCompletionTokens(model)
+            ...(usesMaxCompletionTokens(model)
                 ? { max_completion_tokens: request.maxTokens }
                 : { max_tokens: request.maxTokens })
         };
 
         // Add reasoning effort when configured (with runtime validation)
-        if (this.usesMaxCompletionTokens(model)
+        if (usesMaxCompletionTokens(model)
             && this.reasoningEffort && VALID_REASONING_EFFORTS.has(this.reasoningEffort)) {
             body.reasoning_effort = mustDisableChatCompletionReasoningForTools(model, hasTools)
                 ? 'none'
@@ -951,17 +953,6 @@ export class OpenAIProvider implements LLMProvider {
                     arguments: toolCall.arguments,
                 },
             }));
-    }
-
-    /**
-     * Determine if a model requires `max_completion_tokens` instead of `max_tokens`.
-     * OpenAI's newer models (gpt-5.x, o-series) reject `max_tokens` with a 400 error.
-     */
-    private usesMaxCompletionTokens(model: string): boolean {
-        const lower = model.toLowerCase();
-        const gptGeneration = /^gpt-(\d+)(?:$|[.\-_])/.exec(lower)?.[1];
-        return (gptGeneration !== undefined && Number(gptGeneration) >= 5)
-            || /^o[134](?:$|[-_.])/.test(lower);
     }
 
     private extractResponsesContent(data: OpenAIResponsesResponse): string {

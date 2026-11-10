@@ -98,6 +98,90 @@ function makeResumeHost() {
 afterEach(() => vi.restoreAllMocks());
 
 describe('resumeAgentSession freeze fix', () => {
+  it('mounts input before manager initialization and waits before restoring or executing', async () => {
+    const initializing = Promise.withResolvers<void>();
+    const original = makeResumeHost();
+    const host = {
+      ...original,
+      useInkRenderer: true,
+      inkRenderer: undefined as typeof original.inkRenderer | undefined,
+      initializeUI: vi.fn(async () => { host.inkRenderer = original.inkRenderer; }),
+      setComposerIdle: vi.fn(),
+    };
+    host.initializeManagers.mockImplementation(async () => {
+      expect(host.inkRenderer).toBe(original.inkRenderer);
+      expect(host.setComposerIdle).toHaveBeenCalled();
+      await initializing.promise;
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const resume = resumeAgentSession(host, 'sess-123');
+    try {
+      await vi.waitFor(() => expect(host.initializeManagers).toHaveBeenCalledOnce());
+      expect(host.installExitSignalHandlers).toHaveBeenCalledOnce();
+      expect(host.restoreSessionState).not.toHaveBeenCalled();
+      expect(host.runInteractiveLoop).not.toHaveBeenCalled();
+    } finally {
+      initializing.resolve();
+      await resume;
+    }
+    expect(host.initializeUI).toHaveBeenCalledOnce();
+    expect(host.removeExitSignalHandlers).toHaveBeenCalledOnce();
+  });
+
+  it('releases signal handlers when manager initialization fails after mounting input', async () => {
+    const host = makeResumeHost();
+    host.initializeManagers.mockRejectedValue(new Error('manager unavailable'));
+    await expect(resumeAgentSession(host, 'sess-123')).rejects.toThrow('manager unavailable');
+    expect(host.installExitSignalHandlers).toHaveBeenCalledOnce();
+    expect(host.removeExitSignalHandlers).toHaveBeenCalledOnce();
+    expect(host.sessionManager.createSession).not.toHaveBeenCalled();
+  });
+
+  it('does not restore or execute after the user exits during manager initialization', async () => {
+    const host = makeResumeHost();
+    host.initializeManagers.mockImplementation(async () => { host.shouldExit = true; });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    await resumeAgentSession(host, 'sess-123');
+    expect(host.restoreSessionState).not.toHaveBeenCalled();
+    expect(host.runInteractiveLoop).not.toHaveBeenCalled();
+    expect(host.removeExitSignalHandlers).toHaveBeenCalledOnce();
+  });
+
+  it('does not create a fallback session when restoration fails after the user exits', async () => {
+    const host = makeResumeHost();
+    host.restoreSessionState.mockImplementation(async () => {
+      host.shouldExit = true;
+      throw new Error('restore interrupted');
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await resumeAgentSession(host, 'sess-123');
+    expect(host.sessionManager.createSession).not.toHaveBeenCalled();
+    expect(host.runInteractiveLoop).not.toHaveBeenCalled();
+    expect(host.removeExitSignalHandlers).toHaveBeenCalledOnce();
+  });
+
+  it('keeps an existing composer editable while the saved session is loading', async () => {
+    const restoring = Promise.withResolvers<void>();
+    const host = { ...makeResumeHost(), useInkRenderer: true, setComposerIdle: vi.fn() };
+    host.restoreSessionState.mockImplementation(async () => {
+      await restoring.promise;
+      return { getMessages: () => [], metadata: { model: 'test-model', sessionId: 'sess-123' } };
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const resume = resumeAgentSession(host, 'sess-123');
+    try {
+      await vi.waitFor(() => expect(host.restoreSessionState).toHaveBeenCalledOnce());
+      expect(host.setComposerIdle).toHaveBeenCalled();
+      expect(host.runInteractiveLoop).not.toHaveBeenCalled();
+      expect(host.sessionManager.createSession).not.toHaveBeenCalled();
+    } finally {
+      restoring.resolve();
+      await resume;
+    }
+    expect(host.runInteractiveLoop).toHaveBeenCalledOnce();
+  });
+
   it('sets initDone and initReady so ensureInitComplete does not hang', async () => {
     const host = makeResumeHost();
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});

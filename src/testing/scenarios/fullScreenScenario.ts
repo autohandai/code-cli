@@ -25,6 +25,10 @@ export async function requestFullScreenStartupWrite(session: TerminalSession): P
   await session.type('Create the requested startup-check file.');
   await session.press('enter');
   await session.waitForText('AUTO_STARTUP_COMPLETE', { timeout: 20_000 });
+  await session.text({ timeout: 5_000, waitFor: () => {
+    const viewport = outputViewport(session);
+    return viewport.includes('AUTO_STARTUP_COMPLETE') && viewport.includes('Completed in') && viewport.includes('● AUTO');
+  } });
 }
 
 export async function startFullScreenHeaderProbe(session: TerminalSession): Promise<void> {

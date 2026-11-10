@@ -1905,7 +1905,6 @@ export async function runAgentReactLoop(
         return { status: 'incomplete', reason: 'pending_todos' };
       }
       if (advisor && hadToolWork) {
-        await renderProvisionalResponse(turnOutcome.response, 'completion review is pending.');
         let review: AdvisorReview;
         try {
           review = await consultAdvisor('completion', turnOutcome.response);

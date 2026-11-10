@@ -9,6 +9,7 @@
  * - Keeps the developer's Axo state file out of tests
  */
 import { vi } from 'vitest';
+process.env.AUTOHAND_DISABLE_SQUAD = '1';
 
 // Mock node:sqlite globally to avoid test isolation issues
 // CursorImporter uses dynamic import which can conflict with per-file mocks

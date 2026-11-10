@@ -313,6 +313,26 @@ describe('startFreshAgentSession', () => {
 });
 
 describe('restoreAgentSessionState', () => {
+  it.each([false, true])('preserves visible submissions only when requested during startup resume: %s', async preserveVisibleMessages => {
+    const setChatMessages = vi.fn();
+    const host = {
+      sessionManager: { loadSession: vi.fn(async () => ({ getMessages: () => [
+        { role: 'user', content: 'Saved question' },
+        { role: 'assistant', content: 'Saved answer' },
+      ] })) },
+      resetConversationContext: vi.fn(), injectSessionBootstrap: vi.fn(), injectProjectKnowledge: vi.fn(),
+      conversation: { addSystemNote: vi.fn(), addMessage: vi.fn(), history: () => [] },
+      updateContextUsage: vi.fn(),
+      inkRenderer: { setChatMessages, getState: () => ({ chatMessages: [{ role: 'user', content: 'New submission' }] }) },
+    };
+    await restoreAgentSessionState(host, 'saved-session', { preserveVisibleMessages });
+    expect(setChatMessages).toHaveBeenCalledWith([
+      { role: 'user', content: 'Saved question' },
+      { role: 'assistant', content: 'Saved answer' },
+      ...(preserveVisibleMessages ? [{ role: 'user', content: 'New submission' }] : []),
+    ]);
+  });
+
   it('restores only the latest compaction checkpoint and subsequent messages', async () => {
     const addSystemNote = vi.fn();
     const addMessage = vi.fn();

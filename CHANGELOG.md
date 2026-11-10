@@ -2,9 +2,27 @@
 
 ## Unreleased
 
+### Added
+
+- Squad MCP now also manages agent profiles, abilities, extra project folders, skills, group chats, channel membership and scheduled routines.
+- Squad is built in as an MCP connection. Select an agent in the running app with `/squad`, send it direct messages with `/message`, and read conversation history and delivery receipts. The connection also reads Squad artifacts and memories.
+
 ### Fixed
 
 - Start chat and file work in ordinary folders without initializing Git or creating an ignore file. Existing repositories still show their branch; initialize Git only when you choose to use it.
+- Keep the composer editable while restoring saved conversations, preserve drafts and early submissions, and wait for restored history before executing queued work.
+- Prevent full-screen resize frames from accumulating in iTerm2 scrollback, preserve drafts and cursor edits, and relaunch compiled executables correctly inside tmux. Plain `--tmux` uses the current folder; `--worktree` and `--zit` request isolation explicitly.
+- Restore the previous interaction mode after a Computer Use task while preserving manual mode changes, explicit permission denials, hooks, and restricted mode. MCP startup waits for the child process and decodes fragmented UTF-8 responses correctly.
+- Continue the latest nonempty conversation in the current project, and keep background sync disabled until explicitly enabled. Disabling sync cancels queued and active work immediately.
+- Bound command output sent to the model while retaining complete oversized output in private session artifacts. Configure the limit with `tools.maxCommandOutputChars` or `AUTOHAND_MAX_COMMAND_OUTPUT_CHARS`.
+- Discover installed skills through a compact name index and load descriptions on demand. Keep approved completions to one confirmed reply instead of displaying the candidate before its required review.
+- Require notarization checks for transported macOS CLI and trace binaries, and protect the existing CLI option contract with a committed snapshot.
+- Preserve the active provider and model when removing another custom provider, and clear remembered local transport settings when restoring the cloud account.
+- Bound OpenAI-family tool requests to 128 definitions, including delegated agents, and use compatible completion parameters for Azure reasoning models.
+
+### Testing
+
+- Exercise resize behavior through real tmux and native iTerm2, Ghostty, cmux, and VS Code windows in GitHub Actions, with the iTerm2 Python API disabled.
 
 ## 0.9.10 - 2026-11-04
 

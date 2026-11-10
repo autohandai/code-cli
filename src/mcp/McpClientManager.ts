@@ -84,6 +84,8 @@ class McpConnectionCancelledError extends Error {
 
 const MCP_STOP_GRACE_MS = 1_000;
 const MCP_STOP_FORCE_WAIT_MS = 1_000;
+// Allow large base64 screenshots while bounding malformed, unterminated frames.
+export const MAX_MCP_NEWLINE_FRAME_BYTES = 64 * 1024 * 1024;
 /**
  * Budget for every request, the initialize handshake included. Cold `npx`
  * servers can spend most of it installing on first launch, so it stays generous;
@@ -173,7 +175,10 @@ function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<bool
 /** Manages a single stdio connection to an MCP server process */
 export class McpStdioConnection extends EventEmitter {
   private process: ChildProcess | null = null;
-  private lineBuffer = '';
+  private lineBuffer = Buffer.alloc(0);
+  private lineLength = 0;
+  private framingError?: Error;
+  private detachProcessListeners?: () => void;
   private frameBuffer = Buffer.alloc(0);
   private nextId = 1;
   private pendingRequests = new Map<
@@ -210,38 +215,52 @@ export class McpStdioConnection extends EventEmitter {
           // Server-specific env still wins; the base follows the shell.env policy.
           env: buildAutohandChildProcessEnv(this.config.env),
         });
+        const child = this.process;
+        let startupSettled = false;
+        const finishStartup = (error?: Error): void => {
+          if (startupSettled) return;
+          startupSettled = true;
+          child.off('spawn', onSpawn);
+          if (error) reject(error);
+          else resolve();
+        };
+        const onSpawn = (): void => finishStartup();
 
-        const stdin = this.process.stdin;
-        if (stdin) {
-          const onStdinError = (error: Error): void => {
-            this.rejectPendingRequests(error);
-            if (this.listenerCount('error') > 0) this.emit('error', error);
-          };
-          stdin.on('error', onStdinError);
-          stdin.once('close', () => stdin.off('error', onStdinError));
-        }
-
-        this.process.stdout?.on('data', (data: Buffer) => {
-          this.handleStdoutData(data);
-        });
-
-        this.process.stderr?.on('data', (data: Buffer) => {
-          this.emit('stderr', data.toString());
-        });
-
-        this.process.on('error', (err) => {
-          this.emit('error', err);
-          reject(err);
-        });
-
-        this.process.on('close', (code) => {
+        const stdin = child.stdin;
+        const onStdinError = (error: Error): void => {
+          this.rejectPendingRequests(error);
+          if (this.listenerCount('error') > 0) this.emit('error', error);
+        };
+        const onStdinClose = (): void => { stdin?.off('error', onStdinError); };
+        const onStdoutData = (data: Buffer): void => { this.handleStdoutData(data); };
+        const onStderrData = (data: Buffer): void => { this.emit('stderr', data.toString()); };
+        const onProcessError = (error: Error): void => {
+          finishStartup(error);
+          this.emit('error', error);
+        };
+        const onProcessClose = (code: number | null): void => {
+          finishStartup(new Error(`MCP server "${this.config.name}" exited before spawning`));
           this.cleanup();
           this.emit('close', code);
-        });
+        };
+        this.detachProcessListeners = () => {
+          stdin?.off('error', onStdinError);
+          stdin?.off('close', onStdinClose);
+          child.stdout?.off('data', onStdoutData);
+          child.stderr?.off('data', onStderrData);
+          child.off('error', onProcessError);
+          child.off('close', onProcessClose);
+          child.off('spawn', onSpawn);
+        };
+        stdin?.on('error', onStdinError);
+        stdin?.once('close', onStdinClose);
+        child.stdout?.on('data', onStdoutData);
+        child.stderr?.on('data', onStderrData);
+        child.on('error', onProcessError);
+        child.on('close', onProcessClose);
 
-        // Give the process a moment to start, then resolve
-        // The actual readiness is determined by the initialize handshake
-        setTimeout(() => resolve(), 100);
+        // The protocol handshake determines readiness; spawning needs no grace delay.
+        this.process.once('spawn', onSpawn);
       } catch (err) {
         reject(err instanceof Error ? err : new Error(String(err)));
       }
@@ -259,6 +278,7 @@ export class McpStdioConnection extends EventEmitter {
     if (options.signal?.aborted) {
       throw new McpRequestAbortedError();
     }
+    if (this.framingError) throw this.framingError;
     if (!this.process?.stdin?.writable) {
       throw new Error(`MCP server "${this.config.name}" is not connected`);
     }
@@ -380,6 +400,7 @@ export class McpStdioConnection extends EventEmitter {
    * Parses incoming stdout data as newline-delimited JSON-RPC messages.
    */
   private handleStdoutData(data: Buffer): void {
+    if (this.framingError) return;
     if (this.framing === 'newline') {
       this.parseLineDelimitedData(data);
       return;
@@ -429,8 +450,11 @@ export class McpStdioConnection extends EventEmitter {
    */
   private cleanup(): void {
     this.rejectPendingRequests(new Error('MCP connection closed'));
+    this.detachProcessListeners?.();
+    this.detachProcessListeners = undefined;
     this.process = null;
-    this.lineBuffer = '';
+    this.lineBuffer = Buffer.alloc(0);
+    this.lineLength = 0;
     this.frameBuffer = Buffer.alloc(0);
   }
 
@@ -451,16 +475,47 @@ export class McpStdioConnection extends EventEmitter {
    * Parses newline-delimited JSON-RPC messages (legacy mode).
    */
   private parseLineDelimitedData(data: Buffer): void {
-    this.lineBuffer += data.toString();
-
-    let newlineIndex: number;
-    while ((newlineIndex = this.lineBuffer.indexOf('\n')) !== -1) {
-      const line = this.lineBuffer.slice(0, newlineIndex).trim();
-      this.lineBuffer = this.lineBuffer.slice(newlineIndex + 1);
-
-      if (line.length === 0) continue;
-      this.handleJsonPayload(line);
+    let offset = 0;
+    let newlineIndex = data.indexOf(0x0a, offset);
+    while (newlineIndex !== -1) {
+      if (!this.appendLineData(data.subarray(offset, newlineIndex))) return;
+      // Decode the complete frame once, preserving UTF-8 split across pipe reads.
+      const line = this.lineBuffer.toString('utf8', 0, this.lineLength).trim();
+      this.lineBuffer = Buffer.alloc(0);
+      this.lineLength = 0;
+      if (line.length > 0) this.handleJsonPayload(line);
+      offset = newlineIndex + 1;
+      newlineIndex = data.indexOf(0x0a, offset);
     }
+    if (offset < data.length) this.appendLineData(data.subarray(offset));
+  }
+
+  private appendLineData(data: Buffer): boolean {
+    const length = this.lineLength + data.length;
+    if (length > MAX_MCP_NEWLINE_FRAME_BYTES) {
+      const error = new Error(`MCP server "${this.config.name}" sent a newline frame exceeding 64 MiB; closing the connection.`);
+      this.framingError = error;
+      this.lineBuffer = Buffer.alloc(0);
+      this.lineLength = 0;
+      this.rejectPendingRequests(error);
+      try {
+        if (this.listenerCount('error') > 0) this.emit('error', error);
+      } finally {
+        void this.stop();
+      }
+      return false;
+    }
+    if (length > this.lineBuffer.length) {
+      // Geometric growth bounds metadata and avoids copying on every small read.
+      const capacity = Math.min(MAX_MCP_NEWLINE_FRAME_BYTES,
+        Math.max(length, this.lineBuffer.length * 2, 4096));
+      const buffer = Buffer.allocUnsafe(capacity);
+      this.lineBuffer.copy(buffer, 0, 0, this.lineLength);
+      this.lineBuffer = buffer;
+    }
+    data.copy(this.lineBuffer, this.lineLength);
+    this.lineLength = length;
+    return true;
   }
 
   /**

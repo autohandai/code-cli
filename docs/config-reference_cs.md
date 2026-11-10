@@ -1370,7 +1370,7 @@ Autohand může synchronizovat vaši konfiguraci mezi zařízeními pro přihlá
 ```
 | Pole | Typ | Výchozí | Popis |
 | ------------------- | -------- | ---------------- | --------------------------------------------------- |
-| `enabled` | booleovský | `true` (přihlášeno) | Povolit/zakázat synchronizaci nastavení |
+| `enabled` | booleovský | `false` | Povolit/zakázat synchronizaci nastavení |
 | `interval` | číslo | `300000` | Interval synchronizace v milisekundách (výchozí: 5 minut) |
 | `exclude` | řetězec[] | `[]` | Vzory globusů k vyloučení ze synchronizace |
 | `includeTelemetry` | booleovský | `false` | Synchronizace telemetrických dat (vyžaduje souhlas uživatele) |
@@ -1381,12 +1381,12 @@ Autohand může synchronizovat vaši konfiguraci mezi zařízeními pro přihlá
 # Disable sync for this session
 autohand --sync-settings=false
 
-# Enable sync (default for logged users)
+# Explicitly enable sync (disabled by default)
 autohand --sync-settings
 ```
 ### Co se synchronizuje
 
-Ve výchozím nastavení se pro přihlášené uživatele synchronizují tyto položky:
+Pokud je synchronizace povolena, synchronizují se tyto položky:
 
 - **Konfigurace** (`config.json`) - Klíče API jsou před nahráním zašifrovány
 – **Vlastní zástupci** (`agents/`)
@@ -1439,7 +1439,7 @@ Přihlašovací token aplikace se odesílá v hlavičce `Authorization` pouze na
 
 ### Jak to funguje
 
-1. **Při spuštění**: Pokud jste přihlášeni, služba synchronizace se spustí automaticky
+1. **Při spuštění**: Pokud jste přihlášeni a výslovně jste povolili synchronizaci, služba se spustí automaticky
 2. **Každých 5 minut**: Nastavení se porovnávají s cloudovým úložištěm
 3. **Cloud vyhrává**: Vzdálené změny se stahují jako první
 4. **Místní nahrání**: Nahrají se nové místní změny
@@ -1931,7 +1931,7 @@ Tyto příznaky přepisují nastavení konfiguračního souboru:
 | Vlajka | Popis |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `--worktree [name]` | Spustit relaci v izolovaném pracovním stromu git (volitelný název pracovního stromu/větve) |
-| `--tmux` | Spustit ve vyhrazené relaci tmux (předpokládá `--worktree`; nelze použít s `--no-worktree`) |
+| `--tmux` | Spustit ve vyhrazené relaci tmux v aktuálním adresáři; podporuje `--worktree` nebo `--zit` |
 | `--no-worktree` | Zakázat izolaci pracovního stromu git v automatickém režimu |
 | `--auto-commit` | Automatické potvrzení změn po dokončení úkolů |
 | `--patch` | Vygenerujte git patch bez použití změn |
@@ -1964,7 +1964,7 @@ Tyto příznaky přepisují nastavení konfiguračního souboru:
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `--login` | Přihlaste se ke svému účtu Autohand |
 | `--logout` | Odhlaste se ze svého účtu Autohand |
-| `--sync-settings` | Povolit/zakázat synchronizaci nastavení (výchozí: true pro přihlášené uživatele) |
+| `--sync-settings` | Povolit/zakázat synchronizaci nastavení (výchozí: false) |
 
 ### Nastavení a informace
 

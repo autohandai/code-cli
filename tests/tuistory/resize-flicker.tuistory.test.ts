@@ -1,18 +1,190 @@
 /** @license Apache-2.0 */
 import path from 'node:path';
+import { readFile, rename, writeFile } from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import { composerCaretLine } from '../../src/testing/assertions/composerCaret.js';
 import { readTerminalWriteTrace, TerminalFrameRecorder } from '../../src/testing/assertions/terminalFrames.js';
-import { launchTuistorySession, waitForExit, waitForTerminalScreen } from '../../src/testing/drivers/tuistory-driver.js';
+import { exitInteractive, launchTuistorySession, waitForTerminalScreen } from '../../src/testing/drivers/tuistory-driver.js';
 import { createTempAutohandHome, type TuistoryTempState } from './helpers/autohandTuistory.js';
+import { outputViewport } from '../../src/testing/scenarios/compactOutputScenario.js';
 
 let session: Session | undefined;
 let state: TuistoryTempState | undefined;
 afterEach(async () => { session?.close(); await state?.cleanup(); session = undefined; state = undefined; });
 
 describe('terminal resize frames', () => {
+  it('gates only new stream chunks after viewport progress and resumes without changing the active request', async () => {
+    state = await createTempAutohandHome();
+    const metadata = path.join(state.autohandHome, 'gate-metadata.jsonl');
+    const control = path.join(state.autohandHome, 'stream-control.json');
+    const command = async (value: object) => { await writeFile(`${control}.pending`, JSON.stringify(value)); await rename(`${control}.pending`, control); };
+    const records = async (): Promise<Record<string, unknown>[]> => (await readFile(metadata, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    session = await launchTuistorySession({ command: 'bun',
+      args: [path.resolve('src/testing/scenarios/resizeFlickerScenario.tsx'), '--full-screen', '--streaming', '--multiline'],
+      cwd: process.cwd(), cols: 100, rows: 30, waitForDataTimeout: 15_000,
+      env: { ...process.env, AUTOHAND_HOME: state.autohandHome, CI: 'false', FORCE_COLOR: '0',
+        AUTOHAND_RESIZE_WRITE_METADATA: metadata, AUTOHAND_RESIZE_STREAM_CONTROL: control },
+    });
+    await session.waitForText('RESIZE_STREAM');
+    await vi.waitFor(async () => { expect((await records()).some(record => record.kind === 'stream-chunk')).toBe(true); });
+    const before = (await records()).filter(record => record.kind === 'stream-chunk').at(-1)!;
+    await command({ id: 1, action: 'observe', counter: before.counter, columns: 100, rows: 30 });
+    await vi.waitFor(async () => {
+      expect((await records()).some(record => record.kind === 'stream-chunk' && Number(record.counter) > Number(before.counter))).toBe(true);
+      expect((await records()).some(record => record.kind === 'stream-gate' && record.paused === true)).toBe(false);
+    });
+    session.resize({ cols: 90, rows: 28 });
+    let paused = 0;
+    await vi.waitFor(async () => {
+      const ack = (await records()).filter(record => record.kind === 'stream-gate' && record.command === 1 && record.paused === true).at(-1);
+      expect(ack).toMatchObject({ columns: 90, rows: 28 });
+      paused = Number(ack?.counter);
+      expect(paused).toBeGreaterThan(Number(before.counter));
+    });
+    await session.press('left');
+    await session.press('left');
+    await session.type('X');
+    const frame = await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => screen.includes('taXil') && screen.includes(`RESIZE_STREAM ${paused} retained streamed text`) });
+    expect(frame).toContain('Resize streaming fixture');
+    expect(frame.match(/Autohand Code/gu)).toHaveLength(1);
+    expect(frame.match(/RESIZE_HISTORY retained text/gu)).toHaveLength(1);
+    expect(frame.match(/preserved draft/gu)).toHaveLength(1);
+    expect((await records()).filter(record => record.kind === 'stream-chunk').at(-1)?.counter).toBe(paused);
+    session.resize({ cols: 110, rows: 32 });
+    const intermediate = paused;
+    await vi.waitFor(async () => {
+      const ack = (await records()).filter(record => record.kind === 'stream-gate' && record.command === 1 && record.paused === true).at(-1);
+      expect(ack).toMatchObject({ columns: 110, rows: 32 });
+      paused = Number(ack?.counter);
+      expect(paused).toBeGreaterThan(intermediate);
+    });
+    await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => screen.includes('taXil') && screen.includes(`RESIZE_STREAM ${paused} retained streamed text`) });
+    await vi.waitFor(async () => {
+      const snapshot = await readFile(`${control}.state.json`, 'utf8');
+      expect(Buffer.byteLength(snapshot)).toBeLessThanOrEqual(512);
+      expect(JSON.parse(snapshot)).toMatchObject({ kind: 'stream-state', command: 1, emittedCommand: 1,
+        counter: paused, columns: 110, rows: 32, paused: true });
+    });
+    await command({ id: 2, action: 'resume', counter: paused, columns: 110, rows: 32 });
+    await vi.waitFor(async () => {
+      expect((await records()).some(record => record.kind === 'stream-chunk' && record.command === 2 && Number(record.counter) > paused)).toBe(true);
+      const snapshot: Record<string, unknown> = JSON.parse(await readFile(`${control}.state.json`, 'utf8'));
+      expect(snapshot).toMatchObject({ command: 2, emittedCommand: 2, columns: 110, rows: 32, paused: false });
+      expect(Number(snapshot.counter)).toBeGreaterThan(paused);
+    });
+    await session.press('escape');
+    await session.waitForText('RESIZE_STREAM_COMPLETE');
+    await exitInteractive(session);
+    expect(session.exitInfo?.exitCode).toBe(0);
+  });
+
+  it('records bounded write timing and viewport metadata without storing terminal content', async () => {
+    state = await createTempAutohandHome();
+    const metadata = path.join(state.autohandHome, 'write-metadata.jsonl');
+    session = await launchTuistorySession({
+      command: 'bun',
+      args: [path.resolve('src/testing/scenarios/resizeFlickerScenario.tsx'), '--full-screen', '--streaming', '--multiline'],
+      cwd: process.cwd(), cols: 100, rows: 30, waitForDataTimeout: 15_000,
+      env: { ...process.env, AUTOHAND_HOME: state.autohandHome, CI: 'false', FORCE_COLOR: '0',
+        AUTOHAND_RESIZE_WRITE_METADATA: metadata },
+    });
+    const initial = await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => /RESIZE_STREAM [1-9]\d*/u.test(screen) });
+    const initialCounter = Number(initial.match(/RESIZE_STREAM (\d+)/u)?.[1]);
+    session.resize({ cols: 90, rows: 28 });
+    await vi.waitFor(async () => {
+      const records: unknown[] = (await readFile(metadata, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+      expect(records).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'write-start', columns: 90, rows: 28, sequence: expect.any(Number),
+          timestamp: expect.any(Number), streamed: expect.any(Number), bytes: expect.any(Number) }),
+        expect.objectContaining({ kind: 'write-return', sequence: expect.any(Number),
+          timestamp: expect.any(Number), backpressured: expect.any(Boolean) }),
+        expect.objectContaining({ kind: 'complete', sequence: expect.any(Number), timestamp: expect.any(Number) }),
+      ]));
+      expect(records.every(record => typeof record === 'object' && record !== null && !('output' in record))).toBe(true);
+      expect(Buffer.byteLength(await readFile(metadata, 'utf8'))).toBeLessThanOrEqual(1024 * 1024);
+    }, { timeout: 5_000 });
+    await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => Number(screen.match(/RESIZE_STREAM (\d+)/u)?.[1]) > initialCounter });
+    await session.press('left');
+    await session.press('left');
+    await session.type('X');
+    const edited = await waitForTerminalScreen(session, { timeout: 5_000, waitFor: screen => screen.includes('taXil') });
+    expect(edited.match(/Autohand Code/gu)).toHaveLength(1);
+    expect(edited.match(/RESIZE_HISTORY retained text/gu)).toHaveLength(1);
+    expect(edited.match(/preserved draft/gu)).toHaveLength(1);
+    await session.press('escape');
+    await session.waitForText('RESIZE_STREAM_COMPLETE');
+    await exitInteractive(session);
+    expect(session.exitInfo?.exitCode).toBe(0);
+    expect(session.getRawOutput()).toContain('RESIZE_PTY_EXIT');
+  });
+
+  it('clips older history at the native 57x19 viewport and restores it when the streaming multiline viewport grows', async () => {
+    state = await createTempAutohandHome();
+    session = await launchTuistorySession({
+      command: 'bun',
+      args: [path.resolve('src/testing/scenarios/resizeFlickerScenario.tsx'), '--full-screen', '--streaming', '--multiline'],
+      cwd: process.cwd(), cols: 100, rows: 30, waitForDataTimeout: 15_000,
+      env: { ...process.env, AUTOHAND_HOME: state.autohandHome, CI: 'false', TERM: 'xterm-256color',
+        TERM_PROGRAM: 'iTerm.app', FORCE_COLOR: '0' },
+    });
+    await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => screen.includes('RESIZE_HISTORY retained text') && /RESIZE_STREAM \d+/u.test(screen) });
+    session.resize({ cols: 57, rows: 19 });
+    const compact = await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => screen.includes('preserved draft') && /RESIZE_STREAM \d+/u.test(screen)
+        && !screen.includes('RESIZE_HISTORY retained text') });
+    expect(compact.match(/Autohand Code/gu)).toHaveLength(1);
+    expect(compact.match(/preserved draft/gu)).toHaveLength(1);
+    await session.press('left');
+    await session.press('left');
+    await session.type('X');
+    await session.waitForText('taXil');
+    session.resize({ cols: 100, rows: 30 });
+    const expanded = await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => screen.includes('RESIZE_HISTORY retained text') && /RESIZE_STREAM \d+/u.test(screen)
+        && screen.includes('taXil') });
+    expect(expanded.match(/Autohand Code/gu)).toHaveLength(1);
+    expect(expanded.match(/RESIZE_HISTORY retained text/gu)).toHaveLength(1);
+    expect(expanded.match(/preserved draft/gu)).toHaveLength(1);
+    expect(expanded.match(/RESIZE_STREAM \d+ retained streamed text/gu)).toHaveLength(1);
+    await session.press('escape');
+    await session.waitForText('RESIZE_STREAM_COMPLETE');
+    await exitInteractive(session);
+    expect(session.exitInfo?.exitCode).toBe(0);
+    expect(session.getRawOutput()).toContain('RESIZE_PTY_EXIT');
+  });
+
+  it.each(['node', 'bun'])('keeps one copy of each full-screen row during ordinary %s redraws', async runtime => {
+    state = await createTempAutohandHome();
+    session = await launchTuistorySession({
+      command: runtime === 'node' ? process.execPath : 'bun',
+      args: [...(runtime === 'node' ? ['--import', 'tsx'] : []),
+        path.resolve('src/testing/scenarios/resizeFlickerScenario.tsx'), '--full-screen', '--streaming'],
+      cwd: process.cwd(), cols: 100, rows: 30, waitForDataTimeout: 15_000,
+      env: { ...process.env, AUTOHAND_HOME: state.autohandHome, CI: 'false', TERM: 'xterm-256color', TERM_PROGRAM: 'iTerm.app', FORCE_COLOR: '0' },
+    });
+    await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => /RESIZE_STREAM [1-9]\d+ retained streamed text/u.test(screen) });
+    await session.type('/exit');
+    await vi.waitFor(() => {
+      const screen = outputViewport(session!);
+      expect(screen.match(/Autohand Code/g)).toHaveLength(1);
+      expect(screen.match(/RESIZE_HISTORY retained text/g)).toHaveLength(1);
+      expect(screen.match(/RESIZE_STREAM \d+ retained streamed text/g)).toHaveLength(1);
+      expect(screen.match(/❯ \/exit/g)).toHaveLength(1);
+    }, { timeout: 5_000, interval: 20 });
+    await session.press('escape');
+    await session.waitForText('RESIZE_STREAM_COMPLETE');
+    await exitInteractive(session);
+    expect(session.exitInfo?.exitCode).toBe(0);
+  });
+
   it.each(['xterm-256color', 'xterm-ghostty', 'screen-256color', 'tmux-256color'].flatMap(terminal => [
     { terminal, synchronized: true, streaming: true },
     { terminal, synchronized: false, streaming: true },
@@ -34,7 +206,10 @@ describe('terminal resize frames', () => {
     const sizes = [[100, 24], [90, 24], [80, 26], [70, 24], [60, 22], [70, 24], [80, 26], [90, 28], [100, 30]];
     for (const [columns, rows] of sizes) {
       session.resize({ cols: columns, rows });
-      await new Promise<void>(resolve => setTimeout(resolve, 50));
+      await vi.waitFor(async () => {
+        const paints = (await readTerminalWriteTrace(tracePath)).slice(traceOffset);
+        expect(paints.some(paint => paint.columns === columns && paint.rows === rows)).toBe(true);
+      }, { timeout: 5_000, interval: 20 });
     }
     await session.type('X');
     await session.waitForText('preserved draftX');
@@ -55,6 +230,10 @@ describe('terminal resize frames', () => {
         || !frame.text.includes('RESIZE_HISTORY retained text') || !frame.text.includes('preserved draft')
         || !frame.text.includes('▔') || !frame.text.includes('▁'));
       expect(incomplete[0], `${incomplete.length} terminal writes published an incomplete transcript or composer`).toBeUndefined();
+      for (const frame of frames) {
+        expect(frame.text.match(/Autohand Code/g), frame.text).toHaveLength(1);
+        expect(frame.text.match(/RESIZE_HISTORY retained text/g), frame.text).toHaveLength(1);
+      }
       if (!synchronized) expect(session.getRawOutput()).not.toMatch(/\x1b\[\?2026[hl]/);
     } finally {
       recorder.close();
@@ -63,10 +242,7 @@ describe('terminal resize frames', () => {
       await session.press('escape');
       await session.waitForText('RESIZE_STREAM_COMPLETE');
     }
-    await session.press(['ctrl', 'c']);
-    await session.press(['ctrl', 'c']);
-    await session.press(['ctrl', 'c']);
-    await waitForExit(session);
+    await exitInteractive(session);
     expect(session.exitInfo?.exitCode).toBe(0);
     expect(session.getRawOutput()).toContain('RESIZE_PTY_EXIT');
   });
@@ -112,10 +288,7 @@ describe('terminal resize frames', () => {
       await session.press('escape');
       await session.waitForText('RESIZE_STREAM_COMPLETE');
     }
-    await session.press(['ctrl', 'c']);
-    await session.press(['ctrl', 'c']);
-    await session.press(['ctrl', 'c']);
-    await waitForExit(session);
+    await exitInteractive(session);
     expect(session.exitInfo?.exitCode).toBe(0);
     expect(session.getRawOutput()).toContain('RESIZE_PTY_EXIT');
   });
@@ -186,10 +359,7 @@ describe('terminal resize frames', () => {
     }
     await session.waitIdle();
     expect(composerCaretLine(session)).toContain(multiline ? 'taXY|il' : streaming ? 'preserved draXY|ft' : 'preserved draX|ft');
-    await session.press(['ctrl', 'c']);
-    await session.press(['ctrl', 'c']);
-    await session.press(['ctrl', 'c']);
-    await waitForExit(session);
+    await exitInteractive(session);
     expect(session.exitInfo?.exitCode).toBe(0);
     expect(session.getRawOutput()).toContain('RESIZE_PTY_EXIT');
   });

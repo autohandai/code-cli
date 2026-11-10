@@ -28,6 +28,8 @@ export interface InteractionModeAdapter {
  * Owns the mutually-exclusive session interaction modes selected by Shift+Tab.
  */
 export class InteractionModeController {
+  private revision = 0;
+
   constructor(private readonly adapter: InteractionModeAdapter) {}
 
   getMode(): InteractionMode {
@@ -58,6 +60,7 @@ export class InteractionModeController {
   }
 
   setMode(mode: InteractionMode): InteractionMode {
+    this.revision++;
     if (mode !== 'plan') {
       this.adapter.setPlanEnabled(false);
     }
@@ -80,6 +83,19 @@ export class InteractionModeController {
       mode === 'yolo' || mode === 'automode' ? 'unrestricted' : 'baseline'
     );
     return mode;
+  }
+
+  enterTemporaryMode(mode: InteractionMode): () => void {
+    const previous = this.getMode();
+    if (previous === mode) return () => {};
+    this.setMode(mode);
+    const revision = this.revision;
+    let restored = false;
+    return () => {
+      if (restored) return;
+      restored = true;
+      if (this.revision === revision) this.setMode(previous);
+    };
   }
 
   cycle(): InteractionMode {

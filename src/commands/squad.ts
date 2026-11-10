@@ -18,6 +18,8 @@ import { readSquadRunSnapshot } from '../core/agents/SquadRunSnapshot.js';
 import { openSquadDesktop } from './squadDesktop.js';
 import type { SquadDesktopDeps } from './squadDesktop.js';
 import type { AgentRunSource } from '../core/agents/AgentRunStore.js';
+import { SquadConnection } from '../squad/SquadConnection.js';
+import { runDesktopSquadCommand, type DesktopSquadContext } from './squadConnection.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.autohand.ai';
 const DEFAULT_CHANNEL = 'stable';
@@ -29,6 +31,10 @@ const START_ACTIONS = new Set<SquadAction>(['start', 'open', 'restart']);
 type SquadAction = 'start' | 'status' | 'restart' | 'stop' | 'queue' | 'open' | 'config';
 
 interface SquadContext {
+  squadConnection?: SquadConnection;
+  onBeforeModal?: DesktopSquadContext['onBeforeModal'];
+  onAfterModal?: DesktopSquadContext['onAfterModal'];
+  isNonInteractive?: boolean;
   config?: LoadedConfig;
   workspaceRoot: string;
   onToggleAgentRunsView?: (visible: boolean, source?: AgentRunSource) => void;
@@ -111,9 +117,17 @@ interface RuntimeConfig {
 
 export const metadata: SlashCommand = {
   command: '/squad',
-  description: 'open the Autohand Squad app, installing it if needed',
+  description: 'Select a Squad agent, read its conversation, or open the app',
   implemented: true,
-  subcommands: [{ name: 'view', description: 'inspect recorded workspace runs from independent Squad sessions' }],
+  subcommands: [
+    { name: 'agents', description: 'list agents in the running Squad app' },
+    { name: 'select', description: 'select a Squad message recipient' },
+    { name: 'history', description: 'read the selected agent conversation' },
+    { name: 'queue', description: 'read the selected agent message queue' },
+    { name: 'clear', description: 'clear the selected Squad recipient' },
+    { name: 'app', description: 'open or install the Squad app' },
+    { name: 'view', description: 'inspect recorded independent Squad runs' },
+  ],
 };
 
 export async function squad(
@@ -121,6 +135,10 @@ export async function squad(
   args: string[] = [],
   deps: SquadDeps = {},
 ): Promise<string> {
+  if (!args.length && ctx.squadConnection) {
+    try { return await runDesktopSquadCommand({ ...ctx, squadConnection: ctx.squadConnection }, ['select']); }
+    catch (error) { return `${error instanceof Error ? error.message : String(error)}\nUse /squad app to open Autohand Squad.`; }
+  }
   const result = await runSquadCommand(ctx, args, deps);
   return result.output;
 }
@@ -130,6 +148,10 @@ export async function runSquadCommand(
   args: string[] = [],
   deps: SquadDeps = {},
 ): Promise<SquadCommandResult> {
+  if (['agents', 'select', 'history', 'clear', 'help', 'message'].includes(args[0]) || (args[0] === 'queue' && ctx.squadConnection)) {
+    try { return { code: 0, output: await runDesktopSquadCommand({ ...ctx, squadConnection: ctx.squadConnection ?? new SquadConnection({ env: deps.env }) }, args) }; }
+    catch (error) { return { code: 1, output: error instanceof Error ? error.message : String(error) }; }
+  }
   if (args.length === 1 && args[0] === 'view') {
     const snapshot = await readSquadRunSnapshot({ workspaceRoot: ctx.workspaceRoot, env: deps.env });
     ctx.onToggleAgentRunsView?.(true, 'squad');

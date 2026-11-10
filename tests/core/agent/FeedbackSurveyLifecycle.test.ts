@@ -96,9 +96,9 @@ describe('feedback survey in the interactive loop', () => {
     expect(host.closeSession).toHaveBeenCalledOnce();
   });
 
-  it('preserves a draft typed after the feedback survey becomes visible', async () => {
+  it.each(['/feedback', '/deploy', '/help'])('preserves a draft typed while %s finishes', async command => {
     let draft = '';
-    const { host } = createHost(['/feedback'], {
+    const { host } = createHost([command], {
       ui: {},
       setComposerIdle: vi.fn(),
       clearComposerInput: vi.fn(() => { draft = ''; }),
@@ -112,6 +112,33 @@ describe('feedback survey in the interactive loop', () => {
     await runAgentInteractiveLoop(host);
 
     expect(draft).toBe('still typing');
+  });
+
+  it.each(['/deploy', '/help'])('preserves a newer same-text draft when %s finishes', async command => {
+    let draft = '';
+    const { host } = createHost([command], {
+      ui: {},
+      setComposerIdle: vi.fn(),
+      clearComposerInput: vi.fn(() => { draft = ''; }),
+      runSlashCommandWithInput: vi.fn(async () => {
+        await Promise.resolve();
+        draft = command;
+        host.shouldExit = true;
+        return null;
+      }),
+    });
+    await runAgentInteractiveLoop(host);
+    expect(draft).toBe(command);
+  });
+
+  it('preserves a pre-existing draft when a keybinding dispatches a command', async () => {
+    let draft = 'draft before Ctrl+K';
+    const { host } = createHost(['/deploy'], {
+      ui: {}, setComposerIdle: vi.fn(), clearComposerInput: vi.fn(() => { draft = ''; }),
+      runSlashCommandWithInput: vi.fn(async () => { host.shouldExit = true; return null; }),
+    });
+    await runAgentInteractiveLoop(host);
+    expect(draft).toBe('draft before Ctrl+K');
   });
 
   it('clears the previous survey as soon as the next prompt is submitted', async () => {

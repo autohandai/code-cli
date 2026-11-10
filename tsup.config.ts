@@ -36,6 +36,7 @@ export default defineConfig({
   onSuccess: async () => {
     mkdirSync('dist/assets', { recursive: true });
     cpSync('assets/icon.png', 'dist/assets/icon.png');
+    cpSync('src/squad/vendor/LICENSE', 'dist/assets/squad-mcp-LICENSE');
     cpSync('assets/review', 'dist/assets/review', { recursive: true });
     mkdirSync('dist/agents/builtin', { recursive: true });
     cpSync('src/agents/builtin', 'dist/agents/builtin', { recursive: true });

@@ -9,11 +9,56 @@ import path from 'node:path';
 import os from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as atomicFiles from '../src/utils/atomicFile.js';
-import { applyTrustedWorkspaceEntries, getProviderConfig, loadConfig, resolveRequestedWorkspaceRoot, saveConfig } from '../src/config';
+import { applyTrustedWorkspaceEntries, getProviderConfig, loadConfig, resolveRequestedWorkspaceRoot, saveConfig, saveValidatedAuth } from '../src/config';
 import { trustWorkspace } from '../src/permissions/workspaceTrust';
 import type { AutohandConfig } from '../src/types';
 
 const originalApiUrl = process.env.AUTOHAND_API_URL;
+
+describe('configuration write contention', () => {
+  it.each(['configuration', 'validated authentication'] as const)('waits for a brief competing %s write', async (operation) => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-config-contention-'));
+    const configPath = path.join(directory, 'config.json');
+    await fs.writeJson(configPath, { auth: { token: 'fixture-token' }, mcp: { servers: [] } });
+    const config = await loadConfig(configPath);
+    const lease = await atomicFiles.acquireFileLock(`${configPath}.lock`);
+    expect(lease).not.toBeNull();
+    const scheduleDeadline = globalThis.setTimeout;
+    const clearDeadline = globalThis.clearTimeout;
+    vi.useFakeTimers();
+    const timerBaseline = vi.getTimerCount();
+    const retryScheduled = Promise.withResolvers<void>();
+    const scheduleTimeout = globalThis.setTimeout;
+    const retryTimer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) => {
+      const timer = scheduleTimeout(callback, delay, ...args);
+      if (delay === 25) retryScheduled.resolve();
+      return timer;
+    });
+    const retryDeadline = scheduleDeadline(() => retryScheduled.reject(new Error('Configuration writer did not schedule a lock retry')), 1_000);
+    try {
+      const result = (operation === 'configuration'
+        ? saveConfig({ ...config, mcp: { servers: [{ name: 'fixture', transport: 'http', url: 'https://example.com/mcp' }] } })
+        : saveValidatedAuth({ ...config, auth: { token: 'fixture-token', user: { id: 'updated', email: 'fixture@example.com' } } }, 'fixture-token'))
+        .then(() => undefined, (error: unknown) => error);
+      await retryScheduled.promise;
+      clearDeadline(retryDeadline);
+      expect(vi.getTimerCount()).toBe(timerBaseline + 1);
+      await lease?.release();
+      await vi.runAllTimersAsync();
+      await expect(result).resolves.toBeUndefined();
+      const saved = await fs.readJson(configPath);
+      if (operation === 'configuration') expect(saved.mcp.servers[0].name).toBe('fixture');
+      else expect(saved.auth.user.id).toBe('updated');
+      expect(vi.getTimerCount()).toBe(timerBaseline);
+    } finally {
+      clearDeadline(retryDeadline);
+      retryTimer.mockRestore();
+      vi.useRealTimers();
+      await lease?.release();
+      await fs.remove(directory);
+    }
+  });
+});
 
 afterEach(() => {
   if (originalApiUrl === undefined) delete process.env.AUTOHAND_API_URL;

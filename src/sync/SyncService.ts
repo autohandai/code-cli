@@ -165,13 +165,14 @@ export class SyncService {
   private generation = 0;
   private operationController: AbortController | null = null;
   private activeOperation: Promise<SyncResult> | null = null;
+  private pendingStartGeneration: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private lastAppliedMcpFingerprint: string | undefined;
 
   constructor(options: SyncServiceOptions) {
     this.authToken = options.authToken;
     this.userId = options.userId;
-    this.config = options.config;
+    this.config = { ...options.config };
     this.client = options.apiClient || getSyncApiClient();
     this.onEvent = options.onEvent || (() => {});
     this.onAuthFailure = options.onAuthFailure;
@@ -185,17 +186,14 @@ export class SyncService {
    * Start the background sync timer
    */
   start(): void {
-    if (this.started || this.stopped) return;
+    if (this.started || this.stopped || !this.config.enabled) return;
     this.started = true;
 
-    // Run initial sync with proper error handling
-    this.sync().then(result => {
-      if (!result.success && this.isAuthError(result.error)) {
-        // Auth failure already handled in sync()
-      }
-    }).catch(() => {
-      // Unexpected error - already logged
-    });
+    if (this.operationController?.signal.aborted && this.activeOperation) {
+      this.pendingStartGeneration = this.generation;
+    } else {
+      void this.sync().catch(() => {});
+    }
 
     // Set up periodic sync
     this.timer = setInterval(() => {
@@ -210,11 +208,21 @@ export class SyncService {
    * Stop the background sync timer
    */
   stop(): void {
-    if (!this.stopped) {
-      this.stopped = true;
-      this.generation++;
-      this.operationController?.abort(new SyncOperationStoppedError());
-    }
+    this.stopped = true;
+    this.pause();
+  }
+
+  /** Pause immediately without making an explicit later opt-in impossible. */
+  setEnabled(enabled: boolean): void {
+    this.config.enabled = enabled;
+    if (enabled) this.start();
+    else this.pause();
+  }
+
+  private pause(): void {
+    this.pendingStartGeneration = null;
+    this.generation++;
+    this.operationController?.abort(new SyncOperationStoppedError());
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -261,6 +269,7 @@ export class SyncService {
       });
     }
 
+    this.pendingStartGeneration = null;
     this.skipped = emptySyncSkippedFiles();
     this.remoteSkipped = emptySyncSkippedFiles();
     this.operationFailureRecorded = false;
@@ -278,6 +287,11 @@ export class SyncService {
       }
       if (this.operationController === controller) {
         this.operationController = null;
+      }
+      if (this.activeOperation === null && this.pendingStartGeneration === this.generation
+        && this.started && !this.stopped) {
+        this.pendingStartGeneration = null;
+        void this.sync().catch(() => {});
       }
     };
     void activeOperation.then(clearActiveOperation, clearActiveOperation);

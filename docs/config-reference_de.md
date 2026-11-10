@@ -1465,7 +1465,7 @@ Autohand kann Ihre Konfiguration über Geräte hinweg für angemeldete Benutzer 
 
 | Feld              | Typ     | Standard         | Beschreibung                                        |
 | ------------------ | -------- | --------------- | -------------------------------------------------- |
-| `enabled`          | boolean  | `true` (angemeldet) | Einstellungs-Synchronisierung aktivieren/deaktivieren                       |
+| `enabled`          | boolean  | `false` | Einstellungs-Synchronisierung aktivieren/deaktivieren                       |
 | `interval`         | number   | `300000`        | Synchronisierungsintervall in Millisekunden (Standard: 5 Minuten) |
 | `exclude`          | string[] | `[]`            | Glob-Muster, die von der Synchronisierung ausgeschlossen werden                 |
 | `includeTelemetry` | boolean  | `false`         | Telemetriedaten synchronisieren (erfordert Benutzereinwilligung)        |
@@ -1477,13 +1477,13 @@ Autohand kann Ihre Konfiguration über Geräte hinweg für angemeldete Benutzer 
 # Synchronisierung für diese Sitzung deaktivieren
 autohand --sync-settings=false
 
-# Synchronisierung aktivieren (Standard für angemeldete Benutzer)
+# Synchronisierung ausdrücklich aktivieren (standardmäßig deaktiviert)
 autohand --sync-settings
 ```
 
 ### Was wird synchronisiert
 
-Standardmäßig werden diese Elemente für angemeldete Benutzer synchronisiert:
+Wenn die Synchronisierung aktiviert ist, werden diese Elemente synchronisiert:
 
 - **Konfiguration** (`config.json`) - API-Schlüssel werden vor dem Upload verschlüsselt
 - **Benutzerdefinierte Agenten** (`agents/`)
@@ -1538,7 +1538,7 @@ Das Anmeldetoken der Anwendung wird im `Authorization`-Header nur an Übertragun
 
 ### Wie es funktioniert
 
-1. **Beim Start**: Wenn Sie angemeldet sind, startet der Synchronisierungsdienst automatisch
+1. **Beim Start**: Wenn Sie angemeldet sind und die Synchronisierung ausdrücklich aktiviert haben, startet der Dienst automatisch
 2. **Alle 5 Minuten**: Einstellungen werden mit dem Cloud-Speicher verglichen
 3. **Cloud gewinnt**: Remote-Änderungen werden zuerst heruntergeladen
 4. **Lokale Uploads**: Neue lokale Änderungen werden hochgeladen
@@ -2054,7 +2054,7 @@ Diese Flags überschreiben Konfigurationsdatei-Einstellungen:
 | Flag                          | Beschreibung                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--worktree [name]`           | Sitzung in isoliertem Git-Worktree ausführen (optionaler Worktree-/Branch-Name)                           |
-| `--tmux`                      | In dedizierter tmux-Sitzung starten (impliziert `--worktree`; kann nicht mit `--no-worktree` verwendet werden) |
+| `--tmux` | In dedizierter tmux-Sitzung im aktuellen Verzeichnis starten; unterstützt `--worktree` oder `--zit` |
 | `--no-worktree`               | Git-Worktree-Isolierung im Auto-Modus deaktivieren                                                    |
 | `--auto-commit`           | Änderungen nach Abschluss der Aufgaben automatisch committen                                                     |
 | `--patch`                     | Git-Patch generieren, ohne Änderungen anzuwenden                                                    |
@@ -2088,7 +2088,7 @@ Diese Flags überschreiben Konfigurationsdatei-Einstellungen:
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
 | `--login`                     | Bei Ihrem Autohand-Konto anmelden                                                               |
 | `--logout`                    | Von Ihrem Autohand-Konto abmelden                                                              |
-| `--sync-settings`             | Einstellungssynchronisierung aktivieren/deaktivieren (Standard: true für angemeldete Benutzer)                                  |
+| `--sync-settings`             | Einstellungssynchronisierung aktivieren/deaktivieren (Standard: false)                                  |
 
 ### Einrichtung & Info
 

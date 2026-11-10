@@ -39,8 +39,9 @@ function shellQuote(arg: string): string {
   return `'${arg.replace(/'/g, `'\"'\"'`)}'`;
 }
 
-export function buildTmuxLaunchCommand(argv: string[]): string {
-  const cleaned = stripTmuxArgs(argv);
+export function buildTmuxLaunchCommand(argv: string[], executable = process.execPath): string {
+  const launch = /(?:\$bunfs|~BUN)/.test(argv[1] ?? '') ? [executable, ...argv.slice(2)] : argv;
+  const cleaned = stripTmuxArgs(launch);
   const quoted = cleaned.map(shellQuote).join(' ');
   return `AUTOHAND_TMUX_LAUNCHED=1 ${quoted}`;
 }

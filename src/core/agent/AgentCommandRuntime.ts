@@ -114,10 +114,6 @@ const INTERACTIVE_SLASH_COMMANDS = new Set([
 const FIXED_COMPOSER_RESULT_COMMANDS = new Set(['/tasks', '/team', '/teams', '/squad']);
 const MARKDOWN_REPORT_COMMANDS = new Set(['/pr-review', '/deslop', '/tester']);
 
-export function shouldPreserveComposerDraftAfterCommand(command: string): boolean {
-  return command === '/whatityped' || command === '/peers' || command === '/feedback' || command === '/status' || command === '/sync';
-}
-
 export function shouldRenderSlashCommandResultInComposer(command: string): boolean {
   return FIXED_COMPOSER_RESULT_COMMANDS.has(command);
 }
@@ -274,9 +270,6 @@ export async function runAgentSlashCommandWithInput(host: AgentCommandRuntimeHos
         host.persistentInputActiveTurn = false;
       }
       cleanupConsoleBridge();
-      if (isInteractive && !shouldPreserveComposerDraftAfterCommand(command) && host.inkRenderer?.isRunning()) {
-        host.inkRenderer.clearInput();
-      }
     }
   }
 
