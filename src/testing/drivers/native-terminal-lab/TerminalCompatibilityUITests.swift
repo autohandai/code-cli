@@ -175,6 +175,35 @@ private func nativeFixturePreparationFrames(current: CGRect, available: CGRect) 
     return [reduced, CGRect(origin: target.origin, size: reduced.size), target]
 }
 
+private struct NativeFixtureSetupDrag {
+    let anchor: CGVector
+    let offset: CGVector
+    let delta: CGVector
+    let size: CGSize
+}
+
+private func nativeFixtureSetupDrags(current: CGRect, target: CGRect) -> [NativeFixtureSetupDrag] {
+    var size = current.size
+    var drags: [NativeFixtureSetupDrag] = []
+    if abs(target.width - size.width) > 0.5 {
+        let delta = target.width - size.width
+        size.width = target.width
+        drags.append(NativeFixtureSetupDrag(anchor: CGVector(dx: 1, dy: 0.5), offset: CGVector(dx: -2, dy: 0),
+                                            delta: CGVector(dx: delta, dy: 0), size: size))
+    }
+    if abs(target.height - size.height) > 0.5 {
+        let delta = target.height - size.height
+        size.height = target.height
+        drags.append(NativeFixtureSetupDrag(anchor: CGVector(dx: 0.5, dy: 1), offset: CGVector(dx: 0, dy: -2),
+                                            delta: CGVector(dx: 0, dy: delta), size: size))
+    }
+    return drags
+}
+
+private func nativeFixtureSetupSizeAccepted(_ size: CGSize, expected: CGSize) -> Bool {
+    abs(size.width - expected.width) <= 1 && abs(size.height - expected.height) <= 1
+}
+
 private func nativeTerminalInputReady(terminal: String, textViewExists: Bool, splitTerminalEnabled: Bool) -> Bool {
     terminal == "vscode" ? splitTerminalEnabled : textViewExists
 }
@@ -187,6 +216,31 @@ final class TerminalCompatibilityUITests: XCTestCase {
 
     @MainActor func testIdleResize() throws { try resizeScenario(streaming: false) }
     @MainActor func testStreamingResize() throws { try resizeScenario(streaming: true) }
+
+    func testNativeViewportPreparesCodeWithSeparateAxisEdgesBeforeMoving() {
+        let current = CGRect(x: 0, y: 31, width: 1024, height: 677)
+        let target = CGRect(x: 20, y: 33, width: 904, height: 610)
+        let drags = nativeFixtureSetupDrags(current: current, target: target)
+        XCTAssertEqual(drags.count, 2)
+        guard drags.count == 2 else { return }
+        XCTAssertEqual(drags[0].anchor.dx, 1)
+        XCTAssertEqual(drags[0].anchor.dy, 0.5)
+        XCTAssertEqual(drags[0].offset.dx, -2)
+        XCTAssertEqual(drags[0].offset.dy, 0)
+        XCTAssertEqual(drags[0].delta.dx, -120)
+        XCTAssertEqual(drags[0].delta.dy, 0)
+        XCTAssertEqual(drags[0].size, CGSize(width: 904, height: 677))
+        XCTAssertEqual(drags[1].anchor.dx, 0.5)
+        XCTAssertEqual(drags[1].anchor.dy, 1)
+        XCTAssertEqual(drags[1].offset.dx, 0)
+        XCTAssertEqual(drags[1].offset.dy, -2)
+        XCTAssertEqual(drags[1].delta.dx, 0)
+        XCTAssertEqual(drags[1].delta.dy, -67)
+        XCTAssertEqual(drags[1].size, target.size)
+        XCTAssertFalse(nativeFixtureSetupSizeAccepted(CGSize(width: 1024, height: 610), expected: drags[0].size))
+        XCTAssertTrue(nativeFixtureSetupSizeAccepted(drags[0].size, expected: drags[0].size))
+        XCTAssertTrue(nativeFixtureSetupDrags(current: target, target: target).isEmpty)
+    }
 
     func testNativeViewportDoesNotMoveAWindowWhoseWidthIgnoredTheShrink() {
         let bounds = CGRect(x: 0, y: 0, width: 1024, height: 768)
@@ -743,10 +797,28 @@ final class TerminalCompatibilityUITests: XCTestCase {
             }
             let moved = window.frame
             if abs(step.width - moved.width) > 0.5 || abs(step.height - moved.height) > 0.5 {
-                let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -2, dy: -2))
-                corner.press(forDuration: 0.1, thenDragTo: corner.withOffset(CGVector(dx: step.width - moved.width, dy: step.height - moved.height)))
-                guard let current = nativeFixtureWindowReference(window, refresh: refreshWindow) else { return bounds }
-                window = current
+                if terminal == "vscode" {
+                    for drag in nativeFixtureSetupDrags(current: moved, target: step) {
+                        guard verifyWindow(), bounds.contains(window.frame) else {
+                            XCTFail("The Code baseline window identity or bounds changed before an axis drag")
+                            return bounds
+                        }
+                        let edge = window.coordinate(withNormalizedOffset: drag.anchor).withOffset(drag.offset)
+                        edge.press(forDuration: 0.1, thenDragTo: edge.withOffset(drag.delta))
+                        guard let current = nativeFixtureWindowReference(window, refresh: refreshWindow) else { return bounds }
+                        window = current
+                        print("NATIVE_TERMINAL_PREPARE_AXIS vscode \(window.frame) expected=\(drag.size)")
+                        guard verifyWindow(), bounds.contains(window.frame), nativeFixtureSetupSizeAccepted(window.frame.size, expected: drag.size) else {
+                            XCTFail("The Code baseline axis drag did not accept its size on the same bounded native window")
+                            return bounds
+                        }
+                    }
+                } else {
+                    let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -2, dy: -2))
+                    corner.press(forDuration: 0.1, thenDragTo: corner.withOffset(CGVector(dx: step.width - moved.width, dy: step.height - moved.height)))
+                    guard let current = nativeFixtureWindowReference(window, refresh: refreshWindow) else { return bounds }
+                    window = current
+                }
             }
             print("NATIVE_TERMINAL_PREPARE \(terminal) \(window.frame) target=\(step) display=\(bounds)")
             XCTAssertTrue(verifyWindow(), "The native fixture window identity changed during setup")
