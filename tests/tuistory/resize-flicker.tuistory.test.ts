@@ -1,6 +1,6 @@
 /** @license Apache-2.0 */
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, rename, writeFile } from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
@@ -15,6 +15,54 @@ let state: TuistoryTempState | undefined;
 afterEach(async () => { session?.close(); await state?.cleanup(); session = undefined; state = undefined; });
 
 describe('terminal resize frames', () => {
+  it('gates only new stream chunks after viewport progress and resumes without changing the active request', async () => {
+    state = await createTempAutohandHome();
+    const metadata = path.join(state.autohandHome, 'gate-metadata.jsonl');
+    const control = path.join(state.autohandHome, 'stream-control.json');
+    const command = async (value: object) => { await writeFile(`${control}.pending`, JSON.stringify(value)); await rename(`${control}.pending`, control); };
+    const records = async (): Promise<Record<string, unknown>[]> => (await readFile(metadata, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    session = await launchTuistorySession({ command: 'bun',
+      args: [path.resolve('src/testing/scenarios/resizeFlickerScenario.tsx'), '--full-screen', '--streaming', '--multiline'],
+      cwd: process.cwd(), cols: 100, rows: 30, waitForDataTimeout: 15_000,
+      env: { ...process.env, AUTOHAND_HOME: state.autohandHome, CI: 'false', FORCE_COLOR: '0',
+        AUTOHAND_RESIZE_WRITE_METADATA: metadata, AUTOHAND_RESIZE_STREAM_CONTROL: control },
+    });
+    await session.waitForText('RESIZE_STREAM');
+    await vi.waitFor(async () => { expect((await records()).some(record => record.kind === 'stream-chunk')).toBe(true); });
+    const before = (await records()).filter(record => record.kind === 'stream-chunk').at(-1)!;
+    await command({ id: 1, action: 'observe', counter: before.counter, columns: 100, rows: 30 });
+    await vi.waitFor(async () => {
+      expect((await records()).some(record => record.kind === 'stream-chunk' && Number(record.counter) > Number(before.counter))).toBe(true);
+      expect((await records()).some(record => record.kind === 'stream-gate' && record.paused === true)).toBe(false);
+    });
+    session.resize({ cols: 90, rows: 28 });
+    let paused = 0;
+    await vi.waitFor(async () => {
+      const ack = (await records()).filter(record => record.kind === 'stream-gate' && record.command === 1 && record.paused === true).at(-1);
+      expect(ack).toMatchObject({ columns: 90, rows: 28 });
+      paused = Number(ack?.counter);
+      expect(paused).toBeGreaterThan(Number(before.counter));
+    });
+    await session.press('left');
+    await session.press('left');
+    await session.type('X');
+    const frame = await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => screen.includes('taXil') && screen.includes(`RESIZE_STREAM ${paused} retained streamed text`) });
+    expect(frame).toContain('Resize streaming fixture');
+    expect(frame.match(/Autohand Code/gu)).toHaveLength(1);
+    expect(frame.match(/RESIZE_HISTORY retained text/gu)).toHaveLength(1);
+    expect(frame.match(/preserved draft/gu)).toHaveLength(1);
+    expect((await records()).filter(record => record.kind === 'stream-chunk').at(-1)?.counter).toBe(paused);
+    await command({ id: 2, action: 'resume', counter: paused, columns: 90, rows: 28 });
+    await vi.waitFor(async () => {
+      expect((await records()).some(record => record.kind === 'stream-chunk' && record.command === 2 && Number(record.counter) > paused)).toBe(true);
+    });
+    await session.press('escape');
+    await session.waitForText('RESIZE_STREAM_COMPLETE');
+    await exitInteractive(session);
+    expect(session.exitInfo?.exitCode).toBe(0);
+  });
+
   it('records bounded write timing and viewport metadata without storing terminal content', async () => {
     state = await createTempAutohandHome();
     const metadata = path.join(state.autohandHome, 'write-metadata.jsonl');

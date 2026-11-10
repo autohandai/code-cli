@@ -1,6 +1,7 @@
 /** @license Apache-2.0 */
 import { appendFileSync } from 'node:fs';
 import { createResizeWriteMetadata, observeResizeWrite, resizeWritePayload } from './resizeWriteMetadata.js';
+import { ResizeStreamGate } from './resizeStreamGate.js';
 
 if (!process.env.AUTOHAND_HOME) throw new Error('The resize fixture requires an isolated AUTOHAND_HOME');
 
@@ -9,6 +10,10 @@ if (terminal) process.env.TERM = terminal;
 const tracePath = process.env.AUTOHAND_RESIZE_WRITE_TRACE;
 const metadataPath = process.env.AUTOHAND_RESIZE_WRITE_METADATA;
 const writeMetadata = metadataPath ? createResizeWriteMetadata(metadataPath) : undefined;
+const streamControl = process.env.AUTOHAND_RESIZE_STREAM_CONTROL;
+if (streamControl && !writeMetadata) throw new Error('The stream observation gate requires bounded write metadata');
+const streamGate = streamControl && process.argv.includes('--streaming')
+  ? new ResizeStreamGate(streamControl, record => writeMetadata?.record({ timestamp: Date.now() / 1000, ...record })) : undefined;
 const viewportMarkers = process.argv.includes('--viewport-markers');
 let streamed = 0;
 if (tracePath || metadataPath || viewportMarkers) {
@@ -48,12 +53,14 @@ const renderer = new InkRenderer({
   onInstruction: () => {},
   onEscape: () => {
     clearInterval(streamTimer);
+    void streamGate?.dispose();
     renderer.setWorking(false);
     renderer.setFinalResponse(`RESIZE_STREAM_COMPLETE ${streamed}`);
   },
   onCtrlC: () => {
     clearInterval(streamTimer);
-    void renderer.stop().then(() => {
+    void renderer.stop().then(async () => {
+      await streamGate?.dispose();
       process.stdout.write('\nRESIZE_PTY_EXIT\n', () => {
         void (writeMetadata?.flush() ?? Promise.resolve()).then(() => process.exit(0));
       });
@@ -70,7 +77,10 @@ if (process.argv.includes('--streaming')) {
 renderer.start();
 if (process.argv.includes('--streaming')) {
   streamTimer = setInterval(() => {
+    const viewport = { columns: process.stdout.columns, rows: process.stdout.rows };
+    if (streamGate && !streamGate.permits(viewport)) return;
     streamed += 1;
     renderer.setStreamingResponse(`RESIZE_STREAM ${streamed} retained streamed text`);
+    streamGate?.emitted({ counter: streamed, ...viewport });
   }, 40);
 }

@@ -74,6 +74,54 @@ private struct NativeCopySample: Encodable {
     let frame: CGRect
 }
 
+private struct NativeStreamPosition: Codable {
+    let kind: String
+    var command: Int? = nil
+    var counter: Int? = nil
+    var columns: Int? = nil
+    var rows: Int? = nil
+    var paused: Bool? = nil
+}
+
+private struct NativeStreamCommand: Encodable {
+    let id: Int
+    let action: String
+    let counter: Int
+    let columns: Int
+    let rows: Int
+}
+
+private func nativeStreamPositions(_ data: Data) -> [NativeStreamPosition] {
+    String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { line in
+        guard let position = try? JSONDecoder().decode(NativeStreamPosition.self, from: Data(line.utf8)),
+              position.kind == "stream-chunk" || position.kind == "stream-gate",
+              let counter = position.counter, counter > 0,
+              let columns = position.columns, columns > 0, columns <= 10000,
+              let rows = position.rows, rows > 0, rows <= 10000 else { return nil }
+        return position
+    }
+}
+
+private func nativeStreamPaused(_ positions: [NativeStreamPosition], command: Int, before: NativeStreamPosition) -> NativeStreamPosition? {
+    positions.last { position in
+        position.kind == "stream-gate" && position.command == command && position.paused == true
+            && (position.counter ?? 0) > (before.counter ?? 0)
+            && (position.columns != before.columns || position.rows != before.rows)
+    }
+}
+
+private func nativeStreamResumed(_ positions: [NativeStreamPosition], command: Int, after: NativeStreamPosition) -> Bool {
+    positions.contains { position in
+        position.kind == "stream-chunk" && position.command == command && position.paused == false
+            && (position.counter ?? 0) > (after.counter ?? 0)
+            && position.columns == after.columns && position.rows == after.rows
+    }
+}
+
+private func nativeSettlingTime(_ deadline: Date, now: Date = Date()) -> TimeInterval {
+    max(0, deadline.timeIntervalSince(now))
+}
+
 private struct NativeTerminalReadout {
     let read: () -> String?
     let requiresStreaming: Bool
@@ -84,9 +132,10 @@ private struct NativeTerminalReadout {
         self.requiresStreaming = requiresStreaming
     }
 
-    mutating func capture() -> Bool {
+    mutating func capture(streamCounter: Int? = nil) -> Bool {
         frame = read()
         guard let value = frame else { return false }
+        if let counter = streamCounter, !value.contains("RESIZE_STREAM \(counter) retained streamed text") { return false }
         return value.contains("Autohand Code") && value.contains("RESIZE_HISTORY retained text")
             && value.contains("preserved draft") && (!requiresStreaming || value.contains("RESIZE_STREAM "))
     }
@@ -167,6 +216,37 @@ final class TerminalCompatibilityUITests: XCTestCase {
         XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 18, value: stale))
         XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 17, value: stale))
         XCTAssertNil(nativeCopiedTerminalBuffer(baseline: 18, observed: 19, value: nil))
+    }
+
+    func testNativeReadoutGateRequiresViewportProgressAndANewerResumedChunk() {
+        let before = NativeStreamPosition(kind: "stream-chunk", command: 0, counter: 10, columns: 100, rows: 30, paused: false)
+        let unchanged = NativeStreamPosition(kind: "stream-gate", command: 1, counter: 11, columns: 100, rows: 30, paused: true)
+        let stale = NativeStreamPosition(kind: "stream-gate", command: 1, counter: 10, columns: 90, rows: 28, paused: true)
+        let paused = NativeStreamPosition(kind: "stream-gate", command: 1, counter: 12, columns: 90, rows: 28, paused: true)
+        XCTAssertNil(nativeStreamPaused([unchanged, stale], command: 1, before: before))
+        XCTAssertNotNil(nativeStreamPaused([paused], command: 1, before: before))
+        XCTAssertFalse(nativeStreamResumed([paused], command: 2, after: paused))
+        let resumed = NativeStreamPosition(kind: "stream-chunk", command: 2, counter: 13, columns: 90, rows: 28, paused: false)
+        XCTAssertTrue(nativeStreamResumed([resumed], command: 2, after: paused))
+    }
+
+    func testNativeReadoutGateCountsTheExactPausedFrameWithoutSelectingCleanCounts() {
+        var value = "Autohand Code\nRESIZE_HISTORY retained text\npreserved draft\nRESIZE_STREAM 11 retained streamed text"
+        var readout = NativeTerminalReadout(read: { value }, requiresStreaming: true)
+        XCTAssertFalse(readout.capture(streamCounter: 12))
+        value = "Autohand Code\n" + value.replacingOccurrences(of: "STREAM 11", with: "STREAM 12")
+        XCTAssertTrue(readout.capture(streamCounter: 12))
+        XCTAssertEqual(readout.frame?.components(separatedBy: "Autohand Code").count, 3)
+        let deadline = Date(timeIntervalSince1970: 100)
+        XCTAssertEqual(nativeSettlingTime(deadline, now: Date(timeIntervalSince1970: 97)), 3)
+        XCTAssertEqual(nativeSettlingTime(deadline, now: Date(timeIntervalSince1970: 101)), 0)
+    }
+
+    func testNativeReadoutGateParsesOnlyCompleteValidMetadataTailRecords() {
+        let tail = Data("partial row\n{\"kind\":\"write-start\",\"columns\":90,\"rows\":28}\n{\"kind\":\"stream-chunk\",\"command\":2,\"counter\":13,\"columns\":90,\"rows\":28,\"paused\":false}\n".utf8)
+        let positions = nativeStreamPositions(tail)
+        XCTAssertEqual(positions.count, 1)
+        XCTAssertEqual(positions.first?.counter, 13)
     }
 
     func testNativeReadoutEvidenceRetainsPartialUnavailableAndCompleteSamplesUnchanged() throws {
@@ -375,6 +455,10 @@ final class TerminalCompatibilityUITests: XCTestCase {
         let app = XCUIApplication(url: URL(fileURLWithPath: application))
         addTeardownBlock { if app.state != .notRunning { app.terminate() } }
         let command = "'" + fixture.replacingOccurrences(of: "'", with: "'\\''") + "'" + (streaming ? " --streaming" : "")
+        let gated = terminal == "vscode" && streaming
+        let fixtureDirectory = URL(fileURLWithPath: fixture).deletingLastPathComponent()
+        let streamMetadata = fixtureDirectory.appendingPathComponent("write-metadata-streaming.jsonl")
+        let streamControl = fixtureDirectory.appendingPathComponent("stream-control-streaming.json")
         let modes = try JSONDecoder().decode([String: [String]].self, from: arguments)
         guard let launchArguments = modes[streaming ? "streaming" : "idle"] else {
             XCTFail("Missing isolated launch arguments for the native scenario")
@@ -486,8 +570,9 @@ final class TerminalCompatibilityUITests: XCTestCase {
         let ready = NSPredicate { _, _ in
             startupValue = readTerminal() ?? ""
             return startupValue.contains("RESIZE_HISTORY retained text")
+                && (!gated || self.streamPositions(streamMetadata).contains { $0.kind == "stream-chunk" })
         }
-        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: app)], timeout: 30) == .completed else {
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: terminal == "vscode" ? nil : app)], timeout: 30) == .completed else {
             let text = XCTAttachment(string: String(startupValue.suffix(16_000)))
             text.name = "\(terminal)-startup-terminal"
             text.lifetime = .keepAlways
@@ -514,6 +599,11 @@ final class TerminalCompatibilityUITests: XCTestCase {
             }
             let frame = window.frame
             let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -2, dy: -2))
+            let streamBefore = gated ? streamPositions(streamMetadata).last { $0.kind == "stream-chunk" } : nil
+            guard !gated || streamBefore != nil else {
+                XCTFail("The streaming fixture did not publish its pre-gesture position")
+                return
+            }
             corner.press(forDuration: 0.1, thenDragTo: corner.withOffset(delta))
             if let identity = nativeIdentity {
                 guard let current = currentCodeWindow(app, identity: identity) else { return }
@@ -521,9 +611,19 @@ final class TerminalCompatibilityUITests: XCTestCase {
             }
             XCTAssertNotEqual(window.frame.size, frame.size, "The native window did not resize")
             XCTAssertTrue(displayBounds.contains(window.frame), "The resized fixture window left the display bounds")
+            let settlingDeadline = Date().addingTimeInterval(10)
+            if let before = streamBefore, !writeStreamCommand(streamControl, id: index * 2 + 1, action: "observe", position: before) { return }
+            var paused: NativeStreamPosition?
             var readout = NativeTerminalReadout(read: { readTerminal() }, requiresStreaming: streaming)
-            let settled = NSPredicate { _, _ in readout.capture() }
-            guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: window)], timeout: 10) == .completed,
+            let settled = NSPredicate { _, _ in
+                if paused == nil, let before = streamBefore {
+                    guard let position = nativeStreamPaused(self.streamPositions(streamMetadata), command: index * 2 + 1, before: before) else { return false }
+                    paused = position
+                }
+                return readout.capture(streamCounter: paused?.counter)
+            }
+            guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: terminal == "vscode" ? nil : window)],
+                                timeout: gated ? nativeSettlingTime(settlingDeadline) : 10) == .completed,
                   let content = readout.frame else {
                 let content = XCTAttachment(string: String((readout.frame ?? "No fresh terminal buffer was available").suffix(16_000)))
                 content.name = "\(terminal)-resize-\(index)-terminal"
@@ -541,13 +641,25 @@ final class TerminalCompatibilityUITests: XCTestCase {
             image.name = "\(terminal)-\(streaming ? "streaming" : "idle")-\(index)"
             image.lifetime = .keepAlways
             add(image)
+            if let paused {
+                guard writeStreamCommand(streamControl, id: index * 2 + 2, action: "resume", position: paused) else { return }
+                let resumed = NSPredicate { _, _ in
+                    nativeStreamResumed(self.streamPositions(streamMetadata), command: index * 2 + 2, after: paused)
+                }
+                let remaining = nativeSettlingTime(settlingDeadline)
+                guard remaining > 0,
+                      XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: resumed, object: nil)], timeout: remaining) == .completed else {
+                    XCTFail("The streaming fixture did not resume newer chunks within the original settling deadline")
+                    return
+                }
+            }
         }
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey("x", modifierFlags: .shift)
         copyPhase = "cursor"
         let edited = NSPredicate { _, _ in readTerminal()?.contains("taXil") == true }
-        expectation(for: edited, evaluatedWith: app)
+        expectation(for: edited, evaluatedWith: terminal == "vscode" ? nil : app)
         waitForExpectations(timeout: 10)
         app.typeKey(.escape, modifierFlags: [])
         app.typeKey("c", modifierFlags: .control)
@@ -555,7 +667,7 @@ final class TerminalCompatibilityUITests: XCTestCase {
         app.typeKey("c", modifierFlags: .control)
         app.typeKey("c", modifierFlags: .control)
         let exit = NSPredicate { _, _ in app.state == .notRunning || readTerminal()?.contains("RESIZE_PTY_EXIT") == true }
-        expectation(for: exit, evaluatedWith: app)
+        expectation(for: exit, evaluatedWith: terminal == "vscode" ? nil : app)
         waitForExpectations(timeout: 15)
         print(streaming ? "NATIVE_TERMINAL_STREAMING_PASS" : "NATIVE_TERMINAL_IDLE_PASS")
     }
@@ -696,6 +808,30 @@ final class TerminalCompatibilityUITests: XCTestCase {
         let value = copiedTerminalValue(app, native: native)
         guard nativeFixtureWindow(visibleNativeWindows(processIdentifier: identity.processIdentifier), identity: identity) == native else { return nil }
         return value
+    }
+
+    private func streamPositions(_ file: URL) -> [NativeStreamPosition] {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return [] }
+        defer { try? handle.close() }
+        guard let end = try? handle.seekToEnd(), (try? handle.seek(toOffset: end > 16_384 ? end - 16_384 : 0)) != nil,
+              let data = try? handle.read(upToCount: 16_384) else { return [] }
+        return nativeStreamPositions(data)
+    }
+
+    private func writeStreamCommand(_ file: URL, id: Int, action: String, position: NativeStreamPosition) -> Bool {
+        guard let counter = position.counter, let columns = position.columns, let rows = position.rows else {
+            XCTFail("The streaming fixture position is incomplete")
+            return false
+        }
+        do {
+            let data = try JSONEncoder().encode(NativeStreamCommand(id: id, action: action, counter: counter, columns: columns, rows: rows))
+            guard data.count <= 512 else { XCTFail("The stream observation command exceeded its bound"); return false }
+            try data.write(to: file, options: .atomic)
+            return true
+        } catch {
+            XCTFail("The streaming fixture control command could not be saved: \(error)")
+            return false
+        }
     }
 
     private func copiedTerminalValue(_ window: XCUIElement, native: NativeWindowFrame) -> String? {

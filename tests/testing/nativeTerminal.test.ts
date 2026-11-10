@@ -52,6 +52,7 @@ describe('native terminal automation boundary', () => {
     expect(fixture?.[1]).toContain('write-metadata-${fixture_mode}.jsonl');
     expect(fixture?.[1]).toContain('fixture_mode=streaming');
     expect(fixture?.[1]).toContain('fixture_mode=idle');
+    expect(fixture?.[1]).toContain('AUTOHAND_RESIZE_STREAM_CONTROL=');
   });
 
   it.each(['idle', 'streaming'])('focuses the existing terminal before each native copy in the isolated %s VS Code profile', async mode => {

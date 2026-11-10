@@ -98,7 +98,7 @@ jobs:
           defaults write com.googlecode.iterm2 ApplePersistenceIgnoreState -bool true
       - run: bun install --frozen-lockfile
       - name: Verify native automation boundary and disposable profiles
-        run: bun run test tests/testing/nativeTerminal.test.ts tests/testing/resizeWriteMetadata.test.ts
+        run: bun run test tests/testing/nativeTerminal.test.ts tests/testing/resizeWriteMetadata.test.ts tests/testing/resizeStreamGate.test.ts
       - run: bun run build
       - name: Run Tuistory with native XCTest window and accessibility checks
         run: bun run test:tuistory tests/tuistory/native-terminal.tuistory.test.ts
@@ -123,6 +123,7 @@ jobs:
             .artifacts/native-terminal/**/write-metadata-*.jsonl
             .artifacts/native-terminal/**/write-metadata-*.jsonl.pending
             .artifacts/native-terminal/**/copy-samples-*.jsonl
+            .artifacts/native-terminal/**/stream-control-*.json
             .artifacts/native-terminal/**/vscode-profile/**/settings.json
             .artifacts/native-terminal/**/vscode-profile/**/keybindings.json
           if-no-files-found: error
