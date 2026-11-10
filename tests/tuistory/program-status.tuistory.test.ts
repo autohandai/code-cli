@@ -116,15 +116,22 @@ describe('OSC7501 built terminal lifecycle', () => {
   }, 60_000);
 
   it('reports idle, a question wait, resumed work, done and scoped clear with a usable composer', async () => {
-    const { session } = await launch([
+    const { session, server } = await launch([
       { content: 'I need your choice.', toolCall: { id: 'question', name: 'ask_followup_question', args: { question: 'Choose a deployment target', suggested_answers: ['Staging', 'Production'] } } },
       { content: 'PROGRAM_STATUS_COMPLETE' },
     ]);
     await submitProgramStatusPrompt(session, 'Ask me which deployment target to use');
     await session.waitForText('Choose a deployment target');
     await vi.waitFor(() => expect(programStatusReports(session)).toContainEqual(expect.objectContaining({ state: 'blocked', kind: 'question' })));
+    await session.text({ waitFor: text => /▸\s+1\. Staging/u.test(text) });
+    await session.press('down');
+    await session.text({ waitFor: text => /▸\s+2\. Production/u.test(text) });
+    await session.press('up');
+    await session.text({ waitFor: text => /▸\s+1\. Staging/u.test(text) });
     await session.press('enter');
     await session.waitForText('PROGRAM_STATUS_COMPLETE');
+    expect(server.requests).toHaveLength(2);
+    expect(JSON.stringify(server.requests[1])).toContain('<answer>Staging</answer>');
     await vi.waitFor(() => expect(programStatusReports(session).at(-1)?.state).toBe('done'));
     expect(programStatusReports(session)[0]?.state).toBe('idle');
     const id = programStatusReports(session).find(report => report.state === 'working')?.id;
