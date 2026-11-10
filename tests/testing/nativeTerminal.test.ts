@@ -41,6 +41,24 @@ function preparedLaunchArguments(): Record<string, string[]> {
 }
 
 describe('native terminal automation boundary', () => {
+  it.each(['idle', 'streaming'])('installs a single native buffer-copy binding in the isolated %s VS Code profile', async mode => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    vi.stubEnv('CI', 'true');
+    vi.stubEnv('AUTOHAND_NATIVE_TERMINAL', 'vscode');
+    await prepareNativeTerminalTest();
+    const evidence = path.resolve('.artifacts/native-terminal/vscode/vscode-profile', mode, 'User/keybindings.json');
+    const bindingWrite = vi.mocked(writeFile).mock.calls.find(([file]) => file === evidence);
+    expect(bindingWrite).toBeDefined();
+    const bindings: unknown = JSON.parse(String(bindingWrite?.[1]));
+    expect(bindings).toEqual([{
+      key: 'ctrl+shift+y', command: 'runCommands', when: 'terminalFocus', args: {
+        commands: ['workbench.action.terminal.selectAll', 'workbench.action.terminal.copyAndClearSelection'],
+      },
+    }]);
+    expect(copyFile).toHaveBeenCalledWith(evidence, path.join('/private/tmp/ah-vsc-123456', mode, 'User/keybindings.json'));
+  });
+
   it.each(['idle', 'streaming'])('keeps the %s VS Code main socket below the macOS Unix socket limit in the Actions checkout', async mode => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     vi.stubEnv('GITHUB_ACTIONS', 'true');

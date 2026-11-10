@@ -121,5 +121,6 @@ jobs:
             .artifacts/native-terminal/**/screenshots
             .artifacts/native-terminal/**/xcodebuild.log
             .artifacts/native-terminal/**/vscode-profile/**/settings.json
+            .artifacts/native-terminal/**/vscode-profile/**/keybindings.json
           if-no-files-found: error
           retention-days: 7

@@ -35,11 +35,50 @@ private func nativeFixtureBaseline(current: CGRect, available: CGRect) -> CGRect
                   height: available.height - maximumGrowth.height - 4)
 }
 
+private func nativeFixturePreparationFrames(current: CGRect, available: CGRect) -> [CGRect] {
+    let target = nativeFixtureBaseline(current: current, available: available)
+    let reduced = CGRect(origin: current.origin, size: CGSize(width: min(current.width, target.width), height: min(current.height, target.height)))
+    return [reduced, CGRect(origin: target.origin, size: reduced.size), target]
+}
+
+private func nativeTerminalInputReady(terminal: String, textViewExists: Bool, splitTerminalEnabled: Bool) -> Bool {
+    terminal == "vscode" ? splitTerminalEnabled : textViewExists
+}
+
+private func nativeReadoutUsesCopiedBuffer(terminal: String, accessibilityHasFixture: Bool, copiedBufferHasFixture: Bool) -> Bool {
+    terminal == "vscode" && !accessibilityHasFixture && copiedBufferHasFixture
+}
+
 final class TerminalCompatibilityUITests: XCTestCase {
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
 
     @MainActor func testIdleResize() throws { try resizeScenario(streaming: false) }
     @MainActor func testStreamingResize() throws { try resizeScenario(streaming: true) }
+
+    func testNativeViewportShrinksBeforeMovingAFullWidthWindow() {
+        let display = CGRect(x: 0, y: 0, width: 1024, height: 768)
+        let available = CGRect(x: 0, y: 31, width: 1024, height: 674)
+        let frames = nativeFixturePreparationFrames(current: CGRect(x: 0, y: 31, width: 1024, height: 677), available: available)
+        for frame in frames {
+            XCTAssertTrue(display.contains(frame), "Every setup frame and resize corner must remain on-screen")
+        }
+        XCTAssertEqual(frames.last, nativeFixtureBaseline(current: CGRect(x: 0, y: 31, width: 1024, height: 677), available: available))
+    }
+
+    func testNativeInputReadinessUsesTheCodeTerminalInstanceInsteadOfATextViewRole() {
+        XCTAssertTrue(nativeTerminalInputReady(terminal: "vscode", textViewExists: false, splitTerminalEnabled: true))
+        XCTAssertFalse(nativeTerminalInputReady(terminal: "vscode", textViewExists: false, splitTerminalEnabled: false))
+        XCTAssertFalse(nativeTerminalInputReady(terminal: "vscode", textViewExists: true, splitTerminalEnabled: false))
+        XCTAssertFalse(nativeTerminalInputReady(terminal: "iterm2", textViewExists: false, splitTerminalEnabled: true))
+        XCTAssertTrue(nativeTerminalInputReady(terminal: "iterm2", textViewExists: true, splitTerminalEnabled: false))
+    }
+
+    func testNativeInputReadoutRequiresTheActualFixtureBeforeUsingTheCopiedBuffer() {
+        XCTAssertTrue(nativeReadoutUsesCopiedBuffer(terminal: "vscode", accessibilityHasFixture: false, copiedBufferHasFixture: true))
+        XCTAssertFalse(nativeReadoutUsesCopiedBuffer(terminal: "vscode", accessibilityHasFixture: false, copiedBufferHasFixture: false))
+        XCTAssertFalse(nativeReadoutUsesCopiedBuffer(terminal: "vscode", accessibilityHasFixture: true, copiedBufferHasFixture: true))
+        XCTAssertFalse(nativeReadoutUsesCopiedBuffer(terminal: "iterm2", accessibilityHasFixture: false, copiedBufferHasFixture: true))
+    }
 
     func testNativeViewportKeepsAllFourResizesWithinTheDisplayAndLargeEnoughForHistory() {
         let available = CGRect(x: 0, y: 31, width: 1024, height: 677)
@@ -174,21 +213,35 @@ final class TerminalCompatibilityUITests: XCTestCase {
                 self.openVSCodeTerminal(app)
                 return false
             }
-            return terminalView.exists
+            let split = app.menuBars.menuItems.matching(NSPredicate(format: "title == %@", "Split Terminal")).firstMatch
+            return nativeTerminalInputReady(terminal: terminal, textViewExists: terminal != "vscode" && terminalView.exists,
+                                            splitTerminalEnabled: terminal == "vscode" && split.exists && split.isEnabled)
         }
         guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: terminalReady, object: app)], timeout: 20) == .completed else {
             attachStartupFailure(app, terminal: terminal, phase: "terminal-view")
-            XCTFail("The native terminal did not expose its terminal text view")
+            XCTFail("The native terminal did not expose a ready input target")
             return
         }
-        terminalView.click()
+        if terminal != "vscode" { terminalView.click() }
         NSPasteboard.general.clearContents()
         XCTAssertTrue(NSPasteboard.general.writeObjects([command as NSString]))
         app.typeKey("v", modifierFlags: .command)
         app.typeKey(.return, modifierFlags: [])
         var startupValue = ""
+        var accessibilityStartup = ""
+        var copiedStartup = ""
+        var useCopiedBuffer = false
         let ready = NSPredicate { _, _ in
-            startupValue = self.terminalValue(window)
+            accessibilityStartup = self.terminalValue(window)
+            startupValue = accessibilityStartup
+            if !startupValue.contains("RESIZE_HISTORY retained text"), terminal == "vscode" {
+                copiedStartup = self.copiedTerminalValue(window)
+                accessibilityStartup = self.terminalValue(window)
+                useCopiedBuffer = nativeReadoutUsesCopiedBuffer(terminal: terminal,
+                    accessibilityHasFixture: accessibilityStartup.contains("RESIZE_HISTORY retained text"),
+                    copiedBufferHasFixture: copiedStartup.contains("RESIZE_HISTORY retained text"))
+                startupValue = useCopiedBuffer ? copiedStartup : accessibilityStartup
+            }
             return startupValue.contains("RESIZE_HISTORY retained text")
         }
         guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: app)], timeout: 30) == .completed else {
@@ -203,6 +256,14 @@ final class TerminalCompatibilityUITests: XCTestCase {
             XCTFail("The native terminal did not display the fixture history marker")
             return
         }
+        if terminal == "vscode" {
+            print("NATIVE_TERMINAL_READOUT vscode \(useCopiedBuffer ? "native-copy" : "accessibility")")
+            let evidence = XCTAttachment(string: "Readout: \(useCopiedBuffer ? "native-copy" : "accessibility")\nAccessibility:\n"
+                + String(accessibilityStartup.prefix(7_900)) + "\nCopied buffer:\n" + String(copiedStartup.prefix(7_900)))
+            evidence.name = "vscode-\(streaming ? "streaming" : "idle")-readout-preflight"
+            evidence.lifetime = .keepAlways
+            add(evidence)
+        }
         for (index, delta) in nativeResizeDeltas.enumerated() {
             let frame = window.frame
             let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -2, dy: -2))
@@ -210,11 +271,11 @@ final class TerminalCompatibilityUITests: XCTestCase {
             XCTAssertNotEqual(window.frame.size, frame.size, "The native window did not resize")
             XCTAssertTrue(displayBounds.contains(window.frame), "The resized fixture window left the display bounds")
             let settled = NSPredicate { _, _ in
-                let value = self.terminalValue(window)
+                let value = self.terminalValue(window, useCopiedBuffer: useCopiedBuffer)
                 return value.contains("RESIZE_HISTORY retained text") && value.contains("preserved draft")
             }
             guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: window)], timeout: 10) == .completed else {
-                let content = XCTAttachment(string: String(terminalValue(window).suffix(16_000)))
+                let content = XCTAttachment(string: String(terminalValue(window, useCopiedBuffer: useCopiedBuffer).suffix(16_000)))
                 content.name = "\(terminal)-resize-\(index)-terminal"
                 content.lifetime = .keepAlways
                 add(content)
@@ -222,7 +283,7 @@ final class TerminalCompatibilityUITests: XCTestCase {
                 XCTFail("The resized native window did not retain its history and draft")
                 return
             }
-            let content = terminalValue(window)
+            let content = terminalValue(window, useCopiedBuffer: useCopiedBuffer)
             XCTAssertEqual(content.components(separatedBy: "Autohand Code").count - 1, 1, content)
             XCTAssertEqual(content.components(separatedBy: "RESIZE_HISTORY retained text").count - 1, 1, content)
             XCTAssertEqual(content.components(separatedBy: "preserved draft").count - 1, 1, content)
@@ -235,14 +296,14 @@ final class TerminalCompatibilityUITests: XCTestCase {
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey(.leftArrow, modifierFlags: [])
         app.typeKey("x", modifierFlags: .shift)
-        let edited = NSPredicate { _, _ in self.terminalValue(window).contains("taXil") }
+        let edited = NSPredicate { _, _ in self.terminalValue(window, useCopiedBuffer: useCopiedBuffer).contains("taXil") }
         expectation(for: edited, evaluatedWith: app)
         waitForExpectations(timeout: 10)
         app.typeKey(.escape, modifierFlags: [])
         app.typeKey("c", modifierFlags: .control)
         app.typeKey("c", modifierFlags: .control)
         app.typeKey("c", modifierFlags: .control)
-        let exit = NSPredicate { _, _ in self.terminalValue(window).contains("RESIZE_PTY_EXIT") || app.state == .notRunning }
+        let exit = NSPredicate { _, _ in app.state == .notRunning || self.terminalValue(window, useCopiedBuffer: useCopiedBuffer).contains("RESIZE_PTY_EXIT") }
         expectation(for: exit, evaluatedWith: app)
         waitForExpectations(timeout: 15)
         print(streaming ? "NATIVE_TERMINAL_STREAMING_PASS" : "NATIVE_TERMINAL_IDLE_PASS")
@@ -259,12 +320,20 @@ final class TerminalCompatibilityUITests: XCTestCase {
         let visible = screen.visibleFrame
         let available = CGRect(x: visible.minX, y: desktopTop - visible.maxY, width: visible.width, height: visible.height)
         let target = nativeFixtureBaseline(current: window.frame, available: available)
-        let frame = window.frame
-        let grip = window.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: terminal == "vscode" ? 110 : frame.width * 0.75, dy: 12))
-        grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: target.minX - frame.minX, dy: target.minY - frame.minY)))
-        let moved = window.frame
-        let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -2, dy: -2))
-        corner.press(forDuration: 0.1, thenDragTo: corner.withOffset(CGVector(dx: target.width - moved.width, dy: target.height - moved.height)))
+        for step in nativeFixturePreparationFrames(current: window.frame, available: available) {
+            let frame = window.frame
+            if abs(step.minX - frame.minX) > 0.5 || abs(step.minY - frame.minY) > 0.5 {
+                let grip = window.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: terminal == "vscode" ? 110 : frame.width * 0.75, dy: 12))
+                grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: step.minX - frame.minX, dy: step.minY - frame.minY)))
+            }
+            let moved = window.frame
+            if abs(step.width - moved.width) > 0.5 || abs(step.height - moved.height) > 0.5 {
+                let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -2, dy: -2))
+                corner.press(forDuration: 0.1, thenDragTo: corner.withOffset(CGVector(dx: step.width - moved.width, dy: step.height - moved.height)))
+            }
+            print("NATIVE_TERMINAL_PREPARE \(terminal) \(window.frame) target=\(step) display=\(bounds)")
+            XCTAssertTrue(bounds.contains(window.frame), "Every fixture setup gesture must stay within the display")
+        }
         XCTAssertGreaterThanOrEqual(window.frame.height, target.height - 20, "The native fixture needs room for both transcript exchanges")
         XCTAssertTrue(bounds.contains(window.frame), "The fixture viewport must stay within the display")
         print("NATIVE_TERMINAL_VIEWPORT \(terminal) \(window.frame) display=\(available)")
@@ -309,7 +378,9 @@ final class TerminalCompatibilityUITests: XCTestCase {
 
     @MainActor
     private func attachStartupFailure(_ app: XCUIApplication, terminal: String, phase: String) {
-        let hierarchy = XCTAttachment(string: String(app.debugDescription.suffix(16_000)))
+        let description = app.debugDescription
+        let bounded = description.count > 16_000 ? String(description.prefix(8_000)) + "\n…\n" + String(description.suffix(7_997)) : description
+        let hierarchy = XCTAttachment(string: bounded)
         hierarchy.name = "\(terminal)-startup-\(phase)-hierarchy"
         hierarchy.lifetime = .keepAlways
         add(hierarchy)
@@ -323,7 +394,22 @@ final class TerminalCompatibilityUITests: XCTestCase {
         NativeAccessibilityText(label: element.label, title: element.title, value: element.value as? String ?? "")
     }
 
-    private func terminalValue(_ window: XCUIElement) -> String {
+    private func copiedTerminalValue(_ window: XCUIElement) -> String {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let generation = pasteboard.changeCount
+        window.typeKey("y", modifierFlags: [.control, .shift])
+        let written = NSPredicate { _, _ in pasteboard.changeCount > generation && pasteboard.string(forType: .string) != nil }
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: written, object: pasteboard)], timeout: 2) == .completed,
+              pasteboard.changeCount > generation, let value = pasteboard.string(forType: .string) else {
+            XCTFail("VS Code did not copy a fresh terminal buffer through its native readout binding")
+            return ""
+        }
+        return value
+    }
+
+    private func terminalValue(_ window: XCUIElement, useCopiedBuffer: Bool = false) -> String {
+        if useCopiedBuffer { return copiedTerminalValue(window) }
         let values = window.textViews.allElementsBoundByIndex.compactMap { $0.value as? String }
         if let terminal = values.filter({ $0.contains("RESIZE_HISTORY retained text") }).max(by: { $0.count < $1.count }) {
             return terminal

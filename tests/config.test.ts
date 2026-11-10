@@ -23,15 +23,26 @@ describe('configuration write contention', () => {
     const config = await loadConfig(configPath);
     const lease = await atomicFiles.acquireFileLock(`${configPath}.lock`);
     expect(lease).not.toBeNull();
+    const scheduleDeadline = globalThis.setTimeout;
+    const clearDeadline = globalThis.clearTimeout;
     vi.useFakeTimers();
     const timerBaseline = vi.getTimerCount();
-    const retryTimer = vi.spyOn(globalThis, 'setTimeout');
+    const retryScheduled = Promise.withResolvers<void>();
+    const scheduleTimeout = globalThis.setTimeout;
+    const retryTimer = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) => {
+      const timer = scheduleTimeout(callback, delay, ...args);
+      if (delay === 25) retryScheduled.resolve();
+      return timer;
+    });
+    const retryDeadline = scheduleDeadline(() => retryScheduled.reject(new Error('Configuration writer did not schedule a lock retry')), 1_000);
     try {
       const result = (operation === 'configuration'
         ? saveConfig({ ...config, mcp: { servers: [{ name: 'fixture', transport: 'http', url: 'https://example.com/mcp' }] } })
         : saveValidatedAuth({ ...config, auth: { token: 'fixture-token', user: { id: 'updated', email: 'fixture@example.com' } } }, 'fixture-token'))
         .then(() => undefined, (error: unknown) => error);
-      await vi.waitFor(() => expect(retryTimer.mock.calls.some(([, delay]) => delay === 25)).toBe(true));
+      await retryScheduled.promise;
+      clearDeadline(retryDeadline);
+      expect(vi.getTimerCount()).toBe(timerBaseline + 1);
       await lease?.release();
       await vi.runAllTimersAsync();
       await expect(result).resolves.toBeUndefined();
@@ -40,6 +51,7 @@ describe('configuration write contention', () => {
       else expect(saved.auth.user.id).toBe('updated');
       expect(vi.getTimerCount()).toBe(timerBaseline);
     } finally {
+      clearDeadline(retryDeadline);
       retryTimer.mockRestore();
       vi.useRealTimers();
       await lease?.release();
