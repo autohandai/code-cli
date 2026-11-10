@@ -2,7 +2,7 @@
 
 This candidate combines the remaining Igor-authored work from [#745](https://github.com/autohandai/code-cli/pull/745), [#743](https://github.com/autohandai/code-cli/pull/743), [#742](https://github.com/autohandai/code-cli/pull/742), [#727](https://github.com/autohandai/code-cli/pull/727), [#690](https://github.com/autohandai/code-cli/pull/690), [#669](https://github.com/autohandai/code-cli/pull/669), and [#747](https://github.com/autohandai/code-cli/pull/747), together with the saved-session input fix from `df44f764`.
 
-The integration starts from main at `150be8938f3bacd4264f0622e88dcffc465bfc8f`. It preserves the intervening explicit Git-initialization change, atomic configuration writes, partial cloud-history protection, extension reload coordination, and permission enforcement. The first validation revision was paused when #747 was added to the requested scope; the expanded revision receives fresh combined checks.
+The integration starts from main at `150be8938f3bacd4264f0622e88dcffc465bfc8f`. It preserves the intervening explicit Git-initialization change, atomic configuration writes, partial cloud-history protection, extension reload coordination, and permission enforcement. The combined revision receives fresh tests, lint, full proof, and terminal compatibility checks before merge.
 
 | Area | Resulting behavior | Reference |
 | --- | --- | --- |
@@ -13,6 +13,7 @@ The integration starts from main at `150be8938f3bacd4264f0622e88dcffc465bfc8f`. 
 | Command output | Cap model observations while preserving complete oversized output in private session artifacts; streamed and nested command paths use the same cap. | [Configuration reference](../config-reference.md) |
 | Computer Use | Temporarily enter AUTO for the computer task and restore the preceding mode, preserving subsequent manual selections, explicit denials, hooks, and restricted mode. | [Computer control](../computer-control.md) |
 | Saved sessions | Accept composer edits while restoring history and defer submitted work until restoration completes. | [Resume terminal tests](../../tests/tuistory/resume.tuistory.test.ts) |
+| Composer ownership | Keep an existing or newly typed draft when an older slash command or extension view completes, cancels, or fails. Input submission is consumed at dispatch, so delayed completion cannot clear a later draft. | [Extension authoring](../extension-authoring.md) |
 | CLI contract | Bootstrap the current 199 option definitions across 52 command paths, and compare future changes with the committed main snapshot. | [Option contract](../compatibility/claude-code/README.md) |
 | macOS distribution | Check transported CLI and trace binaries for notarization in addition to existing signature checks. | [Release workflow](../../.github/workflows/release.yml) |
 | Providers | Keep the active provider when removing an inactive custom entry; preserve it if replacement is cancelled. Cloud restoration clears previous local transport settings. Bound OpenAI-family native tool requests, including delegated agents, and use compatible Azure reasoning parameters. | [Provider reference](../providers.md) |
