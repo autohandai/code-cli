@@ -9,8 +9,8 @@ import { AgentRegistry, type AgentDefinition } from '../../../src/core/agents/Ag
 import type { LLMProvider } from '../../../src/providers/LLMProvider.js';
 import type { ActionExecutor } from '../../../src/core/actionExecutor.js';
 import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
-import type { ToolAuthorizationOptions } from '../../../src/core/toolManager.js';
-import type { LoadedConfig } from '../../../src/types.js';
+import type { ToolAuthorizationOptions, ToolManager } from '../../../src/core/toolManager.js';
+import type { FunctionDefinition, LoadedConfig } from '../../../src/types.js';
 
 function nativeToolCall(name: string, args: Record<string, unknown>, id = `call-${name}`) {
   return {
@@ -21,6 +21,93 @@ function nativeToolCall(name: string, args: Record<string, unknown>, id = `call-
 }
 
 describe('SubAgent', () => {
+  it('caps a native child request while retaining discovery and the requested tool when code mode is disabled', async () => {
+    const complete = vi.fn().mockResolvedValue({ id: 'bounded', created: 0, raw: null, content: 'Reviewed.' });
+    const agent = new SubAgent({
+      name: 'reader', description: 'Reader', systemPrompt: 'Inspect assigned source.', tools: ['read_file'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'openai', complete,
+      getCapabilities: () => ({ nativeToolCalling: true, maxTools: 128 }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+      featureConfig: { provider: 'openai', features: { codeMode: false } } as LoadedConfig,
+    });
+    const definitions: FunctionDefinition[] = [
+      ...Array.from({ length: 140 }, (_, index) => ({ name: `fixture_${index}`, description: 'Inspect source.' })),
+      { name: 'tool_search', description: 'Discover available tools.' },
+      { name: 'read_file', description: 'Read the assigned source.' },
+    ];
+    const internals = agent as unknown as { toolManager: { toFunctionDefinitions(): FunctionDefinition[] } };
+    vi.spyOn(internals.toolManager, 'toFunctionDefinitions').mockReturnValue(definitions);
+    await expect(agent.run('Use fixture_139 and read_file to inspect the source.')).resolves.toBe('Reviewed.');
+    const sent = complete.mock.calls[0][0].tools;
+    expect(sent).toHaveLength(128);
+    expect(sent).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'tool_search' }),
+      expect.objectContaining({ name: 'read_file' }),
+      expect.objectContaining({ name: 'fixture_139' }),
+    ]));
+  });
+
+  it('retains a newly discovered child tool within the next native request budget', async () => {
+    const complete = vi.fn().mockResolvedValueOnce({ id: 'discovery', created: 0, raw: null, content: '',
+      toolCalls: [nativeToolCall('tool_search', { query: 'fixture_139' })],
+    }).mockResolvedValue({ id: 'reviewed', created: 0, raw: null, content: 'Reviewed.' });
+    const agent = new SubAgent({
+      name: 'reader', description: 'Reader', systemPrompt: 'Inspect assigned source.', tools: ['read_file', 'tool_search'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'openai', complete,
+      getCapabilities: () => ({ nativeToolCalling: true, maxTools: 128 }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, {} as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1,
+      featureConfig: { provider: 'openai', features: { codeMode: false } } as LoadedConfig,
+    });
+    const definitions: FunctionDefinition[] = [
+      ...Array.from({ length: 140 }, (_, index) => ({ name: `fixture_${index}`, description: 'Inspect source.' })),
+      { name: 'tool_search', description: 'Discover available tools.' },
+    ];
+    const internals = agent as unknown as { toolManager: Pick<ToolManager, 'toFunctionDefinitions' | 'execute'> };
+    vi.spyOn(internals.toolManager, 'toFunctionDefinitions').mockReturnValue(definitions);
+    vi.spyOn(internals.toolManager, 'execute').mockResolvedValue([
+      { tool: 'tool_search', success: true, output: '{"name":"fixture_139","description":"Inspect source."}' },
+    ]);
+    await expect(agent.run('Discover a suitable tool, then inspect the source.')).resolves.toBe('Reviewed.');
+    expect(complete).toHaveBeenCalledTimes(2);
+    const [first, next] = complete.mock.calls.map(([request]) => request.tools);
+    expect(first).toHaveLength(128);
+    expect(first).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: 'fixture_139' })]));
+    expect(next).toHaveLength(128);
+    expect(next).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'tool_search' }), expect.objectContaining({ name: 'fixture_139' }),
+    ]));
+  });
+
+  it('sends the bounded command observation instead of raw display output to the child provider', async () => {
+    const complete = vi.fn().mockResolvedValueOnce({ id: 'command', created: 0, raw: null, content: '',
+      toolCalls: [nativeToolCall('run_command', { command: 'seq 1 400000' })],
+    }).mockResolvedValue({ id: 'result', created: 0, raw: null, content: '400000' });
+    const executeForTool = vi.fn().mockResolvedValue({
+      success: true, output: 'RAW_DISPLAY_ONLY '.repeat(10_000), modelOutput: 'Bounded command result: 400000',
+    });
+    const agent = new SubAgent({
+      name: 'reader', description: 'Reader', systemPrompt: 'Inspect assigned source.', tools: ['run_command'], path: '/tmp/reader.md',
+    }, {
+      getName: () => 'openai', complete,
+      getCapabilities: () => ({ nativeToolCalling: true, maxTools: 128 }),
+      listModels: async () => [], isAvailable: async () => true, setModel: () => {},
+    }, { executeForTool } as unknown as ActionExecutor, {
+      clientContext: 'cli', depth: 1, maxDepth: 1, confirmApproval: async () => true,
+      featureConfig: { provider: 'openai', features: { codeMode: false } } as LoadedConfig,
+    });
+    await expect(agent.run('Run the command and report the last number.')).resolves.toBe('400000');
+    expect(executeForTool).toHaveBeenCalledOnce();
+    const observation = complete.mock.calls[1][0].messages.find((message: { role: string }) => message.role === 'tool');
+    expect(observation?.content).toBe('Bounded command result: 400000');
+    expect(JSON.stringify(complete.mock.calls[1][0])).not.toContain('RAW_DISPLAY_ONLY');
+  });
+
   it.each(['task', 'tool output'])('refuses an oversized %s before sending a child request beyond the configured context window', async source => {
     const complete = vi.fn(async (_request: Parameters<LLMProvider['complete']>[0]) => ({
       id: 'fixture', created: 0, raw: null, content: '',

@@ -17,6 +17,8 @@
 - Bound command output sent to the model while retaining complete oversized output in private session artifacts. Configure the limit with `tools.maxCommandOutputChars` or `AUTOHAND_MAX_COMMAND_OUTPUT_CHARS`.
 - Discover installed skills through a compact name index and load descriptions on demand. Keep approved completions to one confirmed reply instead of displaying the candidate before its required review.
 - Require notarization checks for transported macOS CLI and trace binaries, and protect the existing CLI option contract with a committed snapshot.
+- Preserve the active provider and model when removing another custom provider, and clear remembered local transport settings when restoring the cloud account.
+- Bound OpenAI-family tool requests to 128 definitions, including delegated agents, and use compatible completion parameters for Azure reasoning models.
 
 ### Testing
 

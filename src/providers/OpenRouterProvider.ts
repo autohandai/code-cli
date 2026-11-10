@@ -29,7 +29,7 @@ export class OpenRouterProvider implements LLMProvider {
   }
 
   getCapabilities(): LLMProviderCapabilities {
-    return { nativeToolCalling: true };
+    return { nativeToolCalling: true, ...(this.model.toLowerCase().startsWith("openai/") ? { maxTools: 128 } : {}) };
   }
 
   setModel(model: string): void {

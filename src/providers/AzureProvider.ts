@@ -37,7 +37,7 @@ export class AzureProvider implements LLMProvider {
   }
 
   getCapabilities(): LLMProviderCapabilities {
-    return { nativeToolCalling: true };
+    return { nativeToolCalling: true, maxTools: 128 };
   }
 
   setModel(model: string): void {

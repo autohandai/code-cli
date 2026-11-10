@@ -10,6 +10,7 @@ Autohand supports multiple LLM providers, giving you flexibility to choose betwe
   - [OpenRouter](#openrouter)
   - [Anthropic](#anthropic)
   - [OpenAI](#openai)
+  - [Azure OpenAI](#azure-openai)
   - [LLM Gateway](#llm-gateway)
   - [DeepSeek](#deepseek)
   - [AWS Bedrock](#aws-bedrock)
@@ -227,6 +228,8 @@ See Anthropic's [model overview](https://platform.claude.com/docs/en/about-claud
 
 Direct access to OpenAI's API for GPT-5, o3, and other OpenAI models.
 
+The native tool envelope is limited to 128 function definitions for OpenAI, Azure, and OpenRouter models under `openai/`. The runtime retains discovery and relevant tools within that budget, including delegated agents with code mode disabled. Other OpenRouter model families keep their own capability settings.
+
 **Setup:**
 
 1. Choose one of these authentication methods:
@@ -267,6 +270,12 @@ Or use ChatGPT auth:
 | `o1-mini` | Faster reasoning model |
 
 ---
+
+### Azure OpenAI
+
+Azure currently uses the deployment-scoped Chat Completions API. Recognized GPT-5 and later models and o1/o3/o4 reasoning families use `max_completion_tokens` and omit temperature; `gpt-4o` retains its existing `max_tokens` and temperature behavior. Configure the actual model family separately from the deployment name so the correct parameters are selected.
+
+This parameter correction does not add an Azure Responses transport. Deployments that require Responses remain a separate compatibility follow-up; mocked Chat Completions tests do not qualify a live Azure tool turn. See Microsoft's [reasoning model guidance](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/reasoning) and [Responses API documentation](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses) for the deployment's supported API path.
 
 ### LLM Gateway
 
@@ -829,6 +838,8 @@ For local gateways without bearer auth:
 Custom provider telemetry and session sync include the provider id, display name, API format, model id, reasoning effort, and context window when available. Secrets such as `apiKey` are not sent. When `reasoningEffort` is set, Autohand sends it to the provider as `reasoning_effort`.
 
 You can remove a custom provider from `/model` by opening that provider's settings and choosing **Remove custom provider**.
+
+Removing an inactive custom provider preserves the current provider and model. Removing the active provider restores the signed-in Autohand account, preserving its cloud configuration or clearing a previous local model's transport settings. Without a signed-in account, select a replacement; cancelling keeps the active custom provider and its saved configuration.
 
 ---
 

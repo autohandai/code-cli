@@ -110,16 +110,9 @@ describe('native tool capability declarations', () => {
       },
     ];
 
-    expect(
-      providers.map(({ name, provider }) => ({
-        name,
-        capabilities: provider.getCapabilities?.(),
-      })),
-    ).toEqual(
-      providers.map(({ name }) => ({
-        name,
-        capabilities: { nativeToolCalling: true },
-      })),
-    );
+    for (const { name, provider } of providers) {
+      expect(provider.getCapabilities?.(), name).toMatchObject({ nativeToolCalling: true });
+    }
+
   });
 });
