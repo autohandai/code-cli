@@ -1,13 +1,14 @@
 /** @license Apache-2.0 */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
+import { copyFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { prepareNativeTerminalTest } from '../../src/testing/drivers/native-terminal-driver.js';
 
 vi.mock('node:child_process', () => ({ execFileSync: vi.fn(() => '/test/bin/bun\n') }));
 vi.mock('node:fs/promises', () => ({
   copyFile: vi.fn(), mkdir: vi.fn(), writeFile: vi.fn(),
+  mkdtemp: vi.fn(async () => '/private/tmp/ah-vsc-123456'),
   readdir: vi.fn(async () => ['TerminalLab_macosx.xctestrun']),
 }));
 
@@ -16,20 +17,43 @@ const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
 afterEach(() => {
   Object.defineProperty(process, 'platform', platform);
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
-function preparedLaunchArguments(): unknown {
+function preparedLaunchArguments(): Record<string, string[]> {
   const environmentWrite = vi.mocked(execFileSync).mock.calls.find(([file]) => file === '/usr/bin/python3');
   const environment: unknown = JSON.parse(String(environmentWrite?.[1]?.[3]));
   if (!environment || typeof environment !== 'object' || !('AUTOHAND_NATIVE_LAUNCH_ARGUMENTS' in environment)
     || typeof environment.AUTOHAND_NATIVE_LAUNCH_ARGUMENTS !== 'string') {
     throw new Error('Native test launch arguments were not passed to XCTest');
   }
-  return JSON.parse(environment.AUTOHAND_NATIVE_LAUNCH_ARGUMENTS);
+  const parsed: unknown = JSON.parse(environment.AUTOHAND_NATIVE_LAUNCH_ARGUMENTS);
+  if (!parsed || typeof parsed !== 'object') throw new Error('Invalid native launch argument map');
+  const result: Record<string, string[]> = {};
+  for (const [mode, argumentsForMode] of Object.entries(parsed)) {
+    if (!Array.isArray(argumentsForMode) || !argumentsForMode.every((argument: unknown) => typeof argument === 'string')) {
+      throw new Error('Invalid native launch arguments');
+    }
+    result[mode] = argumentsForMode;
+  }
+  return result;
 }
 
 describe('native terminal automation boundary', () => {
+  it.each(['idle', 'streaming'])('keeps the %s VS Code main socket below the macOS Unix socket limit in the Actions checkout', async mode => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    vi.stubEnv('CI', 'true');
+    vi.stubEnv('AUTOHAND_NATIVE_TERMINAL', 'vscode');
+    vi.spyOn(process, 'cwd').mockReturnValue('/Users/runner/work/code-cli/code-cli');
+    await prepareNativeTerminalTest();
+    const argumentsForMode = preparedLaunchArguments()[mode];
+    const profile = argumentsForMode[argumentsForMode.indexOf('--user-data-dir') + 1];
+    expect(profile).toBeDefined();
+    expect(Buffer.byteLength(path.join(profile, '1.14-main.sock'))).toBeLessThan(104);
+  });
+
   it('refuses to launch or terminate applications on a developer machine', async () => {
     vi.stubEnv('GITHUB_ACTIONS', 'false');
     await expect(prepareNativeTerminalTest()).rejects.toThrow('isolated macOS GitHub Actions runner');
@@ -52,6 +76,7 @@ describe('native terminal automation boundary', () => {
     const test = await prepareNativeTerminalTest();
 
     const profile = path.resolve('.artifacts/native-terminal/vscode/vscode-profile', mode);
+    const runtimeProfile = path.join('/private/tmp/ah-vsc-123456', mode);
     const settingsWrite = vi.mocked(writeFile).mock.calls.find(([file]) => file === path.join(profile, 'User/settings.json'));
     expect(settingsWrite).toBeDefined();
     const settings: unknown = JSON.parse(String(settingsWrite?.[1]));
@@ -65,14 +90,15 @@ describe('native terminal automation boundary', () => {
     const launchArguments = preparedLaunchArguments();
     expect(launchArguments).toMatchObject({
       [mode]: expect.arrayContaining([
-        '--force-renderer-accessibility', '--user-data-dir', profile,
-        '--extensions-dir', path.join(profile, 'extensions'), '--disable-extensions',
+        '--force-renderer-accessibility', '--user-data-dir', runtimeProfile,
+        '--extensions-dir', path.join(runtimeProfile, 'extensions'), '--disable-extensions',
       ]),
     });
     expect(launchArguments).toMatchObject({
-      idle: expect.not.arrayContaining([path.resolve('.artifacts/native-terminal/vscode/vscode-profile/streaming')]),
-      streaming: expect.not.arrayContaining([path.resolve('.artifacts/native-terminal/vscode/vscode-profile/idle')]),
+      idle: expect.not.arrayContaining([path.join('/private/tmp/ah-vsc-123456', 'streaming')]),
+      streaming: expect.not.arrayContaining([path.join('/private/tmp/ah-vsc-123456', 'idle')]),
     });
+    expect(copyFile).toHaveBeenCalledWith(path.join(profile, 'User', 'settings.json'), path.join(runtimeProfile, 'User', 'settings.json'));
     expect(test.args[0]).toBe('test-without-building');
     expect(test.resultBundle).toBe(path.resolve('.artifacts/native-terminal/vscode/NativeTerminal.xcresult'));
     expect(execFileSync).not.toHaveBeenCalledWith('/usr/bin/xcodebuild', expect.arrayContaining(['test-without-building']), expect.anything());

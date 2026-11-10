@@ -18,11 +18,40 @@ private func localNetworkDenialButton(dialog: [NativeAccessibilityText], buttons
     }
 }
 
+private let nativeResizeDeltas = [CGVector(dx: -160, dy: -100), CGVector(dx: 240, dy: 160),
+                                  CGVector(dx: -200, dy: -120), CGVector(dx: 160, dy: 100)]
+
+private func nativeFixtureBaseline(current: CGRect, available: CGRect) -> CGRect {
+    var growth = CGSize.zero
+    var maximumGrowth = CGSize.zero
+    for delta in nativeResizeDeltas {
+        growth.width += delta.dx
+        growth.height += delta.dy
+        maximumGrowth.width = max(maximumGrowth.width, growth.width)
+        maximumGrowth.height = max(maximumGrowth.height, growth.height)
+    }
+    return CGRect(x: available.minX + 20, y: available.minY + 2,
+                  width: min(current.width, available.width - maximumGrowth.width - 40),
+                  height: available.height - maximumGrowth.height - 4)
+}
+
 final class TerminalCompatibilityUITests: XCTestCase {
     private var environment: [String: String] { ProcessInfo.processInfo.environment }
 
     @MainActor func testIdleResize() throws { try resizeScenario(streaming: false) }
     @MainActor func testStreamingResize() throws { try resizeScenario(streaming: true) }
+
+    func testNativeViewportKeepsAllFourResizesWithinTheDisplayAndLargeEnoughForHistory() {
+        let available = CGRect(x: 0, y: 31, width: 1024, height: 677)
+        var frame = nativeFixtureBaseline(current: CGRect(x: 400, y: 246, width: 587, height: 462), available: available)
+        for delta in nativeResizeDeltas {
+            frame.size.width += delta.dx
+            frame.size.height += delta.dy
+            XCTAssertTrue(available.contains(frame))
+            XCTAssertGreaterThanOrEqual(frame.width, 400)
+            XCTAssertGreaterThanOrEqual(frame.height, 500)
+        }
+    }
 
     func testLocalNetworkPermissionUsesStaticTextValueAndButtonTitle() {
         let dialog = [NativeAccessibilityText(value: "Allow “iTerm” to find devices on local networks?")]
@@ -85,6 +114,10 @@ final class TerminalCompatibilityUITests: XCTestCase {
             return
         }
         app.launchArguments = launchArguments
+        if let profileIndex = launchArguments.firstIndex(of: "--user-data-dir"), profileIndex + 1 < launchArguments.count {
+            let profile = launchArguments[profileIndex + 1]
+            addTeardownBlock { self.attachApplicationLogs(profile: profile) }
+        }
         let launch = expectation(description: "Launch the installed terminal through macOS")
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.arguments = app.launchArguments
@@ -120,6 +153,12 @@ final class TerminalCompatibilityUITests: XCTestCase {
             }
             window = app.windows.firstMatch
         }
+        guard let fixtureWindow = app.windows.allElementsBoundByAccessibilityElement.first else {
+            XCTFail("The native fixture window disappeared before viewport setup")
+            return
+        }
+        window = fixtureWindow
+        let displayBounds = normalizeViewport(window, terminal: terminal)
         if terminal == "vscode" {
             guard app.menuBars.menuBarItems["Terminal"].waitForExistence(timeout: 30) else {
                 attachStartupFailure(app, terminal: terminal, phase: "workbench")
@@ -164,18 +203,25 @@ final class TerminalCompatibilityUITests: XCTestCase {
             XCTFail("The native terminal did not display the fixture history marker")
             return
         }
-        for (index, delta) in [CGVector(dx: -160, dy: -100), CGVector(dx: 240, dy: 160),
-                               CGVector(dx: -200, dy: -120), CGVector(dx: 160, dy: 100)].enumerated() {
+        for (index, delta) in nativeResizeDeltas.enumerated() {
             let frame = window.frame
             let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -2, dy: -2))
             corner.press(forDuration: 0.1, thenDragTo: corner.withOffset(delta))
             XCTAssertNotEqual(window.frame.size, frame.size, "The native window did not resize")
+            XCTAssertTrue(displayBounds.contains(window.frame), "The resized fixture window left the display bounds")
             let settled = NSPredicate { _, _ in
                 let value = self.terminalValue(window)
                 return value.contains("RESIZE_HISTORY retained text") && value.contains("preserved draft")
             }
-            expectation(for: settled, evaluatedWith: app)
-            waitForExpectations(timeout: 10)
+            guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: window)], timeout: 10) == .completed else {
+                let content = XCTAttachment(string: String(terminalValue(window).suffix(16_000)))
+                content.name = "\(terminal)-resize-\(index)-terminal"
+                content.lifetime = .keepAlways
+                add(content)
+                attachStartupFailure(app, terminal: terminal, phase: "resize-\(index)")
+                XCTFail("The resized native window did not retain its history and draft")
+                return
+            }
             let content = terminalValue(window)
             XCTAssertEqual(content.components(separatedBy: "Autohand Code").count - 1, 1, content)
             XCTAssertEqual(content.components(separatedBy: "RESIZE_HISTORY retained text").count - 1, 1, content)
@@ -200,6 +246,46 @@ final class TerminalCompatibilityUITests: XCTestCase {
         expectation(for: exit, evaluatedWith: app)
         waitForExpectations(timeout: 15)
         print(streaming ? "NATIVE_TERMINAL_STREAMING_PASS" : "NATIVE_TERMINAL_IDLE_PASS")
+    }
+
+    @MainActor
+    private func normalizeViewport(_ window: XCUIElement, terminal: String) -> CGRect {
+        guard let screen = NSScreen.main else {
+            XCTFail("The native terminal runner has no display")
+            return .zero
+        }
+        let desktopTop = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+        let bounds = CGRect(x: screen.frame.minX, y: desktopTop - screen.frame.maxY, width: screen.frame.width, height: screen.frame.height)
+        let visible = screen.visibleFrame
+        let available = CGRect(x: visible.minX, y: desktopTop - visible.maxY, width: visible.width, height: visible.height)
+        let target = nativeFixtureBaseline(current: window.frame, available: available)
+        let frame = window.frame
+        let grip = window.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: terminal == "vscode" ? 110 : frame.width * 0.75, dy: 12))
+        grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: target.minX - frame.minX, dy: target.minY - frame.minY)))
+        let moved = window.frame
+        let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -2, dy: -2))
+        corner.press(forDuration: 0.1, thenDragTo: corner.withOffset(CGVector(dx: target.width - moved.width, dy: target.height - moved.height)))
+        XCTAssertGreaterThanOrEqual(window.frame.height, target.height - 20, "The native fixture needs room for both transcript exchanges")
+        XCTAssertTrue(bounds.contains(window.frame), "The fixture viewport must stay within the display")
+        print("NATIVE_TERMINAL_VIEWPORT \(terminal) \(window.frame) display=\(available)")
+        return bounds
+    }
+
+    private func attachApplicationLogs(profile: String) {
+        let logs = URL(fileURLWithPath: profile).appendingPathComponent("logs")
+        guard let files = FileManager.default.enumerator(at: logs, includingPropertiesForKeys: nil) else { return }
+        var count = 0
+        for case let file as URL in files where file.lastPathComponent == "main.log" && count < 4 {
+            guard let handle = try? FileHandle(forReadingFrom: file) else { continue }
+            defer { try? handle.close() }
+            guard let end = try? handle.seekToEnd(), (try? handle.seek(toOffset: end > 16_000 ? end - 16_000 : 0)) != nil,
+                  let data = try? handle.read(upToCount: 16_000) else { continue }
+            let log = XCTAttachment(string: String(decoding: data, as: UTF8.self))
+            log.name = "vscode-\(URL(fileURLWithPath: profile).lastPathComponent)-main-log-\(count)"
+            log.lifetime = .keepAlways
+            add(log)
+            count += 1
+        }
     }
 
     @discardableResult

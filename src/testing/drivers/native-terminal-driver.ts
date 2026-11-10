@@ -1,6 +1,6 @@
 /** @license Apache-2.0 */
 import { execFileSync } from 'node:child_process';
-import { copyFile, mkdir, readdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export async function prepareNativeTerminalTest(): Promise<{ args: string[]; resultBundle: string }> {
@@ -22,6 +22,7 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
   const bun = execFileSync('/bin/sh', ['-c', 'command -v bun'], { encoding: 'utf8' }).trim();
   await writeFile(fixture, `#!/bin/sh\nset -eu\ncd ${quote(root)}\nexport AUTOHAND_HOME=${quote(path.join(output, 'home'))}\nexport CI=false\nexec ${quote(bun)} src/testing/scenarios/resizeFlickerScenario.tsx --full-screen --multiline "$@"\n`, { mode: 0o755 });
   const profile = path.join(output, 'vscode-profile');
+  const runtimeProfile = terminal === 'vscode' ? await mkdtemp('/private/tmp/ah-vsc-') : undefined;
   const settings = {
     'chat.disableAIFeatures': true,
     'editor.accessibilitySupport': 'on', 'workbench.startupEditor': 'none', 'window.restoreWindows': 'none',
@@ -31,9 +32,15 @@ export async function prepareNativeTerminalTest(): Promise<{ args: string[]; res
   };
   const launchArguments: Record<string, string[]> = {};
   for (const mode of ['idle', 'streaming']) {
-    const isolatedProfile = path.join(profile, mode);
-    await mkdir(path.join(isolatedProfile, 'User'), { recursive: true });
-    await writeFile(path.join(isolatedProfile, 'User', 'settings.json'), JSON.stringify(settings));
+    const evidenceProfile = path.join(profile, mode);
+    await mkdir(path.join(evidenceProfile, 'User'), { recursive: true });
+    const settingsFile = path.join(evidenceProfile, 'User', 'settings.json');
+    await writeFile(settingsFile, JSON.stringify(settings));
+    const isolatedProfile = path.join(runtimeProfile ?? profile, mode);
+    if (runtimeProfile) {
+      await mkdir(path.join(isolatedProfile, 'User'), { recursive: true });
+      await copyFile(settingsFile, path.join(isolatedProfile, 'User', 'settings.json'));
+    }
     launchArguments[mode] = terminal === 'vscode'
       ? ['--user-data-dir', isolatedProfile, '--extensions-dir', path.join(isolatedProfile, 'extensions'),
         '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',

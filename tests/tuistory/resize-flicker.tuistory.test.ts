@@ -14,6 +14,42 @@ let state: TuistoryTempState | undefined;
 afterEach(async () => { session?.close(); await state?.cleanup(); session = undefined; state = undefined; });
 
 describe('terminal resize frames', () => {
+  it('clips older history at the native 57x19 viewport and restores it when the streaming multiline viewport grows', async () => {
+    state = await createTempAutohandHome();
+    session = await launchTuistorySession({
+      command: 'bun',
+      args: [path.resolve('src/testing/scenarios/resizeFlickerScenario.tsx'), '--full-screen', '--streaming', '--multiline'],
+      cwd: process.cwd(), cols: 100, rows: 30, waitForDataTimeout: 15_000,
+      env: { ...process.env, AUTOHAND_HOME: state.autohandHome, CI: 'false', TERM: 'xterm-256color',
+        TERM_PROGRAM: 'iTerm.app', FORCE_COLOR: '0' },
+    });
+    await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => screen.includes('RESIZE_HISTORY retained text') && /RESIZE_STREAM \d+/u.test(screen) });
+    session.resize({ cols: 57, rows: 19 });
+    const compact = await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => screen.includes('preserved draft') && /RESIZE_STREAM \d+/u.test(screen)
+        && !screen.includes('RESIZE_HISTORY retained text') });
+    expect(compact.match(/Autohand Code/gu)).toHaveLength(1);
+    expect(compact.match(/preserved draft/gu)).toHaveLength(1);
+    await session.press('left');
+    await session.press('left');
+    await session.type('X');
+    await session.waitForText('taXil');
+    session.resize({ cols: 100, rows: 30 });
+    const expanded = await waitForTerminalScreen(session, { timeout: 5_000,
+      waitFor: screen => screen.includes('RESIZE_HISTORY retained text') && /RESIZE_STREAM \d+/u.test(screen)
+        && screen.includes('taXil') });
+    expect(expanded.match(/Autohand Code/gu)).toHaveLength(1);
+    expect(expanded.match(/RESIZE_HISTORY retained text/gu)).toHaveLength(1);
+    expect(expanded.match(/preserved draft/gu)).toHaveLength(1);
+    expect(expanded.match(/RESIZE_STREAM \d+ retained streamed text/gu)).toHaveLength(1);
+    await session.press('escape');
+    await session.waitForText('RESIZE_STREAM_COMPLETE');
+    await exitInteractive(session);
+    expect(session.exitInfo?.exitCode).toBe(0);
+    expect(session.getRawOutput()).toContain('RESIZE_PTY_EXIT');
+  });
+
   it.each(['node', 'bun'])('keeps one copy of each full-screen row during ordinary %s redraws', async runtime => {
     state = await createTempAutohandHome();
     session = await launchTuistorySession({
