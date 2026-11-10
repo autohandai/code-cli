@@ -10,6 +10,31 @@ private struct NativeAccessibilityText {
     var content: String { [value, label, title].first { !$0.isEmpty } ?? "" }
 }
 
+private struct NativeReadoutNode {
+    var isTextView = false
+    var text = NativeAccessibilityText()
+    var children: [NativeReadoutNode] = []
+}
+
+private func nativeCodeTerminalBuffer<Snapshot>(_ capture: () throws -> Snapshot,
+                                                children: (Snapshot) -> [Snapshot],
+                                                textViewValue: (Snapshot) -> String?,
+                                                maximumNodes: Int = 2_048) rethrows -> String {
+    var pending = [try capture()]
+    var visited = 0
+    var values: [String] = []
+    while let node = pending.popLast() {
+        guard visited < maximumNodes else { return "" }
+        visited += 1
+        if let value = textViewValue(node) { values.append(value) }
+        let descendants = children(node)
+        guard descendants.count <= maximumNodes - visited - pending.count else { return "" }
+        pending.append(contentsOf: descendants.reversed())
+    }
+    return values.filter { $0.contains("RESIZE_HISTORY retained text") }.max { $0.count < $1.count }
+        ?? values.max { $0.count < $1.count } ?? ""
+}
+
 private func localNetworkDenialButton(dialog: [NativeAccessibilityText], buttons: [NativeAccessibilityText]) -> Int? {
     let text = dialog.flatMap(\.strings).joined(separator: " ").split(whereSeparator: \.isWhitespace).joined(separator: " ")
     guard text.contains("find devices on local networks") else { return nil }
@@ -54,6 +79,53 @@ final class TerminalCompatibilityUITests: XCTestCase {
 
     @MainActor func testIdleResize() throws { try resizeScenario(streaming: false) }
     @MainActor func testStreamingResize() throws { try resizeScenario(streaming: true) }
+
+    func testNativeReadoutIgnoresAnnouncementsAndRowMirrorsWhenNoCompleteTextViewExists() {
+        let announcement = "Autohand Code RESIZE_HISTORY retained text preserved draft"
+        let root = NativeReadoutNode(children: [
+            NativeReadoutNode(text: NativeAccessibilityText(value: announcement + announcement)),
+            NativeReadoutNode(text: NativeAccessibilityText(value: "RESIZE_HISTORY retained text")),
+            NativeReadoutNode(text: NativeAccessibilityText(value: "preserved draft"))
+        ])
+        let accessibility = nativeCodeTerminalBuffer({ root }, children: { $0.children },
+            textViewValue: { $0.isTextView ? $0.text.value : nil })
+        XCTAssertEqual(accessibility, "", "Announcements and individual rows are not a native terminal buffer")
+        let copied = announcement + "\n" + announcement
+        let useCopied = nativeReadoutUsesCopiedBuffer(terminal: "vscode",
+            accessibilityHasFixture: accessibility.contains("RESIZE_HISTORY retained text"),
+            copiedBufferHasFixture: copied.contains("RESIZE_HISTORY retained text"))
+        XCTAssertTrue(useCopied)
+        let content = useCopied ? copied : accessibility
+        XCTAssertEqual(content, copied)
+        XCTAssertEqual(content.components(separatedBy: "RESIZE_HISTORY retained text").count - 1, 2,
+                       "A duplicated copied frame must still fail the native count assertion")
+    }
+
+    func testNativeReadoutCapturesOneSnapshotAndPreservesRawBufferDuplicates() {
+        let buffer = "Autohand Code\nRESIZE_HISTORY retained text\nRESIZE_HISTORY retained text\npreserved draft\ntaXil"
+        let root = NativeReadoutNode(children: [
+            NativeReadoutNode(text: NativeAccessibilityText(value: buffer + buffer)),
+            NativeReadoutNode(isTextView: true, text: NativeAccessibilityText(label: buffer, value: buffer)),
+            NativeReadoutNode(text: NativeAccessibilityText(value: "RESIZE_HISTORY retained text"))
+        ])
+        var captures = 0
+        let value = nativeCodeTerminalBuffer({ captures += 1; return root }, children: { $0.children },
+            textViewValue: { $0.isTextView ? $0.text.value : nil })
+        XCTAssertEqual(captures, 1)
+        XCTAssertEqual(value, buffer)
+        XCTAssertEqual(value.components(separatedBy: "RESIZE_HISTORY retained text").count - 1, 2)
+    }
+
+    func testNativeReadoutFailsClosedWhenTheSnapshotExceedsItsNodeBudget() {
+        let root = NativeReadoutNode(children: [
+            NativeReadoutNode(isTextView: true, text: NativeAccessibilityText(value: "Autohand Code RESIZE_HISTORY retained text")),
+            NativeReadoutNode()
+        ])
+        XCTAssertEqual(nativeCodeTerminalBuffer({ root }, children: { $0.children },
+            textViewValue: { $0.isTextView ? $0.text.value : nil }, maximumNodes: 2), "")
+        XCTAssertEqual(nativeCodeTerminalBuffer({ root }, children: { $0.children },
+            textViewValue: { $0.isTextView ? $0.text.value : nil }, maximumNodes: 3), "Autohand Code RESIZE_HISTORY retained text")
+    }
 
     func testNativeViewportShrinksBeforeMovingAFullWidthWindow() {
         let display = CGRect(x: 0, y: 0, width: 1024, height: 768)
@@ -410,12 +482,13 @@ final class TerminalCompatibilityUITests: XCTestCase {
 
     private func terminalValue(_ window: XCUIElement, useCopiedBuffer: Bool = false) -> String {
         if useCopiedBuffer { return copiedTerminalValue(window) }
+        if environment["AUTOHAND_NATIVE_TERMINAL"] == "vscode" {
+            return (try? nativeCodeTerminalBuffer({ try window.snapshot() }, children: { $0.children },
+                textViewValue: { $0.elementType == .textView ? $0.value as? String : nil })) ?? ""
+        }
         let values = window.textViews.allElementsBoundByIndex.compactMap { $0.value as? String }
         if let terminal = values.filter({ $0.contains("RESIZE_HISTORY retained text") }).max(by: { $0.count < $1.count }) {
             return terminal
-        }
-        if environment["AUTOHAND_NATIVE_TERMINAL"] == "vscode" {
-            return window.staticTexts.allElementsBoundByIndex.map { accessibilityText($0).content }.joined(separator: "\n")
         }
         return values.max(by: { $0.count < $1.count }) ?? ""
     }
