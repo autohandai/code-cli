@@ -89,7 +89,7 @@ private func nativeCodeScreenRows<Snapshot>(_ capture: () throws -> Snapshot, wi
                       elementType(contents[0]) == .staticText, let text = value(contents[0]),
                       position.width > 0, position.height > 0,
                       abs(position.minX - viewport.minX) <= 1,
-                      position.maxX <= viewport.maxX + 1, position.maxY <= viewport.maxY + 1 else { return nil }
+                      position.maxY <= viewport.maxY + 1 else { return nil }
                 if let previous {
                     guard abs(previous.maxY - position.minY) <= 1,
                           abs(previous.height - position.height) <= 1 else { return nil }
@@ -198,6 +198,23 @@ final class TerminalCompatibilityUITests: XCTestCase {
         XCTAssertEqual(screenReadout(NativeReadoutNode(children: [window])), values.joined(separator: "\n"))
         window.children.append(screenRows(["RESIZE_HISTORY retained text", "preserved draft"]))
         XCTAssertEqual(screenReadout(NativeReadoutNode(children: [window])), "")
+    }
+
+    func testNativeScreenRowsPreserveTextScaledBeyondTheCapturedListWidth() {
+        let values = ["Autohand Code", "RESIZE_HISTORY retained text", "", "RESIZE_HISTORY retained text", "preserved draft"]
+            + Array(repeating: "\u{00a0}", count: 22)
+        var rows = screenRows(values)
+        rows.frame.size = CGSize(width: 651, height: 378)
+        for index in rows.children.indices {
+            rows.children[index].frame.size.width = index == 0 ? 182 : 686
+            rows.children[index].children[0].frame = rows.children[index].frame.offsetBy(dx: 0, dy: 2)
+        }
+        let nativeFrame = CGRect(x: 20, y: 33, width: 744, height: 510)
+        let window = NativeReadoutNode(elementType: .window, frame: nativeFrame, children: [rows])
+        let content = nativeCodeScreenRows({ NativeReadoutNode(children: [window]) }, windowFrame: nativeFrame,
+            children: { $0.children }, elementType: { $0.elementType }, frame: { $0.frame }, value: { $0.text.value })
+        XCTAssertEqual(content, values.joined(separator: "\n"))
+        XCTAssertEqual(content.components(separatedBy: "RESIZE_HISTORY retained text").count - 1, 2)
     }
 
     func testNativeScreenRowsRejectStaleGeometryBudgetsAndNonConsecutiveRows() {
