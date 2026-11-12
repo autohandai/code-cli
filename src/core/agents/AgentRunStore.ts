@@ -5,7 +5,8 @@
  */
 import type { LLMUsage } from '../../types.js';
 
-export type AgentRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type AgentRunTerminalStatus = 'completed' | 'partial' | 'failed' | 'cancelled';
+export type AgentRunStatus = 'pending' | 'running' | AgentRunTerminalStatus;
 export type AgentRunSource = 'delegate' | 'team' | 'squad';
 
 export interface AgentRunInput {
@@ -31,6 +32,7 @@ export interface AgentRun extends AgentRunInput {
   activity?: string;
   output?: string;
   error?: string;
+  reason?: 'iteration_limit';
   cancellable: boolean;
   messageable?: boolean;
   cancelRequested?: boolean;
@@ -48,7 +50,8 @@ export interface AgentRunProgress {
 }
 
 export interface AgentRunCompletion {
-  status: 'completed' | 'failed' | 'cancelled';
+  status: AgentRunTerminalStatus;
+  reason?: 'iteration_limit';
   result?: string;
   error?: string;
   usage?: LLMUsage;
@@ -75,6 +78,10 @@ export interface AgentRunLifecycleEvent {
 
 export function isAgentRunActive(run: Pick<AgentRun, 'status'>): boolean {
   return run.status === 'pending' || run.status === 'running';
+}
+
+export function normalizeAgentRunTerminalStatus(value: unknown): AgentRunTerminalStatus | undefined {
+  return value === 'completed' || value === 'partial' || value === 'failed' || value === 'cancelled' ? value : undefined;
 }
 
 export class AgentRunStore {
@@ -126,6 +133,7 @@ export class AgentRunStore {
       ...run, status: completion.status, finishedAt: now, updatedAt: now, cancellable: false, messageable: false, cancelRequested: false, activity: undefined,
       ...(completion.result !== undefined ? { output: this.bounded(completion.result) } : {}),
       ...(completion.error !== undefined ? { error: this.bounded(completion.error) } : {}),
+      ...(completion.status === 'partial' && completion.reason === 'iteration_limit' ? { reason: completion.reason } : {}),
       ...(completion.usage ? { usage: { ...completion.usage } } : {}),
     });
     this.emitLifecycle('stop', id);

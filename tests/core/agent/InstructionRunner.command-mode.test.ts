@@ -23,6 +23,7 @@ import { ApiError, classifyApiError, waitForProviderRetry } from '../../../src/p
 import { getPlanModeManager } from '../../../src/commands/plan.js';
 import { PermissionManager } from '../../../src/permissions/PermissionManager.js';
 import { ProviderNotConfiguredError } from '../../../src/providers/ProviderFactory.js';
+import { AzureTokenManager } from '../../../src/providers/azure/tokenManager.js';
 
 function overrideStreamTTY(
   stream: NodeJS.ReadStream | NodeJS.WriteStream,
@@ -1145,6 +1146,25 @@ describe('InstructionRunner command mode UI', () => {
       consoleLogSpy.mockRestore();
       consoleErrorSpy.mockRestore();
     }
+  });
+
+  it('does not replay the real session loop after Azure managed-identity token acquisition fails', async () => {
+    const host = createHost();
+    const manager = new AzureTokenManager();
+    const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('IMDS unavailable'));
+    host.isRetryableSessionError = isAgentRetryableSessionError;
+    host.shouldUsePassiveSessionRetry = shouldUsePassiveAgentSessionRetry;
+    host.runReactLoop = vi.fn(async () => {
+      await manager.getToken({ authMethod: 'managed-identity' });
+      return { status: 'completed' as const };
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await new InstructionRunner(host).run('Complete using Azure managed identity')).toBe(false);
+    expect(host.runReactLoop).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(host.sleep).not.toHaveBeenCalled();
+    expect(host.injectContinuationMessage).not.toHaveBeenCalled();
   });
 
   it('notifies the host once so rate-limit and session-error hooks can fire', async () => {

@@ -421,6 +421,19 @@ describe('RPC Adapter - P2 Handlers', () => {
       );
     });
 
+    it('keeps local storage errors nonrecoverable through the existing generic RPC error shape', async () => {
+      const outputListener = mockAgent.setOutputListener.mock.calls[0]?.[0];
+      const message = 'Local storage is full. Free disk space before continuing. Recent session data may not have been saved.\nENOSPC: no space left on device, write';
+      mockAgent.runInstruction.mockImplementationOnce(async () => {
+        outputListener({ type: 'error', content: message });
+        return false;
+      });
+      await adapter.handlePrompt('req_storage_full', { message: 'Continue the task' });
+      expect(writeNotification).toHaveBeenCalledWith('autohand.error', expect.objectContaining({
+        code: -32000, errorType: 'unknown', recoverable: false, message,
+      }));
+    });
+
     it('emits prompt lifecycle metadata without sensitive content in debug mode', async () => {
       process.env.AUTOHAND_DEBUG = '1';
       const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);

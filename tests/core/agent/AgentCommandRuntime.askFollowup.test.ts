@@ -26,7 +26,7 @@ interface FollowupTestHost {
   getNotificationGuards: () => Record<string, unknown>;
   withModalPause: (callback: () => Promise<string>) => Promise<string>;
   consecutiveCancellations: number;
-  followupQuestionCallback?: (question: string, suggestedAnswers?: string[]) => Promise<string | undefined>;
+  followupQuestionCallback?: (question: string, suggestedAnswers?: string[]) => Promise<string | null | undefined>;
 }
 
 function createHost(overrides: Partial<FollowupTestHost> = {}): FollowupTestHost {
@@ -221,6 +221,18 @@ describe('agent follow-up question routing', () => {
 
     await expect(executeAgentAskFollowupQuestion(host, 'Which workflow?')).resolves.toBe('<answer>Local discovery</answer>');
     expect(host.withModalPause).toHaveBeenCalledOnce();
+  });
+
+  it('keeps an explicit callback cancellation distinct from an unavailable answer channel', async () => {
+    const host = createHost({
+      followupQuestionCallback: vi.fn(async () => null),
+      consecutiveCancellations: 1,
+    });
+
+    await expect(executeAgentAskFollowupQuestion(host, 'Which workflow?'))
+      .resolves.toContain('User cancelled this question');
+    expect(host.consecutiveCancellations).toBe(2);
+    expect(showQuestionModal).not.toHaveBeenCalled();
   });
 
   it('preserves question cancellation and modal cleanup under yes', async () => {

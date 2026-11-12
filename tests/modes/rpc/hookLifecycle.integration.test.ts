@@ -202,6 +202,22 @@ describe('HookManager to RPC lifecycle integration', () => {
     ]);
   });
 
+  it('distinguishes a partial worker from failure without sending its transcript', async () => {
+    const { hookManager } = createHarness();
+    vi.mocked(writeNotification).mockClear();
+    await hookManager.executeHooks('subagent-stop', { subagentId: 'limited', subagentName: 'reviewer', subagentType: 'task',
+      subagentSuccess: false, subagentDuration: 20, subagentStatus: 'partial', subagentReason: 'iteration_limit',
+      subagentMessage: 'PRIVATE_WORKER_REPORT_NOT_FOR_STOP_EVENT',
+    });
+    expect(hookNotifications()).toEqual([['autohand.hook.subagentStop', expect.objectContaining({
+      subagentId: 'limited', success: false, status: 'partial', reason: 'iteration_limit',
+    })]]);
+    const payload = hookNotifications()[0][1];
+    expect(JSON.stringify(payload)).not.toContain('PRIVATE_WORKER_REPORT');
+    expect(payload).not.toHaveProperty('result');
+    expect(payload).not.toHaveProperty('output');
+  });
+
   it('maps every hook lifecycle event to its exact RPC payload once', async () => {
     const { hookManager } = createHarness();
     vi.mocked(writeNotification).mockClear();

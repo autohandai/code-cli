@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import type { AutohandConfig } from '../types.js';
 import type { ErrorReport } from './types.js';
 import { AutoReportClient } from './AutoReportClient.js';
-import { ApiError, classifyApiError } from '../providers/errors.js';
+import { ApiError, classifyApiError, readStorageCapacityError } from '../providers/errors.js';
 import type { ApiErrorCode } from '../providers/errors.js';
 import { isAutohandDebugEnabled } from '../utils/debugLog.js';
 
@@ -48,6 +48,7 @@ export class AutoReportManager {
     'auth_failed',      // Bad API key — user config issue
     'payment_required', // Account billing issue
     'content_blocked', // Safety verdicts are request rejections, not CLI crashes
+    'storage_full',
     'access_denied',    // API key lacks permissions
     'model_not_found',  // Wrong model name — user config issue
   ]);
@@ -61,6 +62,7 @@ export class AutoReportManager {
   }
 
   private getOperationalErrorCode(error: Error): ApiErrorCode | null {
+    if (readStorageCapacityError(error)) return 'storage_full';
     if (error instanceof ApiError) {
       return AutoReportManager.OPERATIONAL_API_ERROR_CODES.has(error.code)
         ? error.code

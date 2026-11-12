@@ -64,4 +64,26 @@ describe('AzureProvider', () => {
     expect(response.content).toBe('Azure response');
     expect(response.finishReason).toBe('stop');
   });
+
+  it('keeps managed identity and stored credentials intact after a pre-request auth failure, then permits explicit retry', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('IMDS connection failed'))
+      .mockResolvedValueOnce(Response.json({ access_token: 'fixture-managed-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(Response.json({
+        id: 'azure-retry', choices: [{ message: { content: 'Explicit retry succeeded' }, finish_reason: 'stop' }],
+      }));
+    const settings: AzureSettings = { ...defaultSettings, authMethod: 'managed-identity', apiKey: 'preserve-configured-key' };
+    const provider = new AzureProvider(settings, { maxRetries: 3, retryDelay: 1 });
+    await expect(provider.complete({ messages: [{ role: 'user', content: 'Hello' }] }))
+      .rejects.toMatchObject({ code: 'auth_failed', retryable: false });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(settings.authMethod).toBe('managed-identity');
+    expect(settings.apiKey).toBe('preserve-configured-key');
+    await expect(provider.complete({ messages: [{ role: 'user', content: 'Try again' }] }))
+      .resolves.toMatchObject({ content: 'Explicit retry succeeded' });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const headers = new Headers(fetch.mock.calls[2]?.[1]?.headers);
+    expect(headers.get('authorization')).toBe('Bearer fixture-managed-token');
+    expect(headers.has('api-key')).toBe(false);
+  });
 });

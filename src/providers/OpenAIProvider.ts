@@ -5,13 +5,14 @@
  */
 
 import type { LLMProvider, LLMProviderCapabilities } from './LLMProvider.js';
-import type { ContentPart, MultimodalMessage, LLMRequest, LLMResponse, LLMToolCall, FunctionDefinition, ReasoningEffort, OpenAISettings, OpenAIChatGPTAuth } from '../types.js';
+import type { ContentPart, MultimodalMessage, LLMRequest, LLMResponse, LLMToolCall, FunctionDefinition, ReasoningEffort, OpenAISettings, OpenAIChatGPTAuth, ProviderReasoningBlock } from '../types.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from './errors.js';
 import { isChatGPTAuthExpired, refreshChatGPTAuth } from './openaiAuth.js';
 import { normalizeLLMUsage } from './usage.js';
 import { normalizeProviderFinishReason } from './finishReason.js';
-import { normalizeOutboundMessages } from './messagePayload.js';
+import { normalizeOutboundMessages, normalizePromptRoles, normalizeToolCallHistory } from './messagePayload.js';
 import { usesMaxCompletionTokens } from './openAICompatibleShared.js';
+import { discardResponseBody } from '../utils/responseBody.js';
 import {
     getProviderDefaultModel,
     getProviderModelIds,
@@ -52,6 +53,7 @@ type OpenAIProviderMessage = {
     name?: string;
     tool_call_id?: string;
     tool_calls?: LLMToolCall[];
+    reasoningBlocks?: ProviderReasoningBlock[];
 };
 
 type OpenAIChatContentPart =
@@ -93,8 +95,14 @@ interface OpenAIResponsesMessage {
     content?: Array<OpenAIResponsesOutputText | { type: string; [key: string]: unknown }>;
 }
 
+interface OpenAIResponsesReasoningBlock extends ProviderReasoningBlock {
+    type: 'reasoning';
+    encrypted_content: string;
+}
+
 interface OpenAIResponsesResponse {
     id: string;
+    status?: string;
     created_at?: number;
     output?: OpenAIResponsesOutputItem[];
     output_text?: string;
@@ -186,8 +194,29 @@ const OPENAI_CHATGPT_FRIENDLY_MESSAGES: Partial<Record<ApiErrorCode, string>> = 
         'The request timed out. The ChatGPT Codex service may be experiencing high load.',
 };
 
-function mustDisableChatCompletionReasoningForTools(model: string, hasTools: boolean): boolean {
-    return hasTools && /^gpt-5\.(?:4|6)(?:$|[-_.])/iu.test(model);
+function requiresReasoning(model: string): boolean {
+    return /^gpt-6(?:-astra|\.1-sol)(?:$|[-_.])/iu.test(model);
+}
+
+function requiresResponsesForTools(error: ApiError): boolean {
+    if (error.code !== 'invalid_request' || error.httpStatus !== 400) return false;
+    const detail = error.rawDetail ?? '';
+    return /\b(?:function tools|function calling|tool calling)\b/iu.test(detail)
+        && /\b(?:not supported|requires?|only supported)\b/iu.test(detail)
+        && /\b(?:use|requires?)[^\n]{0,160}(?:\/(?:v1\/)?responses\b|responses api\b)/iu.test(detail);
+}
+
+function isOfficialOpenAIApi(baseUrl: string): boolean {
+    try {
+        return new URL(baseUrl).origin === new URL(OPENAI_API_BASE_URL).origin;
+    } catch {
+        return false;
+    }
+}
+
+function isOpenAIReasoningBlock(value: unknown): value is OpenAIResponsesReasoningBlock {
+    return !!value && typeof value === 'object' && 'type' in value && value.type === 'reasoning'
+        && 'encrypted_content' in value && typeof value.encrypted_content === 'string';
 }
 
 export class OpenAIProvider implements LLMProvider {
@@ -248,15 +277,26 @@ export class OpenAIProvider implements LLMProvider {
 
         const model = request.model || this.model;
         const hasTools = Boolean(request.tools?.length);
+        const officialApi = isOfficialOpenAIApi(this.baseUrl);
+        if (officialApi && this.reasoningEffort === 'none' && requiresReasoning(model)) {
+            throw new ApiError(`${model} does not support reasoning effort "none". Select "low" or a higher effort in the OpenAI provider settings.`, 'invalid_request', 400, false);
+        }
+        if (officialApi && hasTools && usesMaxCompletionTokens(model)) {
+            return this.completeWithResponsesApi(request);
+        }
+        if (request.signal?.aborted) {
+            throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+        }
         const body: Record<string, unknown> = {
             model,
             messages: normalizeOutboundMessages(request.messages, {
                 transformContent: (content) => this.toChatCompletionContent(content),
             }),
-            temperature: request.temperature || 0.7,
+            ...(!usesMaxCompletionTokens(model) || (this.reasoningEffort === 'none' && !requiresReasoning(model))
+                ? { temperature: request.temperature ?? 0.7 } : {}),
             // Newer OpenAI models (gpt-5.x, o-series) require max_completion_tokens
             // instead of max_tokens. Use the correct parameter based on model.
-            ...(usesMaxCompletionTokens(model)
+            ...(request.maxTokens === undefined ? {} : usesMaxCompletionTokens(model)
                 ? { max_completion_tokens: request.maxTokens }
                 : { max_tokens: request.maxTokens })
         };
@@ -264,9 +304,7 @@ export class OpenAIProvider implements LLMProvider {
         // Add reasoning effort when configured (with runtime validation)
         if (usesMaxCompletionTokens(model)
             && this.reasoningEffort && VALID_REASONING_EFFORTS.has(this.reasoningEffort)) {
-            body.reasoning_effort = mustDisableChatCompletionReasoningForTools(model, hasTools)
-                ? 'none'
-                : this.reasoningEffort;
+            body.reasoning_effort = this.reasoningEffort;
         }
 
         // Add function calling support if tools are provided
@@ -289,9 +327,12 @@ export class OpenAIProvider implements LLMProvider {
         let response: Response;
         const headers = await this.buildAuthHeaders();
 
-        for (let swappedTokenParameter = false; ; swappedTokenParameter = true) {
+        const sendRequest = async (): Promise<Response> => {
             try {
-                response = await fetch(`${this.baseUrl}/chat/completions`, {
+                if (request.signal?.aborted) {
+                    throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+                }
+                return await fetch(`${this.baseUrl}/chat/completions`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -301,45 +342,43 @@ export class OpenAIProvider implements LLMProvider {
                     signal: request.signal
                 });
             } catch (error) {
+                if (error instanceof ApiError) throw error;
                 const err = error as Error;
-
-                // User cancelled
                 if (err.name === 'AbortError' && request.signal?.aborted) {
                     throw new ApiError('Request cancelled.', 'cancelled', 0, false);
                 }
-
-                // Timeout
                 if (err.name === 'AbortError') {
                     throw new ApiError(
                         'The request timed out. The OpenAI service may be experiencing high load.',
                         'timeout', 0, true,
                     );
                 }
-
-                // Network error
                 throw new ApiError(
                     `Unable to connect to ${this.baseUrl}. Please check the URL and your internet connection.`,
                     'network_error', 0, true,
                 );
             }
-
-            if (response.ok) {
-                break;
+        };
+        let swappedTokenParameter = false;
+        while (true) {
+            response = await sendRequest();
+            if (response.ok) break;
+            const error = await this.buildApiError(response, request.signal);
+            if (hasTools && requiresResponsesForTools(error)) {
+                return this.completeWithResponsesApi(request);
             }
-
-            const apiError = await this.buildApiError(response);
-            // Models we don't recognize (fine-tunes, new families) may still reject
-            // max_tokens. Resend once with max_completion_tokens instead of failing.
-            if (!swappedTokenParameter && 'max_tokens' in body
-                && /unsupported parameter:\s*'max_tokens'/i.test(apiError.rawDetail ?? '')) {
+            if (!swappedTokenParameter && body.max_tokens !== undefined
+                && error.code === 'invalid_request' && error.httpStatus === 400
+                && /\bunsupported parameter:\s*['"]max_tokens['"]/iu.test(error.rawDetail ?? '')) {
                 body.max_completion_tokens = body.max_tokens;
                 delete body.max_tokens;
+                swappedTokenParameter = true;
                 continue;
             }
-            throw apiError;
+            throw error;
         }
 
-        const data = await response.json() as OpenAIChatResponse;
+        const data = JSON.parse(await this.readResponseText(response, request.signal)) as OpenAIChatResponse;
         const message = data.choices[0].message;
         const finishReason = data.choices[0].finish_reason;
 
@@ -370,7 +409,8 @@ export class OpenAIProvider implements LLMProvider {
     }
 
     private async completeWithResponsesApi(request: LLMRequest): Promise<LLMResponse> {
-        const instructions = this.buildCodexInstructions(request.messages);
+        const messages = normalizePromptRoles(normalizeToolCallHistory(request.messages));
+        const instructions = this.buildCodexInstructions(messages);
         // The ChatGPT Codex backend supports a strict subset of the Responses API.
         // Unsupported parameters (max_output_tokens, temperature) are rejected.
         // See: https://github.com/openai/codex — ResponsesApiRequest struct.
@@ -381,8 +421,13 @@ export class OpenAIProvider implements LLMProvider {
             stream: true,
             tool_choice: 'auto',
             parallel_tool_calls: true,
-            input: this.toResponsesInputItems(request.messages),
+            input: this.toResponsesInputItems(messages),
             ...(request.promptCache ? { prompt_cache_key: request.promptCache.key } : {}),
+            ...(this.authMode === 'api-key' && request.maxTokens !== undefined
+                ? { max_output_tokens: request.maxTokens } : {}),
+            ...(this.authMode === 'api-key' && this.reasoningEffort === 'none'
+                && !requiresReasoning(request.model || this.model) && request.temperature !== undefined
+                ? { temperature: request.temperature } : {}),
         };
 
         if (this.reasoningEffort && VALID_REASONING_EFFORTS.has(this.reasoningEffort)) {
@@ -390,6 +435,8 @@ export class OpenAIProvider implements LLMProvider {
                 effort: this.reasoningEffort,
             };
             // Enable encrypted reasoning content for multi-turn conversations
+            body.include = ['reasoning.encrypted_content'];
+        } else if (this.authMode === 'api-key') {
             body.include = ['reasoning.encrypted_content'];
         }
 
@@ -399,6 +446,7 @@ export class OpenAIProvider implements LLMProvider {
                 name: tool.name,
                 description: tool.description,
                 parameters: tool.parameters ?? { type: 'object', properties: {} },
+                ...(this.authMode === 'api-key' ? { strict: false } : {}),
             }));
 
             if (request.toolChoice === 'required') {
@@ -416,6 +464,9 @@ export class OpenAIProvider implements LLMProvider {
         const headers = await this.buildAuthHeaders();
         const sendRequest = async (requestBody: Record<string, unknown>): Promise<Response> => {
             try {
+                if (request.signal?.aborted) {
+                    throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+                }
                 return await fetch(`${this.baseUrl}/responses`, {
                     method: 'POST',
                     headers: {
@@ -426,6 +477,7 @@ export class OpenAIProvider implements LLMProvider {
                     signal: request.signal,
                 });
             } catch (error) {
+                if (error instanceof ApiError) throw error;
                 const err = error as Error;
                 if (err.name === 'AbortError' && request.signal?.aborted) {
                     throw new ApiError('Request cancelled.', 'cancelled', 0, false);
@@ -433,7 +485,9 @@ export class OpenAIProvider implements LLMProvider {
 
                 if (err.name === 'AbortError') {
                     throw new ApiError(
-                        'The request timed out. The ChatGPT Codex service may be experiencing high load.',
+                        this.authMode === 'chatgpt'
+                            ? 'The request timed out. The ChatGPT Codex service may be experiencing high load.'
+                            : 'The request timed out. The OpenAI service may be experiencing high load.',
                         'timeout', 0, true,
                     );
                 }
@@ -447,7 +501,7 @@ export class OpenAIProvider implements LLMProvider {
 
         let response = await sendRequest(body);
         if (!response.ok) {
-            const error = await this.buildApiError(response);
+            const error = await this.buildApiError(response, request.signal);
             if (!request.promptCache || !isPromptCacheKeyRejection(error)) {
                 throw error;
             }
@@ -456,45 +510,70 @@ export class OpenAIProvider implements LLMProvider {
             delete fallbackBody.prompt_cache_key;
             response = await sendRequest(fallbackBody);
             if (!response.ok) {
-                throw await this.buildApiError(response);
+                throw await this.buildApiError(response, request.signal);
             }
         }
 
-        const data = await this.parseCodexStream(response);
-        const toolCalls = this.extractResponsesToolCalls(data.output);
+        const data = await this.parseCodexStream(response, request.signal);
+        const incomplete = Boolean(data.incomplete_details?.reason || data.status === 'incomplete'
+            || data.output?.some(item => item?.type === 'function_call' && 'status' in item
+                && item.status !== undefined && item.status !== 'completed'));
+        const toolCalls = incomplete ? [] : this.extractResponsesToolCalls(data.output);
         const content = this.extractResponsesContent(data);
         const usage = normalizeLLMUsage(data.usage, 'openai-responses');
+        const reasoningBlocks = data.output?.filter(isOpenAIReasoningBlock);
 
         return {
             id: data.id,
             created: data.created_at ?? Math.floor(Date.now() / 1000),
             content,
             toolCalls,
-            finishReason: toolCalls.length > 0
-                ? 'tool_calls'
-                : (data.incomplete_details?.reason ? 'length' : 'stop'),
+            finishReason: incomplete ? 'length' : toolCalls.length > 0 ? 'tool_calls' : 'stop',
             usage,
+            ...(reasoningBlocks?.length ? { reasoningBlocks } : {}),
             raw: data,
         };
     }
 
-    private async buildApiError(response: Response): Promise<ApiError> {
-        let errorDetail = '';
+    private async readResponseText(response: Response, signal?: AbortSignal): Promise<string> {
+        if (signal?.aborted) {
+            discardResponseBody(response);
+            throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+        }
         try {
-            const body = (await response.json()) as Record<string, unknown>;
-            const errObj = body?.error as Record<string, unknown> | undefined;
-            errorDetail = (errObj?.message ?? body?.detail ?? body?.error ?? '') as string;
-            if (typeof errorDetail === 'object') {
-                errorDetail = JSON.stringify(errorDetail);
+            const text = await response.text();
+            if (signal?.aborted) {
+                throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+            }
+            return text;
+        } catch (error) {
+            if (error instanceof ApiError) throw error;
+            if (signal?.aborted) throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+            if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+                throw new ApiError('The response body timed out. Please try again.', 'timeout', 0, true);
+            }
+            throw new ApiError('The response body could not be read. Check the connection and try again.', 'network_error', 0, true);
+        }
+    }
+
+    private async buildApiError(response: Response, signal?: AbortSignal): Promise<ApiError> {
+        const text = await this.readResponseText(response, signal);
+        let detail: unknown = text;
+        try {
+            const body: unknown = JSON.parse(text);
+            if (body && typeof body === 'object' && !Array.isArray(body)) {
+                const fields = body as Record<string, unknown>;
+                const error = fields.error;
+                detail = error && typeof error === 'object' && !Array.isArray(error)
+                    ? (error as Record<string, unknown>).message ?? fields.detail ?? fields.message ?? error
+                    : error ?? fields.detail ?? fields.message ?? text;
+            } else {
+                detail = body ?? text;
             }
         } catch {
-            try {
-                errorDetail = await response.text();
-            } catch {
-                // Ignore
-            }
+            detail = text;
         }
-
+        const errorDetail = typeof detail === 'string' ? detail : JSON.stringify(detail) ?? text;
         return this.withOpenAIMessage(classifyApiError(response.status, errorDetail, response.headers));
     }
 
@@ -521,8 +600,8 @@ export class OpenAIProvider implements LLMProvider {
      * Parse an SSE stream from the ChatGPT Codex backend and extract the
      * `response.completed` event payload as the full response object.
      */
-    private async parseCodexStream(response: Response): Promise<OpenAIResponsesResponse> {
-        const text = await response.text();
+    private async parseCodexStream(response: Response, signal?: AbortSignal): Promise<OpenAIResponsesResponse> {
+        const text = await this.readResponseText(response, signal);
         let currentEvent = '';
         let streamedResponseId: string | undefined;
         let completedData: OpenAIResponsesResponse | null = null;
@@ -581,6 +660,9 @@ export class OpenAIProvider implements LLMProvider {
 
             if (eventType === 'response.incomplete') {
                 completedData = this.extractCodexStreamResponse(eventData);
+                if (completedData && !completedData.incomplete_details?.reason) {
+                    completedData.incomplete_details = { reason: 'response_incomplete' };
+                }
                 break;
             }
 
@@ -901,6 +983,10 @@ export class OpenAIProvider implements LLMProvider {
             return items;
         }
 
+        if (msg.role === 'assistant' && msg.reasoningBlocks) {
+            items.push(...msg.reasoningBlocks.filter(isOpenAIReasoningBlock));
+        }
+
         if (msg.role === 'tool' && msg.tool_call_id) {
             if (!matchedToolCallIds.has(msg.tool_call_id)) {
                 return items;
@@ -957,7 +1043,8 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         return output
-            .filter((entry): entry is OpenAIResponsesFunctionCall => entry?.type === 'function_call')
+            .filter((entry): entry is OpenAIResponsesFunctionCall => entry?.type === 'function_call'
+                && (!('status' in entry) || entry.status === undefined || entry.status === 'completed'))
             .map((toolCall, index) => ({
                 id: toolCall.call_id ?? `call_${index + 1}`,
                 type: 'function' as const,

@@ -47,7 +47,8 @@ export const RESEARCH_WORKER_INSTRUCTIONS = 'You are a read-only research worker
 
 export const ORCHESTRATION_INSTRUCTIONS = 'Autohand AI orchestration is enabled. You own planning, code edits, '
   + 'tests and integration. Delegate independent file discovery, symbol/AST summaries and documentation lookup '
-  + 'to the three-worker read-only research pool using delegate_parallel. Workers default to Fantail; respect '
+  + 'to the three-worker read-only research pool using delegate_parallel with research_only: true. Ordinary '
+  + 'reviewer and implementer delegations retain their definitions, tools and reasoning. Workers default to Fantail unless their definition requests reasoning; respect '
   + 'the user\'s model overrides. Give each worker a bounded scope and request structured findings with evidence. '
   + 'Use plan/exit_plan_mode when planning mode is active. Moa provides independent checkpoint advice before '
   + 'finalizing plans, after a repeated test/compiler failure, and before staging, committing or completing tool work. '

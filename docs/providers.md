@@ -188,6 +188,11 @@ results, and tool calls or results orphaned by context compaction. When an
 upstream provider does reject a request, the provider's own error text is now
 included rather than only OpenRouter's generic "Provider returned error".
 
+The configured network timeout covers response headers and the complete response
+body, including a stalled success or error body. Historical malformed tool calls
+are retained as explanatory text and observations instead of being replayed as
+invalid native function arguments; Autohand does not invent replacement arguments.
+
 ---
 
 ### Anthropic
@@ -222,6 +227,14 @@ Current catalog choices include `claude-sonnet-5`, `claude-opus-5`, `claude-fabl
 
 See Anthropic's [model overview](https://platform.claude.com/docs/en/about-claude/models/overview) and [TypeScript Messages API](https://platform.claude.com/docs/en/api/typescript/messages/create) for the upstream contracts.
 
+Official OpenCode Go Anthropic endpoints receive Autohand's own User-Agent and
+an opaque `x-opencode-session` conversation identifier, following
+[Go's routing requirements](https://opencode.ai/docs/console/go/#where-can-i-use-it).
+The conversation identity remains stable when prompt caching is disabled and
+changes for a new session. These routing headers are restricted to supported
+official HTTPS Go paths; unrelated Anthropic and custom endpoints do not receive
+them. Raw session IDs are not added to provider request bodies.
+
 ---
 
 ### OpenAI
@@ -229,6 +242,20 @@ See Anthropic's [model overview](https://platform.claude.com/docs/en/about-claud
 Direct access to OpenAI's API for GPT-5, o3, and other OpenAI models.
 
 The native tool envelope is limited to 128 function definitions for OpenAI, Azure, and OpenRouter models under `openai/`. The runtime retains discovery and relevant tools within that budget, including delegated agents with code mode disabled. Other OpenRouter model families keep their own capability settings.
+
+For supported modern OpenAI reasoning models, API-key tool requests use the
+Responses API with the configured output cap, tool choice, and supported reasoning
+effort. Encrypted reasoning items are preserved for tool continuation. ChatGPT
+subscription authentication retains its separate Codex backend parameter contract.
+Requests omit unsupported sampling parameters. An explicitly unsupported reasoning
+setting receives actionable guidance rather than silently enabling more reasoning.
+See OpenAI's [API and model compatibility guidance](https://developers.openai.com/api/docs/guides/latest-model#gpt-6-astra-update-api-and-model-parameters).
+
+Custom base URLs retain their Chat Completions transport unless an explicit
+capability rejection requires Responses. Compatibility retries stay on the same
+configured endpoint, keep tools and reasoning intact, and are bounded. Unknown
+model aliases that explicitly reject `max_tokens` can be resent once with
+`max_completion_tokens`.
 
 **Setup:**
 
@@ -617,6 +644,16 @@ llama.cpp provides high-performance local inference with GGUF models.
   }
 }
 ```
+
+Autohand reads the active llama.cpp slot context from `/props` when available,
+without asking a router to load a different model. This runtime limit, rather
+than a model's training-context metadata, bounds prompt and output budgeting.
+Discovery runs asynchronously while the composer remains usable; the first
+request waits only for its bounded readiness deadline. Model changes invalidate
+stale discovery results. A configured smaller context limit remains respected.
+If the server does not expose a runtime limit, the existing configured/model
+fallback remains in use. Router errors for an unconfigured model identify a
+model configuration problem; Autohand does not silently substitute another model.
 
 **Finding GGUF Models:**
 

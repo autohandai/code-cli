@@ -413,8 +413,9 @@ describe('SubAgent', () => {
     }, {} as ActionExecutor, {
       clientContext: 'cli', depth: 1, maxDepth: 1, getPendingInstructions: () => pending.splice(0),
     });
-    await expect(agent.run('Read')).rejects.toThrow('within 10 iterations');
-    expect(complete).toHaveBeenCalledTimes(10);
+    await expect(agent.run('Read')).resolves.toContain('Partial result: iteration limit reached');
+    expect(complete).toHaveBeenCalledTimes(30);
+    expect(agent.getCompletionState()).toEqual({ status: 'partial', reason: 'iteration_limit' });
   });
 
   it('publishes tool progress and cumulative token usage for the live run inspector', async () => {
@@ -443,7 +444,7 @@ describe('SubAgent', () => {
     }));
   });
 
-  it('reports iteration exhaustion as a failure instead of a completed answer', async () => {
+  it('reports iteration exhaustion as partial work instead of discarding observations or claiming completion', async () => {
     let iteration = 0;
     const agent = new SubAgent({
       name: 'reader', description: 'Read source', systemPrompt: 'Inspect source.',
@@ -460,7 +461,8 @@ describe('SubAgent', () => {
       clientContext: 'cli', depth: 1, maxDepth: 1,
     });
 
-    await expect(agent.run('Keep reading')).rejects.toThrow('within 10 iterations');
+    await expect(agent.run('Keep reading')).resolves.toContain('contents 29');
+    expect(agent.getCompletionState()).toEqual({ status: 'partial', reason: 'iteration_limit' });
   });
 
   it('does not accept a progress update as the delegated task result', async () => {

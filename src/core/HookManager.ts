@@ -97,6 +97,7 @@ export interface HookContext {
   subagentParentId?: string;
   subagentSource?: string;
   subagentStatus?: string;
+  subagentReason?: 'iteration_limit';
   subagentWorkspace?: string;
   subagentTask?: string;
   subagentActivity?: string;

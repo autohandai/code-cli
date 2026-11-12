@@ -1173,6 +1173,7 @@ Control agent behavior and iteration limits.
 {
   "agent": {
     "maxIterations": 100,
+    "subagentMaxIterations": 30,
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "autoMemory": true,
@@ -1187,6 +1188,7 @@ Control agent behavior and iteration limits.
 | Field                | Type    | Default | Description                                                                    |
 | -------------------- | ------- | ------- | ------------------------------------------------------------------------------ |
 | `maxIterations`      | number  | `100`   | Maximum tool iterations per user request before stopping                       |
+| `subagentMaxIterations` | number | `30` | Default delegated-agent model-request limit; integer from `1` to `1000`, independent of the main agent limit. Agent-definition `maxIterations` overrides the default; a delegation call may lower its effective limit. The final request is reserved for a summary without tools. |
 | `enableRequestQueue` | boolean | `true`  | Allow users to type and queue requests while agent is working                  |
 | `toolSelectionCache` | boolean | `true`  | Cache local per-turn tool schema selection for equivalent tool-selection input |
 | `autoMemory`         | boolean | `true`  | Extract and save durable user/project memories after completed interactive turns, including evidence-backed lessons from failures and cancellations |
@@ -1197,6 +1199,24 @@ Control agent behavior and iteration limits.
 | `sessionRetryLimit`  | number  | `3`     | Times a failed turn is re-run after a retryable error before the turn is reported as failed |
 | `sessionRetryDelay`  | number  | unset   | Milliseconds before the first re-run, growing 1.5× per attempt. When unset, provider outages (5xx, network, timeout) wait 5 s, 15 s, 45 s and other errors 1 s, 1.5 s, 2.25 s; a provider retry-after always wins |
 | `debug`              | boolean | `false` | Enable verbose debug output (logs agent internal state to stderr)              |
+
+`/settings` exposes the delegated-agent limit. Agent-definition frontmatter can override the default:
+
+```yaml
+---
+name: reviewer
+maxIterations: 50
+---
+```
+
+`delegate_task` and `delegate_parallel` accept an optional `maxIterations`; individual parallel entries may lower it further. Reaching the limit returns available work with `status: "partial"` and `reason: "iteration_limit"`, rather than discarding the findings. The final summary request counts toward the limit. If that summary fails, recorded observations and the failure remain available; cancellation, approval stops, and shared run budgets still take precedence. Partial status is available to Code Mode scripts as well as ordinary tool callers and does not mark the delegated task complete.
+
+Disk-capacity errors (`ENOSPC` and `EDQUOT`) stop automatic session replay. The
+error explains that recent data may not have been saved; free space before
+retrying. A persistence failure can occur after a transcript or tool change has
+already been written, so automatically rerunning the turn would risk repeating
+work. Existing session files are retained and the error path does not delete
+caches or conversations.
 
 ## Concurrent Session Awareness
 
@@ -3114,7 +3134,7 @@ These flags override config file settings:
 | `--no-idle-logout`            | Keep authenticated sessions alive past the idle timeout for long-running agents                |
 | `--yolo [pattern]`            | Auto-approve tool calls matching pattern (e.g., `allow:read,write` or `deny:delete`)           |
 | `--allowed-tools <patterns>`  | Only offer and authorize these tools this run; comma-separated or repeated (e.g. `read_file,run_command(git:*)`). A run-only restriction on top of every configured policy: never saved, never widened by a local or extension allowlist |
-| `--disallowed-tools <patterns>` | Never offer or authorize these tools this run. Matched on the tool the model names, before capability mapping, so `delete_path` stays blocked even when unrestricted. Applies to MCP and delegated tools too |
+| `--disallowed-tools <patterns>` | Never offer or authorize these tools this run. A bare `*` denies every tool, including automatic specialist dispatch. Matched on the tool the model names, before capability mapping, so `delete_path` stays blocked even when unrestricted. Applies to MCP and delegated tools too |
 | `--timeout <seconds>`         | Time window for `--yolo` auto-approval; when it ends, the permission settings from before `--yolo` return and normal approval resumes |
 | `--max-requests <n>`          | Stop the run after this many model requests, sub-agents included; the turn fails with the limit named and exit code 1 in command mode |
 | `--max-tokens <n>`            | Stop the run once reported token usage reaches this total, sub-agents included                  |

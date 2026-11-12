@@ -10,7 +10,7 @@ interface WireRequest {
 }
 
 describe('partial delegation findings', () => {
-  it('delivers a successful sibling report after another research worker exhausts its iterations', async () => {
+  it.each([{ maxIterations: undefined, codeMode: false }, { maxIterations: 2, codeMode: true }])('returns partial work and a successful sibling (Code Mode: $codeMode)', async ({ maxIterations, codeMode }) => {
     let leadTurns = 0;
     let failedTurns = 0;
     let leadObservation = '';
@@ -43,10 +43,13 @@ describe('partial delegation findings', () => {
         } else {
           leadTurns += 1;
           if (leadTurns === 1) {
-            reply(response, 'Inspecting independent code and docs scopes.', { name: 'delegate_parallel', args: { tasks: [
-              { agent_name: 'unfinished', task: 'Inspect source files.' },
-              { agent_name: 'finished', task: 'Inspect documentation.' },
-            ] } });
+            const tasks = [
+              { agent_name: 'unfinished', task: 'Inspect source files.', research_only: true, ...(maxIterations === undefined ? {} : { maxIterations }) },
+              { agent_name: 'finished', task: 'Inspect documentation.', research_only: true },
+            ];
+            reply(response, 'Inspecting independent code and docs scopes.', codeMode
+              ? { name: 'run_tool_script', args: { script: `const workers = await tools.delegate_parallel(${JSON.stringify({ tasks })}); if (workers.status !== 'partial' || workers.reason !== 'iteration_limit') throw new Error('Partial worker metadata was lost'); return {status: workers.status, reason: workers.reason, output: workers.output};` } }
+              : { name: 'delegate_parallel', args: { tasks } });
           } else {
             leadObservation = body.messages.filter(message => message.role === 'tool').map(message => message.content).join('\n');
             reply(response, leadObservation.includes('PARTIAL_DOC_SOURCE')
@@ -63,8 +66,8 @@ describe('partial delegation findings', () => {
       provider: 'autohandai',
       autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa', orchestration: true,
         baseUrl: `http://127.0.0.1:${address.port}` },
-      features: { autohand_inference: true, automaticSpecialists: false },
-      agent: { autoMemory: false, maxIterations: 5, sessionRetryLimit: 0 },
+      features: { autohand_inference: true, automaticSpecialists: false, codeMode },
+      agent: { autoMemory: false, maxIterations: 5, subagentMaxIterations: 3, sessionRetryLimit: 0 },
       network: { maxRetries: 0, retryDelay: 0 },
       ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
     } });
@@ -83,7 +86,12 @@ describe('partial delegation findings', () => {
       });
       expect(await runPartialDelegationScenario(session)).toContain('SIBLING_REPORT_RECOVERED');
       expect(leadObservation).toContain('PARTIAL_DOC_SOURCE');
-      expect(leadObservation).toContain('Failed to complete task within 10 iterations');
+      expect(leadObservation).toContain('[unfinished] Partial (iteration_limit)');
+      const cap = maxIterations ?? 3;
+      expect(leadObservation).toContain(`Source file ${cap - 1}`);
+      expect(leadObservation).not.toContain(`Source file ${cap}`);
+      expect(failedTurns).toBe(cap);
+      if (codeMode) expect(leadObservation).toContain('"status": "partial"');
       await exitInteractive(session);
     } finally {
       session?.close();

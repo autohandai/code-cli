@@ -19,6 +19,9 @@ import type { AgentRuntime } from '../src/types.js';
  */
 
 const mockFileActionManager = {
+  inspectPath: vi.fn().mockImplementation(async (target: string) => ({
+    kind: 'missing', requestedPath: target, resolvedPath: `/test/${target}`,
+  })),
   readFile: vi.fn().mockResolvedValue(''),
   writeFile: vi.fn().mockResolvedValue(undefined),
   appendFile: vi.fn().mockResolvedValue(undefined),
@@ -300,6 +303,15 @@ describe('actionExecutor input validation', () => {
 
       const result = await executor.execute(action);
       expect(result).toContain('apply_patch requires a "path" argument');
+    });
+
+    it('infers an envelope path before validating a direct tool action', async () => {
+      const patch = '*** Begin Patch\n*** Update File: src/example.ts\n@@\n-old\n+new\n*** End Patch';
+
+      const result = await executor.executeForTool({ type: 'apply_patch', path: '', patch });
+
+      expect(result).toEqual(expect.objectContaining({ success: true }));
+      expect(mockFileActionManager.applyPatch).toHaveBeenCalledWith('src/example.ts', patch);
     });
 
     it('apply_patch returns error when patch is missing', async () => {

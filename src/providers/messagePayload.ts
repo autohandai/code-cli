@@ -12,7 +12,7 @@
  * on the way out rather than depended upon upstream.
  */
 
-import type { MultimodalMessage } from "../types.js";
+import type { LLMToolCall, MultimodalMessage } from "../types.js";
 
 export const EMPTY_TOOL_RESULT_PLACEHOLDER = "(no output)";
 export const UNANSWERED_TOOL_CALL_PLACEHOLDER =
@@ -76,6 +76,70 @@ export function isBlankContent(content: unknown): boolean {
     return content.length === 0;
   }
   return content === null || content === undefined;
+}
+
+function hasValidToolArguments(call: LLMToolCall): boolean {
+  try {
+    const argumentsValue: unknown = JSON.parse(call.function.arguments);
+    return typeof argumentsValue === "object" && argumentsValue !== null && !Array.isArray(argumentsValue);
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeToolCallHistory(messages: readonly MultimodalMessage[]): MultimodalMessage[] {
+  const normalized: MultimodalMessage[] = [];
+  const invalidCalls = new Map<string, string>();
+  let recoveredResults: MultimodalMessage[] = [];
+  const flushRecoveredResults = (): void => {
+    normalized.push(...recoveredResults);
+    recoveredResults = [];
+  };
+
+  for (const message of messages) {
+    if (message.role === "tool") {
+      const invalidName = message.tool_call_id ? invalidCalls.get(message.tool_call_id) : undefined;
+      if (invalidName !== undefined) {
+        recoveredResults.push({
+          role: "user",
+          content: `[Recovered tool result: ${invalidName}; historical arguments were invalid]\n${toTextOnlyContent(message.content)}`,
+        });
+      } else {
+        normalized.push(message);
+      }
+      continue;
+    }
+
+    flushRecoveredResults();
+    if (message.role !== "assistant" || !message.tool_calls?.length) {
+      normalized.push(message);
+      continue;
+    }
+
+    const validCalls = message.tool_calls.filter(hasValidToolArguments);
+    if (validCalls.length === message.tool_calls.length) {
+      normalized.push(message);
+      continue;
+    }
+    const validSet = new Set(validCalls);
+    const invalidNames: string[] = [];
+    for (const call of message.tool_calls) {
+      if (validSet.has(call)) continue;
+      invalidCalls.set(call.id, call.function.name);
+      invalidNames.push(call.function.name);
+    }
+    const notice = `[Historical tool calls omitted from native replay because their arguments were not valid JSON objects: ${invalidNames.join(", ")}.]`;
+    const content = Array.isArray(message.content)
+      ? [...message.content, { type: "text" as const, text: notice }]
+      : [message.content, notice].filter(Boolean).join("\n");
+    normalized.push({
+      ...message,
+      content,
+      tool_calls: validCalls.length ? validCalls : undefined,
+    });
+  }
+  flushRecoveredResults();
+  return normalized;
 }
 
 /** Keep runtime context at its conversation position instead of moving it into the cached prefix. */
@@ -157,7 +221,7 @@ export function normalizeOutboundMessages(
   messages: MultimodalMessage[],
   options: NormalizeOutboundMessagesOptions = {},
 ): Record<string, unknown>[] {
-  messages = normalizePromptRoles(messages);
+  messages = normalizePromptRoles(normalizeToolCallHistory(messages));
   const transformContent = options.transformContent ?? ((content) => content);
   const knownToolCallIds = new Set<string>();
   const answeredToolCallIds = new Set<string>();

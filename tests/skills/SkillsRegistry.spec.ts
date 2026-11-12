@@ -6,8 +6,9 @@
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { SkillsRegistry } from '../../src/skills/SkillsRegistry.js';
+import { SkillsRegistry, resolveBuiltinSkillDirectories } from '../../src/skills/SkillsRegistry.js';
 import { buildSkillSuggestions } from '../../src/ui/ink/SkillMentionDropdown.js';
 
 describe('SkillsRegistry', () => {
@@ -43,6 +44,23 @@ ${body}
   }
 
   describe('initialization', () => {
+    it.each(['with spaces', 'with#hash', 'with%percent', '日本語-é', 'spaces # % 日本語'])('loads packaged builtins from a module URL containing %s', async (segment) => {
+      const modulePath = path.join(tempRoot, segment, 'src', 'skills', 'SkillsRegistry.js');
+      const builtinDirectory = path.join(path.dirname(modulePath), 'builtin');
+      const builtinPath = await createSkill(builtinDirectory, 'path-fixture', 'Packaged skill for escaped module paths', 'Packaged fixture body.');
+      const registry = new SkillsRegistry(path.join(tempRoot, segment, 'user-skills'), 'autohand-user', {
+        builtinSkillDirectories: resolveBuiltinSkillDirectories(pathToFileURL(modulePath).href),
+        embeddedBuiltinAssetsRoot: path.join(tempRoot, segment, 'embedded-fallback'),
+      });
+      await registry.initialize();
+
+      expect(registry.getSkill('path-fixture')).toMatchObject({
+        source: 'builtin',
+        path: builtinPath,
+        body: 'Packaged fixture body.',
+      });
+    });
+
     it('initializes with empty skill list when no skills exist', async () => {
       const emptyDir = path.join(tempRoot, 'empty-skills');
       await fs.ensureDir(emptyDir);

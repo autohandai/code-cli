@@ -8,6 +8,7 @@ import { SimpleChatHandler, type SimpleChatAgent } from '../../../src/core/agent
 import type { LLMMessage, LLMRequest } from '../../../src/types.js';
 import type { LLMProvider } from '../../../src/providers/LLMProvider.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
+import { AnthropicProvider } from '../../../src/providers/AnthropicProvider.js';
 
 const sessionId = 'session-123';
 
@@ -56,6 +57,31 @@ describe('SimpleChatHandler prompt cache affinity', () => {
     expect(complete).toHaveBeenCalledWith(expect.not.objectContaining({
       promptCache: expect.anything(),
     }));
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ sessionId }));
+  });
+
+  it('changes the Go routing header with the active conversation even when prompt caching is disabled', async () => {
+    const { agent } = createAgent();
+    let activeSession = 'original-session';
+    agent.getSessionManager = () => ({ getCurrentSession: () => ({ metadata: { sessionId: activeSession } }) });
+    agent.isPromptCachingEnabled = () => false;
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({
+      id: 'go-response', type: 'message', role: 'assistant', model: 'minimax-m3',
+      content: [{ type: 'text', text: 'Hello' }], stop_reason: 'end_turn',
+      usage: { input_tokens: 3, output_tokens: 1 },
+    }));
+    agent.llm = new AnthropicProvider({ apiKey: 'fixture', model: 'minimax-m3', baseUrl: 'https://opencode.ai/inference/go/anthropic' });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const handler = new SimpleChatHandler(agent);
+    await expect(handler.handle('Hello')).resolves.toBe(true);
+    activeSession = 'new-session';
+    await expect(handler.handle('Hello again')).resolves.toBe(true);
+    const ids = fetch.mock.calls.map(([, init]) => new Headers(init?.headers).get('x-opencode-session'));
+    expect(ids[0]).toMatch(/^autohand_[a-f0-9]{64}$/);
+    expect(ids[1]).not.toBe(ids[0]);
+    for (const [, init] of fetch.mock.calls) {
+      expect(String(init?.body)).not.toMatch(/original-session|new-session|sessionId/);
+    }
   });
 
   it('omits prompt-cache metadata without an active session', async () => {

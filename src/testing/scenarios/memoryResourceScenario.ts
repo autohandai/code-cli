@@ -40,3 +40,34 @@ nodeFs.mkdir = async function(target, ...options) {
     arm: async () => writeFile(armedPath, ''),
   };
 }
+
+export async function prepareSessionDiskFullScenario(
+  workspaceRoot: string,
+  autohandHome: string,
+  responseMarker: string,
+): Promise<{ preload: string; attemptsPath: string; recover: () => Promise<void> }> {
+  const attemptsPath = path.join(workspaceRoot, 'session-disk-full.attempts');
+  const recoveredPath = path.join(workspaceRoot, 'session-disk-full.recovered');
+  const preloadPath = path.join(workspaceRoot, 'session-disk-full.mjs');
+  await writeFile(preloadPath, `import { promises as nodeFs, existsSync, readFileSync, appendFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+const originalOpen = nodeFs.open;
+nodeFs.open = async function(target, ...options) {
+  const file = String(target);
+  const conversation = join(dirname(file), 'conversation.jsonl');
+  if (!existsSync(${JSON.stringify(recoveredPath)}) && file.startsWith(${JSON.stringify(autohandHome + path.sep)})
+    && basename(file).startsWith('.metadata.json.') && existsSync(conversation)) {
+    const lines = readFileSync(conversation, 'utf8').trim().split('\\n');
+    const last = JSON.parse(lines[lines.length - 1] || '{}');
+    if (last.role === 'assistant' && String(last.content).includes(${JSON.stringify(responseMarker)})) {
+      appendFileSync(${JSON.stringify(attemptsPath)}, 'session metadata blocked\\n');
+      throw Object.assign(new Error('ENOSPC: no space left on device, open ' + file), {
+        code: 'ENOSPC', syscall: 'open', path: file,
+      });
+    }
+  }
+  return originalOpen.call(this, target, ...options);
+};
+`);
+  return { preload: pathToFileURL(preloadPath).href, attemptsPath, recover: () => writeFile(recoveredPath, '') };
+}

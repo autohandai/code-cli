@@ -6,6 +6,7 @@
 import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';
 import type { AuthUser, McpServerConfigEntry, ToolRegistryEntry } from '../../types.js';
 import type { AgentDefinition } from '../../core/agents/AgentRegistry.js';
+import type { AgentRunTerminalStatus } from '../../core/agents/AgentRunStore.js';
 import type {
   ExperimentConstraintConfig,
   ExperimentRetentionConfig,
@@ -966,6 +967,8 @@ export interface HookSubagentStopNotificationParams {
   subagentName: string;
   subagentType: string;
   success: boolean;
+  status?: AgentRunTerminalStatus;
+  reason?: 'iteration_limit';
   duration: number;
   error?: string;
   timestamp: string;

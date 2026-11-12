@@ -3,6 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { checkRunToolScopeByName, resolveRunToolScope } from '../permissions/runToolScope.js';
 import chalk from 'chalk';
 import { areProviderBackgroundCallsEnabled } from './agent/AutohandOrchestration.js';
 import { selectCodeModeTools } from './agent/CodeModeRunner.js';
@@ -43,7 +44,7 @@ import { maybeOfferAutohandAISwitch } from '../commands/login.js';
 import { getFeatureState, isAwsBedrockProviderEnabled } from '../features/featureRegistry.js';
 import type { RemoteFeatureFlagManager } from '../features/RemoteFeatureFlagManager.js';
 import type { LLMProvider } from '../providers/LLMProvider.js';
-import { ApiError, waitForProviderRetry } from '../providers/errors.js';
+import { ApiError, readStorageCapacityError, waitForProviderRetry } from '../providers/errors.js';
 import { safeEmitKeypressEvents } from '../ui/inputPrompt.js';
 
 import { safeSetRawMode } from '../ui/rawMode.js';
@@ -401,7 +402,7 @@ export class AutohandAgent {
   private followupQuestionCallback?: (
     question: string,
     suggestedAnswers?: string[],
-  ) => Promise<string | undefined>;
+  ) => Promise<string | null | undefined>;
   private mobileRelayController?: MobileRelayController;
   private mobileTurnFailureMessage: string | null = null;
   private conversation!: ConversationManager;
@@ -1527,6 +1528,7 @@ export class AutohandAgent {
   }
 
   private async prepareSpecialists(instruction: string): Promise<string | undefined> {
+    if (!checkRunToolScopeByName(resolveRunToolScope(this.runtime.options), 'orchestrate_specialists').allowed) return undefined;
     if (getFeatureState(this.runtime.config, 'automatic_specialists')?.enabled !== true) {
       return undefined;
     }
@@ -3045,6 +3047,12 @@ export class AutohandAgent {
     this.emitOutput(event);
   }
 
+  setFollowupQuestionCallback(
+    callback: (question: string, suggestedAnswers?: string[]) => Promise<string | null | undefined>
+  ): void {
+    this.followupQuestionCallback = callback;
+  }
+
   /**
    * Set a callback for confirmation prompts (used by RPC mode)
    * When set, this callback is used instead of the default Modal prompt
@@ -3056,6 +3064,8 @@ export class AutohandAgent {
   }
 
   private getDisplayErrorMessage(error: unknown): string {
+    const storage = readStorageCapacityError(error);
+    if (storage) return storage.message;
     if (error instanceof Error && error.message.trim()) {
       return error.message;
     }

@@ -21,6 +21,13 @@ import {
 const sessions: Session[] = [];
 const states: TuistoryTempState[] = [];
 const servers: MockNativeToolServer[] = [];
+const patchCases: Array<{ format: string; patch: string; changes: boolean; inferPath?: boolean }> = [
+  { format: 'numbered', patch: '@@ -1 +1 @@\n-const oldValue = true;\n+const newValue = true;', changes: true },
+  { format: 'anchored', patch: '@@\n-const oldValue = true;\n+const newValue = true;', changes: true },
+  { format: 'enveloped', patch: '*** Begin Patch\n*** Update File: patch-target.ts\n@@\n-const oldValue = true;\n+const newValue = true;\n*** End Patch', changes: true },
+  { format: 'inferred-path envelope', patch: '*** Begin Patch\n*** Update File: patch-target.ts\n@@\n-const oldValue = true;\n+const newValue = true;\n*** End Patch', changes: true, inferPath: true },
+  { format: 'invalid zero-hunk', patch: '*** Begin Patch\n*** Update File: patch-target.ts\n*** End Patch', changes: false },
+];
 
 afterEach(async () => {
   for (const session of sessions.splice(0)) {
@@ -36,7 +43,7 @@ afterEach(async () => {
 });
 
 describe('apply_patch diff Tuistory', () => {
-  it('renders changed lines with the default Aurora diff palette', async () => {
+  it.each(patchCases)('reports the $format patch outcome and renders actual changes', async ({ patch, changes, inferPath }) => {
     const target = 'patch-target.ts';
     const completionMarker = 'PATCH_DIFF_RENDERED';
     const turns: MockNativeAssistantTurn[] = [];
@@ -80,14 +87,7 @@ describe('apply_patch diff Tuistory', () => {
         toolCall: {
           id: 'call_apply_patch_target',
           name: 'apply_patch',
-          args: {
-            path: absoluteTarget,
-            patch: [
-              '@@ -1 +1 @@',
-              '-const oldValue = true;',
-              '+const newValue = true;',
-            ].join('\n'),
-          },
+          args: inferPath ? { patch } : { path: absoluteTarget, patch },
         },
       },
       { content: completionMarker },
@@ -116,12 +116,17 @@ describe('apply_patch diff Tuistory', () => {
     });
 
     expect(server.requests).toHaveLength(3);
-    await expect(fs.readFile(absoluteTarget, 'utf8')).resolves.toBe('const newValue = true;\n');
-    expect(output).toContain('✔ apply_patch');
-    expect(output).toContain('│    1 -  const oldValue = true;');
-    expect(output).toContain('│    1 +  const newValue = true;');
-    expect(rawOutput).toContain('\u001b[38;2;237;154;154m  │    1 -  const oldValue = true;');
-    expect(rawOutput).toContain('\u001b[38;2;134;207;163m  │    1 +  const newValue = true;');
+    await expect(fs.readFile(absoluteTarget, 'utf8')).resolves.toBe(changes ? 'const newValue = true;\n' : 'const oldValue = true;\n');
+    if (changes) {
+      expect(output).toContain('✔ apply_patch');
+      expect(output).toContain('│    1 -  const oldValue = true;');
+      expect(output).toContain('│    1 +  const newValue = true;');
+      expect(rawOutput).toContain('\u001b[38;2;237;154;154m  │    1 -  const oldValue = true;');
+      expect(rawOutput).toContain('\u001b[38;2;134;207;163m  │    1 +  const newValue = true;');
+    } else {
+      expect(output).toContain('no hunks found');
+      expect(output).not.toContain('✔ apply_patch');
+    }
     await exitInteractive(session);
     sessions.splice(sessions.indexOf(session), 1);
   }, 60_000);

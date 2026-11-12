@@ -85,6 +85,18 @@ describe('compact provider tool limits', () => {
 });
 
 describe('runCodeModeScript', () => {
+  it.each([false, true])('lets real sandbox code branch on partial worker metadata (bounded observation: %s)', async compact => {
+    const { host } = createHost(call => ({ tool: call.tool, success: true, status: 'partial', reason: 'iteration_limit', output: 'Findings remain available.',
+      ...(compact ? { modelOutput: 'Bounded partial findings.' } : {}),
+    }));
+    const result = await runCodeModeScript(host, { toolCallId: 'partial-script', script: `
+      const worker = await tools.delegate_task({agent_name:'reviewer',task:'Review source.'});
+      if (worker.status !== 'partial') throw new Error('Partial worker status was lost');
+      return {status:worker.status,reason:worker.reason,findings:worker.output};
+    ` });
+    expect(result.success).toBe(true);
+    expect(JSON.parse(result.output ?? '{}').result).toEqual({ status: 'partial', reason: 'iteration_limit', findings: compact ? 'Bounded partial findings.' : 'Findings remain available.' });
+  });
   it('forwards nested image evidence for model inspection without putting image bytes in script output', async () => {
     const imagePaths = ['/tmp/verified-frame.png'];
     const imageRefs = ['tool-image:11111111-1111-4111-8111-111111111111'];

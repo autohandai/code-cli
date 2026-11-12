@@ -34,6 +34,7 @@ function hookContext({ run, message }: AgentRunLifecycleEvent): Omit<HookContext
     subagentParentId: run.parentId,
     subagentSource: run.source,
     subagentStatus: run.status,
+    subagentReason: run.reason,
     subagentWorkspace: run.workspaceRoot,
     subagentTask: run.task,
     subagentActivity: run.activity,

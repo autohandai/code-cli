@@ -2,21 +2,30 @@
 
 ## Unreleased
 
+## 0.9.11 - 2026-11-12
+
 ### Added
 
+- Configure delegated-agent request limits with `agent.subagentMaxIterations`; exhausted work returns partial findings and an explicit completion status.
+- Answer ACP follow-up questions through capability-gated form elicitation, with cancellation and session-retirement cleanup.
 - Choose Keenable in `/search`, onboarding or settings with your own API key. Search results use the selected provider, and keys remain masked in the terminal.
-
-### Fixed
-
-- OpenAI-compatible fine-tuned and proxy models can recover once when their API requires a different completion-token parameter.
-
-### Added
-
 - Squad MCP now also manages agent profiles, abilities, extra project folders, skills, group chats, channel membership and scheduled routines.
 - Squad is built in as an MCP connection. Select an agent in the running app with `/squad`, send it direct messages with `/message`, and read conversation history and delivery receipts. The connection also reads Squad artifacts and memories.
 
 ### Fixed
 
+- Retain answer-only runtime commit identities when repository refs are packed, including worktree common-directory refs.
+- Continue required completion review with disclosed session evidence when a large workspace diff exceeds its capture time budget.
+- Apply supported anchored and numbered single-file patches, reject ambiguous or no-op changes, and authorize rewritten targets before editing.
+- Preserve per-agent model, reasoning and explicit research-only scope; forward Code Mode image evidence once while retaining compact script-visible hints.
+- Use compatible OpenAI endpoints, token limits, reasoning and sampling parameters; preserve configured reasoning on custom endpoints and bound token-parameter recovery to one resend.
+- Keep malformed historical tool calls as readable context and enforce OpenRouter deadlines through complete response body reads.
+- Use authoritative running llama.cpp context capacity without blocking composer startup or overriding explicit user limits.
+- Send the Autohand identity and opaque per-conversation routing on official OpenCode Go endpoints, and avoid whole-turn replay after Managed Identity authentication failure.
+- Stop automatic replay after storage-capacity failures, report unsaved-state risk, and recover valid project-history rows without rewriting original logs.
+- Resolve built-in skills from encoded filesystem paths and preserve complete project associations for new Cursor imports containing spaces, percent signs or Unicode.
+- Enforce bare all-tool denials for advertised and fabricated tools and automatic specialist preparation; ACP reports whether deny-all scope was activated.
+- OpenAI-compatible fine-tuned and proxy models can recover once when their API requires a different completion-token parameter.
 - Start chat and file work in ordinary folders without initializing Git or creating an ignore file. Existing repositories still show their branch; initialize Git only when you choose to use it.
 - Keep the composer editable while restoring saved conversations, preserve drafts and early submissions, and wait for restored history before executing queued work.
 - Prevent full-screen resize frames from accumulating in iTerm2 scrollback, preserve drafts and cursor edits, and relaunch compiled executables correctly inside tmux. Plain `--tmux` uses the current folder; `--worktree` and `--zit` request isolation explicitly.
@@ -31,6 +40,8 @@
 ### Testing
 
 - Exercise resize behavior through real tmux and native iTerm2, Ghostty, cmux, and VS Code windows in GitHub Actions, with the iTerm2 Python API disabled.
+
+See [the 0.9.11 release notes](docs/changelog/whats-new-0.9.11.md) for details.
 
 ## 0.9.10 - 2026-11-04
 

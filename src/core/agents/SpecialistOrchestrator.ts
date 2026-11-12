@@ -231,6 +231,7 @@ function roleLabel(role: string): string {
 
 function interviewIsComplete(batches: SpecialistExecutionBatch[]): boolean {
   return batches.some((batch) => {
+    if (!batch.outcome.success || batch.outcome.status === 'partial') return false;
     const output = batch.outcome.output ?? '';
     return /^\s*complete\s*:\s*true\s*$/im.test(output)
       || /"complete"\s*:\s*true\b/i.test(output);
@@ -261,6 +262,7 @@ export function formatSpecialistResults(result: SpecialistExecutionResult): stri
       batches: result.batches.map((batch) => ({
         agents: batch.agents,
         success: batch.outcome.success,
+        ...(batch.outcome.success ? { status: batch.outcome.status ?? 'completed', reason: batch.outcome.reason } : {}),
         output: batch.outcome.output,
         ...(!batch.outcome.success ? { error: batch.outcome.error } : {}),
       })),
@@ -638,7 +640,7 @@ export class SpecialistOrchestrator {
     return {
       plan,
       batches,
-      completed: batches.length > 0 && batches.every((batch) => batch.outcome.success),
+      completed: batches.length > 0 && batches.every((batch) => batch.outcome.success && batch.outcome.status !== 'partial'),
     };
   }
 }

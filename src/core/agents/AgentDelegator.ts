@@ -18,6 +18,7 @@ import { UnattendedApprovalError } from '../../permissions/unattended.js';
 import type { TeamModelAssignment } from '../teams/TeamModelPolicy.js';
 import { getSessionThreadBudget, SessionThreadLimitError, type ThreadBudget, type ThreadLease } from './SessionThreadBudget.js';
 import type { PeerRunRuntime, PeerRunRuntimeFactory } from '../agent/PeerCommunicationRuntime.js';
+import { isValidSubagentIterationLimit, MAX_SUBAGENT_ITERATIONS } from './subagentIterations.js';
 
 /** Default maximum delegation depth to prevent infinite loops */
 const DEFAULT_MAX_DEPTH = 3;
@@ -27,10 +28,19 @@ export type SubagentProviderFactory = (assignment: TeamModelAssignment) => LLMPr
 
 export interface DelegationExecutionOptions {
     signal?: AbortSignal;
+    maxIterations?: number;
+    researchOnly?: boolean;
+}
+
+export interface ParallelDelegationTask {
+    agent_name: string;
+    task: string;
+    maxIterations?: number;
+    research_only?: boolean;
 }
 
 type ParallelDelegationResult =
-    | { success: true; text: string }
+    | { success: true; text: string; partial: boolean }
     | {
         success: false;
         kind: 'validation' | 'operational' | 'aborted' | 'authorization';
@@ -73,7 +83,8 @@ export interface SubagentStopContext extends SubagentStartContext {
     error?: string;
     /** Duration in milliseconds */
     duration: number;
-    status?: 'completed' | 'failed' | 'cancelled';
+    status?: 'completed' | 'partial' | 'failed' | 'cancelled';
+    reason?: 'iteration_limit';
 }
 
 export interface SubagentProgressContext extends SubagentStartContext, SubAgentProgress {}
@@ -164,6 +175,9 @@ export class AgentDelegator {
     public async delegateTaskForTool(
         agentName: string, task: string, options: DelegationExecutionOptions = {},
     ): Promise<ToolActionOutcome> {
+        if (options.maxIterations !== undefined && !isValidSubagentIterationLimit(options.maxIterations)) {
+            return { success: false, kind: 'validation', error: `maxIterations must be an integer between 1 and ${MAX_SUBAGENT_ITERATIONS}.` };
+        }
         // Check depth limit to prevent infinite delegation loops
         if (this.currentDepth >= this.maxDepth) {
             const error = `Maximum delegation depth (${this.maxDepth}) reached. Cannot delegate to '${agentName}'.`;
@@ -188,6 +202,7 @@ export class AgentDelegator {
         const workspaceRoot = this.options.getWorkspaceRoot?.() ?? this.options.workspaceRoot;
         const userRequest = this.options.getUserRequest?.();
         const subAgentOptions: SubAgentOptions = {
+            researchOnly: options.researchOnly,
             workspaceRoot,
             projectMemoryEnabled: this.options.projectMemoryEnabled,
             userRequest,
@@ -268,22 +283,23 @@ export class AgentDelegator {
                     onProgress: progress => this.notifyObserver(this.options.onSubagentProgress, { ...startContext, ...progress }),
                 },
             );
-            const result = await agent.run(task, { signal });
+            const result = await agent.run(task, { signal, maxIterations: options.maxIterations });
+            const completion = agent.getCompletionState() ?? { status: 'completed' as const };
             acceptingMessages = false;
 
             // Fire subagent-stop hook on success
             if (started && this.onSubagentStop) {
                 await this.notifyObserver(this.onSubagentStop, {
                     ...startContext,
-                    success: true,
-                    status: 'completed',
+                    success: completion.status === 'completed',
+                    ...completion,
                     result,
                     usage: agent.getUsage(),
                     duration: Date.now() - startTime
                 });
             }
 
-            return { success: true, output: result };
+            return { success: true, output: result, ...completion };
         } catch (error) {
             acceptingMessages = false;
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -316,14 +332,17 @@ export class AgentDelegator {
         }
     }
 
-    public async delegateParallel(tasks: Array<{ agent_name: string; task: string }>): Promise<string> {
+    public async delegateParallel(tasks: ParallelDelegationTask[]): Promise<string> {
         return this.toLegacyOutput(await this.delegateParallelForTool(tasks));
     }
 
     public async delegateParallelForTool(
-        tasks: Array<{ agent_name: string; task: string }>,
+        tasks: ParallelDelegationTask[],
         options: DelegationExecutionOptions = {},
     ): Promise<ToolActionOutcome> {
+        if ([options.maxIterations, ...tasks.map(task => task.maxIterations)].some(limit => limit !== undefined && !isValidSubagentIterationLimit(limit))) {
+            return { success: false, kind: 'validation', error: `maxIterations must be an integer between 1 and ${MAX_SUBAGENT_ITERATIONS}.` };
+        }
         // Check depth limit
         if (this.currentDepth >= this.maxDepth) {
             const error = `Maximum delegation depth (${this.maxDepth}) reached. Cannot delegate parallel tasks.`;
@@ -332,7 +351,7 @@ export class AgentDelegator {
 
         await this.registry.loadAgents();
 
-        const promises = tasks.map(async ({ agent_name, task }): Promise<ParallelDelegationResult> => {
+        const promises = tasks.map(async ({ agent_name, task, maxIterations, research_only }): Promise<ParallelDelegationResult> => {
             const agentConfig = this.registry.getAgent(agent_name);
             if (!agentConfig) {
                 const error = `Agent '${agent_name}' not found.`;
@@ -344,9 +363,14 @@ export class AgentDelegator {
                 };
             }
 
-            const result = await this.runRegisteredTask(agentConfig, agent_name, task, options);
+            const result = await this.runRegisteredTask(agentConfig, agent_name, task, {
+                ...options,
+                maxIterations: options.maxIterations === undefined ? maxIterations
+                    : Math.min(options.maxIterations, maxIterations ?? options.maxIterations),
+                researchOnly: options.researchOnly === true || research_only === true,
+            });
             return result.success
-                ? { success: true, text: `[${agent_name}] Result:\n${result.output ?? ''}` }
+                ? { success: true, partial: result.status === 'partial', text: `[${agent_name}] ${result.status === 'partial' ? 'Partial (iteration_limit)' : 'Done'}:\n${result.output ?? ''}` }
                 : {
                     success: false,
                     kind: result.kind === 'aborted' || result.kind === 'validation' || result.kind === 'authorization' ? result.kind : 'operational',
@@ -369,7 +393,8 @@ export class AgentDelegator {
                 output,
             };
         }
-        return { success: true, output };
+        const partial = results.some(result => result.success && result.partial);
+        return { success: true, output, ...(partial ? { status: 'partial' as const, reason: 'iteration_limit' as const } : { status: 'completed' as const }) };
     }
 
     private toLegacyOutput(outcome: ToolActionOutcome): string {
