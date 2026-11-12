@@ -1488,7 +1488,7 @@ describe("SetupWizard", () => {
         if (previous === undefined) delete process.env.EXA_API_KEY; else process.env.EXA_API_KEY = previous;
       }
     });
-    it("offers search setup in quick setup, including browser profiles and Exa", async () => {
+    it("offers search setup in quick setup, including browser profiles, Exa and Keenable", async () => {
       const wizard = new SetupWizard(testWorkspace);
       setupQuickLocalMocks("ollama", "llama3.2:latest");
       await wizard.run({ skipWelcome: true, quickSetup: true });
@@ -1497,6 +1497,7 @@ describe("SetupWizard", () => {
         options: expect.arrayContaining([
           expect.objectContaining({ value: "browser-profile" }),
           expect.objectContaining({ value: "exa" }),
+          expect.objectContaining({ value: "keenable" }),
         ]),
       }));
     });

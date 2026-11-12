@@ -1557,6 +1557,53 @@ describe('OpenAIProvider', () => {
     expect(sentBody.max_tokens).toBeUndefined();
   });
 
+  describe('unsupported max_tokens fallback', () => {
+    const unsupportedMaxTokens = () => new Response(JSON.stringify({
+      error: {
+        message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+        type: 'invalid_request_error',
+        param: 'max_tokens',
+        code: 'unsupported_parameter',
+      },
+    }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+
+    it('resends once with max_completion_tokens when an unrecognized model rejects max_tokens', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(unsupportedMaxTokens())
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          id: 'resp-ft', created: 1,
+          choices: [{ message: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+      const result = await provider.complete({
+        model: 'ft:gpt-6.1-sol:acme::abc123',
+        maxTokens: 4096,
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+
+      expect(result.content).toBe('OK');
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const firstBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+      const retryBody = JSON.parse(fetchSpy.mock.calls[1][1]?.body as string);
+      expect(firstBody.max_tokens).toBe(4096);
+      expect(retryBody.max_completion_tokens).toBe(4096);
+      expect(retryBody).not.toHaveProperty('max_tokens');
+    });
+
+    it('does not retry other 400 errors', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { message: "Unsupported parameter: 'temperature' is not supported with this model." },
+      }), { status: 400, headers: { 'Content-Type': 'application/json' } }));
+
+      await expect(provider.complete({
+        model: 'ft:gpt-6.1-sol:acme::abc123',
+        maxTokens: 4096,
+        messages: [{ role: 'user', content: 'hi' }],
+      })).rejects.toBeInstanceOf(ApiError);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('Chat Completions finish reason normalization', () => {
     const mockJson = (body: unknown) => vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }),

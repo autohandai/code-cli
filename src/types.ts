@@ -1157,7 +1157,7 @@ export interface AutohandConfig {
 }
 
 /** Supported web search providers */
-export type SearchProvider = 'autohand' | 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa';
+export type SearchProvider = 'autohand' | 'brave' | 'duckduckgo' | 'parallel' | 'google' | 'browser-profile' | 'exa' | 'keenable';
 
 /** Web search provider settings */
 export interface SearchSettings {
@@ -1169,6 +1169,8 @@ export interface SearchSettings {
   parallelApiKey?: string;
   /** Exa.ai API key */
   exaApiKey?: string;
+  /** Keenable API key */
+  keenableApiKey?: string;
 }
 
 export interface LoadedConfig extends AutohandConfig {
