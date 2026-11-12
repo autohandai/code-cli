@@ -6,6 +6,7 @@
 import fs from 'fs-extra';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { open } from 'node:fs/promises';
 import type {
     ProjectIndex,
     ProjectKnowledge,
@@ -83,7 +84,7 @@ export class ProjectManager {
         const projectDir = path.join(this.projectsDir, projectHash);
         const failuresPath = path.join(projectDir, 'failures.jsonl');
 
-        await fs.appendFile(failuresPath, JSON.stringify(failure) + '\n');
+        await this.appendLogRecord(failuresPath, failure);
         await this.updateKnowledge(projectHash);
     }
 
@@ -92,7 +93,7 @@ export class ProjectManager {
         const projectDir = path.join(this.projectsDir, projectHash);
         const successesPath = path.join(projectDir, 'successes.jsonl');
 
-        await fs.appendFile(successesPath, JSON.stringify(success) + '\n');
+        await this.appendLogRecord(successesPath, success);
         await this.updateKnowledge(projectHash);
     }
 
@@ -101,20 +102,11 @@ export class ProjectManager {
         const projectDir = path.join(this.projectsDir, projectHash);
         const failuresPath = path.join(projectDir, 'failures.jsonl');
 
-        if (!(await fs.pathExists(failuresPath))) {
-            return [];
-        }
-
-        const content = await fs.readFile(failuresPath, 'utf-8');
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - lookbackDays);
 
-        return content
-            .trim()
-            .split('\n')
-            .filter(line => line)
-            .map(line => JSON.parse(line) as FailureRecord)
-            .filter(f => new Date(f.timestamp) >= cutoff);
+        return (await this.loadJsonl<FailureRecord>(failuresPath))
+            .filter(failure => new Date(failure.timestamp) >= cutoff);
     }
 
     async getKnowledge(projectPath: string): Promise<ProjectKnowledge | null> {
@@ -210,11 +202,29 @@ export class ProjectManager {
         }
 
         const content = await fs.readFile(filePath, 'utf-8');
-        return content
-            .trim()
-            .split('\n')
-            .filter(line => line)
-            .map(line => JSON.parse(line) as T);
+        const records: T[] = [];
+        for (const line of content.split('\n')) {
+            if (!line.trim()) continue;
+            try {
+                records.push(JSON.parse(line) as T);
+            } catch (error) {
+                if (!(error instanceof SyntaxError)) throw error;
+            }
+        }
+        return records;
+    }
+
+    private async appendLogRecord(filePath: string, record: FailureRecord | SuccessRecord): Promise<void> {
+        const handle = await open(filePath, 'a+');
+        try {
+            const { size } = await handle.stat();
+            const tail = Buffer.alloc(1);
+            if (size > 0) await handle.read(tail, 0, 1, size - 1);
+            const separator = size > 0 && tail[0] !== 10 ? '\n' : '';
+            await handle.writeFile(`${separator}${JSON.stringify(record)}\n`, 'utf8');
+        } finally {
+            await handle.close();
+        }
     }
 
     private generateSummary(failures: FailureRecord[], successes: SuccessRecord[]): string {

@@ -14,6 +14,7 @@ import {
   type ModalOption,
 } from "../../ui/ink/components/Modal.js";
 import { ProviderFactory } from "../../providers/ProviderFactory.js";
+import { resolveRuntimeContextWindow } from '../../providers/runtimeContextWindow.js';
 import { buildProviderSelectionOptions } from "../../ui/providerSelectionOptions.js";
 import { OPENAI_MODELS } from "../../providers/OpenAIProvider.js";
 import {
@@ -155,6 +156,10 @@ export class ProviderConfigManager {
     if (customSettings) {
       const modelMetadata = customSettings.models?.find((entry) => entry.id === model);
       return modelMetadata?.contextWindow ?? customSettings.contextWindow ?? getContextWindow(model);
+    }
+
+    if (provider === "llamacpp") {
+      return getContextWindow(model, this.runtime.config.llamacpp?.contextWindow);
     }
 
     if (provider === "openrouter") {
@@ -1200,6 +1205,7 @@ export class ProviderConfigManager {
       this.runtime.options.model = model;
       await saveConfig(this.runtime.config);
       this.resetLlmClient("llamacpp", model);
+      this.refreshRuntimeContextWindow(model);
 
       console.log(
         chalk.green(
@@ -4065,6 +4071,7 @@ export class ProviderConfigManager {
     this.emitStatus();
 
     // Track model switch
+    this.refreshRuntimeContextWindow(newModel);
     await this.telemetryManager.trackModelSwitch({
       fromModel: previousModel,
       toModel: newModel,
@@ -4077,6 +4084,21 @@ export class ProviderConfigManager {
         "✓ " + t("providers.config.usingModel", { provider, model: newModel }),
       ),
     );
+  }
+
+  private refreshRuntimeContextWindow(model: string): void {
+    const provider = this.getLlm();
+    const providerName = this.getActiveProvider();
+    if (this.runtime.options.bare || this.runtime.options.daemon === false || !provider.getContextWindow) return;
+    void (async () => {
+      const reported = await resolveRuntimeContextWindow(async signal => provider.getContextWindow?.(signal));
+      if (this.getLlm() !== provider || this.getActiveProvider() !== providerName || this.runtime.options.model !== model) return;
+      if (typeof reported !== 'number' || !Number.isSafeInteger(reported) || reported <= 0) return;
+      const settings = getProviderConfig(this.runtime.config, providerName);
+      this.updateContextWindow(Math.min(reported, getContextWindow(model, settings?.contextWindow ?? reported)));
+      this.resetContextPercent();
+      this.emitStatus();
+    })().catch(() => {});
   }
 
   /**
@@ -4187,7 +4209,9 @@ export class ProviderConfigManager {
     };
     const builtInProvider = provider as BuiltInProviderName;
     cfgMap[builtInProvider].model = model;
-    cfgMap[builtInProvider].contextWindow = contextWindow;
+    if (builtInProvider !== 'llamacpp' || cfgMap[builtInProvider].contextWindow !== undefined) {
+      cfgMap[builtInProvider].contextWindow = contextWindow;
+    }
     this.setActiveProvider(provider);
   }
 

@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import type { Session } from 'tuistory';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export async function createSessionLifecycleServer(options: { stallDecisions?: boolean } = {}) {
   const chats: Record<string, unknown>[] = [];
@@ -62,7 +63,7 @@ for (const name of ['spawn', 'fork', 'spawnSync']) {
 }
 syncBuiltinESMExports();
 `);
-  return { preload, log };
+  return { preload: pathToFileURL(preload).href, log };
 }
 
 export async function submitSessionCommand(session: Session, text: string, expected: string): Promise<void> {

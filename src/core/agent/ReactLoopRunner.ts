@@ -14,6 +14,7 @@ import type { SkillsRegistry } from '../../skills/SkillsRegistry.js';
 import { prepareSkillRequest } from './SkillRequestAttachment.js';
 import { normalizePromptRoles, toTextOnlyContent } from '../../providers/messagePayload.js';
 import { ApiError } from '../../providers/errors.js';
+import { resolveRuntimeContextWindow } from '../../providers/runtimeContextWindow.js';
 import { DEFAULT_TOOL_OUTPUT_MODE, formatToolOutputForDisplay, type ToolOutputDisplay, type ToolOutputMode } from '../../ui/toolOutput.js';
 import { COMPUTER_USE_TOOL_PREFIX } from '../../computer/computerUseOutput.js';
 import { getPlanModeManager } from '../../commands/plan.js';
@@ -46,7 +47,7 @@ import type { SteeringQueue } from './SteeringQueue.js';
 import type { ContextOrchestrator } from '../context/orchestrator.js';
 import type { ToolManager } from '../toolManager.js';
 import type { ToolsRegistry } from '../toolsRegistry.js';
-import { calculateContextUsage } from '../context/tokenizer.js';
+import { calculateContextUsage, getContextWindow } from '../context/tokenizer.js';
 import { filterToolsByRelevance, limitToolSelection } from '../toolFilter.js';
 import { selectCodeModeTools } from './CodeModeRunner.js';
 import type { PeerCommunicationRuntime } from './PeerCommunicationRuntime.js';
@@ -651,19 +652,34 @@ export async function runAgentReactLoop(
       host.setSpinnerStatus(`Moa reviewing ${checkpoint.replaceAll('_', ' ')}... (esc to interrupt)`);
       let context = evidence;
       if (checkpoint === 'commit' || checkpoint === 'completion') {
-        try {
-          if (host.captureAdvisorDiff) context += `\n${await host.captureAdvisorDiff()}`;
-          else {
-            const changes = await WorkspaceChangeCapture.pending(host.runtime.workspaceRoot);
-            if (changes?.omittedFiles || changes?.files.some(file => file.patch.includes('[diff truncated]'))) {
-              return { verdict: 'unavailable', feedback: 'The workspace diff exceeds the review limit. Review a smaller change before completing.' };
+        let unavailableDiffReason: string | undefined;
+        if (checkpoint === 'completion' && (host.workspaceChangeCaptureDisabled || workspaceChangeCapture?.hasExceededBudget())) {
+          host.workspaceChangeCaptureDisabled = true;
+          unavailableDiffReason = 'Workspace change capture exceeded its time budget earlier in this session';
+        } else {
+          try {
+            if (host.captureAdvisorDiff) context += `\n${await host.captureAdvisorDiff()}`;
+            else {
+              const changes = await WorkspaceChangeCapture.pending(host.runtime.workspaceRoot);
+              if (changes?.omittedFiles || changes?.files.some(file => file.patch.includes('[diff truncated]'))) {
+                return { verdict: 'unavailable', feedback: 'The workspace diff exceeds the review limit. Review a smaller change before completing.' };
+              }
+              context += `\nWorkspace diff against HEAD (includes staged and untracked files): ${JSON.stringify(changes ?? { unavailable: 'This workspace is not a Git repository; use the session evidence and disclose this limit.' })}`;
             }
-            context += `\nWorkspace diff against HEAD (includes staged and untracked files): ${JSON.stringify(changes ?? { unavailable: 'This workspace is not a Git repository; use the session evidence and disclose this limit.' })}`;
+          } catch (error) {
+            abortController.signal.throwIfAborted();
+            if (checkpoint !== 'completion' || !(error instanceof WorkspaceChangeCaptureBudgetError)) {
+              return { verdict: 'unavailable', feedback: `Cannot capture the workspace diff: ${error instanceof Error ? error.message : String(error)}` };
+            }
+            host.workspaceChangeCaptureDisabled = true;
+            unavailableDiffReason = error.message;
           }
-        } catch (error) {
-          return { verdict: 'unavailable', feedback: `Cannot capture the workspace diff: ${error instanceof Error ? error.message : String(error)}` };
+        }
+        if (unavailableDiffReason) {
+          context += `\nWorkspace diff unavailable: ${unavailableDiffReason}. Review the available session evidence and disclose this limitation. Do not assume the workspace has no changes.`;
         }
       }
+      abortController.signal.throwIfAborted();
       const reviewContext = { history: host.conversation.history(), context, signal: abortController.signal };
       let review = await advisor!.review(checkpoint, reviewContext);
       if (review.verdict === 'unavailable') {
@@ -863,7 +879,29 @@ export async function runAgentReactLoop(
       }
 
       // Use ContextOrchestrator for smart auto-compaction
-      const model = host.runtime.options.model ?? getProviderConfig(host.runtime.config, host.activeProvider)?.model ?? 'unconfigured';
+      let model = host.runtime.options.model ?? getProviderConfig(host.runtime.config, host.activeProvider)?.model ?? 'unconfigured';
+      let contextProvider = host.llm;
+      if (!host.runtime.options.bare && host.runtime.options.daemon !== false && contextProvider.getContextWindow) {
+        const contextSignal = AbortSignal.any([abortController.signal, AbortSignal.timeout(2000)]);
+        while (!contextSignal.aborted && contextProvider.getContextWindow) {
+          const providerName = host.activeProvider;
+          const reported = await resolveRuntimeContextWindow(
+            async signal => contextProvider.getContextWindow?.(signal),
+            contextSignal,
+          );
+          if (abortController.signal.aborted) break;
+          const settings = getProviderConfig(host.runtime.config, host.activeProvider);
+          const currentModel = host.runtime.options.model ?? settings?.model ?? 'unconfigured';
+          if (host.llm !== contextProvider || host.activeProvider !== providerName || currentModel !== model) {
+            contextProvider = host.llm;
+            model = currentModel;
+            continue;
+          }
+          if (reported) host.contextWindow = Math.min(reported, getContextWindow(model, settings?.contextWindow ?? reported));
+          break;
+        }
+        if (abortController.signal.aborted) break;
+      }
       host.contextOrchestrator.setModel(model);
       host.contextOrchestrator.setContextWindow?.(host.contextWindow);
 
@@ -1016,6 +1054,7 @@ export async function runAgentReactLoop(
             maxTokens,
             thinkingLevel,
             promptCache: getSessionPromptCacheDirective(host),
+            sessionId: host.sessionManager.getCurrentSession()?.metadata.sessionId,
             onRetry,
             ...(supportsStreaming ? { stream: true, onDelta: combineDeltaHandlers(preview?.onDelta, relay?.onDelta, delta => { if (delta.text) acknowledgeSkills(); }) } : {}),
           });

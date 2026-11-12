@@ -13,6 +13,7 @@ import {
   detectSpecialistRequest,
   createSpecialistRequest,
   SpecialistOrchestrator,
+  formatSpecialistResults,
   type SpecialistPlan,
 } from '../../../src/core/agents/SpecialistOrchestrator.js';
 
@@ -460,6 +461,31 @@ describe('SpecialistOrchestrator turn results', () => {
 });
 
 describe('SpecialistOrchestrator execution', () => {
+  it('does not complete an interview from a capped worker summary that claims complete', async () => {
+    const delegate = delegator();
+    vi.mocked(delegate.delegateTaskForTool).mockResolvedValue({ success: true, status: 'partial', reason: 'iteration_limit', output: '{"complete":true,"remaining":"verification"}' });
+    const orchestrator = new SpecialistOrchestrator(delegate, { registry: registryWith([]), offline: true });
+    const result = await orchestrator.execute({
+      objective: 'Interview', requestedRoles: ['product-interviewer'],
+      selectedAgents: [{ requestedRole: 'product-interviewer', agentName: 'product-interviewer', source: 'builtin', matchReason: 'fixture' }],
+      source: 'intent', matchReason: 'fixture', executionMode: 'interview', unresolvedRoles: [],
+    });
+    expect(result.completed).toBe(false);
+    expect(orchestrator.hasActiveInterview()).toBe(true);
+  });
+  it('keeps a partial specialist report available without declaring the roster complete', async () => {
+    const delegate = delegator();
+    vi.mocked(delegate.delegateParallelForTool).mockResolvedValue({ success: true, status: 'partial', reason: 'iteration_limit', output: 'Findings remain useful; verification remains.' });
+    const orchestrator = new SpecialistOrchestrator(delegate, { registry: registryWith([]), offline: true });
+    const result = await orchestrator.execute({
+      objective: 'Review', requestedRoles: ['reviewer'],
+      selectedAgents: [{ requestedRole: 'reviewer', agentName: 'reviewer', source: 'builtin', matchReason: 'fixture' }],
+      source: 'intent', matchReason: 'fixture', executionMode: 'parallel', unresolvedRoles: [],
+    });
+    expect(result.completed).toBe(false);
+    expect(formatSpecialistResults(result)).toContain('"status": "partial"');
+    expect(formatSpecialistResults(result)).toContain('Findings remain useful');
+  });
   it.each(['parallel', 'serial'] as const)('stops later %s specialists after an unattended approval denial', async executionMode => {
     const delegate = delegator();
     const tracker = new UnattendedApprovalTracker();

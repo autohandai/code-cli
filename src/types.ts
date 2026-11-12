@@ -444,6 +444,8 @@ export interface UISettings {
 export interface AgentSettings {
   /** Maximum iterations per user request (default: 100) */
   maxIterations?: number;
+  /** Default delegated-agent model request cap, including its final summary (default: 30; 1..1000). */
+  subagentMaxIterations?: number;
   /** Limits for one run, shared with in-process sub-agents; CLI flags --max-requests, --max-tokens, --max-duration win. */
   budget?: {
     /** Model requests before the run stops. */
@@ -1282,6 +1284,7 @@ export interface InlineAgentDefinition {
   systemPrompt: string;
   tools: string[];
   model?: string;
+  maxIterations?: number;
   /** Reasoning depth requested by the inline definition. */
   reasoning?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
   /** Skills active for the agent from its first request. */
@@ -1596,6 +1599,8 @@ export interface PromptCacheDirective {
 
 export interface LLMRequest {
   messages: MultimodalMessage[];
+  /** Logical conversation identity for provider routing; never part of the model payload. */
+  sessionId?: string;
   temperature?: number;
   maxTokens?: number;
   stream?: boolean;
@@ -1952,8 +1957,8 @@ export type AgentAction =
   }
   | { type: 'delete_memory'; id: string; level?: 'user' | 'project' }
   | { type: 'create_meta_tool'; name: string; description: string; parameters: Record<string, unknown>; handler: string; scope?: 'user' | 'project' }
-  | { type: 'delegate_task'; agent_name: string; task: string }
-  | { type: 'delegate_parallel'; tasks: Array<{ agent_name: string; task: string }> }
+  | { type: 'delegate_task'; agent_name: string; task: string; maxIterations?: number; research_only?: boolean }
+  | { type: 'delegate_parallel'; maxIterations?: number; research_only?: boolean; tasks: Array<{ agent_name: string; task: string; maxIterations?: number; research_only?: boolean }> }
   | { type: 'orchestrate_specialists'; objective: string; requested_roles: string[] }
   | { type: 'install_specialist_roster'; plan_id: string; agent_names: string[] }
   | { type: 'compose_team'; objective: string; team_name?: string }
@@ -2166,6 +2171,8 @@ export type ToolActionOutcome = {
   | {
       success: true;
       output?: string;
+      status?: 'completed' | 'partial';
+      reason?: 'iteration_limit';
       /** Local artifact paths for runtime-only multimodal handoff; never image bytes or URLs. */
       imagePaths?: string[];
       /** Opaque runtime-only image handles; never image bytes or URLs. */

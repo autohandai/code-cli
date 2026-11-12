@@ -219,7 +219,7 @@ export class ProviderFactory {
                 if (!config.openrouter) {
                     return new UnconfiguredProvider('openrouter');
                 }
-                return new OpenRouterProvider(config.openrouter);
+                return new OpenRouterProvider(config.openrouter, config.network);
 
             default:
                 return new UnconfiguredProvider(providerName);

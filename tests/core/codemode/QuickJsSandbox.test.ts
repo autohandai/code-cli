@@ -57,6 +57,14 @@ describe('runSandboxedScript', () => {
   });
 
   describe('results', () => {
+    it('forwards only the existing boolean image hint without admitting image-like payloads', async () => {
+      const recorded = recordingExecutor(call => ({ ok: true, output: 'Observation.', images: call.tool === 'real' ? true : 'IMAGE_PAYLOAD_MUST_NOT_CROSS' } as unknown as SandboxToolOutcome));
+      const result = await run('const real = await tools.real({}); const malformed = await tools.malformed({}); return {real,malformed};', {
+        toolNames: ['real', 'malformed'], executeToolCalls: recorded.execute,
+      });
+      expect(value(result)).toEqual({ real: { ok: true, output: 'Observation.', images: true }, malformed: { ok: true, output: 'Observation.' } });
+      expect(result.result).not.toContain('IMAGE_PAYLOAD');
+    });
     it('returns the script value as JSON text', async () => {
       const result = await run('return { answer: 42, items: [1, "two"] };');
 

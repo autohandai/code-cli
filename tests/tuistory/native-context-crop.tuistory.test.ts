@@ -80,7 +80,7 @@ describe('Native context crop history', () => {
         expect(continuation).not.toHaveProperty('reasoning_effort');
       } else {
         expect(continuation).not.toHaveProperty('max_tokens');
-        expect(continuation?.reasoning_effort).toBe(model === 'gpt-5.4' ? 'none' : 'high');
+        expect(continuation?.reasoning_effort).toBe('high');
       }
     }
     expect(continuation?.messages).toEqual(expect.arrayContaining([

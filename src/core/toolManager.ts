@@ -36,6 +36,7 @@ import { HOOK_TOOL_NAMES } from './hookTools.js';
 import { CODE_MODE_TOOL_NAME } from './codemode/feature.js';
 import { PEER_TOOL_DEFINITIONS } from './peerTools.js';
 import { GOAL_STATUSES } from '../goals/types.js';
+import { extractPatchTarget } from '../utils/patchValidator.js';
 
 const TOOL_IMAGE_REF = /^tool-image:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -281,6 +282,15 @@ export function buildToolPermissionContexts(action: AgentAction): PermissionCont
 
   if (typeof values.description === 'string') {
     context.description = values.description;
+  }
+  if (action.type === 'apply_patch') {
+    const patch = typeof values.patch === 'string' && values.patch.length > 0
+      ? values.patch
+      : typeof values.diff === 'string' ? values.diff : undefined;
+    const envelopeTarget = patch === undefined ? undefined : extractPatchTarget(patch);
+    if (envelopeTarget !== undefined && envelopeTarget !== context.path) {
+      return [context, { ...context, path: envelopeTarget }];
+    }
   }
   return [context];
 }
@@ -585,12 +595,12 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: 'apply_patch',
-    description: 'Apply a unified diff to a file',
+    description: 'Apply a single-file patch using numbered unified hunks or context-anchored @@ hunks. Example: @@\\n-old line\\n+new line. A single *** Update File: path envelope is also supported. Include enough unchanged context to identify one location; no-op or ambiguous patches fail.',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Relative path to the file' },
-        patch: { type: 'string', description: 'Unified diff patch content' }
+        path: { type: 'string', description: 'Path to the file; a single Update File envelope can supply it when omitted' },
+        patch: { type: 'string', description: 'Unified diff or context-anchored patch content for one file' }
       },
       required: ['path', 'patch']
     }
@@ -1337,7 +1347,9 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
       type: 'object',
       properties: {
         agent_name: { type: 'string', description: 'Registered agent name to delegate to' },
-        task: { type: 'string', description: 'Concrete task for the delegated agent' }
+        task: { type: 'string', description: 'Concrete task for the delegated agent' },
+        maxIterations: { type: 'integer', description: 'Optional lower model-request cap, bounded by the agent definition or agent.subagentMaxIterations (default: 30); includes the final partial-work summary.' },
+        research_only: { type: 'boolean', description: 'Explicit read-only research pool task; withholds write, command and delegation tools.' }
       },
       required: ['agent_name', 'task']
     }
@@ -1355,11 +1367,15 @@ export const DEFAULT_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: 'object',
             properties: {
               agent_name: { type: 'string', description: 'Registered agent name to delegate to' },
-              task: { type: 'string', description: 'Concrete task for that agent' }
+              task: { type: 'string', description: 'Concrete task for that agent' },
+              maxIterations: { type: 'integer', description: 'Optional lower model-request cap for this worker.' },
+              research_only: { type: 'boolean', description: 'Restrict this worker to read-only research.' }
             },
             required: ['agent_name', 'task']
           }
-        }
+        },
+        maxIterations: { type: 'integer', description: 'Optional lower model-request cap for all workers; entries may lower it further. Includes the final summary.' },
+        research_only: { type: 'boolean', description: 'Restrict all workers to read-only research.' }
       },
       required: ['tasks']
     }
@@ -2800,7 +2816,7 @@ export class ToolManager {
 
 
       try {
-        call = this.repairReadFileInput(call);
+        call = this.repairPatchInput(this.repairReadFileInput(call));
       } catch (error) {
         reject(error instanceof Error ? error.message : String(error), 'validation');
         continue;
@@ -2908,8 +2924,7 @@ export class ToolManager {
                 ...this.getCallArgs(call),
                 ...response.updatedInput,
               };
-              this.assertValidUpdatedInput(definition, response.updatedInput, mergedArgs);
-              call = this.cloneToolCall(call, mergedArgs);
+              call = this.normalizeUpdatedToolInput(call, definition, response.updatedInput, mergedArgs);
               action = this.toAction(call);
               permissionContexts = this.resolvePermissionContexts(action);
               policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
@@ -2999,8 +3014,7 @@ export class ToolManager {
                 ...this.getCallArgs(call),
                 ...response.updatedInput,
               };
-              this.assertValidUpdatedInput(definition, response.updatedInput, mergedArgs);
-              call = this.cloneToolCall(call, mergedArgs);
+              call = this.normalizeUpdatedToolInput(call, definition, response.updatedInput, mergedArgs);
               action = this.toAction(call);
               permissionContexts = this.resolvePermissionContexts(action);
               policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
@@ -3054,8 +3068,7 @@ export class ToolManager {
 
           if (decision.decision === 'alternative') {
             const alternativeArgs = this.applyAlternative(call, decision.alternative!);
-            this.assertValidUpdatedInput(definition, alternativeArgs.changed, alternativeArgs.args);
-            call = this.cloneToolCall(call, alternativeArgs.args);
+            call = this.normalizeUpdatedToolInput(call, definition, alternativeArgs.changed, alternativeArgs.args);
             action = this.toAction(call);
             permissionContexts = this.resolvePermissionContexts(action);
             policyEvaluation = this.evaluatePermissionContexts(permissionContexts);
@@ -3161,6 +3174,29 @@ export class ToolManager {
     }
 
     return this.cloneToolCall(call, args);
+  }
+
+  private repairPatchInput(call: ToolCallRequest): ToolCallRequest {
+    if (call.tool !== 'apply_patch') return call;
+    const args = { ...this.getCallArgs(call) };
+    const patch = typeof args.patch === 'string' ? args.patch : undefined;
+    if (patch === undefined) return call;
+    const target = extractPatchTarget(patch);
+    if (target !== undefined && (args.path === undefined || args.path === null || args.path === '')) {
+      args.path = target;
+    }
+    return this.cloneToolCall(call, args);
+  }
+
+  private normalizeUpdatedToolInput(
+    call: ToolCallRequest,
+    definition: ToolDefinition,
+    changed: Record<string, unknown>,
+    args: Record<string, unknown>,
+  ): ToolCallRequest {
+    const updated = this.repairPatchInput(this.cloneToolCall(call, args));
+    this.assertValidUpdatedInput(definition, changed, this.getCallArgs(updated));
+    return updated;
   }
 
   private getCallArgs(call: ToolCallRequest): Record<string, unknown> {
@@ -3627,6 +3663,9 @@ export class ToolManager {
       return {
         success: true,
         ...(outcome.output === undefined ? {} : { output: outcome.output }),
+        ...(outcome.status === 'completed' ? { status: 'completed' as const } : {}),
+        ...(outcome.status === 'partial' && outcome.reason === 'iteration_limit'
+          ? { status: 'partial' as const, reason: 'iteration_limit' as const } : {}),
         ...images,
       };
     }

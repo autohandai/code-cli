@@ -14,7 +14,19 @@ const providers: [string, () => LLMProvider][] = [
 afterEach(() => vi.restoreAllMocks());
 describe("OpenAI-family tool limits", () => {
   it.each(providers)("sends 128 of 140 native tools through %s", async (_name, create) => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "fixture", choices: [{ message: { content: "Done" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { headers: { "Content-Type": "application/json" } }));
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).endsWith("/responses")) {
+        return new Response(`event: response.completed\ndata: ${JSON.stringify({
+          type: "response.completed",
+          response: {
+            id: "fixture",
+            output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Done" }] }],
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          },
+        })}\n\n`, { headers: { "Content-Type": "text/event-stream" } });
+      }
+      return new Response(JSON.stringify({ id: "fixture", choices: [{ message: { content: "Done" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { headers: { "Content-Type": "application/json" } });
+    });
     const provider = create();
     const messages = [{ role: "user" as const, content: "Read the project" }];
     const selected = limitToolSelection(tools, tools, messages, provider.getCapabilities?.().maxTools);

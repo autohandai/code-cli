@@ -47,7 +47,7 @@ describe('default Autohand AI orchestration', () => {
           }
         } else {
           leadTurns += 1;
-          if (leadTurns === 1) reply(response, 'Inspecting three independent scopes.', { name: 'delegate_parallel', args: { tasks: [1, 2, 3].map(index => ({ agent_name: `reader-${index}`, task: 'Inspect fixture.txt and return structured evidence.' })) } });
+          if (leadTurns === 1) reply(response, 'Inspecting three independent scopes.', { name: 'delegate_parallel', args: { research_only: true, tasks: [1, 2, 3].map(index => ({ agent_name: `reader-${index}`, task: 'Inspect fixture.txt and return structured evidence.' })) } });
           else if (leadTurns === 2) reply(response, 'ORCHESTRATION_VERIFIED: Three source reports agree.');
           else reply(response, `ORCHESTRATION_MODE_${leadTurns === 3 ? 'OFF' : 'ON'}: The requested setting is active.`);
         }

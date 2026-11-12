@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { FileActionManager, type FileMutationTurn } from '../../actions/filesystem.js';
 import { saveConfig, getProviderConfig } from '../../config.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
+import { resolveRuntimeContextWindow } from '../../providers/runtimeContextWindow.js';
 import { getOpenRouterModelContextWindow } from '../../providers/modelCapabilities.js';
 import { getHelpOrderedSlashCommands, promptInterrupt, promptNotify } from '../../ui/inputPrompt.js';
 import { isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
@@ -490,6 +491,20 @@ export function initializeAgentDependencies(
     const providerSettings = getProviderConfig(runtime.config, initialProvider);
     const model = runtime.options.model ?? providerSettings?.model ?? 'unconfigured';
     host.contextWindow = getContextWindow(model, providerSettings?.contextWindow);
+    if (!runtime.options.bare && runtime.options.daemon !== false && llm.getContextWindow) {
+      void (async () => {
+        const reported = await resolveRuntimeContextWindow(async signal => llm.getContextWindow?.(signal));
+        const currentSettings = getProviderConfig(runtime.config, initialProvider);
+        const currentModel = runtime.options.model ?? currentSettings?.model ?? 'unconfigured';
+        if (host.llm !== llm || (runtime.config.provider ?? 'openrouter') !== initialProvider || currentModel !== model) return;
+        if (typeof reported !== 'number' || !Number.isSafeInteger(reported) || reported <= 0) return;
+        const contextWindow = Math.min(reported, getContextWindow(model, currentSettings?.contextWindow ?? reported));
+        if (contextWindow === host.contextWindow) return;
+        host.contextWindow = contextWindow;
+        host.contextOrchestrator?.setContextWindow?.(contextWindow);
+        if (host.conversation) host.updateContextUsage?.(host.conversation.history());
+      })().catch(() => {});
+    }
     if (!runtime.options.bare && runtime.options.daemon !== false && initialProvider === 'openrouter' && !providerSettings?.contextWindow && model !== 'unconfigured') {
       void getOpenRouterModelContextWindow(model)
         .then((contextWindow) => {
@@ -1067,13 +1082,14 @@ export function initializeAgentDependencies(
         host.agentRunStore.finish(context.subagentId, {
           status: context.status ?? (context.success ? 'completed' : 'failed'),
           result: context.result, error: context.error, usage: context.usage,
+          reason: context.reason,
         });
         host.inkRenderer?.upsertActivityItem?.({
           id: context.subagentId,
           kind: 'subagent',
           label: formatSubAgentActivityLabel(context.subagentName, context.task),
-          status: context.success ? 'completed' : 'failed',
-          detail: context.success
+          status: context.status === 'partial' ? 'partial' : context.success ? 'completed' : 'failed',
+          detail: context.status === 'partial' ? 'Partial result · iteration limit reached' : context.success
             ? `${Math.max(0, Math.round(context.duration / 1000))}s`
             : context.error ?? 'failed',
         });
@@ -1524,7 +1540,7 @@ export function initializeAgentDependencies(
           } else if (action.type === 'delegate_task') {
             const cached = host.specialistOrchestrator.turnResultForAgent(action.agent_name);
             outcome = cached === undefined
-              ? await host.delegator.delegateTaskForTool(action.agent_name, action.task, { signal: context?.signal })
+              ? await host.delegator.delegateTaskForTool(action.agent_name, action.task, { signal: context?.signal, maxIterations: action.maxIterations, researchOnly: action.research_only })
               : cached;
           } else if (action.type === 'delegate_parallel') {
             const cached: ToolActionOutcome[] = [];
@@ -1535,12 +1551,13 @@ export function initializeAgentDependencies(
               return false;
             });
             const freshOutcome: ToolActionOutcome = pending.length > 0
-              ? await host.delegator.delegateParallelForTool(pending, { signal: context?.signal })
+              ? await host.delegator.delegateParallelForTool(pending, { signal: context?.signal, maxIterations: action.maxIterations, researchOnly: action.research_only })
               : { success: true, output: '' };
             if (cached.length > 0) {
               const failure = [...cached, freshOutcome].find(result => !result.success);
               const output = [...new Set([...cached.map(result => result.output), freshOutcome.output])].filter(Boolean).join('\n');
-              outcome = { ...(failure ?? freshOutcome), output };
+              const partial = [...cached, freshOutcome].some(result => result.success && result.status === 'partial');
+              outcome = { ...(failure ?? freshOutcome), output, ...(!failure && partial ? { status: 'partial', reason: 'iteration_limit' } : {}) };
             } else {
               outcome = freshOutcome;
             }

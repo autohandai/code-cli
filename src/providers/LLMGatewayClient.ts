@@ -585,7 +585,7 @@ export class LLMGatewayClient {
       const bodyRecord = body && typeof body === "object" && !Array.isArray(body)
         ? body as Record<string, unknown>
         : undefined;
-      const blocked = readContentBlockedError(bodyRecord?.error, status, response.headers?.get('x-autohand-request-id'));
+      const blocked = readContentBlockedError(bodyRecord?.error ?? bodyRecord?.message, status, response.headers?.get('x-autohand-request-id'));
       if (blocked) return blocked;
       const arrayDetail = Array.isArray(body) ? coerceErrorDetail(body) : "";
       errorDetail = structuredError?.message

@@ -9,6 +9,8 @@ import type { LLMRequest, LLMResponse, LLMToolCall, ProviderSettings, FunctionDe
 import { normalizeLLMUsage } from './usage.js';
 import { normalizeProviderFinishReason } from './finishReason.js';
 import { ApiError, classifyApiError } from './errors.js';
+import { discardResponseBody } from '../utils/responseBody.js';
+import { resolveRuntimeContextWindow } from './runtimeContextWindow.js';
 import {
     getProviderModelIds,
     getProviderRuntimeDefaultModel,
@@ -48,6 +50,9 @@ interface LlamaCppChatResponse {
 export class LlamaCppProvider implements LLMProvider {
     private baseUrl: string;
     private model: string;
+    private contextGeneration = 0;
+    private runtimeContext?: { model: string; value: number | undefined; expiresAt: number };
+    private runtimeContextRequest?: { generation: number; promise: Promise<number | undefined> };
 
     private static readonly DEFAULT_MODEL = getProviderRuntimeDefaultModel('llamacpp', 'local');
 
@@ -66,13 +71,76 @@ export class LlamaCppProvider implements LLMProvider {
     }
 
     setModel(model: string): void {
+        if (this.model !== model) {
+            this.contextGeneration += 1;
+            this.runtimeContext = undefined;
+            this.runtimeContextRequest = undefined;
+        }
         this.model = model;
     }
 
-    async listModels(): Promise<string[]> {
+    async getContextWindow(signal?: AbortSignal): Promise<number | undefined> {
+        if (signal?.aborted) return undefined;
+        const cached = this.runtimeContext;
+        if (cached?.model === this.model && cached.expiresAt > Date.now()) return cached.value;
+        let pending = this.runtimeContextRequest;
+        if (!pending || pending.generation !== this.contextGeneration) {
+            const generation = this.contextGeneration;
+            const model = this.model;
+            const previous = cached?.model === model ? cached.value : undefined;
+            const request = {
+                generation,
+                promise: this.discoverContextWindow(model).then((value) => {
+                    const effective = value ?? previous;
+                    if (this.contextGeneration === generation) {
+                        this.runtimeContext = { model, value: effective, expiresAt: Date.now() + 30000 };
+                    }
+                    return effective;
+                }),
+            };
+            this.runtimeContextRequest = request;
+            request.promise = request.promise.finally(() => {
+                if (this.runtimeContextRequest === request) this.runtimeContextRequest = undefined;
+            });
+            pending = request;
+        }
+        const ready = pending.promise;
+        return signal
+            ? resolveRuntimeContextWindow(async () => ready, signal)
+            : ready;
+    }
+
+    private async discoverContextWindow(model: string): Promise<number | undefined> {
+        let response: Response | undefined;
         try {
-            const response = await fetch(`${this.baseUrl}/v1/models`);
+            response = await fetch(
+                `${this.baseUrl.replace(/\/+$/, '')}/props?model=${encodeURIComponent(model)}&autoload=false`,
+                { signal: AbortSignal.timeout(2000) },
+            );
             if (!response.ok) {
+                discardResponseBody(response);
+                return undefined;
+            }
+            const payload: unknown = await response.json();
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+            const settings = (payload as Record<string, unknown>).default_generation_settings;
+            if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return undefined;
+            const contextWindow = (settings as Record<string, unknown>).n_ctx;
+            return typeof contextWindow === 'number' && Number.isSafeInteger(contextWindow) && contextWindow > 0
+                ? contextWindow
+                : undefined;
+        } catch {
+            if (response) discardResponseBody(response);
+            return undefined;
+        }
+    }
+
+    async listModels(): Promise<string[]> {
+        let response: Response | undefined;
+        try {
+            response = await fetch(`${this.baseUrl}/v1/models`, { signal: AbortSignal.timeout(2000) });
+            if (!response.ok) {
+                discardResponseBody(response);
                 return mergeModelIds(this.model ? [this.model] : [], getProviderModelIds('llamacpp'));
             }
             const data = await response.json() as { data?: { id: string }[] };
@@ -81,13 +149,15 @@ export class LlamaCppProvider implements LLMProvider {
                 mergeModelIds(this.model ? [this.model] : [], getProviderModelIds('llamacpp')),
             );
         } catch {
+            if (response) discardResponseBody(response);
             return mergeModelIds(this.model ? [this.model] : [], getProviderModelIds('llamacpp'));
         }
     }
 
     async isAvailable(): Promise<boolean> {
         try {
-            const response = await fetch(`${this.baseUrl}/health`);
+            const response = await fetch(`${this.baseUrl}/health`, { signal: AbortSignal.timeout(2000) });
+            discardResponseBody(response);
             return response.ok;
         } catch {
             return false;
@@ -176,11 +246,12 @@ export class LlamaCppProvider implements LLMProvider {
         try {
             errorBody = await response.text();
         } catch {
-            // Ignore error reading body
+            discardResponseBody(response);
         }
 
+        const baseError = classifyApiError(response.status, errorBody, response.headers);
         const lowerBody = errorBody.toLowerCase();
-        if (body.tools && response.status === 400 && (
+        if (body.tools && response.status === 400 && baseError.code === 'invalid_request' && (
             lowerBody.includes('tool') ||
             lowerBody.includes('function') ||
             lowerBody.includes('schema')
@@ -196,9 +267,8 @@ export class LlamaCppProvider implements LLMProvider {
             );
         }
 
-        const baseError = classifyApiError(response.status, errorBody, response.headers);
         return new ApiError(
-            `llama.cpp API error: ${response.status} ${response.statusText}${errorBody ? `\n${errorBody}` : ''}`,
+            `llama.cpp API error: ${response.status} ${response.statusText}\n${baseError.message}`,
             baseError.code,
             baseError.httpStatus,
             baseError.retryable,

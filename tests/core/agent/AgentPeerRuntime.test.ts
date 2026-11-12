@@ -120,6 +120,7 @@ describe('root peer lifecycle and recorded context', () => {
   });
 
   it('routes child resource events to the exact child inbox while leaving its parent inbox separate', async () => {
+    const deliveryDeadlineMs = 5_000;
     const lead = await start({ sessionId: 'resource-lead', policy: { enabled: true, allowResourceControl: true } });
     const worker = await start({ sessionId: 'resource-worker' });
     const child = worker.runtime.bindRun('event-child', 'event-child');
@@ -127,12 +128,24 @@ describe('root peer lifecycle and recorded context', () => {
     await lead.runtime.coordinator.coordinate({ operation: 'set_controller', resource, controller: lead.runtime.messaging.self.peerId,
       participants: [worker.runtime.messaging.self.peerId], profile: 'strict' });
     const request = await child.coordinator.coordinate({ operation: 'request', resource, reason: 'child event delivery' });
-    await lead.runtime.coordinator.coordinate({ operation: 'grant', requestId: request.requestId! });
     await vi.waitFor(async () => expect((await child.messaging.messages({ consume: false })).events).toContainEqual(expect.objectContaining({
-      type: 'resource', resource, requestId: request.requestId, state: 'reserved', to: child.messaging.self.peerId,
-    })));
-    expect((await worker.runtime.messaging.messages({ consume: false })).events.filter(event => event.requestId === request.requestId)).toEqual([]);
-    await child.close();
+      type: 'resource', resource, requestId: request.requestId, state: 'queued', to: child.messaging.self.peerId,
+    })), { timeout: deliveryDeadlineMs });
+    const cursor = (await child.messaging.messages({ consume: false })).cursor;
+    const stopWaiting = new AbortController();
+    const waiting = child.messaging.messages({ after: cursor, waitMs: deliveryDeadlineMs, signal: stopWaiting.signal });
+    void waiting.catch(() => {});
+    try {
+      await lead.runtime.coordinator.coordinate({ operation: 'grant', requestId: request.requestId! });
+      expect((await waiting).events).toContainEqual(expect.objectContaining({
+        type: 'resource', resource, requestId: request.requestId, state: 'reserved', to: child.messaging.self.peerId,
+      }));
+      expect((await worker.runtime.messaging.messages({ consume: false })).events.filter(event => event.requestId === request.requestId)).toEqual([]);
+    } finally {
+      stopWaiting.abort();
+      await waiting.catch(() => {});
+      await child.close();
+    }
   });
 
   it('retires nested peers with their parent and refuses publication from an ended parent', async () => {

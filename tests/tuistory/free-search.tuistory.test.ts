@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { inspectFreeSearchAllowance } from '../../src/testing/scenarios/freeSearchScenario.js';
 import { createTempAutohandHome, exitInteractive, launchBuiltAutohand } from './helpers/autohandTuistory.js';
@@ -12,7 +11,7 @@ describe('Free web search allowance in the built terminal', () => {
     } });
     let session: Awaited<ReturnType<typeof launchBuiltAutohand>> | undefined;
     try {
-      const preload = fileURLToPath(new URL('../../src/testing/fixtures/free-search-fetch.mjs', import.meta.url));
+      const preload = new URL('../../src/testing/fixtures/free-search-fetch.mjs', import.meta.url).href;
       session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath], {
         autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 140, rows: 45,
         env: { NODE_OPTIONS: `--import=${preload}`, AUTOHAND_TEST_SEARCH_REMAINING: String(remaining) },

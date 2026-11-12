@@ -5,6 +5,7 @@
  */
 
 import type { AzureAuthMethod } from '../../types.js';
+import { ApiError } from '../errors.js';
 
 const EXPIRY_BUFFER_MS = 5 * 60 * 1000; // 5 minutes
 const IMDS_ENDPOINT = 'http://169.254.169.254/metadata/identity/oauth2/token';
@@ -103,11 +104,16 @@ export class AzureTokenManager {
       response = await fetch(url, {
         headers: { Metadata: 'true' }
       });
-    } catch {
-      throw new Error(
-        'Managed Identity token acquisition failed. ' +
-        'This auth method only works inside Azure VMs, App Service, or containers with managed identity enabled.'
+    } catch (cause) {
+      const error = new ApiError(
+        'Managed Identity authentication failed before a model request was sent. ' +
+        'The Azure identity token endpoint could not be reached. Check the host identity and connectivity, then retry.',
+        'auth_failed',
+        0,
+        false,
       );
+      Object.defineProperty(error, 'cause', { value: cause, configurable: true, writable: true });
+      throw error;
     }
 
     if (!response.ok) {

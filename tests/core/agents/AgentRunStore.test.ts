@@ -7,6 +7,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { AgentRunStore } from '../../../src/core/agents/AgentRunStore.js';
 
 describe('AgentRunStore', () => {
+  it('settles partial workers and preserves their report without accepting further messages', async () => {
+    const store = new AgentRunStore();
+    store.start({ id: 'limited', source: 'delegate', name: 'reviewer', task: 'Review.' });
+    store.registerMessage('limited', () => true);
+    store.finish('limited', { status: 'partial', reason: 'iteration_limit', result: 'Found two issues; checks remain.' });
+    expect(store.getSnapshot().runs[0]).toMatchObject({ status: 'partial', reason: 'iteration_limit', output: 'Found two issues; checks remain.', messageable: false, cancellable: false });
+    expect(await store.sendMessage('limited', 'Continue')).toBe(false);
+  });
   it('queues messages only for the selected active run and rejects unavailable targets', async () => {
     const store = new AgentRunStore();
     for (const id of ['first', 'second']) store.start({ id, source: 'delegate', name: 'reader', task: id });

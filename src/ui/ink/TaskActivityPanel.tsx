@@ -9,7 +9,7 @@ import React, { memo, useMemo } from 'react';
 import { buildTaskPanelModel, type TaskPanelRow } from '../taskPanelModel.js';
 import { TaskPanel } from './TaskPanel.js';
 
-export type ActivityItemStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+export type ActivityItemStatus = 'pending' | 'in_progress' | 'completed' | 'partial' | 'failed';
 export type ActivityItemKind = 'todo' | 'subagent';
 
 export interface ActivityItem {
@@ -43,7 +43,7 @@ function TaskActivityPanelComponent({ items, maxVisible, terminalRows }: TaskAct
     () => buildTaskPanelModel(
       todos.map((item): TaskPanelRow => ({
         title: item.label,
-        status: item.status,
+        status: item.status === 'partial' ? 'pending' : item.status,
         blockedBy: [],
       })),
       { maxRows: effectiveMaxVisible },

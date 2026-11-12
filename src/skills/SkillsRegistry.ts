@@ -9,6 +9,7 @@ import fs from 'fs-extra';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { SkillParser } from './SkillParser.js';
 import { estimateTokens } from '../core/context/tokenizer.js';
 import { resolveEmbeddedBuiltinAssetDirectory } from './embeddedBuiltinAssets.js';
@@ -50,6 +51,15 @@ import {
 
 const SIMILARITY_THRESHOLD = 0.3;
 const BUILTIN_SKILLS_DIR = 'builtin';
+
+export function resolveBuiltinSkillDirectories(moduleUrl = import.meta.url): string[] {
+  const moduleDir = path.dirname(fileURLToPath(moduleUrl));
+  return [
+    path.join(moduleDir, BUILTIN_SKILLS_DIR),
+    path.join(moduleDir, 'skills', BUILTIN_SKILLS_DIR),
+    path.join(moduleDir, '..', 'skills', BUILTIN_SKILLS_DIR),
+  ];
+}
 
 export interface SkillSearchLocation {
   /** Stable host-assigned authority for a custom library; independent of its current path. */
@@ -612,12 +622,7 @@ export class SkillsRegistry {
     if (this.options.builtinSkillDirectories) {
       return this.options.builtinSkillDirectories;
     }
-    const moduleDir = path.dirname(new URL(import.meta.url).pathname);
-    return [
-      path.join(moduleDir, BUILTIN_SKILLS_DIR),
-      path.join(moduleDir, 'skills', BUILTIN_SKILLS_DIR),
-      path.join(moduleDir, '..', 'skills', BUILTIN_SKILLS_DIR),
-    ];
+    return resolveBuiltinSkillDirectories();
   }
 
   private getUserSkillLocations(): SkillSearchLocation[] {

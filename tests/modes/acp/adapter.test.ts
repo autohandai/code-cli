@@ -69,6 +69,7 @@ const {
     initializeForRPC: vi.fn().mockResolvedValue(undefined),
     setOutputListener: vi.fn(),
     setConfirmationCallback: vi.fn(),
+    setFollowupQuestionCallback: vi.fn(),
     connectAcpMcpServers: vi.fn().mockResolvedValue(undefined),
     applyAcpMode: vi.fn(),
     applyAcpModel: vi.fn(),
@@ -187,6 +188,14 @@ vi.mock("../../../package.json", () => ({
 // ---------------------------------------------------------------------------
 
 import { AutohandAcpAdapter } from "../../../src/modes/acp/adapter.js";
+import { executeAgentAskFollowupQuestion } from "../../../src/core/agent/AgentCommandRuntime.js";
+import {
+  AgentSideConnection as SdkAgentSideConnection,
+  client,
+  methods,
+  ndJsonStream,
+  PROTOCOL_VERSION,
+} from "@agentclientprotocol/sdk";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -208,6 +217,7 @@ function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
 function makeConnection(): AgentSideConnection {
   return {
     requestPermission: vi.fn(),
+    request: vi.fn(),
     sessionUpdate: vi.fn().mockResolvedValue(undefined),
     extNotification: vi.fn().mockResolvedValue(undefined),
   } as unknown as AgentSideConnection;
@@ -573,6 +583,20 @@ describe("AutohandAcpAdapter", () => {
       );
     });
 
+    it('forwards partial worker status and reason while retaining the legacy success boolean', () => {
+      lifecycleListener!({ event: 'subagent-stop', subagentId: 'limited', subagentName: 'reviewer', subagentType: 'task',
+        subagentSuccess: false, subagentDuration: 20, subagentStatus: 'partial', subagentReason: 'iteration_limit',
+        subagentMessage: 'PRIVATE_WORKER_REPORT_NOT_FOR_STOP_EVENT',
+      });
+      expect(connection.extNotification).toHaveBeenCalledWith('autohand.hook.subagentStop', expect.objectContaining({
+        subagentId: 'limited', success: false, status: 'partial', reason: 'iteration_limit',
+      }));
+      const payload = vi.mocked(connection.extNotification).mock.calls.find(([method, params]) => method === 'autohand.hook.subagentStop' && params.subagentId === 'limited')?.[1];
+      expect(JSON.stringify(payload)).not.toContain('PRIVATE_WORKER_REPORT');
+      expect(payload).not.toHaveProperty('result');
+      expect(payload).not.toHaveProperty('output');
+    });
+
     it("forwards program status with the ACP session identity and no terminal escapes", () => {
       lifecycleListener!({ event: 'program-status', programStatus: {
         state: 'blocked', kind: 'question', app: 'autohand', id: 'autohand-1', message: 'Choose an answer',
@@ -791,6 +815,221 @@ describe("AutohandAcpAdapter", () => {
       expect(typeof mockAgent.setConfirmationCallback.mock.calls[0][0]).toBe(
         "function",
       );
+    });
+
+    describe("follow-up elicitation", () => {
+      async function askFollowup(question = "Which environment?", choices?: string[]) {
+        const callback = mockAgent.setFollowupQuestionCallback.mock.calls.at(-1)?.[0];
+        const host = {
+          runtime: { options: {}, config: { ui: {} }, isRpcMode: true },
+          followupQuestionCallback: callback,
+          consecutiveCancellations: 0,
+        };
+        return executeAgentAskFollowupQuestion(host, question, choices);
+      }
+
+      async function createElicitingSession() {
+        await adapter.initialize(makeInitRequest({ clientCapabilities: { elicitation: { form: {} } } }));
+        return adapter.newSession(makeNewSessionRequest());
+      }
+
+      it("collects a real answer through the advertised form capability", async () => {
+        vi.mocked(connection.request).mockResolvedValue({ action: "accept", content: { answer: "Staging" } });
+        const session = await createElicitingSession();
+
+        await expect(askFollowup("Which environment?", ["Staging", "Production"]))
+          .resolves.toBe("<answer>Staging</answer>");
+        expect(connection.request).toHaveBeenCalledWith(methods.client.elicitation.create, {
+          mode: "form",
+          sessionId: session.sessionId,
+          message: "Which environment?",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              answer: {
+                type: "string",
+                title: "Answer",
+                description: "Which environment?\nSuggested answers:\n- Staging\n- Production",
+                minLength: 1,
+              },
+            },
+            required: ["answer"],
+          },
+        }, { cancellationSignal: expect.any(AbortSignal) });
+      });
+
+      it.each(["answer", "cancel"] as const)("round-trips a follow-up over the SDK's serialized channel: %s", async outcome => {
+        let agentInput: ReadableStreamDefaultController<Uint8Array> | undefined;
+        let clientInput: ReadableStreamDefaultController<Uint8Array> | undefined;
+        const agentMessages: string[] = [];
+        const toAgent = new ReadableStream<Uint8Array>({ start(controller) { agentInput = controller; } });
+        const toClient = new ReadableStream<Uint8Array>({ start(controller) { clientInput = controller; } });
+        const agentOutput = new WritableStream<Uint8Array>({
+          write(chunk) {
+            agentMessages.push(new TextDecoder().decode(chunk));
+            clientInput?.enqueue(chunk);
+          },
+        });
+        const clientOutput = new WritableStream<Uint8Array>({ write(chunk) { agentInput?.enqueue(chunk); } });
+        let wireAdapter: AutohandAcpAdapter | undefined;
+        const wireAgent = new SdkAgentSideConnection(conn => {
+          wireAdapter = new AutohandAcpAdapter(conn);
+          return wireAdapter;
+        }, ndJsonStream(agentOutput, toAgent));
+        let peerFormRetired = false;
+        const elicitation = vi.fn(async ({ signal }: { signal: AbortSignal }) => {
+          if (outcome === "answer") {
+            return { action: "accept", content: { answer: "A typed client answer" } };
+          }
+          return new Promise<{ action: "cancel" }>(resolve => {
+            signal.addEventListener("abort", () => {
+              peerFormRetired = true;
+              resolve({ action: "cancel" });
+            }, { once: true });
+          });
+        });
+        const wireClient = client()
+          .onNotification(methods.client.session.update, async () => {})
+          .onRequest(methods.client.elicitation.create, elicitation)
+          .connect(ndJsonStream(clientOutput, toClient));
+        try {
+          await wireClient.agent.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION, clientCapabilities: { elicitation: { form: {} } } });
+          const session = await wireClient.agent.request(methods.agent.session.new, { cwd: "/workspace", mcpServers: [] });
+
+          const answer = askFollowup("Which environment?", ["Staging", "Production"]);
+          if (outcome === "cancel") {
+            await vi.waitFor(() => expect(elicitation).toHaveBeenCalledOnce());
+            await wireClient.agent.notify(methods.agent.session.cancel, { sessionId: session.sessionId });
+            await expect(answer).resolves.toContain("User cancelled this question");
+            await vi.waitFor(() => expect(peerFormRetired).toBe(true), { timeout: 300, interval: 10 });
+            const messages = agentMessages.join("").trim().split("\n").map(line => JSON.parse(line));
+            const request = messages.find(message => message.method === methods.client.elicitation.create);
+            expect(messages).toContainEqual(expect.objectContaining({
+              method: methods.protocol.cancelRequest, params: { requestId: request?.id },
+            }));
+            await expect(wireClient.agent.request(methods.agent.session.list, {})).resolves.toMatchObject({ sessions: [] });
+            expect(wireClient.signal.aborted).toBe(false);
+            expect(wireAgent.signal.aborted).toBe(false);
+          } else {
+            await expect(answer).resolves.toBe("<answer>A typed client answer</answer>");
+          }
+          expect(elicitation).toHaveBeenCalledWith(expect.objectContaining({
+            params: expect.objectContaining({ sessionId: session.sessionId, mode: "form" }),
+          }));
+          expect(agentMessages.join("")).toContain('"method":"elicitation/create"');
+        } finally {
+          await wireAdapter?.dispose();
+          agentInput?.close();
+          clientInput?.close();
+          wireClient.close();
+          await Promise.all([wireAgent.closed, wireClient.closed]);
+        }
+      });
+
+      it("preserves free-text answers returned by the client", async () => {
+        vi.mocked(connection.request).mockResolvedValue({ action: "accept", content: { answer: "Use the local sandbox" } });
+        await createElicitingSession();
+
+        await expect(askFollowup("Which environment?", ["Staging", "Production"]))
+          .resolves.toBe("<answer>Use the local sandbox</answer>");
+      });
+
+      it("omits enum constraints for open questions", async () => {
+        vi.mocked(connection.request).mockResolvedValue({ action: "accept", content: { answer: "The API times out" } });
+        await createElicitingSession();
+
+        await expect(askFollowup("What failed?"))
+          .resolves.toBe("<answer>The API times out</answer>");
+        expect(connection.request).toHaveBeenCalledWith(methods.client.elicitation.create, expect.objectContaining({
+          requestedSchema: expect.objectContaining({
+            properties: {
+              answer: { type: "string", title: "Answer", description: "What failed?", minLength: 1 },
+            },
+          }),
+        }), { cancellationSignal: expect.any(AbortSignal) });
+      });
+
+      it.each([{}, { elicitation: { url: {} } }])("keeps unsupported clients unanswered without attempting elicitation: %j", async clientCapabilities => {
+        await adapter.initialize(makeInitRequest({ clientCapabilities }));
+        await adapter.newSession(makeNewSessionRequest());
+
+        await expect(askFollowup()).resolves.toMatch(/^<unanswered>/);
+        expect(mockAgent.setFollowupQuestionCallback).not.toHaveBeenCalled();
+        expect(connection.request).not.toHaveBeenCalled();
+      });
+
+      it.each(["decline", "cancel"] as const)("maps client %s to question cancellation", async action => {
+        vi.mocked(connection.request).mockResolvedValue({ action });
+        await createElicitingSession();
+
+        await expect(askFollowup()).resolves.toContain("User cancelled this question");
+      });
+
+      it.each([
+        { action: "accept" },
+        { action: "accept", content: { answer: " " } },
+        { action: "accept", content: { answer: true } },
+        { action: "future_action" },
+      ])("does not invent an answer from an unusable client response: %j", async response => {
+        vi.mocked(connection.request).mockResolvedValue(response);
+        await createElicitingSession();
+
+        await expect(askFollowup()).resolves.toMatch(/^<unanswered>/);
+      });
+
+      it("keeps a transport failure distinct from user cancellation", async () => {
+        vi.mocked(connection.request).mockRejectedValue(new Error("Transport closed"));
+        await createElicitingSession();
+
+        await expect(askFollowup()).resolves.toMatch(/^<unanswered>/);
+      });
+
+      it("ends a cancelled session question without waiting for or accepting a late client answer", async () => {
+        let answer: ((value: { action: "accept"; content: { answer: string } }) => void) | undefined;
+        vi.mocked(connection.request).mockImplementation(() => new Promise(resolve => { answer = resolve; }));
+        const session = await createElicitingSession();
+        const result = askFollowup();
+        let settled = false;
+        void result.then(() => { settled = true; });
+        await vi.waitFor(() => expect(connection.request).toHaveBeenCalledOnce());
+        try {
+          await adapter.cancel({ sessionId: session.sessionId });
+          await vi.waitFor(() => expect(settled).toBe(true), { timeout: 200, interval: 10 });
+          await expect(result).resolves.toContain("User cancelled this question");
+        } finally {
+          answer?.({ action: "accept", content: { answer: "Production" } });
+        }
+      });
+
+      it.each(["loadSession", "resumeSession"] as const)("does not let a retired callback question the replacement %s", async method => {
+        const session = await createElicitingSession();
+        const oldCallback = mockAgent.setFollowupQuestionCallback.mock.calls.at(-1)?.[0];
+        await adapter[method]({ sessionId: session.sessionId, cwd: "/workspace", mcpServers: [] });
+
+        await expect(oldCallback("A stale question")).resolves.toBeNull();
+        expect(connection.request).not.toHaveBeenCalled();
+      });
+
+      it.each(["loadSession", "resumeSession", "dispose", "shutdown"] as const)("releases an outstanding question when %s retires its session", async method => {
+        let reply: ((value: { action: "accept"; content: { answer: string } }) => void) | undefined;
+        vi.mocked(connection.request).mockImplementation(() => new Promise(resolve => { reply = resolve; }));
+        const session = await createElicitingSession();
+        const question = askFollowup();
+        let settled = false;
+        void question.then(() => { settled = true; });
+        await vi.waitFor(() => expect(connection.request).toHaveBeenCalledOnce());
+        try {
+          if (method === "loadSession" || method === "resumeSession") {
+            await adapter[method]({ sessionId: session.sessionId, cwd: "/workspace", mcpServers: [] });
+          } else {
+            await adapter[method]();
+          }
+          await vi.waitFor(() => expect(settled).toBe(true), { timeout: 200, interval: 10 });
+          await expect(question).resolves.toContain("User cancelled this question");
+        } finally {
+          reply?.({ action: "accept", content: { answer: "A stale answer" } });
+        }
+      });
     });
 
     it("uses original workspace when worktree option is not enabled", async () => {

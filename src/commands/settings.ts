@@ -20,6 +20,7 @@ import { saveConfig } from '../config.js';
 import { BUILT_IN_PROVIDER_NAMES, type BuiltInProviderName, type LoadedConfig } from '../types.js';
 import { DEFAULT_MAX_CONCURRENT_THREADS_PER_SESSION, MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from '../core/agents/SessionThreadBudget.js';
 import { TRACE_CONSENT_VERSION } from '../integrations/ahtraces/consent.js';
+import { DEFAULT_SUBAGENT_MAX_ITERATIONS, MAX_SUBAGENT_ITERATIONS, isValidSubagentIterationLimit } from '../core/agents/subagentIterations.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -200,6 +201,13 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
     descriptionKey: 'commands.settings.agent.skillDecisionTimeoutDesc', category: 'agent', type: 'number',
     validate: value => Number.isSafeInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10_000
       || 'Decision timeout must be an integer between 1 and 10000 milliseconds.',
+  },
+
+  {
+    key: 'agent.subagentMaxIterations', labelKey: 'commands.settings.agent.subagentMaxIterations',
+    descriptionKey: 'commands.settings.agent.subagentMaxIterationsDesc', category: 'agent', type: 'number',
+    defaultValue: DEFAULT_SUBAGENT_MAX_ITERATIONS,
+    validate: value => isValidSubagentIterationLimit(Number(value)) || `Sub-agent iteration limit must be an integer between 1 and ${MAX_SUBAGENT_ITERATIONS}.`,
   },
 
   // Concurrent Sessions

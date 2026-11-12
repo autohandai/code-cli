@@ -5,6 +5,9 @@
  */
 import { stripVTControlCharacters } from 'node:util';
 import { readFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import stringWidth from 'string-width';
 import { markdownRenderingSample } from '../../src/testing/scenarios/markdownRenderingScenario.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +23,12 @@ vi.mock('terminal-link', () => ({
 }));
 
 const plain = (markdown: string) => renderMarkdownForTerminal(markdown, { color: false, hyperlinks: false, width: 60 });
+
+function imageLinkTarget(rendered: string): string {
+  const target = /\u001b\]8;;(file:[^\u0007]*)\u0007Image: Preview/.exec(rendered)?.[1];
+  if (!target) throw new Error('Expected an OSC file hyperlink for Image: Preview');
+  return target;
+}
 
 afterEach(() => {
   setTerminalMarkdownPreference(() => true);
@@ -47,8 +56,25 @@ describe('renderMarkdownForTerminal', () => {
     const rendered = renderMarkdownForTerminal('[Docs](https://example.test)\n\n![Preview](./preview.png)', { color: false });
 
     expect(rendered).toContain('\u001b]8;;https://example.test\u0007Docs');
-    expect(rendered).toContain(`\u001b]8;;file://${process.cwd()}/preview.png\u0007Image: Preview`);
+    expect(fileURLToPath(imageLinkTarget(rendered))).toBe(path.resolve('preview.png'));
     expect(stripVTControlCharacters(rendered)).toBe('Docs\n\nImage: Preview');
+  });
+
+  it('round-trips local image links from a checkout containing spaces and reserved or Unicode characters', () => {
+    const checkout = path.join(os.tmpdir(), 'autohand markdown #100% café');
+    const expectedImage = path.join(checkout, 'preview.png');
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(checkout);
+    try {
+      const rendered = renderMarkdownForTerminal('![Preview](./preview.png)', { color: false });
+      const target = imageLinkTarget(rendered);
+
+      expect(fileURLToPath(target)).toBe(expectedImage);
+      expect(new URL(target).hash).toBe('');
+      expect(new URL(target).search).toBe('');
+      expect(stripVTControlCharacters(rendered)).toBe('Image: Preview');
+    } finally {
+      cwd.mockRestore();
+    }
   });
 
   it('never emits active links for executable schemes or terminal control sequences from content', () => {

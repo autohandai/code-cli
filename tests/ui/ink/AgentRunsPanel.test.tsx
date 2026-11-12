@@ -24,6 +24,17 @@ function panel(snapshot: AgentRunsSnapshot, onClose = vi.fn(), onCancel = vi.fn(
 }
 
 describe('AgentRunsPanel', () => {
+  it('shows a capped worker as partial and settled, with its findings available', async () => {
+    const view = panel({ updatedAt: 200, runs: [run('reviewer', {
+      status: 'partial', finishedAt: 200, cancellable: false,
+      output: 'Found two issues; verification remains.',
+    })] });
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('partial'));
+    expect(view.lastFrame()).toContain('0 active');
+    expect(view.lastFrame()).not.toContain('Waiting for model');
+    view.stdin.write('\r');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('Found two issues'));
+  });
   it('routes inspector messages through the active agent UI without submitting a main-agent instruction', async () => {
     const onMessageAgentRun = vi.fn(async () => true);
     const onInstruction = vi.fn();

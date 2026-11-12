@@ -21,6 +21,68 @@ describe("AnthropicProvider", () => {
     vi.restoreAllMocks();
   });
 
+  describe('OpenCode Go conversation routing', () => {
+    const response = () => jsonResponse({
+      id: 'go-response', type: 'message', role: 'assistant', model: 'minimax-m3',
+      content: [{ type: 'text', text: 'Done' }], stop_reason: 'end_turn',
+      usage: { input_tokens: 3, output_tokens: 1 },
+    });
+
+    it.each([
+      'https://opencode.ai/inference/go/anthropic',
+      'https://opencode.ai/inference/go/anthropic/',
+      'https://opencode.ai/zen/go',
+    ])('sends opaque stable conversation routing with Autohand identity only to %s', async baseUrl => {
+      const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => response());
+      const provider = new AnthropicProvider({ apiKey: 'fixture', model: 'minimax-m3', baseUrl });
+      const first = { messages: [{ role: 'user' as const, content: 'Hello' }], sessionId: 'private-session-a' };
+      await provider.complete(first);
+      await provider.complete({ ...first, messages: [{ role: 'user', content: 'Continue' }] });
+      await provider.complete({ ...first, sessionId: 'private-session-b' });
+      const headers = fetch.mock.calls.map(([, init]) => new Headers(init?.headers));
+      const key = headers[0]?.get('x-opencode-session');
+      expect(key).toMatch(/^autohand_[a-f0-9]{64}$/);
+      expect(key).not.toContain('private-session');
+      expect(headers[1]?.get('x-opencode-session')).toBe(key);
+      expect(headers[2]?.get('x-opencode-session')).not.toBe(key);
+      expect(headers[0]?.get('user-agent')).toMatch(/^autohand-cli\/[0-9]/);
+      expect(headers[0]?.get('user-agent')).not.toMatch(/claude|opencode|anthropic/i);
+      for (const [, init] of fetch.mock.calls) {
+        expect(JSON.parse(String(init?.body))).not.toHaveProperty('sessionId');
+        expect(String(init?.body)).not.toContain('private-session');
+      }
+    });
+
+    it.each([
+      'https://api.anthropic.com',
+      'https://custom.example/inference/go/anthropic',
+      'https://opencode.ai.evil.example/inference/go/anthropic',
+      'http://opencode.ai/inference/go/anthropic',
+      'https://opencode.ai/inference/anthropic',
+      'https://opencode.ai/inference/go/anthropic-extra',
+    ])('does not forward Go conversation identity to unrelated endpoint %s', async baseUrl => {
+      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(response());
+      const provider = new AnthropicProvider({ apiKey: 'fixture', model: 'minimax-m3', baseUrl });
+      const request = { messages: [{ role: 'user' as const, content: 'Hello' }], sessionId: 'private-session-a' };
+      await provider.complete(request);
+      const headers = new Headers(fetch.mock.calls[0]?.[1]?.headers);
+      expect(headers.has('x-opencode-session')).toBe(false);
+    });
+
+    it('keeps no-session auxiliary calls stable only within their provider instance', async () => {
+      const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => response());
+      const settings = { apiKey: 'fixture', model: 'minimax-m3', baseUrl: 'https://opencode.ai/inference/go/anthropic' };
+      const first = new AnthropicProvider(settings);
+      await first.complete({ messages: [] });
+      await first.complete({ messages: [] });
+      await new AnthropicProvider(settings).complete({ messages: [] });
+      const ids = fetch.mock.calls.map(([, init]) => new Headers(init?.headers).get('x-opencode-session'));
+      expect(ids[0]).toMatch(/^autohand_[a-f0-9]{64}$/);
+      expect(ids[1]).toBe(ids[0]);
+      expect(ids[2]).not.toBe(ids[0]);
+    });
+  });
+
   it("uses the Messages API for system prompts, tool use, tool results, and usage", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({
       id: "msg_123",

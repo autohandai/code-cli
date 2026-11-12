@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 
 import type { AutohandAgent } from '../../core/agent.js';
 import { AgentRegistry } from '../../core/agents/AgentRegistry.js';
+import { normalizeAgentRunTerminalStatus } from '../../core/agents/AgentRunStore.js';
 import type { HookContext } from '../../core/HookManager.js';
 import { resolveReviewCommand } from '../../commands/review.js';
 import {
@@ -225,6 +226,7 @@ function checksScriptFromParams(params: AutoresearchStartParams): string | undef
 // ApiErrorCode → RPC-specific error shape mapping
 // ---------------------------------------------------------------------------
 const RPC_ERROR_TYPE_MAP: Record<ApiErrorCode, string> = {
+  storage_full: 'unknown',
   content_blocked: 'content_blocked',
   context_overflow: 'context',
   model_not_found: 'model',
@@ -241,6 +243,7 @@ const RPC_ERROR_TYPE_MAP: Record<ApiErrorCode, string> = {
 };
 
 const RPC_ERROR_CODE_MAP: Record<ApiErrorCode, number> = {
+  storage_full: -32000,
   content_blocked: 400,
   context_overflow: 400,
   model_not_found: 404,
@@ -257,6 +260,7 @@ const RPC_ERROR_CODE_MAP: Record<ApiErrorCode, number> = {
 };
 
 const RPC_ERROR_ICON_MAP: Record<ApiErrorCode, string> = {
+  storage_full: '\u26A0\uFE0F',
   content_blocked: '\u26A0\uFE0F',
   context_overflow: '\uD83D\uDCE6',  // 📦
   model_not_found: '\uD83E\uDD16',   // 🤖
@@ -1918,6 +1922,8 @@ export class RPCAdapter {
           context.subagentSuccess ?? false,
           context.subagentDuration ?? 0,
           context.subagentError,
+          normalizeAgentRunTerminalStatus(context.subagentStatus),
+          context.subagentReason,
         );
         break;
       case 'permission-request':
@@ -2190,7 +2196,9 @@ export class RPCAdapter {
     subagentType: string,
     success: boolean,
     duration: number,
-    error?: string
+    error?: string,
+    status?: HookSubagentStopNotificationParams['status'],
+    reason?: HookSubagentStopNotificationParams['reason']
   ): void {
     if (this.notificationsSealed) return;
     const params = {
@@ -2200,6 +2208,8 @@ export class RPCAdapter {
       success,
       duration,
       error,
+      ...(status === undefined ? {} : { status }),
+      ...(status === 'partial' && reason === 'iteration_limit' ? { reason } : {}),
       timestamp: createTimestamp(),
     } satisfies HookSubagentStopNotificationParams;
     writeNotification(RPC_NOTIFICATIONS.HOOK_SUBAGENT_STOP, params);

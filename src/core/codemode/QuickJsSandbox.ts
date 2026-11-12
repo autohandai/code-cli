@@ -18,7 +18,7 @@ export interface SandboxToolCall {
 }
 
 export type SandboxToolOutcome =
-  | { ok: true; output: string; images?: boolean }
+  | { ok: true; output: string; images?: boolean; status?: 'completed' | 'partial'; reason?: 'iteration_limit' }
   | { ok: false; error: string; kind?: string; output?: string };
 
 export interface SandboxLimits {
@@ -273,7 +273,12 @@ function toGuestOutcome(outcome: SandboxToolOutcome | undefined, maxChars: numbe
   }
   const cut = (value: unknown): string => truncate(typeof value === 'string' ? value : String(value ?? ''), maxChars, 'output');
   if (outcome.ok) {
-    return { ok: true, output: cut(outcome.output) };
+    return {
+      ok: true, output: cut(outcome.output),
+      ...(outcome.images === true ? { images: true } : {}),
+      ...(outcome.status === 'partial' || outcome.status === 'completed' ? { status: outcome.status } : {}),
+      ...(outcome.reason === 'iteration_limit' ? { reason: outcome.reason } : {}),
+    };
   }
   return {
     ok: false,

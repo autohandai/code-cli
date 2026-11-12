@@ -7,6 +7,43 @@ import { createMockAutohandAINativeSequenceServer, createTempAutohandHome,
   exitInteractive, launchBuiltAutohand } from './helpers/autohandTuistory.js';
 
 describe('checkpoint completion footer', () => {
+  it('completes an approved session-evidence review when workspace diff capture exceeds its budget', async () => {
+    const server = await createMockAutohandAINativeSequenceServer([
+      { content: 'Reading package.json.', toolCall: { id: 'read-package', name: 'read_file', args: { path: 'package.json' } } },
+      { content: 'CHECKPOINT_FOOTER_ANSWER: Repository facts verified.' },
+      { content: '{"verdict":"approved","feedback":"Session evidence reviewed; workspace diff unavailable."}' },
+    ]);
+    const state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa', orchestration: true, baseUrl: server.baseUrl },
+      features: { autohand_inference: true, automaticSpecialists: false },
+      agent: { autoMemory: false, maxIterations: 5, sessionRetryLimit: 0 },
+      network: { maxRetries: 0, retryDelay: 0 },
+      ui: { silentToolOutput: true, promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    let session: Awaited<ReturnType<typeof launchBuiltAutohand>> | undefined;
+    try {
+      session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes'], {
+        autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 120, rows: 36,
+        env: { NODE_OPTIONS: `--import=${pathToFileURL(path.resolve(import.meta.dirname,
+          '../../src/testing/scenarios/workspaceCaptureBudgetPreload.mjs')).href}` },
+      });
+      const screen = await runCheckpointFooterScenario(session);
+      expect(screen).toContain('Completed in');
+      expect(screen).not.toContain('Work remains pending Moa review');
+      expect(server.requests).toHaveLength(3);
+      expect(JSON.stringify(server.requests[2])).toContain('Workspace diff unavailable');
+      expect(JSON.stringify(server.requests[2])).toContain('git add -A exceeded the 3000 ms workspace change capture budget');
+      const outcome = screen.split('\n').map(line => line.trim()).filter(line => (
+        line.startsWith('CHECKPOINT_FOOTER_ANSWER:') || line.startsWith('Completed in')
+      )).map(line => line.replace(/\d+m \d+s/, '<elapsed>').replace(/ · .*/, ' · <usage>')).join('\n');
+      await expect(`${outcome}\n`).toMatchFileSnapshot(path.resolve('src/testing/snapshots/checkpoint-capture-budget.txt'));
+      await exitInteractive(session);
+    } finally {
+      session?.close(); await server.close(); await state.cleanup();
+    }
+  });
+
   it.each([
     { approved: false, delayMs: 0 }, { approved: true, delayMs: 0 },
     { approved: false, delayMs: 3500 }, { approved: true, delayMs: 1200 },
