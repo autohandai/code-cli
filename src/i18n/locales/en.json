@@ -1772,7 +1772,7 @@
     "passwordPlaceholder": "Enter password...",
     "apiKeyPlaceholder": "Paste your API key...",
     "validationError": "Invalid input",
-    "multiSelectHint": "Space toggle · Enter confirm · Esc cancel",
+    "multiSelectHint": "Space toggle · Enter confirm · ESC cancel",
     "filterHint": "/ search"
   },
   "homebrew": {

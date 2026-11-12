@@ -29,7 +29,11 @@ export async function configureTwoLineStatusBar(session: Session): Promise<strin
   await waitFor(session, 'Toggle Status Bar Sections');
   await highlight(session, 'Project');
   await session.press('space');
-  const toggled = await session.text({ trimEnd: true });
+  const toggled = await waitForTerminalScreen(session, {
+    timeout: 15_000,
+    waitFor: screen => screen.split('\n').some(line => line.includes('▸') && line.includes('☐') && line.includes('Project'))
+      && screen.includes('Space toggle · Enter confirm · ESC cancel'),
+  });
   await highlight(session, 'Done');
   await session.press('space');
   await session.press('enter');
