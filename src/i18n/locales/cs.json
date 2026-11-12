@@ -275,7 +275,9 @@
         "braveApiKey": "Brave API klíč",
         "braveApiKeyDesc": "API klíč pro Brave Search",
         "parallelApiKey": "Parallel API klíč",
-        "parallelApiKeyDesc": "API klíč pro Parallel.ai"
+        "parallelApiKeyDesc": "API klíč pro Parallel.ai",
+        "keenableApiKey": "Keenable API key",
+        "keenableApiKeyDesc": "API key for Keenable"
       }
     },
     "status": {

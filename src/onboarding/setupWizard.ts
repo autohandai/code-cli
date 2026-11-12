@@ -63,7 +63,7 @@ import {
 } from '../utils/gcloudAuth.js';
 import { TRACE_CONSENT_VERSION } from '../integrations/ahtraces/consent.js';
 import { ManagedWebSearch, managedSearchIdentity } from '../search/managedWebSearch.js';
-import { SEARCH_PROVIDER_OPTIONS } from '../search/providers.js';
+import { SEARCH_PROVIDER_OPTIONS, resolveSearchApiKey } from '../search/providers.js';
 import { promptTraceConsentChoice } from '../integrations/ahtraces/consentPrompt.js';
 
 /**
@@ -131,6 +131,7 @@ interface OnboardingState {
     braveApiKey?: string;
     parallelApiKey?: string;
     exaApiKey?: string;
+    keenableApiKey?: string;
   };
   mcpEnabled?: boolean;
   agentSettings?: {
@@ -2402,11 +2403,11 @@ export class SetupWizard {
     if (!choice) { this.state.skipped.push('search'); return; }
     const provider = choice.value;
     const searchState: OnboardingState['search'] = { provider };
-    const keyField = provider === 'brave' ? 'braveApiKey' : provider === 'parallel' ? 'parallelApiKey' : provider === 'exa' ? 'exaApiKey' : undefined;
+    const keyField = provider === 'brave' ? 'braveApiKey' : provider === 'parallel' ? 'parallelApiKey' : provider === 'exa' ? 'exaApiKey' : provider === 'keenable' ? 'keenableApiKey' : undefined;
     if (keyField) {
-      const environment = provider === 'brave' ? process.env.BRAVE_SEARCH_API_KEY : provider === 'parallel' ? process.env.PARALLEL_API_KEY : process.env.EXA_API_KEY;
+      const environment = provider === 'brave' ? process.env.BRAVE_SEARCH_API_KEY : provider === 'parallel' ? process.env.PARALLEL_API_KEY : provider === 'keenable' ? process.env.KEENABLE_API_KEY : process.env.EXA_API_KEY;
       const existing = this.existingConfig?.search?.[keyField];
-      const key = existing ?? environment ?? await showPassword({ title: `Enter ${choice.label} API key:`, placeholder: t('ui.apiKeyPlaceholder') });
+      const key = resolveSearchApiKey(existing, environment) ?? await showPassword({ title: `Enter ${choice.label} API key:`, placeholder: t('ui.apiKeyPlaceholder') });
       if (!key?.trim()) {
         console.log(chalk.yellow('Search setup deferred: an API key is required. Run /search to finish setup.'));
         this.state.skipped.push('search');

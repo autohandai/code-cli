@@ -275,7 +275,9 @@
         "braveApiKey": "Brave API 金鑰",
         "braveApiKeyDesc": "Brave 搜尋的 API 金鑰",
         "parallelApiKey": "Parallel API 金鑰",
-        "parallelApiKeyDesc": "Parallel.ai 的 API 金鑰"
+        "parallelApiKeyDesc": "Parallel.ai 的 API 金鑰",
+        "keenableApiKey": "Keenable API key",
+        "keenableApiKeyDesc": "API key for Keenable"
       }
     },
     "status": {

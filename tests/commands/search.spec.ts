@@ -27,6 +27,7 @@ describe('/search command', () => {
       expect(metadata.description).toContain('brave');
       expect(metadata.description).toContain('duckduckgo');
       expect(metadata.description).toContain('parallel');
+      expect(metadata.description).toContain('keenable');
     });
 
     it('is marked as implemented', () => {
