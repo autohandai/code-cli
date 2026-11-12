@@ -665,6 +665,7 @@ export class AutohandAcpAdapter implements Agent {
         // Context a host prepends to a prompt (`<autohand_*>`, `<*_context>` blocks) is
         // not read as the user asking for specialists; see userAuthoredInstruction.
         hostContext: { version: 1 },
+        autohandRunToolScope: { version: 1, allToolsDeny: true },
         ...(this.config.sessions?.communication?.enabled && this.clientCapabilities?._meta?.autohandPeerEvents === 1
           ? { peerCommunication: { version: 1 } } : {}),
       },

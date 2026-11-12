@@ -46,7 +46,7 @@ export function checkRunToolScopeByName(
     const decision = checkRunToolScopeByName(child, toolName);
     if (!decision.allowed) return decision;
   }
-  if (scope.denied.some((pattern) => pattern.kind === toolName && !pattern.argument)) return { allowed: false, reason: 'run_scope_denied' };
+  if (scope.denied.some((pattern) => (pattern.kind === toolName || pattern.kind === '*') && !pattern.argument)) return { allowed: false, reason: 'run_scope_denied' };
   if (scope.allowed.length > 0 && !scope.allowed.some((pattern) => pattern.kind === toolName)) {
     return { allowed: false, reason: 'run_scope_not_allowed' };
   }
@@ -67,7 +67,7 @@ export function checkRunToolScope(
     const decision = checkRunToolScope(child, call);
     if (!decision.allowed) return decision;
   }
-  if (scope.denied.some((pattern) => matchesToolPattern(pattern, call))) return { allowed: false, reason: 'run_scope_denied' };
+  if (scope.denied.some((pattern) => (pattern.kind === '*' && !pattern.argument) || matchesToolPattern(pattern, call))) return { allowed: false, reason: 'run_scope_denied' };
   if (scope.allowed.length > 0 && !scope.allowed.some((pattern) => matchesToolPattern(pattern, call))) {
     return { allowed: false, reason: 'run_scope_not_allowed' };
   }

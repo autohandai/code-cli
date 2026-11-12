@@ -3,6 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { checkRunToolScopeByName, resolveRunToolScope } from '../permissions/runToolScope.js';
 import chalk from 'chalk';
 import { areProviderBackgroundCallsEnabled } from './agent/AutohandOrchestration.js';
 import { selectCodeModeTools } from './agent/CodeModeRunner.js';
@@ -1527,6 +1528,7 @@ export class AutohandAgent {
   }
 
   private async prepareSpecialists(instruction: string): Promise<string | undefined> {
+    if (!checkRunToolScopeByName(resolveRunToolScope(this.runtime.options), 'orchestrate_specialists').allowed) return undefined;
     if (getFeatureState(this.runtime.config, 'automatic_specialists')?.enabled !== true) {
       return undefined;
     }
