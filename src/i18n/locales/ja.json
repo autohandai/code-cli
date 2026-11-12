@@ -629,6 +629,8 @@
       "agent": {
         "maxIterations": "最大反復回数",
         "maxIterationsDesc": "リクエストごとの最大ツール反復回数",
+        "subagentMaxIterations": "サブエージェントのリクエスト上限",
+        "subagentMaxIterationsDesc": "委任タスクごとのモデルリクエスト数の既定値。途中までの作業をまとめる最終要約も含みます（1～1000）",
         "enableRequestQueue": "リクエストキュー",
         "enableRequestQueueDesc": "エージェントが作業中でも入力可能",
         "idleLogoutEnabled": "アイドルセッションのタイムアウト",

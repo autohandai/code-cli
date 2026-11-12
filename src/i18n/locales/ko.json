@@ -629,6 +629,8 @@
       "agent": {
         "maxIterations": "최대 반복 횟수",
         "maxIterationsDesc": "요청당 최대 도구 반복 횟수",
+        "subagentMaxIterations": "하위 에이전트 요청 제한",
+        "subagentMaxIterationsDesc": "위임된 작업당 기본 모델 요청 수입니다. 지금까지 수행한 작업의 최종 요약을 포함합니다(1–1000).",
         "enableRequestQueue": "요청 대기열",
         "enableRequestQueueDesc": "에이전트 작업 중에도 입력 가능",
         "idleLogoutEnabled": "유휴 세션 시간 제한",

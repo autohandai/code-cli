@@ -629,6 +629,8 @@
       "agent": {
         "maxIterations": "Máx. de iteraciones",
         "maxIterationsDesc": "Máximo de iteraciones de herramientas por solicitud",
+        "subagentMaxIterations": "Límite de solicitudes de subagentes",
+        "subagentMaxIterationsDesc": "Número predeterminado de solicitudes al modelo por tarea delegada, incluido su resumen final del trabajo parcial (1–1000)",
         "enableRequestQueue": "Cola de solicitudes",
         "enableRequestQueueDesc": "Permite escribir mientras el agente trabaja",
         "idleLogoutEnabled": "Tiempo de inactividad de la sesión",
