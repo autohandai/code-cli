@@ -35,6 +35,7 @@ import { withProgramStatusWait } from './AgentProgramStatus.js';
 import type { AgentProgramStatus } from './AgentProgramStatus.js';
 import { isAdaptiveSkillsEnabled } from '../../skills/feature.js';
 import { isWorkflowDiscoveryShortcut } from '../../discovery/preview.js';
+import { parseMobileSlashCommand } from '../../mobile/MobileCommand.js';
 
 export interface AgentCommandRuntimeHost {
   [key: string]: any;
@@ -332,6 +333,8 @@ export function isAgentSlashCommandSupported(host: AgentCommandRuntimeHost, comm
 
 export function parseAgentSlashCommand(host: AgentCommandRuntimeHost, input: string): { command: string; args: string[] } {
     if (isWorkflowDiscoveryShortcut(input, host.skillsRegistry, host.runtime?.options?.bare)) return { command: '/discovery', args: [] };
+    const mobile = parseMobileSlashCommand(input);
+    if (mobile) return mobile;
     const trimmed = input.trim();
     const parts = trimmed.split(/\s+/);
 
