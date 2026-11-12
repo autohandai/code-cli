@@ -36,31 +36,93 @@
       "model": "設定されたLLMモデルを上書き",
       "config": "設定ファイルのパス（デフォルト ~/.autohand/config.json）",
       "temperature": "サンプリング温度",
-      "displayLanguage": "表示言語を設定（例: en, zh-cn, fr, de）",
-      "autoCommit": "LLM生成メッセージで自動コミット",
-      "unrestricted": "承認プロンプトなしで実行",
+      "displayLanguage": "表示言語を設定（例: en, id, zh-cn, fr, de, ja）",
+      "autoCommit": "LLMが生成したメッセージで自動コミット（先にlintとテストを実行）",
+      "unrestricted": "承認プロンプトなしで実行（注意して使用）",
       "restricted": "危険な操作を自動拒否",
       "autoSkill": "プロジェクト分析に基づいてスキルを自動生成",
-      "skillInstall": "コミュニティスキルをインストール",
-      "project": "プロジェクトレベルでスキルをインストール",
+      "skillInstall": "コミュニティスキルをインストール（名前なしの場合はブラウザを開く）",
+      "project": "スキルをプロジェクトレベルにインストール（--skill-installと併用）",
       "permissions": "現在の権限設定を表示して終了",
       "login": "Autohandアカウントにサインイン",
       "logout": "Autohandアカウントからサインアウト",
-      "syncSettings": "設定同期を有効/無効化",
-      "patch": "変更を適用せずにgitパッチを生成",
-      "output": "パッチの出力ファイル（デフォルト: stdout）",
-      "autoMode": "自律開発ループを開始",
+      "syncSettings": "設定同期を有効/無効化（デフォルト: false）",
+      "patch": "変更を適用せずにgitパッチを生成（--promptが必要）",
+      "output": "パッチの出力ファイル（デフォルト: stdout、--patchと併用）",
+      "autoMode": "対話型オートモードを有効にする、またはインラインのタスクでスタンドアロンのループを開始",
       "maxIterations": "自動モードの最大反復回数（デフォルト: 50）",
-      "completionPromise": "完了マーカーテキスト（デフォルト: DONE）",
+      "completionPromise": "完了マーカーのテキスト（デフォルト: \"DONE\"）",
       "noWorktree": "自動モードでgit worktree分離を無効化",
       "checkpointInterval": "N回反復ごとにgitコミット（デフォルト: 5）",
       "maxRuntime": "最大実行時間（分）（デフォルト: 120）",
       "maxCost": "最大APIコスト（ドル）（デフォルト: 10）",
-      "setup": "セットアップウィザードを実行",
-      "addDir": "ワークスペーススコープに追加ディレクトリを追加",
+      "setup": "セットアップウィザードを実行してAutohandを設定・再設定",
+      "addDir": "ワークスペースの範囲にディレクトリを追加（複数回指定可）",
       "thinking": "思考/推論の深さを設定（none, normal, extended）",
       "yolo": "パターンに一致するツール呼び出しを自動承認（例: allow:read,write または deny:delete）",
-      "timeout": "自動承認モードのタイムアウト（秒）"
+      "timeout": "自動承認モードのタイムアウト（秒）",
+      "browser": "ブラウザ連携を有効にする（/browserと同じ）",
+      "noBrowser": "ブラウザ連携を無効にする",
+      "cloud": "永続的なホスト型Autohandエージェントで実行（Pro、Pro+、Max）",
+      "cloudAccount": "クラウドセッションで使用するAutohandアカウントを選択",
+      "cloudRepository": "認可済みのリポジトリを新しいクラウドセッションに接続",
+      "cloudConnector": "使用するリポジトリコネクターまたはGitHub App接続",
+      "cloudBranch": "クラウドワークスペースのリモートブランチ",
+      "cloudProvider": "マネージドサンドボックスのプロバイダー: cloudflare、daytona、box",
+      "continue": "このフォルダの最新セッションを再開（-pに対応）",
+      "resume": "保存済みセッションを再開。指定しない場合はフォルダピッカーを開く。--cloudと併用すると、所有するクラウドセッションをIDまたはWeb URLで再開",
+      "version": "現在のバージョンを出力",
+      "outputFormat": "コマンドの出力形式: stream-json",
+      "json": "コマンドのJSON出力: stream（デフォルト）またはlocal",
+      "outputSchema": "コマンドモードのみ: 最終回答はこのJSON Schemaファイルに適合する単一のJSONドキュメントであること",
+      "bare": "最小モード: フック、プラグイン同期、帰属表示、自動メモリー、バックグラウンドのプリフェッチ、キーチェーン読み取り、AGENTS.mdの自動検出をスキップ",
+      "noDaemon": "バックグラウンドサービスと子プロセスを無効にし、フォアグラウンドのツールとセッションコマンドは維持",
+      "offline": "モデルカタログの更新を含む、起動時のネットワーク処理を無効にする",
+      "dir": "--pathのエイリアス",
+      "y": "--yesのエイリアス",
+      "plan": "読み取り専用のプランモードで開始し、実行前に承認を必須にする",
+      "answerOnly": "分類済み・ツールなしのBlueprint回答RPCプロファイルを実行",
+      "setupOnly": "範囲を限定したAutohandデバイス認可RPCプロファイルのみを実行",
+      "clientContext": "RPCクライアントコンテキスト: cli、vscode、browser、slack、api、restricted、blueprint（デフォルト: cli）",
+      "noIdleLogout": "長時間実行するエージェントセッションで、認証済みのアイドルログアウトを無効にする",
+      "goal": "/goalを非対話で実行（省略時はステータス、それ以外は/goalと同じ引数）",
+      "learn": "/learnスキルアドバイザーを非対話で実行（分析して推奨スキルをインストール）",
+      "learnUpdate": "プロジェクトを再分析し、古くなったLLM生成スキルを再生成",
+      "settings": "Autohandの設定を構成（対話モードの/settingsと同じ）",
+      "tracesOn": "ローカルのエージェント監視とAutohand Consoleへのメタデータ同期を有効にする",
+      "tracesOff": "エージェント監視とクラウド同期を停止し、ローカルの派生トレースデータを削除",
+      "mode": "実行モード: interactive（デフォルト）、rpc、acp",
+      "acp": "--mode acpの省略形（stdio経由のAgent Client Protocol）",
+      "teammateMode": "従来のチーム表示設定。ライブのチームビューはリードのターミナルに残ります",
+      "worktree": "分離されたgitワークツリーでセッションを実行（名前は任意）",
+      "tmux": "専用のtmuxセッションで起動（--worktreeまたは--zitに対応）",
+      "zit": "使い捨てのZitワークスペースでセッションを実行し、終了時にZit変更として記録（意図は任意）",
+      "maxRequests": "サブエージェントを含め、モデルへのリクエストがこの回数に達したら実行を停止",
+      "maxTokens": "サブエージェントを含め、報告されたトークン使用量がこの合計に達したら実行を停止",
+      "maxDuration": "この実時間が経過したら実行を停止",
+      "interactiveOnComplete": "オートモード終了後、そのまま対話モードに移行（TTYのみ）",
+      "about": "Autohandの情報を表示",
+      "feedback": "フィードバックを送信",
+      "contextCompact": "コンテキスト圧縮を有効にする（デフォルト: オン）",
+      "noContextCompact": "コンテキスト圧縮を無効にする",
+      "searchEngine": "ウェブ検索プロバイダーを設定（autohand, browser-profile, exa, google, brave, duckduckgo, parallel）",
+      "sysPrompt": "システムプロンプト全体を置き換え（インライン文字列またはファイルパス）",
+      "systemPrompt": "システムプロンプト全体を置き換え（インライン文字列またはファイルパス）",
+      "systemPromptFile": "システムプロンプト全体をファイルの内容で置き換え",
+      "appendSysPrompt": "システムプロンプトに追記（インライン文字列またはファイルパス）",
+      "appendSystemPrompt": "システムプロンプトに追記（インライン文字列またはファイルパス）",
+      "appendSystemPromptFile": "ファイルの内容をシステムプロンプトに追記",
+      "mcpConfig": "明示的に指定するMCP設定ファイル",
+      "agents": "インラインJSON（{\"reviewer\":{\"description\":\"...\",\"prompt\":\"...\"}}）または外部のエージェントディレクトリによるカスタムエージェント",
+      "pluginDir": "明示的に指定するプラグイン/メタツールのディレクトリ",
+      "allowedTools": "この実行ではこれらのツールのみ提供・許可（カンマ区切りまたは複数指定。例: read_file,run_command(git:*)）",
+      "disallowedTools": "この実行ではこれらのツールを提供・許可しない（カンマ区切りまたは複数指定。例: delete_path,run_command）",
+      "fork": "既存のセッション参照から新しいセッションブランチを作成して再開",
+      "rename": "このワークスペースの直近のセッションに名前を付けて終了",
+      "ephemeral": "この実行をセッション履歴に残さない: セッションファイル、自動メモリー、セッション同期なし",
+      "profile": "保存せずに、設定のprofiles.<name>をこの実行に重ねて適用",
+      "set": "この実行のみ設定を1つ上書き（例: --set ui.theme=aurora。繰り返し指定可、保存されません）",
+      "help": "コマンドのヘルプを表示"
     },
     "thinking": {
       "enabled": "拡張思考を有効化",
@@ -70,6 +132,323 @@
       "reading": "パイプ入力を読み取っています...",
       "timeout": "標準入力の読み取りタイムアウト",
       "empty": "パイプから入力を受信しませんでした"
+    },
+    "rootDescription": "自律型コーディングエージェント",
+    "commands": {
+      "browser": {
+        "description": "Autohandブラウザ拡張ブリッジをインストールして設定",
+        "install": {
+          "description": "対応ブラウザ用のネイティブメッセージングブリッジをインストール",
+          "options": {
+            "browser": "対象ブラウザ: chrome、chromium、brave、edge、all",
+            "extensionId": "直接ハンドオフに使用する、インストール済みブラウザ拡張のID",
+            "installUrl": "フォールバック用のインストール/続行URL",
+            "cliPath": "ネイティブホストに登録するCLIバイナリのパス",
+            "open": "インストール後にインストール/続行ページを開く"
+          }
+        }
+      },
+      "computer": {
+        "description": "Autohand Computer Useをインストールして診断",
+        "options": {
+          "json": "機械可読なステータスを出力"
+        },
+        "status": {
+          "description": "Autohand Computer Useの準備状況を表示",
+          "options": {
+            "json": "機械可読なステータスを出力"
+          }
+        },
+        "install": {
+          "description": "Autohand Computer Useをインストールまたは修復",
+          "options": {
+            "binDir": "Computer Useエンジンの実行ファイルを置くディレクトリ",
+            "force": "対応ドライバーが既にある場合も再インストール",
+            "nonInteractive": "Autohandの確認プロンプトなしで実行",
+            "json": "機械可読な結果を出力"
+          }
+        },
+        "doctor": {
+          "description": "Autohand Computer Useの診断を実行",
+          "options": {
+            "json": "対話的な権限プロンプトなしで、インストールの準備状況を確認"
+          }
+        }
+      },
+      "extensions": {
+        "description": "Autohand Code拡張機能の検証、インストール、確認、管理",
+        "list": {
+          "description": "インストール済みの拡張機能を一覧表示",
+          "options": {
+            "json": "機械可読なJSONを出力",
+            "scope": "userまたはprojectスコープで絞り込み"
+          }
+        },
+        "show": {
+          "description": "インストール済みの拡張機能1件とその提供内容を表示",
+          "options": {
+            "json": "機械可読なJSONを出力",
+            "scope": "userまたはprojectスコープを選択"
+          }
+        },
+        "validate": {
+          "description": "インストールせずに拡張機能パッケージを検証",
+          "options": {
+            "json": "機械可読なJSONを出力"
+          }
+        },
+        "install": {
+          "description": "ローカルディレクトリから拡張機能をインストール",
+          "options": {
+            "scope": "userまたはprojectスコープにインストール",
+            "link": "拡張機能の開発用にソースディレクトリをリンク",
+            "replace": "内容が異なるインストール済みのものをアトミックに置き換え",
+            "trust": "レビュー済みのランタイムコードをAutohand内で実行することを許可"
+          }
+        },
+        "enable": {
+          "description": "インストール済みの拡張機能を有効にする",
+          "options": {
+            "scope": "userまたはprojectスコープを選択"
+          }
+        },
+        "disable": {
+          "description": "インストール済みの拡張機能を無効にする",
+          "options": {
+            "scope": "userまたはprojectスコープを選択"
+          }
+        },
+        "remove": {
+          "description": "インストール済みの拡張機能を削除",
+          "options": {
+            "scope": "userまたはprojectスコープを選択",
+            "yes": "確認なしで削除を実行"
+          }
+        },
+        "doctor": {
+          "description": "インストール済みの拡張機能パッケージを診断",
+          "options": {
+            "json": "機械可読なJSONを出力"
+          }
+        }
+      },
+      "discovery": {
+        "description": "リポジトリのワークフローをローカルで検出し、Build my agentへのドラフトを一覧表示またはプッシュ",
+        "options": {
+          "workspace": "スキャン対象のリポジトリ、またはリポジトリを含むフォルダ（デフォルトは--pathまたはカレントディレクトリ）",
+          "json": "機械可読な結果を出力",
+          "dryRun": "ファイルの書き込みやワークフローのアップロードをせずにプレビュー",
+          "select": "選択したローカルワークフローIDを一覧表示またはプッシュ",
+          "depth": "ワークスペースの2階層下までプロジェクトを検索",
+          "skillQuery": "スキル名と説明で絞り込み",
+          "noBehavior": "ローカルのユーザーメッセージ履歴をスキップ",
+          "github": "認証済みのgh CLIを使って、マージ済みのプルリクエストを含める",
+          "analyze": "ディスカバリー分析スキルでおすすめを絞り込む",
+          "withReport": "派生した検出結果をアップロードし、ホスト側のワークフロー一致をリクエスト",
+          "push": "スキャンし、提案されたワークフローを検出結果とともに保存・アップロード",
+          "since": "Work Mapの遡及期間（例: 30d、24h、60m）",
+          "agent": "Work Mapのエージェントハーネスによる絞り込み",
+          "output": "集計したWork Map JSONをアトミックに書き出す"
+        }
+      },
+      "review": {
+        "description": "Autohand Reviewを非対話で実行（パブリックベータ）。種類: changes、code、architecture、security、performance、forensics、serve。対話では/reviewを使用してください。",
+        "options": {
+          "audience": "レポートの対象読者: mixed、executive、technical、forensic",
+          "format": "レビューレポートの形式: markdownまたはjson",
+          "base": "変更レビューまたはフォレンジックレビューの比較基準",
+          "head": "比較先。デフォルトは作業ツリー",
+          "focus": "追加のレビュー観点",
+          "port": "ループバックのレポートビューアのポート。0なら空きポートを選択",
+          "noOpen": "レポートビューアをブラウザで開かない",
+          "path": "レビュー対象のワークスペースパス",
+          "config": "Autohand設定ファイルのパス",
+          "model": "設定済みのレビューモデルを上書き",
+          "offline": "起動時のネットワーク処理を無効にする",
+          "bare": "レビューを最小構成で起動する",
+          "json": "コマンドのライフサイクルイベントをJSONでストリーム出力",
+          "outputFormat": "コマンドのトランスポート形式: stream-json"
+        }
+      },
+      "transfer": {
+        "description": "非公開のAutohand Code Webの会話をインポートしてローカルで続行",
+        "options": {
+          "account": "Web転送に表示されたAutohandアカウント",
+          "path": "新しいリポジトリのチェックアウト先の親ディレクトリ、またはリポジトリなしのチャット用のワークスペース",
+          "config": "Autohand設定ファイルのパス",
+          "offline": "再開時のモデルカタログ更新をスキップ",
+          "accept": "対話的な確認なしで、確認済みの転送を承認",
+          "importOnly": "対話型CLIを起動せずに、ローカルセッションを保存"
+        }
+      },
+      "doctor": {
+        "description": "インストールを確認: ランタイム、設定、ツール、ターミナル、アカウント、MCPサーバー、拡張機能",
+        "options": {
+          "json": "レポートをJSONで出力",
+          "skipMcp": "設定済みのMCPサーバーに接続しない",
+          "path": "確認するワークスペース",
+          "config": "Autohand設定ファイルのパス"
+        }
+      },
+      "resume": {
+        "description": "保存済みセッションを名前、ID、パス、または一意なIDプレフィックスで再開。指定しない場合はプロジェクトピッカーを開く",
+        "options": {
+          "last": "最後にアクティブだったセッションを再開",
+          "all": "すべてのプロジェクトのセッションを含める",
+          "path": "操作対象のワークスペースパス。セッションの絞り込みにも使用",
+          "config": "Autohand設定ファイルのパス",
+          "model": "設定済みのLLMモデルを上書き",
+          "offline": "再開したセッションでモデルカタログの更新を無効にする"
+        }
+      },
+      "login": {
+        "description": "Autohandアカウントにサインイン"
+      },
+      "account": {
+        "description": "所属するAutohandアカウントを一覧表示、またはこのCLIで使うアカウントを切り替え（use <team>、clear）"
+      },
+      "logout": {
+        "description": "Autohandアカウントからサインアウト"
+      },
+      "squad": {
+        "description": "Squadを開く、エージェントの一覧表示、メッセージ送信、履歴の閲覧、組み込みMCPの提供"
+      },
+      "queue": {
+        "description": "ローカルのAutohand Squadキューを表示"
+      },
+      "config": {
+        "description": "Autohandの設定を構成",
+        "set": {
+          "description": "設定値を指定（例: autohand config set verbs activity false）"
+        }
+      },
+      "mcp": {
+        "description": "MCP (Model Context Protocol) サーバーを管理",
+        "add": {
+          "description": "MCPサーバーを設定に追加し、次回のセッションで自動接続",
+          "options": {
+            "transport": "トランスポート種別: stdio | http | sse",
+            "scope": "設定スコープ: user | project"
+          }
+        },
+        "remove": {
+          "description": "MCPサーバーを設定から削除",
+          "options": {
+            "scope": "設定スコープ: user | project"
+          }
+        },
+        "connect": {
+          "description": "設定済みのMCPサーバーの自動接続を有効にする",
+          "options": {
+            "scope": "設定スコープ: user | project"
+          }
+        },
+        "disconnect": {
+          "description": "設定済みのMCPサーバーの自動接続を無効にする",
+          "options": {
+            "scope": "設定スコープ: user | project"
+          }
+        },
+        "list": {
+          "description": "設定済みのMCPサーバーを一覧表示",
+          "options": {
+            "scope": "設定スコープ: user | project"
+          }
+        },
+        "install": {
+          "description": "コミュニティMCPサーバーを閲覧してインストール",
+          "options": {
+            "scope": "設定スコープ: user | project"
+          }
+        }
+      },
+      "experiments": {
+        "description": "Autohandの実験的機能を一覧表示・切り替え",
+        "list": {
+          "description": "実験的機能と現在の状態を一覧表示"
+        },
+        "status": {
+          "description": "実験的機能を1件表示"
+        },
+        "refresh": {
+          "description": "Autohand APIからリモートのフィーチャーフラグをダウンロード"
+        },
+        "enable": {
+          "description": "実験的機能を有効にする"
+        },
+        "disable": {
+          "description": "実験的機能を無効にする"
+        }
+      },
+      "agents": {
+        "description": "アクティブなAutohand CLIエージェントを表示",
+        "options": {
+          "once": "スナップショットを1回出力して終了"
+        }
+      },
+      "sessions": {
+        "description": "保存済みセッションを一覧表示",
+        "options": {
+          "project": "プロジェクト名でセッションを絞り込み"
+        }
+      },
+      "init": {
+        "description": "ワークスペースにAGENTS.mdファイルを作成",
+        "options": {
+          "path": "ワークスペースパス"
+        }
+      },
+      "completion": {
+        "description": "シェル補完スクリプトを生成（bash、zsh、fish）"
+      },
+      "update": {
+        "description": "アップデートを確認し、あればインストール",
+        "options": {
+          "check": "インストールせず、アップデートの確認のみ",
+          "models": "CLIを更新せずに、リモートのモデルカタログを更新"
+        }
+      },
+      "upgrade": {
+        "description": "アップデートを確認し、あればインストール",
+        "options": {
+          "check": "インストールせず、アップデートの確認のみ",
+          "models": "CLIを更新せずに、リモートのモデルカタログを更新"
+        }
+      },
+      "autoResearch": {
+        "description": ".auto/配下でオートリサーチセッションを開始、確認、または確定"
+      },
+      "import": {
+        "description": "他のコーディングエージェントからデータをインポート（claude, codex, gemini, cursor, cline, continue, augment, opencode, kimi, grok）",
+        "options": {
+          "all": "利用可能なカテゴリをすべて確認なしでインポート",
+          "categories": "インポートするカテゴリのカンマ区切りリスト（sessions,settings,skills,memory,mcp,hooks）",
+          "dryRun": "変更せずに、インポート対象をプレビュー",
+          "retryFailed": "以前に失敗したインポート項目を再試行"
+        }
+      },
+      "traces": {
+        "description": "エージェントトレース監視を制御（status、on、off）",
+        "options": {
+          "json": "機械可読なステータスを出力"
+        }
+      }
+    },
+    "help": {
+      "usage": "使い方:",
+      "options": "オプション:",
+      "globalOptions": "グローバルオプション:",
+      "commands": "コマンド:",
+      "arguments": "引数:",
+      "default": "デフォルト",
+      "examples": "例:",
+      "exampleContinue": "このフォルダで続行",
+      "exampleContinueHeadless": "ヘッドレスで続行",
+      "examplePick": "保存済みセッションを選択",
+      "exampleResume": "保存済みセッションを再開"
+    },
+    "arguments": {
+      "prompt": "コマンドモードで単一の指示を実行（-p と同じ）"
     }
   },
   "welcome": {
@@ -146,7 +525,8 @@
       "selectPrompt": "言語を選択:",
       "changed": "言語を{{language}}に変更しました",
       "noChange": "変更はありませんでした。",
-      "restartHint": "一部の変更はCLIを再起動しないと完全に効果が現れない場合があります。"
+      "restartHint": "一部の変更はCLIを再起動しないと完全に効果が現れない場合があります。",
+      "cancelled": "言語の選択をキャンセルしました。"
     },
     "quit": {
       "description": "Autohandを終了",
@@ -157,6 +537,11 @@
       "created": "{{path}}にAGENTS.mdを作成しました",
       "alreadyExists": "{{path}}にAGENTS.mdが既に存在します",
       "overwritePrompt": "既存のAGENTS.mdを上書きしますか？"
+    },
+    "upgrade": {
+      "signIn": "/loginでサインインすると、アップグレードオプションを確認できます。",
+      "opening": "{{url}}を開いています",
+      "link": "Autohandプランをアップグレード: {{url}}"
     },
     "undo": {
       "description": "最後のファイル変更を元に戻す",
@@ -188,9 +573,11 @@
       "categories": {
         "ui": "UIと表示",
         "agent": "エージェントの動作",
+        "sessions": "セッション",
         "permissions": "権限",
         "network": "ネットワーク",
         "telemetry": "テレメトリとレポート",
+        "traces": "エージェントトレースとWork Map",
         "automode": "自動モード",
         "teams": "チーム",
         "search": "検索"
@@ -200,18 +587,40 @@
         "locale": "言語",
         "autoConfirm": "操作を自動確認",
         "autoConfirmDesc": "ツール操作の確認プロンプトをスキップ",
+        "silentToolOutput": "ツール出力を非表示",
+        "silentToolOutputDesc": "モデルのコンテキストは保持したまま、ターミナルのツール出力ブロックを非表示にします",
+        "toolOutput": "ツール出力",
+        "toolOutputDesc": "compactは結果の先頭行のみ表示し、残りはCtrl+Oまたはクリックで開きます。fullはすべて表示します",
+        "taskListPosition": "タスクリストの位置",
+        "taskListPositionDesc": "実行中のタスクをステータスの上、または入力欄の直上に配置します",
         "showThinking": "LLMの思考を表示",
         "showThinkingDesc": "モデルの推論プロセスを表示",
+        "renderMarkdown": "Markdownをレンダリング",
+        "renderMarkdownDesc": "アシスタントの見出し、リスト、コード、表を生のMarkdownではなく整形して表示します",
+        "defaultInteractionMode": "起動時のモード",
+        "defaultInteractionModeDesc": "対話セッションの開始モード: default（危険な操作の前に確認）、plan、automode、yolo",
+        "showTips": "機能のヒント",
+        "showTipsDesc": "作業中ステータスまたは完了サマリーの下、入力欄の上に組み込みの機能ヒントを順に表示します",
         "terminalBell": "ターミナルベル",
         "terminalBellDesc": "タスク完了時にベルを鳴らす",
         "checkForUpdates": "更新を確認",
         "checkForUpdatesDesc": "起動時にCLIの更新を確認",
         "showCompletionNotification": "完了通知",
         "showCompletionNotificationDesc": "作業完了時にOS通知を表示",
+        "completionReportEnabled": "最終回答の要約",
+        "completionReportEnabledDesc": "最終回答に、結果、学び、確認済みのメモリーの短い要約を含めます",
         "promptSuggestions": "プロンプト提案",
         "promptSuggestionsDesc": "LLM生成の次のステップ提案を表示",
+        "mouseComposerCursor": "入力欄のマウスカーソル",
+        "mouseComposerCursorDesc": "入力欄のテキストをクリックしてカーソルを移動します",
+        "keybindingProfile": "キーボードショートカット",
+        "keybindingProfileDesc": "他のコーディングエージェントのショートカットに合わせます（Ctrl+J 改行、Ctrl+D 終了、Ctrl+R 履歴）",
+        "activityVerbsEnabled": "アクティビティ表示語",
+        "activityVerbsEnabledDesc": "エージェントの作業中に、切り替わるアクティビティ表示語を表示します",
         "activitySymbol": "アクティビティシンボル",
         "activitySymbolDesc": "アクティビティ動詞の前に表示されるシンボル",
+        "statusLine": "ステータスライン",
+        "statusLineDesc": "入力欄のステータスラインに表示する内容を選択します",
         "statusBar": "ステータスバー",
         "statusBarDesc": "ステータスバーのセクションとレイアウトを設定",
         "updateCheckInterval": "更新確認間隔（時間）",
@@ -222,12 +631,44 @@
         "maxIterationsDesc": "リクエストごとの最大ツール反復回数",
         "enableRequestQueue": "リクエストキュー",
         "enableRequestQueueDesc": "エージェントが作業中でも入力可能",
+        "idleLogoutEnabled": "アイドルセッションのタイムアウト",
+        "idleLogoutEnabledDesc": "4時間操作がないとセッションを終了します（サインインは維持されます）",
         "sessionRetryLimit": "セッションリトライ制限",
         "sessionRetryLimitDesc": "諦めるまでの最大リトライ回数",
         "sessionRetryDelay": "リトライ遅延（ms）",
         "sessionRetryDelayDesc": "リトライ間の遅延（ミリ秒）",
         "debug": "デバッグモード",
-        "debugDesc": "デバッグ出力を有効化"
+        "debugDesc": "デバッグ出力を有効化",
+        "adaptiveSkills": "アダプティブスキル",
+        "adaptiveSkillsDesc": "必要に応じてスキルを検出し、このタスク用の指示を読み込みます。再起動が必要です",
+        "skillLearning": "スキルの自動学習",
+        "skillLearningDesc": "検証済みの対象作業から非公開のドラフトを作成できるようにします。アダプティブスキルと独立した検証の設定が必要です",
+        "skillLearningScope": "学習したスキルの範囲",
+        "skillLearningScopeDesc": "ドラフトをこのプロジェクトに保存するか、個人ライブラリを明示的に選択します",
+        "skillInstructionBudget": "スキル指示のトークン予算",
+        "skillInstructionBudgetDesc": "任意の指示予算です。必須の指示が上限を超えると、切り捨てずにエラーになります",
+        "skillDecisions": "リモート判定モデル",
+        "skillDecisionsDesc": "対象の設定済みプロバイダーで、個別に有効化した判定機能を許可します",
+        "skillDecisionProvider": "判定プロバイダー",
+        "skillDecisionProviderDesc": "プロバイダーIDは、アクティブな実行プロバイダーと一致する必要があります",
+        "skillDecisionModel": "判定モデル",
+        "skillDecisionModelDesc": "有効な判定機能で使用するモデル。Wekaには対象のAutohand AI Cloud実行が必要です",
+        "skillSelectionDecision": "スキル選択の判定",
+        "skillSelectionDecisionDesc": "ローカルの限定された候補リストのリモート再ランキングを許可します",
+        "skillPreviewDecision": "プロンプトプレビューの判定",
+        "skillPreviewDecisionDesc": "プレビュー判定を許可します。入力テキストのリモート処理にはリモートプレビューの同意も必要です",
+        "skillRemotePreview": "リモートプレビュー用に入力テキストを送信",
+        "skillRemotePreviewDesc": "送信前の入力テキストのリモートプレビューを明示的に許可します",
+        "skillLearningDecision": "スキル学習の判定",
+        "skillLearningDecisionDesc": "対象のリモートドラフト抽出を許可します。自動学習は別の設定です",
+        "skillCompactionDecision": "コンテキスト圧縮の判定",
+        "skillCompactionDecisionDesc": "ローカルへのフォールバック付きで、対象のリモート圧縮判定を許可します",
+        "skillDecisionTimeout": "判定タイムアウト（ms）",
+        "skillDecisionTimeoutDesc": "判定リクエストの期限（1〜10000ミリ秒）"
+      },
+      "sessions": {
+        "awareness": "同時セッションの検知",
+        "awarenessDesc": "同じプロジェクトで他のセッションが開いているときの動作: passiveは表示のみ、warnは危険な場面も警告、coordinateは他のセッションが確保したファイルへの書き込み前に確認します"
       },
       "permissions": {
         "mode": "権限モード",
@@ -239,15 +680,27 @@
         "maxRetries": "最大リトライ回数",
         "maxRetriesDesc": "失敗したリクエストの最大リトライ回数",
         "timeout": "タイムアウト（ms）",
-        "timeoutDesc": "リクエストのタイムアウト（ミリ秒）",
+        "timeoutDesc": "空欄にすると各プロバイダーのデフォルトを使用します（例: Autohandは300秒、Anthropicは600秒以上）。",
         "retryDelay": "リトライ遅延（ms）",
         "retryDelayDesc": "リトライ間の遅延（ミリ秒）"
       },
       "telemetry": {
         "enabled": "テレメトリ",
-        "enabledDesc": "匿名使用データを送信",
+        "enabledDesc": "仮名化された製品利用・診断イベントを送信します。自由形式のエラーには機密情報が含まれる場合があります",
+        "enableSessionSync": "セッション履歴の同期",
+        "enableSessionSyncDesc": "サインイン後、Autohandセッションの全メッセージとメタデータをアップロードします。エージェントトレースとは別です",
         "autoReportEnabled": "自動エラー報告",
-        "autoReportEnabledDesc": "エラーをGitHubに自動報告"
+        "autoReportEnabledDesc": "パスをサニタイズしたエラーと診断コンテキストを送信します。エラーテキストには機密データが含まれる場合があります"
+      },
+      "traces": {
+        "enabled": "エージェントトレースの監視",
+        "enabledDesc": "ローカルのahtracesモニターを実行し、Work Mapを有効にします",
+        "cloudSync": "クラウドトレース同期",
+        "cloudSyncDesc": "正規化したトレースデータを、認証済みのAutohandアカウントにアップロードします",
+        "contentMode": "クラウドコンテンツモード",
+        "contentModeDesc": "metadataはメッセージ内容を除外し、fullはマスク済みのメッセージとツールの部分を含みます",
+        "discoveryMap": "ディスカバリーWork Map",
+        "discoveryMapDesc": "ディスカバリーとエージェントの調査で、ローカルのトレース集計を使用します"
       },
       "automode": {
         "maxIterations": "最大反復回数",
@@ -262,6 +715,8 @@
         "useWorktreeDesc": "デフォルトでgit worktreeを使用"
       },
       "teams": {
+        "sessionThreadLimit": "セッションのスレッド上限（メインエージェント含む）",
+        "sessionThreadLimitDesc": "合計1〜64スレッド。デフォルトの9は、メインエージェント＋最大8つのサブエージェントです。1にすると委任を無効にします。",
         "enabled": "チームを有効化",
         "enabledDesc": "チーム連携機能を有効化",
         "teammateMode": "チームメイトモード",
@@ -276,9 +731,18 @@
         "braveApiKeyDesc": "Brave Search用のAPIキー",
         "parallelApiKey": "Parallel APIキー",
         "parallelApiKeyDesc": "Parallel.ai用のAPIキー",
-        "keenableApiKey": "Keenable API key",
-        "keenableApiKeyDesc": "API key for Keenable"
+        "keenableApiKey": "Keenable APIキー",
+        "keenableApiKeyDesc": "Keenable用のAPIキー",
+        "exaApiKey": "Exa APIキー",
+        "exaApiKeyDesc": "Exa.aiのAPIキー"
       }
+    },
+    "setup": {
+      "description": "セットアップウィザードを実行してAutohandを設定・再設定",
+      "interactiveOnly": "セットアップには対話型ターミナルが必要です。代わりに--setup CLIフラグを使用してください。",
+      "cancelled": "セットアップをキャンセルしました。",
+      "failed": "セットアップに失敗しました。もう一度お試しください。",
+      "complete": "セットアップが完了しました！`autohand`を実行して開始してください。"
     },
     "status": {
       "description": "現在のステータスを表示",
@@ -295,12 +759,46 @@
       "sessions": "セッション",
       "total": "合計{{count}}個"
     },
+    "statusline": {
+      "description": "ステータスラインの表示を設定",
+      "title": "ステータスライン",
+      "done": "完了",
+      "saved": "ステータスラインの設定を保存しました。",
+      "fields": {
+        "showProviderModel": "プロバイダーとモデル",
+        "showProviderModelDesc": "アクティブなプロバイダーとモデル名を表示します",
+        "showContext": "コンテキスト残量",
+        "showContextDesc": "現在のコンテキストの割合を表示します",
+        "showWorkspacePath": "ワークスペースのパス",
+        "showWorkspacePathDesc": "現在のプロジェクトディレクトリを、長さを制限したパスで表示します",
+        "showGitBranch": "Gitブランチ",
+        "showGitBranchDesc": "アクティブなブランチを表示します。detached時はワークツリー名を表示します",
+        "showCommandHint": "コマンドヒント",
+        "showCommandHintDesc": "コマンド、メンション、ターミナル入力のショートカットを表示します",
+        "showPullRequest": "プルリクエスト",
+        "showPullRequestDesc": "関連付けられたPR番号を表示します。なければPR #123と表示します",
+        "showSessionLines": "セッションの行変更数",
+        "showSessionLinesDesc": "このセッションで追加・削除された行数を表示します",
+        "showQueue": "キュー内のリクエスト",
+        "showQueueDesc": "キューに入っているフォローアップリクエストの数を表示します",
+        "showActiveStatus": "実行中ターンのステータス",
+        "showActiveStatusDesc": "Autohandの実行中に、現在の作業ステータスのテキストを表示します",
+        "showActiveMetrics": "実行中ターンのメトリクス",
+        "showActiveMetricsDesc": "Autohandの実行中に、経過時間とトークンのメトリクスを表示します",
+        "showCancelHint": "キャンセルのヒント",
+        "showCancelHintDesc": "Autohandの実行中に、Escでキャンセルするヒントを表示します",
+        "showModeLabel": "モードラベル",
+        "showModeLabelDesc": "モードインジケーターの横にPLAN、YOLO、AUTOを表示します"
+      }
+    },
     "sessions": {
       "description": "保存されたセッションを一覧表示",
       "title": "保存されたセッション",
       "noSessions": "保存されたセッションが見つかりませんでした。",
       "selectPrompt": "再開するセッションを選択:",
-      "sessionInfo": "{{name}} - {{date}}"
+      "sessionInfo": "{{name}} - {{date}}",
+      "peerActive": "このプロジェクトでは他に1件のセッションが実行中です",
+      "peersActive": "このプロジェクトでは他に{{count}}件のセッションが実行中です"
     },
     "resume": {
       "description": "以前のセッションを再開",
@@ -324,14 +822,75 @@
       "mode": "モード: {{mode}}",
       "allowed": "許可された操作:",
       "denied": "拒否された操作:",
-      "pending": "承認待ち:"
+      "pending": "承認待ち:",
+      "prompt": {
+        "yes": "はい",
+        "no": "いいえ",
+        "allowOnce": "今回のみ許可",
+        "denyOnce": "今回のみ拒否",
+        "allowAlways": "常に許可",
+        "denyAlways": "常に拒否",
+        "allowPrefixAlways": "`{{prefix}}`コマンドを常に許可",
+        "alternativeCommand": "代わりに別のコマンドを実行...",
+        "alternativeCommandTitle": "代わりに実行するコマンド（空欄でキャンセル）",
+        "alternativePath": "代わりに別のパスを使用...",
+        "alternativePathTitle": "代わりに使用するパス（空欄でキャンセル）",
+        "scopeTitle": "この判断の保存先を選択",
+        "scopeProject": "プロジェクト",
+        "scopeUser": "ユーザー",
+        "scopeCancel": "キャンセル"
+      }
+    },
+    "account": {
+      "description": "Autohandアカウントを一覧表示、またはこのCLIで使うアカウントを切り替え",
+      "signedOut": "アカウントを選ぶ前に/loginでサインインしてください。",
+      "unavailable": "アカウントを読み込めませんでした。もう一度お試しください。",
+      "usage": "使い方: /account, /account use <チーム名またはID>, /account clear",
+      "notFound": "\"{{target}}\"に一致するアカウントがありません。/accountで一覧を確認してください。",
+      "choose": "このCLIでどのアカウントを使用しますか？",
+      "useDefault": "Autohandに任せる（チームが席を負担している場合はチーム、それ以外は個人）",
+      "switched": "{{name}}を使用中です。以降のリクエストはこのアカウントに課金されます。",
+      "cleared": "アカウントの選択を解除しました。Autohandが再びアカウントを選びます。",
+      "team": "チーム",
+      "personal": "個人",
+      "hint": "/account use <name>で切り替え、/account clearでAutohandに任せます。"
     },
     "login": {
       "description": "Autohandアカウントにサインイン",
       "prompt": "ログインコードを入力してください:",
       "success": "{{email}}としてログインしました",
       "failed": "ログインに失敗しました: {{error}}",
-      "cancelled": "ログインをキャンセルしました。"
+      "cancelled": "ログインをキャンセルしました。",
+      "switchToFantail": "{{provider}}でレート制限に達しました。代わりにAutohandのFantailモデルを試しますか？",
+      "openUrlManually": "次のURLを手動で開いてください:",
+      "alreadyLoggedIn": "{{email}}としてログイン済みです。別のアカウントでログインしますか？",
+      "initiating": "認証を開始しています...",
+      "unknownError": "不明なエラー",
+      "visit": "サインインするには、次にアクセスしてください:",
+      "enterCodeManually": "または、次のコードを手動で入力してください:",
+      "browserOpened": "ブラウザを開きました。ブラウザでログインを完了してください。",
+      "browserFailed": "ブラウザを自動で開けませんでした。上のURLにアクセスしてください。",
+      "waiting": "認証を待機中...",
+      "pressCtrlCToCancel": "（Ctrl+Cでキャンセル）",
+      "waitingShort": "待機中",
+      "traceRefreshFailed": "サインインしましたが、トレースコンパニオンがアカウントを更新できませんでした。次回のAutohandコマンドで再試行します。",
+      "profileApplied": "Coding Agent設定プロファイルを適用しました: {{name}}",
+      "plan": "プラン: {{plan}}",
+      "codeExpired": "認証コードの有効期限が切れました。もう一度お試しください。",
+      "authCancelled": "認証をキャンセルしました。準備ができたら/loginをもう一度実行してください。",
+      "timedOut": "認証がタイムアウトしました。もう一度お試しください。",
+      "syncFound": "クラウド同期データが見つかりました（{{count}}ファイル、{{size}}）",
+      "syncIncludes": "設定、エージェント、スキル、セッション、フックが含まれます。",
+      "syncRestorePrompt": "クラウドから設定を復元しますか？",
+      "syncSkipped": "同期の復元をスキップしました。後から/syncで同期できます。",
+      "syncRestoring": "クラウドから設定を復元中...",
+      "pressEscToCancel": "（EscまたはCtrl+Cでキャンセル）",
+      "syncCancelled": "同期の復元をキャンセルしました。",
+      "syncLater": "後から/syncで同期できます。",
+      "syncRestored": "クラウドから{{count}}ファイルを復元しました。",
+      "syncFailed": "同期の復元に失敗しました: {{error}}",
+      "syncRetryLater": "後から/syncでもう一度お試しください。",
+      "syncCheckFailed": "クラウド同期データを確認できませんでした。"
     },
     "logout": {
       "description": "Autohandアカウントからサインアウト",
@@ -366,6 +925,45 @@
       "available": "利用可能なスキル:",
       "noSkills": "インストールされたスキルはありません。"
     },
+    "learn": {
+      "description": "プロジェクトを分析してスキルをおすすめ",
+      "analyzing": "プロジェクトを分析中...",
+      "analyzingDeep": "プロジェクトを詳細分析中...",
+      "projectSummary": "プロジェクト: {{summary}}",
+      "auditTitle": "スキル監査",
+      "recommendationsTitle": "おすすめのスキル",
+      "noRecommendations": "コミュニティレジストリに有力な候補は見つかりませんでした",
+      "offerGenerate": "プロジェクト用のカスタムスキルを生成しますか？",
+      "generating": "カスタムスキルを生成中...",
+      "generatedSuccess": "スキルを生成してインストールしました: {{name}}",
+      "generatedFailed": "カスタムスキルの生成に失敗しました",
+      "updateTitle": "スキルの更新を確認中...",
+      "updateRegenerated": "更新されたプロジェクトのコンテキストに合わせて{{name}}を再生成しました",
+      "updateUnchanged": "LLM生成のスキルはすべて最新です",
+      "scopePrompt": "このスキルをどこにインストールしますか？",
+      "securityWarning": "セキュリティ警告: スコア {{score}}/100",
+      "securityBlocked": "ブロック: セキュリティスコア {{score}}/100（最低基準未満）",
+      "securityOverride": "それでもインストールしますか？このスキルのセキュリティスコアは低めです。",
+      "hookBlocked": "pre-learnフックによりインストールがブロックされました",
+      "searching": "'{{query}}'を検索中...",
+      "noResults": "'{{query}}'のスキルは見つかりませんでした",
+      "found": "{{count}}件のスキルが見つかりました:",
+      "installing": "{{name}}をインストール中...",
+      "installed": "{{name}}をインストールしました",
+      "alreadyInstalled": "{{name}}はすでにインストールされています",
+      "removed": "{{name}}を削除しました",
+      "removeNotFound": "スキル'{{name}}'が見つかりません",
+      "updated": "{{count}}件のスキルを更新しました",
+      "upToDate": "すべてのスキルが最新です",
+      "feedbackThanks": "{{name}}を評価いただきありがとうございます！",
+      "feedbackInvalid": "評価は1〜5で指定してください",
+      "trendingTitle": "トレンドのスキル",
+      "listTitle": "インストール済みスキル（/learn経由）",
+      "listEmpty": "/learn経由でインストールされたスキルはまだありません",
+      "selectPrompt": "インストールするスキルを選択:",
+      "confirmInstall": "{{name}}をインストールしますか？",
+      "confirmRemove": "{{name}}を削除しますか？"
+    },
     "mcp": {
       "title": "MCPサーバー",
       "description": "MCP（Model Context Protocol）サーバーを管理",
@@ -384,8 +982,9 @@
       "failed": "エクスポートに失敗しました: {{error}}"
     },
     "agents": {
-      "description": "サブエージェントを管理",
-      "title": "サブエージェント",
+      "description": "アクティブなAutohand CLIエージェントを表示",
+      "title": "アクティブなAutohandエージェント",
+      "definitionsTitle": "サブエージェント定義",
       "noAgents": "設定されたサブエージェントはありません。"
     },
     "automode": {
@@ -446,16 +1045,16 @@
     "connectionFailed": "接続に失敗しました: {{error}}",
     "telemetry": {
       "title": "Autohandの改善にご協力ください",
-      "description": "Autohandの使用方法を理解するために匿名の使用データを収集しています。",
+      "description": "永続的なデバイスIDとセッションIDを使って、仮名化された製品利用データを収集します。",
       "whatWeCollect": "収集するもの:",
       "collectItem1": "コマンド使用（どの機能が人気か）",
-      "collectItem2": "エラー率（バグをより早く修正するため）",
-      "collectItem3": "パフォーマンスメトリクス（処理を高速化するため）",
-      "whatWeNeverCollect": "収集しないもの:",
-      "neverItem1": "あなたのコードやファイルの内容",
-      "neverItem2": "APIキーまたは資格情報",
-      "neverItem3": "個人情報",
-      "prompt": "Autohandの改善に匿名の使用データを共有しますか？",
+      "collectItem2": "ツールの結果、自由形式のエラー、ランタイム指標",
+      "collectItem3": "モデル、プロバイダー、スキル、ゴール、コンテキストのライフサイクルに関するメタデータ",
+      "whatWeNeverCollect": "専用のテレメトリー項目として収集しないもの:",
+      "neverItem1": "会話メッセージ",
+      "neverItem2": "ファイルの内容や差分",
+      "neverItem3": "ツールの引数と結果（エラーテキストには機密データが含まれる場合があります）",
+      "prompt": "Autohandの改善のため、仮名化された製品利用データを共有しますか？",
       "thanks": "Autohandの改善にご協力いただきありがとうございます！",
       "declined": "問題ありません！いつでも設定で変更できます。"
     },
@@ -465,8 +1064,245 @@
     "agentsFile": "AGENTS.md（Autohand用のプロジェクト指示）",
     "nextSteps": "次のステップ:",
     "tryCommand": "試してみてください: autohand",
+    "language": {
+      "title": "言語の選択",
+      "description": "Autohandの表示言語を選択してください。",
+      "prompt": "使用する言語を選択してください:",
+      "detected": "検出された言語: {{language}}",
+      "changed": "言語を{{language}}に変更しました"
+    },
+    "apiKeyValidation": {
+      "validating": "APIキーを検証中...",
+      "success": "APIキーは有効です！",
+      "failed": "APIキーの検証に失敗しました: {{error}}",
+      "hint": "APIキーが正しく、適切な権限があることを確認してください。",
+      "skipped": "APIキーの検証をスキップしました。"
+    },
+    "connectionTest": {
+      "testing": "{{provider}}への接続をテスト中...",
+      "success": "{{provider}}に接続しました！",
+      "failed": "{{provider}}に接続できませんでした: {{error}}",
+      "hintOllama": "Ollamaが実行中であることを確認してください: ollama serve",
+      "hintLlamacpp": "llama.cppサーバーが実行中であることを確認してください: ./server -m model.gguf",
+      "hintMlx": "MLXサーバーが実行中であることを確認してください: mlx_lm.server --model <model-name>",
+      "continueAnyway": "接続できないまま続行しますか？"
+    },
+    "permissions": {
+      "title": "権限モード",
+      "description": "Autohandがツール権限をどう扱うかを設定します。",
+      "interactive": "対話型 — 危険な操作の前に確認（推奨）",
+      "unrestricted": "制限なし — すべて自動承認",
+      "restricted": "制限あり — 危険な操作をすべて拒否",
+      "rememberPrompt": "権限の判断をセッションごとに記憶しますか？",
+      "set": "権限モードを{{mode}}に設定しました。",
+      "warning": "制限なしモードでは、確認なしですべての操作が許可されます。注意して使用してください。"
+    },
+    "workspaceSafety": {
+      "checking": "ワークスペースの安全性を確認中...",
+      "safe": "ワークスペースは安全です。",
+      "unsafe": "このワークスペースは安全でない可能性があります: {{reason}}",
+      "continueUnsafe": "このディレクトリでそのまま続行しますか？"
+    },
+    "notifications": {
+      "title": "通知",
+      "description": "Autohandがタスクを完了したときに通知を受け取ります。",
+      "enablePrompt": "デスクトップ通知を有効にしますか？",
+      "soundPrompt": "通知時にサウンドを鳴らしますか？"
+    },
     "network": {
+      "title": "ネットワーク設定",
+      "description": "APIリクエストのリトライとタイムアウトの動作を設定します。",
+      "needCustom": "ネットワークのカスタム設定を行いますか？（リトライ、タイムアウト）",
+      "maxRetries": "最大リトライ回数（1〜5）:",
       "timeout": "プロバイダーの既定値を使う場合は空欄にするか、5000-600000 ms を入力してください"
+    },
+    "search": {
+      "title": "ウェブ検索プロバイダー",
+      "description": "/searchツールで使用するウェブ検索プロバイダーを選択します。",
+      "prompt": "検索プロバイダーを選択してください:",
+      "braveKeyPrompt": "Brave SearchのAPIキーを入力してください:",
+      "parallelKeyPrompt": "Parallel.aiのAPIキーを入力してください:"
+    },
+    "mcp": {
+      "title": "MCP (Model Context Protocol)",
+      "description": "MCPを使うと、Autohandを外部のツールサーバーに接続して機能を拡張できます。",
+      "enablePrompt": "MCPサポートを有効にしますか？",
+      "enabled": "MCPサポートを有効にしました。サーバーは/settingsまたはconfig.jsonで設定してください。"
+    },
+    "agent": {
+      "title": "エージェントの動作",
+      "maxIterationsPrompt": "リクエストあたりの最大反復回数（10〜500）:",
+      "debugPrompt": "デバッグモードを有効にしますか？（詳細ログ）",
+      "set": "エージェントの設定を完了しました。"
+    },
+    "review": {
+      "title": "設定の確認",
+      "provider": "プロバイダー: {{provider}}",
+      "model": "モデル: {{model}}",
+      "confirm": "この設定を保存してセットアップを完了しますか？",
+      "goBack": "セットアップをやり直しています..."
+    },
+    "communitySkills": {
+      "title": "コミュニティスキル",
+      "description": "コミュニティスキルは、コミュニティが共有するプロジェクト固有の機能でAutohandを拡張します。",
+      "enablePrompt": "コミュニティスキルを有効にしますか？"
+    },
+    "advanced": {
+      "title": "詳細設定",
+      "description": "通知、ネットワーク、検索、MCP、エージェントの動作、コミュニティスキルを設定します。",
+      "prompt": "詳細設定を行いますか？"
+    },
+    "keybindings": {
+      "title": "キーボードショートカット",
+      "description": "このマシンで{{agents}}が見つかりました。Autohandは使い慣れたショートカットに合わせられます。いつでも/settingsで変更できます。",
+      "prompt": "入力欄でどのキーボードショートカットを使用しますか？",
+      "autohandOption": "Autohandのデフォルト（推奨）",
+      "autohandDescription": "Shift+Tabでモード切替、Shift+EnterまたはAlt+Enterで改行、Ctrl+Cを2回で終了",
+      "agentOption": "{{agent}}と同じ",
+      "agentDescription": "改行のCtrl+J、終了のCtrl+D、履歴のCtrl+Rなど、そのエージェントのキー操作を追加します"
+    },
+    "importAgents": {
+      "title": "他のエージェントからインポート",
+      "description": "メモリー、セッション、スキルは、後から実行できるものと同じ/importコマンドで取り込めます。",
+      "prompt": "{{agents}}からメモリー、セッション、スキルをインポートしますか？",
+      "running": "{{agents}}からインポート中...",
+      "skipped": "スキップしました。取り込みたいときに/importを実行してください。",
+      "failed": "インポートを完了できませんでした: {{error}}。セットアップは続行します。後で/importを実行して再試行してください。"
+    },
+    "registration": {
+      "title": "Autohandアカウント",
+      "description": "無料のAutohandアカウントを作成して、クラウド同期、チーム機能、利用状況分析を利用しましょう。",
+      "descriptionMandatory": "Autohandの利用にはAutohandアカウントが必要です。Google、GitHub、またはメールで無料登録できます。",
+      "prompt": "Autohandアカウントを作成しますか？（Google、GitHub、またはメールで登録）",
+      "retryPrompt": "もう一度試しますか？",
+      "skipped": "アカウントは後から/loginで作成できます",
+      "initiating": "認証を開始しています...",
+      "failed": "認証を開始できませんでした: {{error}}",
+      "tryLater": "後から/loginでもう一度お試しください",
+      "visit": "登録またはサインインするには、次にアクセスしてください:",
+      "code": "または、次のコードを手動で入力してください:",
+      "browserOpened": "ブラウザを開きました。ブラウザで登録を完了してください。",
+      "openManually": "ブラウザを自動で開けませんでした。上のURLにアクセスしてください。",
+      "waiting": "認証を待機中... (Ctrl+Cでキャンセル)",
+      "success": "ようこそ、{{name}}さん！アカウントが接続されました。",
+      "expired": "認証コードの有効期限が切れました。",
+      "timeout": "認証がタイムアウトしました。"
+    },
+    "flow": {
+      "subtitle": "超高速で自己進化するコーディングエージェント",
+      "useExistingKey": "既存の{{provider}} APIキーを使用しますか？（末尾 ...{{suffix}}）",
+      "effort": {
+        "none": "拡張推論なし",
+        "low": "応答は高速、推論は最小限",
+        "medium": "速度と推論のバランス",
+        "high": "徹底した推論（推奨）",
+        "xhigh": "最大の推論の深さ"
+      },
+      "moaEffort": {
+        "medium": "日常のコーディング向けのバランスの取れた思考",
+        "high": "複雑な変更向けのより深い推論",
+        "xhigh": "難しい作業向けの最大の思考の深さ"
+      },
+      "telemetry": {
+        "line1": "プロダクトテレメトリーは、永続的な仮名のデバイスIDとセッションIDを使用して、",
+        "line2": "Autohandの利用状況を把握し、改善点を見つけるために使われます。",
+        "item1": "- コマンドの使用状況（どの機能がよく使われているか）",
+        "item2": "- ツールの結果、エラー、パフォーマンス/ランタイムのメトリクス",
+        "item3": "- モデル、プロバイダー、スキル、ゴール、コンテキストのライフサイクルのメタデータ",
+        "notCollected1": "会話メッセージ、ファイルの内容、diff、ツールの引数/結果は",
+        "notCollected2": "テレメトリーの項目に含まれません。ただし、エラーやステータスのテキストに機微な情報が含まれる場合があります。",
+        "notCollected3": "一般的なホームパスはサニタイズされますが、汎用のシークレット検出機能ではありません。"
+      },
+      "autoReport": {
+        "title": "問題の自動レポート",
+        "line1": "エラーが発生した際、Autohandは自動的にGitHub issueとして",
+        "line2": "報告でき、バグの修正を早めることに役立ちます。",
+        "whatGetsReported": "報告される内容:",
+        "item1": "- エラーの種類、メッセージ、サニタイズ済みのスタックトレース",
+        "item2": "- CLI/デバイス/ランタイムのデータと、呼び出し箇所の診断コンテキスト",
+        "note1": "レポートにセッションメッセージやソースファイルは添付されませんが、エラーのテキストや",
+        "note2": "診断コンテキストに機微な情報が含まれる場合があります。",
+        "note3": "パスのサニタイズは、汎用のシークレット検出機能ではありません。",
+        "prompt": "バグ修正のため、エラーを自動的に報告しますか？",
+        "thanks": "ありがとうございます！問題の発見と修正に役立ちます。",
+        "declined": "問題ありません！この設定はいつでも設定ファイルで有効にできます。"
+      },
+      "preferences": {
+        "prompt": "追加の設定を行いますか？（テーマ、自動確認）",
+        "theme": "テーマを選択",
+        "autoConfirm": "破壊的でない操作を自動で確認しますか？",
+        "checkUpdates": "起動時にアップデートを確認しますか？"
+      },
+      "agents": {
+        "regenerate": "AGENTS.mdはすでに存在します。再生成しますか？",
+        "keeping": "既存のAGENTS.mdを保持します",
+        "title": "プロジェクト設定",
+        "line1": "AGENTS.mdは、Autohandがプロジェクトをよりよく理解するのに役立ちます。",
+        "line2": "コードベース固有の指示が含まれます。",
+        "prompt": "プロジェクトに基づいてAGENTS.mdを生成しますか？",
+        "later": "後から/initで作成できます",
+        "analyzing": "プロジェクトを分析中...",
+        "framework": "フレームワーク: {{name}}",
+        "packageManager": "パッケージマネージャー: {{name}}",
+        "testFramework": "テストフレームワーク: {{name}}",
+        "created": "AGENTS.mdを作成しました",
+        "customize": "Autohandの理解を深めるため、いつでもカスタマイズできます。"
+      },
+      "createdConfig": "- ~/.autohand/config.toml/yaml/json（設定）",
+      "createdAgents": "- AGENTS.md（Autohand用のプロジェクト指示）",
+      "tips": {
+        "title": "ヒント:",
+        "enter": "- リクエストを入力してEnterを押すと開始します",
+        "mention": "- @filenameでファイルをメンションできます",
+        "help": "- /helpですべてのコマンドを表示",
+        "exit": "- Ctrl+Cを2回押すと終了します"
+      },
+      "vertex": {
+        "gcloudDetected": "✓ gcloud CLIを検出しました",
+        "gcloudMissing": "⚠ gcloud CLIが見つかりません",
+        "installHint": "トークンを自動管理するにはインストールしてください:",
+        "tokenObtained": "✓ アクセストークンを取得しました（約25分間有効）",
+        "autoRefresh": "gcloudを使用している場合、トークンは自動的に更新されます。",
+        "manual": "トークンを手動で入力するか、次を実行してください: gcloud auth login",
+        "refreshEnabled": "gcloud CLIによるトークンの自動更新を有効にしました",
+        "fetching": "gcloudからアクセストークンを取得中..."
+      },
+      "llamacpp": {
+        "detected": "{{url}}でllama.cppサーバーを検出しました",
+        "noServer": "llama.cppはインストールされていますが、実行中のサーバーが見つかりませんでした。",
+        "noPackageManager": "llama.cppがインストールされておらず、対応するパッケージマネージャーも見つかりませんでした。",
+        "canInstall": "llama.cppがインストールされていません。Autohandは次のコマンドでインストールできます: {{command}}",
+        "installPrompt": "今すぐllama.cppをインストールしますか？",
+        "installing": "{{command}}でllama.cppをインストール中...",
+        "installFailed": "llama.cppのインストールに失敗しました。",
+        "installed": "llama.cppのインストールが完了しました。",
+        "startServer": "モデルを指定してllama-serverを起動すると、Autohandが検出したポートで接続します。"
+      },
+      "search": {
+        "included": "Autohand Web Searchはプランに含まれており、すぐに利用できます。",
+        "later": "後で設定",
+        "laterDescription": "ウェブ検索をリクエストする前に/searchを使用してください",
+        "enterKey": "{{provider}}のAPIキーを入力してください:",
+        "deferred": "検索の設定を保留しました: APIキーが必要です。/searchを実行して設定を完了してください。",
+        "browserHint": "検索には/browserでChromiumを接続するか、ChromeまたはBraveのプロファイルを利用可能にしておいてください。ブラウザが自動リクエストをブロックする場合は/searchを使用してください。"
+      },
+      "summary": {
+        "permissions": "権限: {{value}}",
+        "telemetry": "テレメトリー: {{value}}",
+        "traces": "エージェントトレース: {{value}}",
+        "autoReport": "自動レポート: {{value}}",
+        "notifications": "通知: {{value}}",
+        "search": "検索: {{value}}",
+        "mcp": "MCP: {{value}}",
+        "keybindings": "キーボードショートカット: {{value}}",
+        "importedFrom": "インポート元: {{value}}",
+        "account": "アカウント: {{value}}",
+        "enabled": "有効",
+        "disabled": "無効",
+        "language": "言語: {{value}}"
+      },
+      "pressEnter": "続行するにはEnterを押してください...",
+      "cancelled": "セットアップをキャンセルしました。"
     }
   },
   "errors": {
@@ -514,6 +1350,8 @@
   },
   "providers": {
     "openrouter": "OpenRouter",
+    "anthropic": "Anthropic",
+    "autohandai": "Autohand AI",
     "openai": "OpenAI",
     "ollama": "Ollama",
     "llamacpp": "llama.cpp",
@@ -521,12 +1359,50 @@
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
     "zai": "Z.ai",
+    "sakana": "Sakana.AI",
     "vertexai": "Google Cloud Vertex AI",
     "xai": "xAI (Grok)",
     "cerebras": "Cerebras AI",
     "nvidia": "NVIDIA AI Cloud",
+    "deepseek": "DeepSeek",
+    "bedrock": "AWS Bedrock",
+    "openaiAuth": {
+      "chooseTitle": "OpenAIの接続方法を選択",
+      "apiKeyLabel": "APIキーを使用",
+      "apiKeyDescription": "OpenAI APIキーによる従量課金",
+      "chatgptLabel": "ChatGPTアカウントを使用",
+      "chatgptDescription": "OpenAIサインインでChatGPTサブスクリプションを使用",
+      "starting": "OpenAIサインインを開始しています...",
+      "browserPrompt": "ブラウザでOpenAIサインインを完了してください:",
+      "browserOpened": "ブラウザを開きました。サインインを完了して続行してください。",
+      "openManually": "ブラウザを自動で開けませんでした。上のURLにアクセスしてください。",
+      "waiting": "ブラウザでのサインイン完了を待機中...",
+      "devicePrompt": "続行するにはOpenAIアカウントでサインインしてください:",
+      "deviceCodeLabel": "次のコードを入力してください: {{code}}",
+      "failed": "OpenAIサインインに失敗しました: {{message}}",
+      "changeAuthOnly": "認証のみ変更",
+      "changeModelAndAuth": "モデルと認証を変更"
+    },
+    "xaiAuth": {
+      "chooseTitle": "xAI (Grok)の接続方法を選択",
+      "apiKeyLabel": "APIキーを使用",
+      "apiKeyDescription": "xAI ConsoleのAPIキーによる従量課金",
+      "oauthLabel": "Grokアカウントを使用（OAuth）",
+      "oauthDescription": "SuperGrokまたはX Premiumでサインイン — APIキーは不要です",
+      "reuseGrokCliLabel": "既存のGrok CLIログインを再利用",
+      "reuseGrokCliDescription": "~/.grok/auth.jsonに保存済みの認証情報を使用します",
+      "starting": "xAI / Grokサインインを開始しています...",
+      "browserPrompt": "ブラウザでxAIサインインを完了してください:",
+      "browserOpened": "ブラウザを開きました。サインインを完了して続行してください。",
+      "openManually": "ブラウザを自動で開けませんでした。上のURLにアクセスしてください。",
+      "deviceCodeLabel": "求められた場合は次のコードを入力してください: {{code}}",
+      "waiting": "ブラウザでのサインイン完了を待機中...",
+      "failed": "xAIサインインに失敗しました: {{message}}"
+    },
     "hints": {
       "openrouter": "クラウド - 100以上のモデルにアクセス（Claude, GPT-4など）",
+      "anthropic": "クラウド - Claudeモデル向けのネイティブAnthropic Messages API",
+      "autohandai": "クラウドまたはローカル - AutohandホストのFantailモデル、またはApple Silicon MLXによるローカル推論",
       "openai": "クラウド - 公式OpenAIモデル（GPT-4o, o1など）",
       "ollama": "ローカル - マシン上でモデルを実行（無料）",
       "llamacpp": "ローカル - GGUFモデルで高速推論",
@@ -534,21 +1410,47 @@
       "llmgateway": "クラウド - 複数のLLMプロバイダー向け統一API",
       "azure": "クラウド - Azure OpenAI Service（エンタープライズ）",
       "zai": "クラウド - Z.ai GLM models (glm-5.2, glm-5.1, GLM-4.5, CogView)",
+      "sakana": "クラウド - Sakana APIで利用するSakana Fuguマルチエージェントモデル",
       "vertexai": "クラウド - Google Cloud Vertex AI (Gemini, Claude, GLM)",
-      "xai": "クラウド - xAI Grok models with web search, X search, and code execution",
-      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
-      "nvidia": "クラウド - NVIDIA NIMモデル（Llama, Phi, Gemma, Mixtralなど）"
+      "xai": "クラウド - xAI Grok 4.5 と Grok モデル（APIキーまたは SuperGrok OAuth）",
+      "cerebras": "クラウド - GLMとQwenモデルを提供するCerebras AI",
+      "nvidia": "クラウド - NVIDIA NIMモデル（Llama, Phi, Gemma, Mixtralなど）",
+      "deepseek": "クラウド - DeepSeek APIモデル（V4 Flash、V4 Pro、推論）",
+      "bedrock": "クラウド - AWS BedrockのエンタープライズモデルとOpenAI互換エンドポイント"
+    },
+    "autohandaiPlan": {
+      "choose": "Autohandプランを選択",
+      "cloud": "ホスト型",
+      "cloudDescription": "api.autohand.aiでAutohandホストのFantailおよびMoaモデルを使用",
+      "local": "ローカル",
+      "localDescription": "MLXをローカルにインストールし、Macで実行できるコーディングモデルを選択して、ローカルサーバーを起動します",
+      "accountAuth": "ログイン済みのAutohandアカウントを使用",
+      "apiKeyRequiredForSdk": "Autohand AI SDKの利用にはAPIキーが必要です。",
+      "mlxUnsupported": "ローカルのAutohand AIにはApple Siliconを搭載したMacが必要です。",
+      "mlxProbe": "ローカルMLXサーバーを確認中...",
+      "mlxInstall": "MLXローカルランタイムをインストール中...",
+      "mlxDownload": "選択したローカルコーディングモデルをダウンロード中...",
+      "detectModels": "このMac向けのローカルコーディングモデルを検出中",
+      "settingUpLocal": "Autohand AI Localをセットアップ中",
+      "startingLocal": "ローカルのAutohand AIモデルを起動中",
+      "selectLocalModel": "ローカルコーディングモデルを選択",
+      "selectMoaEffort": "Moaの思考強度を選択",
+      "noLocalModels": "このマシンで利用できるローカルコーディングモデルがありません。",
+      "localSetupFailed": "Autohand AI Localのセットアップに失敗しました。",
+      "localConfigured": "Autohand AI Localの設定が完了し、利用可能です。"
     },
     "config": {
       "chooseProvider": "LLMプロバイダーを選択",
       "groupAutohand": "Autohand AI",
       "groupThirdParty": "サードパーティプロバイダー",
       "groupCustom": "カスタムプロバイダー",
+      "newProvider": "新しいプロバイダー...",
       "cancelled": "設定をキャンセルしました。",
       "notConfigured": "{{provider}}はまだ設定されていません。設定しましょう！",
       "configuredSuccessfully": "{{provider}}の設定に成功しました！",
       "selectModel": "モデルを選択",
       "selectReasoningEffort": "推論レベルを選択",
+      "customModel": "カスタムモデル...",
       "reasoningEffortLabel": "推論レベル: {{level}}",
       "enterModelId": "モデルIDを入力してください",
       "enterApiKey": "{{provider}}のAPIキーを入力してください",
@@ -559,10 +1461,16 @@
       "settingsUpdated": "{{provider}}の設定を更新しました！",
       "currentModel": "現在のモデル: {{model}}",
       "currentApiKey": "現在のAPIキー: {{key}}",
+      "currentAuthToken": "現在の認証トークン: {{key}}",
+      "authTypeApiKey": "認証タイプ: APIキー: {{key}}",
+      "authTypeChatGPT": "認証タイプ: ChatGPTアカウント",
       "whatToChange": "何を変更しますか？",
       "changeModelOnly": "モデルのみ変更",
       "changeApiKeyOnly": "APIキーのみ変更",
       "changeBoth": "モデルとAPIキーの両方を変更",
+      "changeProvider": "プロバイダーを変更",
+      "changeReasoningEffort": "推論強度を変更",
+      "changeBaseUrl": "ベースURL/エンドポイントを変更",
       "validatingApiKey": "APIキーを検証しています...",
       "apiKeyValid": "APIキーは有効です",
       "apiKeyRequired": "APIキーが必要です",
@@ -589,10 +1497,42 @@
       "notSet": "未設定",
       "apiReturnedStatus": "APIがステータス{{status}}を返しました"
     },
+    "custom": {
+      "enterDisplayName": "プロバイダーの表示名",
+      "displayNameRequired": "プロバイダー名は必須です",
+      "invalidId": "プロバイダー名には、文字または数字を1つ以上含めてください。",
+      "enterBaseUrl": "OpenAI互換のベースURL",
+      "baseUrlRequired": "ベースURLは必須です",
+      "baseUrlInvalid": "ベースURLはhttp://またはhttps://で始める必要があります",
+      "apiKeyRequired": "このプロバイダーにはAPIキーが必要ですか？",
+      "enterOptionalApiKey": "{{provider}}のAPIキーを入力してください（任意）",
+      "modelRequired": "モデルIDは必須です",
+      "enterContextWindow": "コンテキストウィンドウのトークン数（任意）",
+      "contextWindowInvalid": "コンテキストウィンドウは正の数で指定してください。",
+      "configureReasoningEffort": "このモデルの推論強度を設定しますか？",
+      "removeProvider": "カスタムプロバイダーを削除",
+      "removeConfirm": "{{provider}}をカスタムプロバイダーから削除しますか？",
+      "removeMissing": "カスタムプロバイダーは設定されていません。",
+      "removed": "{{provider}}をカスタムプロバイダーから削除しました。",
+      "verificationFailedStatus": "プロバイダーの検証がHTTP {{status}}で失敗しました。",
+      "verificationFailedHint": "ベースURL、APIキー、およびエンドポイントがOpenAI互換の/models APIを実装していることを確認してください。",
+      "verificationNetworkError": "Autohandがエンドポイントに到達できなかったため、プロバイダーの検証に失敗しました。",
+      "modelNotFound": "モデル{{model}}は/modelsから返されませんでした。ルーターやゲートウェイなど一部のプロバイダーは、一覧にないモデル名も受け付けます。",
+      "modelNotFoundHint": "利用可能なモデル: {{models}}",
+      "saveAnyway": "モデル{{model}}のままこのプロバイダーを保存しますか？"
+    },
     "wizard": {
       "openrouter": {
         "title": "OpenRouter設定",
         "apiKeyUrl": "https://openrouter.ai/keys"
+      },
+      "anthropic": {
+        "title": "Anthropicの設定",
+        "apiKeyUrl": "https://console.anthropic.com/settings/keys"
+      },
+      "autohandai": {
+        "title": "Autohand AIの設定",
+        "apiKeyUrl": "https://api.autohand.ai/keys"
       },
       "openai": {
         "title": "OpenAI設定",
@@ -626,6 +1566,10 @@
         "title": "Z.ai設定",
         "apiKeyUrl": "https://z.ai/api-keys"
       },
+      "sakana": {
+        "title": "Sakana.AIの設定",
+        "apiKeyUrl": "https://sakana.ai"
+      },
       "vertexai": {
         "title": "Google Cloud Vertex AI設定",
         "getStarted": "Google Cloud Vertex AI に接続して、Gemini、Claude などのモデルにアクセス",
@@ -645,8 +1589,8 @@
       },
       "xai": {
         "title": "xAI (Grok)設定",
-        "apiKeyUrl": "https://console.x.ai/keys",
-        "enterModel": "モデル ID を入力（例：grok-4.20-reasoning, grok-4-1-fast-reasoning）"
+        "apiKeyUrl": "https://console.x.ai/team/default/api-keys",
+        "enterModel": "モデルIDを入力（例: grok-4.5、grok-4.3、grok-4.20-reasoning）"
       },
       "cerebras": {
         "title": "Cerebras AI設定",
@@ -657,6 +1601,34 @@
         "title": "NVIDIA AI Cloud設定",
         "apiKeyUrl": "https://build.nvidia.com/api-key",
         "enterModel": "NVIDIAモデルを選択"
+      },
+      "deepseek": {
+        "title": "DeepSeekの設定",
+        "apiKeyUrl": "https://platform.deepseek.com/api_keys",
+        "enterModel": "DeepSeekモデルを選択"
+      },
+      "bedrock": {
+        "title": "AWS Bedrockの設定",
+        "getStarted": "ConverseまたはBedrock OpenAI互換の推論エンドポイントでAWS Bedrockに接続します。",
+        "apiKeyUrl": "https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html",
+        "awsCredentialsHint": "Converseでは、AWS認証情報チェーンによる認証を使用します: aws configure sso、AWS_PROFILE、IAMロール、コンテナ認証情報、またはインスタンスメタデータ。",
+        "modelAccessHint": "使用する前に、AWS Bedrockコンソールで選択したモデルへのアクセスを有効にしてください。",
+        "apiKeyHint": "Bedrock APIキーは、Bedrock OpenAI互換エンドポイント専用です。OpenAIのAPIキーではありません。",
+        "chooseApiMode": "Bedrock APIモードを選択",
+        "modeConverse": "Converse",
+        "modeConverseHint": "Bedrockネイティブ API。エンタープライズ向けのデフォルトモードです。",
+        "modeOpenAIChat": "OpenAI Chat Completions",
+        "modeOpenAIChatHint": "移行用のOpenAI互換チャットエンドポイントです。",
+        "modeOpenAIResponses": "OpenAI Responses",
+        "modeOpenAIResponsesHint": "移行用のOpenAI互換Responsesエンドポイントです。",
+        "chooseAuthMode": "Bedrockの認証方法を選択",
+        "authAwsCredentials": "AWS認証情報/プロファイル",
+        "authAwsCredentialsHint": "AWS SDKの認証情報チェーンを使用します。AutohandはAWSアクセスキーを保存しません。",
+        "authBedrockApiKey": "Bedrock APIキー",
+        "authBedrockApiKeyHint": "OpenAI互換のBedrockエンドポイント用にBedrock APIキーを保存します。",
+        "enterRegion": "AWSリージョンを入力",
+        "enterProfile": "AWSプロファイル（任意）",
+        "enterEndpoint": "カスタム/プライベートエンドポイント（任意）"
       },
       "azure": {
         "title": "Azure OpenAI設定",
@@ -708,7 +1680,46 @@
     "toolMissing": "{{tool}}が見つかりません",
     "installHint": "インストールするには: {{command}}",
     "allToolsReady": "すべてのツールの準備ができました！",
-    "someToolsMissing": "一部のツールがありません。一部の機能が動作しない場合があります。"
+    "someToolsMissing": "一部のツールがありません。一部の機能が動作しない場合があります。",
+    "workspaceTrust": {
+      "projectHooks_one": "プロジェクトフック{{count}}件",
+      "projectHooks_other": "プロジェクトフック{{count}}件",
+      "mcpServers_one": "MCPサーバー{{count}}件",
+      "mcpServers_other": "MCPサーバー{{count}}件",
+      "projectToolFiles_one": "プロジェクトツールファイル{{count}}件",
+      "projectToolFiles_other": "プロジェクトツールファイル{{count}}件",
+      "hooksHeading": "フック",
+      "mcpServersHeading": "MCPサーバー",
+      "projectToolsHeading": "プロジェクトツール: {{count}}ファイル",
+      "intro": "このワークスペースは、.autohandプロジェクトファイルのコマンドを実行しようとしています。",
+      "warning": "内容を確認したワークスペースのみを信頼してください。",
+      "trust": "このワークスペースを信頼",
+      "trustDescription": "今回と以降のセッションで実行します。変更があった場合はAutohandが再度確認します。",
+      "skip": "今はしない",
+      "skipDescription": "これらなしで開始します。次回もAutohandが確認します。",
+      "skippedUntrusted": "このワークスペースは信頼されていないため、{{path}}の{{entries}}をスキップしました。そのフォルダでautohandを対話的に実行して、確認・信頼してください。",
+      "startedWithout": "{{path}}の{{entries}}なしで開始しました。次回もAutohandが確認します。"
+    },
+    "auth": {
+      "upgrading": "Autohandをアップグレード中...",
+      "running": "実行中: {{command}}",
+      "upgradeDone": "アップグレードが完了しました！",
+      "restart": "新しいバージョンを使用するには、Autohandを再起動してください。",
+      "upgradeFailed": "アップグレードに失敗しました。",
+      "tryManually": "手動で試すこともできます:",
+      "error": "エラー: {{message}}",
+      "bareRequiresKey": "BareモードにはAUTOHAND_API_KEY、または--settings/configのauth.apiKeyHelperが必要です。",
+      "login": "ログイン",
+      "upgradeAvailable": "アップグレード（v{{version}}が利用可能）",
+      "exit": "終了",
+      "newVersion": "新しいバージョンが利用可能です！",
+      "signInToContinue": "続行するにはサインインしてください。",
+      "loginRequired": "ログインに失敗しました。Autohandの実行には認証が必要です。",
+      "expired": "Autohandのサインインの有効期限が切れました。",
+      "notSignedIn": "サインインしていません。",
+      "nonInteractiveHint": "`autohand login`を実行するか、CIではAUTOHAND_API_KEYを設定して--bareを追加してください。",
+      "ciDocs": "CIでのサインイン: {{url}}"
+    }
   },
   "confirmation": {
     "proceed": "続行しますか？",
@@ -729,8 +1740,11 @@
     "discarded": "変更を破棄しました。"
   },
   "ui": {
+    "cancel": "キャンセル",
     "escToCancel": "escでキャンセル",
-    "commandHint": "? ショートカット · / コマンド · @ ファイルメンション · $ スキル · ! ターミナル",
+    "upgradeHint": "{{plan}}プランの上限に達しました。/upgradeを実行して{{next}}に移行してください。",
+    "upgradeHintManaged": "プランの上限に達しました。/upgradeを実行してプランを確認してください。",
+    "commandHint": "? ショートカット · / コマンド · @ ファイルを指定 · $ スキル · : エージェントにメッセージ · ! ターミナル",
     "ctrlCToExit": "もう一度Ctrl+Cを押すと終了します",
     "noMatchingCommands": "一致するコマンドがありません。",
     "selectFile": "ファイルを選択",
@@ -748,13 +1762,18 @@
     "questionSelectHint": "↑↓ ナビゲート · ↵ 選択 · 1-9 ショートカット · ESC キャンセル",
     "noOptionsAvailable": "利用可能なオプションはありません",
     "planRevise": "いいえ、プランを修正",
-    "planEditHint": "VS Codeで編集するにはctrl-g",
+    "planEditHint": "ctrl-g でエディターでプランを開く",
+    "planOpened": "{{command}}で開きました。編集内容は承認時に反映されます。",
+    "planOpenFailed": "エディタを開けませんでした。上のファイルを開いてプランを確認・編集してください。",
     "confirmYes": "はい",
     "confirmNo": "いいえ",
     "inputHint": "Enterで送信、ESCでキャンセル",
     "inputPlaceholder": "回答を入力...",
     "passwordPlaceholder": "パスワードを入力...",
-    "validationError": "無効な入力"
+    "apiKeyPlaceholder": "APIキーを貼り付け...",
+    "validationError": "無効な入力",
+    "multiSelectHint": "Space 切替 · Enter 確定 · Esc キャンセル",
+    "filterHint": "/ 検索"
   },
   "homebrew": {
     "formulaGenerated": "Homebrewのフォーミュラを{{path}}に生成しました"
@@ -791,6 +1810,33 @@
     "permissionRequested": "権限が要求されました: {{action}}",
     "error": "ACPエラー: {{message}}"
   },
+  "permissions": {
+    "directoryPrompt": {
+      "title": "ワークスペース外のディレクトリを検出しました",
+      "subtitle": "現在のワークスペース外のディレクトリが指定されました。権限に追加しますか？",
+      "allow": "許可",
+      "deny": "拒否",
+      "added": "{{directory}}を権限に追加しました"
+    },
+    "prompt": {
+      "yes": "はい",
+      "no": "いいえ",
+      "allowOnce": "今回のみ許可",
+      "denyOnce": "今回のみ拒否",
+      "allowAlways": "常に許可",
+      "denyAlways": "常に拒否",
+      "scopeTitle": "「常に」の判断の適用範囲",
+      "scopeProject": "このプロジェクトのみ",
+      "scopeUser": "ユーザー（すべてのプロジェクト）",
+      "scopeCancel": "キャンセル",
+      "alternative": "代替を入力...",
+      "alternativeTitle": "代替のコマンドまたはパスを入力"
+    },
+    "title": "権限設定",
+    "description": "ツールと操作の権限を管理",
+    "mode": "モード: {{mode}}",
+    "rememberSession": "セッションの判断を記憶: {{value}}"
+  },
   "languages": {
     "en": "English",
     "zh-cn": "简体中文 (Simplified Chinese)",
@@ -807,6 +1853,150 @@
     "pl": "Polski (Polish)",
     "cs": "Čeština (Czech)",
     "hu": "Magyar (Hungarian)",
-    "hi": "हिन्दी (Hindi)"
+    "hi": "हिन्दी (Hindi)",
+    "id": "Bahasa Indonesia (Indonesian)",
+    "kk": "Қазақ тілі (Kazakh)"
+  },
+  "announcements": {
+    "launchLabel": "新着情報",
+    "moreHint": "他{{count}}件 · /whatsnew",
+    "lineHint": "^X 非表示  /whatsnew",
+    "modalTitle": "新着情報",
+    "modalHint": "↑↓ 移動  ·  enter 閉じる  ·  esc 閉じる",
+    "none": "新しいお知らせはありません。",
+    "unavailable": "このセッションではお知らせを利用できません。"
+  },
+  "feedback": {
+    "survey": {
+      "question": "このセッションでのAutohandはいかがですか？（任意）",
+      "bad": "悪い",
+      "poor": "いまいち",
+      "fine": "まあまあ",
+      "good": "良い",
+      "great": "最高",
+      "dismiss": "閉じる",
+      "thanks": "フィードバックありがとうございます！",
+      "thanksLow": "ありがとうございます。問題点を教えてください: /feedback <message>"
+    }
+  },
+  "slashCommands": {
+    "quit": "Autohandを終了",
+    "exit": "Autohandを終了",
+    "model": "使用するモデルと推論の労力を選択",
+    "cc": "コンテキスト圧縮のオン/オフを切り替え",
+    "search": "ウェブ検索プロバイダーを設定（autohand, browser-profile, exa, google, brave, duckduckgo, parallel, keenable）",
+    "init": "AGENTS.mdファイルを作成",
+    "help": "利用可能なスラッシュコマンドとヒントを表示",
+    "?": "/helpのエイリアス",
+    "resume": "以前のセッションを再開",
+    "sessions": "保存されたセッションを一覧表示",
+    "session": "現在のセッションの詳細を表示",
+    "agents": "サブエージェントを管理",
+    "agents new": "説明から新しいサブエージェントを作成",
+    "feedback": "CLIについてのフィードバックを送信",
+    "bug": "バグを報告: 環境情報とこのセッションを添付したGitHub issueを開く",
+    "bug-report": "バグを報告: 環境情報とこのセッションを添付したGitHub issueを開く",
+    "undo": "直前のターンでのエージェントのファイル編集を元に戻し、そのターンを削除",
+    "new": "新しい会話を開始（現在のセッションを保存）",
+    "clear": "セッションの引き継ぎを保持したまま、現在のコンテキストを圧縮",
+    "settings": "autohand設定を構成",
+    "statusbar": "ステータスバーのセクションとレイアウトを設定",
+    "statusline": "ステータスラインの表示を設定",
+    "memory": "プロジェクトとユーザーのメモリーを管理",
+    "formatters": "利用可能なコードフォーマッターを一覧表示",
+    "lint": "利用可能なコードリンターを一覧表示",
+    "completion": "シェル補完スクリプトを生成",
+    "export": "セッションデータをエクスポート",
+    "status": "バージョン、モデル、API接続、使用状況を含むAutohandのステータスを表示",
+    "usage": "使用状況、セッション、スキル、拡張機能、トレースのインサイトを確認",
+    "upgrade": "コンソールを開いてAutohandプランをアップグレード",
+    "login": "Autohandアカウントにサインイン",
+    "account": "Autohandアカウントを一覧表示、またはこのCLIで使うアカウントを切り替え",
+    "logout": "Autohandアカウントからサインアウト",
+    "permissions": "現在の権限設定を表示",
+    "hooks": "ライフサイクルフックの表示と作成",
+    "skills": "プロジェクト向けのスキルを検索してインストール",
+    "discovery": "現在のワークスペースから役立つワークフローをプレビュー",
+    "skills use": "スキルを有効化",
+    "skills install": "コミュニティスキルを閲覧してインストール",
+    "skills search": "コミュニティスキルを検索",
+    "skills trending": "トレンドのコミュニティスキルを表示",
+    "skills remove": "インストール済みのスキルを削除",
+    "skills new": "説明から新しいスキルを作成",
+    "skills-new": "説明から新しいスキルを作成",
+    "learn": "プロジェクトを分析してスキルをおすすめ",
+    "theme": "ターミナルのカラーテーマを変更",
+    "automode": "自律モードを管理",
+    "share": "セッションを共有",
+    "go": "このセッションをAutohand Code iOSアプリとペアリング",
+    "handoff": "このセッションをCloud、Web、またはAutohand Code iOSアプリで続行",
+    "cloud": "永続的なホスト型エージェントを開始または再開（Pro、Pro+、Max）",
+    "handoff cloud": "この会話とリポジトリをクラウドエージェントで続行",
+    "open": "現在のクラウドセッションをWebまたはDesktopで開く",
+    "handoff session": "このセッションをAutohand Code iOSアプリに引き継ぐ",
+    "handoff web": "この会話をAutohand Webで続行（--workspaceでリポジトリの変更を含め、--newで新しいWeb会話を開始）",
+    "sync": "設定同期を管理",
+    "add-dir": "ワークスペーススコープにディレクトリを追加",
+    "language": "表示言語を変更",
+    "plan": "複雑なタスクを計画し、分解する",
+    "ps": "エージェントが起動したバックグラウンドのシェルプロセスを一覧表示",
+    "stop": "エージェントが起動したバックグラウンドのシェルプロセスを停止",
+    "about": "Autohandの情報を表示",
+    "ide": "実行中のIDEに接続",
+    "history": "セッション履歴",
+    "whatityped": "任意のディレクトリで過去に入力したメッセージを選択",
+    "mcp": "MCP（Model Context Protocol）サーバーを管理",
+    "mcp install": "コミュニティMCPサーバーを閲覧してインストール",
+    "team": "エージェントチームを管理（作成、ステータス、シャットダウン）",
+    "tasks": "チームのタスクリストをステータスと担当者付きで表示",
+    "peers": "ローカルのピアを検出し、メッセージを送信して、受信トレイを開く",
+    "message": "ローカルのチームメイトまたは選択したSquadエージェントにメッセージを送信",
+    "import": "他のコーディングエージェントからデータをインポート",
+    "repeat": "一定の間隔で繰り返すプロンプトをスケジュール",
+    "browser": "現在のセッションをAutohandブラウザ拡張で続行",
+    "review": "変更、コード、アーキテクチャ、セキュリティ、パフォーマンス、履歴に対してAutohandのレビューワークフローを実行",
+    "deep-research": "トピックを深く調査し、引用付きのプロジェクトレポートを保存",
+    "deep-search": "/deep-researchのエイリアス",
+    "publish-research": "保存済みの調査レポートを検証、プレビュー、公開",
+    "autoresearch": "自律的な実験ループを実行: 編集、ベンチマーク、維持または元に戻す、を繰り返す。",
+    "pr-review": "ローカルのdiffまたは指定したプルリクエストを、根拠のある指摘付きでレビュー",
+    "deslop": "動作を保つテストを使って、生成された不要な複雑さを除去",
+    "tester": "検証を計画し、プロジェクトのテストを実行して、実際のブラウザの証拠を取得",
+    "setup": "セットアップウィザードを実行してAutohandを設定・再設定",
+    "yolo": "YOLOモードを切り替え — すべての操作を自動承認",
+    "tools": "永続化されたメタツールを一覧表示、確認、無効化、名前変更、削除",
+    "extensions": "Code拡張機能を検証、インストール、確認、管理",
+    "experiments": "Autohandの実験的機能を一覧表示・切り替え",
+    "goal": "永続的なゴールを作成、確認、改善、一時停止、再開、完了、クリア、キュー登録",
+    "goals": "ライブのゴールキューを開き、永続的なゴールを管理",
+    "squad": "Squadエージェントを選択し、その会話を読む、またはアプリを開く",
+    "fork": "アクティブなセッション、または以前のユーザーメッセージから新しいセッションを分岐",
+    "clone": "アクティブなセッションブランチを新しいセッションに複製",
+    "tree": "このプロジェクトのフォークとクローンのツリーを表示",
+    "rename": "現在のセッションに名前を付け、/sessionsと/resumeで用途が分かるようにする",
+    "whatsnew": "CLIのお知らせを表示・閉じる",
+    "changelog": "最近のGitHubリリースノートを表示",
+    "readiness": "リポジトリの検出結果を確認し、対応するか選択"
+  },
+  "traces": {
+    "consent": {
+      "disabled": "無効（推奨のデフォルト）",
+      "disabledDescription": "コーディングエージェントのセッションファイルを監視せず、ahtracesも実行しません。",
+      "local": "ローカルのWork Mapのみ",
+      "localDescription": "セッションをローカルで処理し、使用状況、結果、ワークフローのシグナルの集計のみを保持します。",
+      "cloudMetadata": "クラウド同期 — メタデータのみ",
+      "cloudMetadataDescription": "仮名化したタイミング、エージェント、モデル、プロバイダー、推論、トークン、関係、結果のメタデータをアップロードします。",
+      "cloudFull": "クラウド同期 — マスク済みの完全なトレース",
+      "cloudFullDescription": "上限付きでマスク済みのメッセージとツールの部分もアップロードします。プロンプト、応答、推論が含まれる場合があります。",
+      "title": "エージェントトレースとWork Map",
+      "line1": "Autohandは、CLIの終了後に対応するコーディングエージェントのセッションファイルを監視できます。",
+      "line2": "ローカルモードは仮名化した集計インデックスのみを保存し、生のプロンプトやコードは保存しません。",
+      "line3": "クラウドモードでは、https://console.autohand.ai/tracesでエージェント横断の可視化が追加されます。",
+      "line4": "トレースの取り込みと保存は、Autohand APIの使用量にカウントされません。",
+      "line5": "クラウドモードには認証と、下での別途の明示的な選択が必要です。",
+      "line6": "いつでもautohand --traces-offまたはahtraces offで停止できます。",
+      "line7": "クラウドのトレースデータは、https://console.autohand.ai/accountからいつでも削除できます。",
+      "prompt": "トレース監視とクラウド共有を選択"
+    }
   }
 }

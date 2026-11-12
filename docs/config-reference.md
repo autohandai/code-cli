@@ -3241,6 +3241,8 @@ To register the native stdio agent in Zed, JetBrains IDEs, JetBrains Air, or ano
 | `--cc, --context-compact`     | Enable context compaction (default: on)                                                        |
 | `--no-cc, --no-context-compact` | Disable context compaction                                                                    |
 
+Supported display languages: `en`, `pt-br`, `es`, `ko`, `ja`, `kk` (Kazakh), `ru`, `zh-cn`, `zh-tw`, `fr`, `de`, `it`, `tr`, `pl`, `cs`, `hu`, `hi` and `id`. Autohand picks the language from `--display-language`, then `ui.locale` in the config, then `AUTOHAND_LOCALE`, `LC_ALL`, `LC_MESSAGES` or `LANG` (for example `LANG=kk_KZ.UTF-8` selects Kazakh), then the operating system. Change it any time with `/language`.
+
 ### Browser Integration
 
 | Flag                          | Description                                                                                    |
