@@ -10,10 +10,9 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { applyPatch as applyUnifiedPatch } from 'diff';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { resolveRipgrepCommand } from '../utils/ripgrep.js';
-import { validateAndFixPatch } from '../utils/patchValidator.js';
+import { applyValidatedPatch, extractPatchTarget } from '../utils/patchValidator.js';
 import {
   readTextFileWindow,
   type ReadTextWindowOptions,
@@ -908,16 +907,16 @@ export class FileActionManager {
   async applyPatch(target: string, patch: string, description?: string): Promise<void> {
     const turn = this.turnProvider();
     const filePath = this.resolvePath(target);
+    const envelopeTarget = extractPatchTarget(patch);
+    if (envelopeTarget !== undefined
+      && this.resolveRealPathOrAncestor(this.resolvePath(envelopeTarget)) !== this.resolveRealPathOrAncestor(filePath)) {
+      throw new Error(`apply_patch: envelope target ${envelopeTarget} does not match ${target}.`);
+    }
     const existed = await fs.pathExists(filePath);
     const previousBytes = existed ? await fs.readFile(filePath) : null;
     const previousMode = existed ? (await fs.stat(filePath)).mode : undefined;
     const current = await this.readFileSafe(target);
-    // Validate and fix the patch to correct any mismatched line counts in hunk headers
-    const fixedPatch = validateAndFixPatch(patch);
-    const updated = applyUnifiedPatch(current, fixedPatch);
-    if (updated === false) {
-      throw new Error(`Failed to apply patch to ${target}`);
-    }
+    const updated = applyValidatedPatch(current, patch);
 
     // In preview mode, batch the change instead of writing
     if (this.previewMode) {

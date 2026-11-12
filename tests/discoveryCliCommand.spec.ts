@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -14,7 +15,7 @@ let temporary: string;
 let workspace: string;
 let server: Server | undefined;
 beforeEach(async () => {
-  temporary = await mkdtemp(path.join(tmpdir(), 'native-discovery-test-'));
+  temporary = await mkdtemp(path.join(tmpdir(), 'native-discovery-test with spaces-'));
   workspace = path.join(temporary, 'repository with spaces');
   await mkdir(workspace);
   await mkdir(path.join(temporary, 'discovery-home'));
@@ -171,7 +172,7 @@ globalThis.fetch = async (input, init) => {
             '--no-behavior',
             '--json',
           ],
-          { NODE_OPTIONS: `--import ${preload}` }
+          { NODE_OPTIONS: `--import ${pathToFileURL(preload).href}` }
         )
       ).stdout
     );

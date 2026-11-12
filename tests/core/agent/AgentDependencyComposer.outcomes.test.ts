@@ -966,6 +966,17 @@ describe('AgentDependencyComposer typed tool outcomes', () => {
     expect(continuation).toHaveBeenCalledOnce();
   });
 
+  it.each(['*', 'orchestrate_specialists'])('honors the run denial %s before automatic specialist preparation', async (pattern) => {
+    const { internals } = createAgent({ disallowedTools: [pattern] }, 'unrestricted', true);
+    const continuation = vi.fn().mockResolvedValue(undefined);
+    internals.specialistOrchestrator.continueInterview = continuation;
+
+    const result = await internals.prepareSpecialists('The primary user is an engineer.');
+
+    expect(result).toBeUndefined();
+    expect(continuation).not.toHaveBeenCalled();
+  });
+
   it('routes a later user answer through the active specialist interview', async () => {
     const { internals } = createAgent({}, 'unrestricted', true);
     internals.activeAbortController = new AbortController();

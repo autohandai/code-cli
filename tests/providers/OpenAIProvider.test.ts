@@ -5,10 +5,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { OpenAIProvider } from '../../src/providers/OpenAIProvider.js';
 import { ApiError } from '../../src/providers/errors.js';
 import { UNANSWERED_TOOL_CALL_PLACEHOLDER } from '../../src/providers/messagePayload.js';
-import type { MultimodalMessage } from '../../src/types.js';
+import type { FunctionDefinition, MultimodalMessage } from '../../src/types.js';
 
 /**
  * Build a mock SSE response body from a `response.completed` payload.
@@ -99,7 +101,7 @@ describe('OpenAIProvider', () => {
     expect(sentBody.prompt_cache_key).toBeUndefined();
   });
 
-  it.each(['gpt-5.4', 'gpt-5.4-2026-03-05', 'gpt-5.6-sol'])('disables Chat Completions reasoning for %s tool calls', async (model) => {
+  it.each(['gpt-5.4', 'gpt-5.4-2026-03-05', 'gpt-5.6-sol'])('preserves configured reasoning for custom %s tool calls', async (model) => {
     const gpt56Provider = new OpenAIProvider({
       baseUrl: 'http://localhost:9999',
       apiKey: 'test-key',
@@ -130,7 +132,7 @@ describe('OpenAIProvider', () => {
       reasoning_effort?: string;
       tools?: unknown[];
     };
-    expect(sentBody.reasoning_effort).toBe('none');
+    expect(sentBody.reasoning_effort).toBe('high');
     expect(sentBody.tools).toHaveLength(1);
   });
 
@@ -1601,6 +1603,306 @@ describe('OpenAIProvider', () => {
         messages: [{ role: 'user', content: 'hi' }],
       })).rejects.toBeInstanceOf(ApiError);
       expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('API-key reasoning compatibility', () => {
+    const tools: FunctionDefinition[] = [{
+      name: 'read_file',
+      description: 'Read a file',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string', description: 'File path' } },
+      },
+    }];
+    const responsePayload = {
+      id: 'resp-api-key',
+      created_at: 123,
+      output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'OK' }] }],
+      usage: { input_tokens: 25, output_tokens: 7, total_tokens: 32 },
+    };
+    const rejected = (message: string, status = 400) => new Response(JSON.stringify({ error: { message } }), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const chatResponse = () => new Response(JSON.stringify({
+      id: 'chat-compatible', created: 1,
+      choices: [{ message: { role: 'assistant', content: 'OK' }, finish_reason: 'stop' }],
+    }), { headers: { 'Content-Type': 'application/json' } });
+
+    it('normalizes instruction text parts and keeps volatile context at the request tail', async () => {
+      const official = new OpenAIProvider({ apiKey: 'test-key', model: 'gpt-6-astra' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(wrappedResponsesSseResponse(responsePayload));
+      const messages: MultimodalMessage[] = [
+        { role: 'system', content: [{ type: 'text', text: 'STABLE_SYSTEM_TEXT_PART' }] },
+        { role: 'user', content: 'Inspect' },
+        { role: 'system', content: 'LATE_SYSTEM_NOTE' },
+        { role: 'system', runtimeContextKey: 'workspace', content: 'VOLATILE_RUNTIME_CONTEXT' },
+        { role: 'user', content: 'Continue' },
+      ];
+      const original = structuredClone(messages);
+      await official.complete({ messages, tools });
+      const body = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
+      expect(body.instructions).toContain('STABLE_SYSTEM_TEXT_PART');
+      expect(body.instructions).not.toContain('LATE_SYSTEM_NOTE');
+      expect(body.instructions).not.toContain('VOLATILE_RUNTIME_CONTEXT');
+      expect(body.input).toEqual([
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Inspect' }] },
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<autohand-context>\nLATE_SYSTEM_NOTE\n</autohand-context>' }] },
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Continue' }] },
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<autohand-context>\nVOLATILE_RUNTIME_CONTEXT\n</autohand-context>' }] },
+      ]);
+      expect(messages).toEqual(original);
+    });
+
+    it('reads plaintext capability errors once before the same-host Responses fallback', async () => {
+      const rejection = new Response('Function calling is not supported here. Use the Responses API.', { status: 400 });
+      const textRead = vi.spyOn(rejection, 'text');
+      const jsonRead = vi.spyOn(rejection, 'json');
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(rejection)
+        .mockResolvedValueOnce(wrappedResponsesSseResponse(responsePayload));
+      await expect(provider.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools })).resolves.toMatchObject({ content: 'OK' });
+      expect(fetchSpy.mock.calls.map(call => call[0])).toEqual(['http://localhost:9999/chat/completions', 'http://localhost:9999/responses']);
+      expect(textRead).toHaveBeenCalledOnce();
+      expect(jsonRead).not.toHaveBeenCalled();
+    });
+
+    it('retains a plaintext invalid-request detail without retrying it', async () => {
+      const detail = 'The configured gateway does not support this request shape.';
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(detail, { status: 400 }));
+      await expect(provider.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools }))
+        .rejects.toMatchObject({ code: 'invalid_request', rawDetail: detail });
+      expect(fetchSpy).toHaveBeenCalledOnce();
+    });
+
+    it.each([200, 400])('reports structured cancellation while reading a status %i body after headers', async (status) => {
+      const originalFetch = globalThis.fetch;
+      const server = createServer((request, response) => {
+        request.resume();
+        response.writeHead(status, { 'content-type': status === 200 ? 'text/event-stream' : 'application/json' });
+        response.flushHeaders();
+        response.write(status === 200 ? 'event: response.created\ndata: {"id":"fixture"}\n\n' : '{"error":');
+      });
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Missing local fixture port');
+      let headersArrived: () => void = () => {};
+      const ready = new Promise<void>(resolve => { headersArrived = resolve; });
+      const controller = new AbortController();
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+        expect(String(url)).toBe('https://api.openai.com/v1/responses');
+        const response = await originalFetch(`http://127.0.0.1:${address.port}/responses`, init);
+        headersArrived();
+        return response;
+      });
+      try {
+        const official = new OpenAIProvider({ apiKey: 'test-key', model: 'gpt-6-astra' });
+        const outcome = official.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools, signal: controller.signal })
+          .then(value => ({ value }), error => ({ error }));
+        await ready;
+        controller.abort();
+        await expect(outcome).resolves.toMatchObject({ error: { name: 'ApiError', code: 'cancelled', retryable: false } });
+        expect(fetchSpy).toHaveBeenCalledOnce();
+      } finally {
+        controller.abort();
+        server.closeAllConnections();
+        await new Promise<void>(resolve => { server.close(() => resolve()); });
+      }
+      expect(server.listening).toBe(false);
+    });
+
+    it.each([
+      { reason: 'max_output_tokens', status: 'incomplete' },
+      { reason: 'max_output_tokens', status: 'completed' },
+      { reason: undefined, status: 'in_progress' },
+    ])('does not expose unfinished function calls when output is $reason / $status', async ({ reason, status }) => {
+      const official = new OpenAIProvider({ apiKey: 'test-key', model: 'gpt-6-astra' });
+      const event = reason ? 'response.incomplete' : 'response.completed';
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(
+        `event: ${event}\ndata: ${JSON.stringify({ type: event, response: {
+          ...responsePayload,
+          ...(reason ? { incomplete_details: { reason } } : {}),
+          output: [{ type: 'function_call', call_id: 'unfinished_call', status, name: 'read_file', arguments: '{"path":"package.json"}' }],
+        } })}\n\n`,
+        { headers: { 'content-type': 'text/event-stream' } },
+      ));
+      const result = await official.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools, maxTokens: 16 });
+      expect(result.finishReason).toBe('length');
+      expect(result.toolCalls).toEqual([]);
+    });
+
+    it.each(['gpt-5.4', 'gpt-5.5', 'gpt-5.6-terra', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-luna'])(
+      'uses Responses for official %s tool requests without lowering reasoning', async (model) => {
+        const official = new OpenAIProvider({ apiKey: 'test-key', model, reasoningEffort: 'high' });
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => (
+          String(url).endsWith('/responses')
+            ? wrappedResponsesSseResponse(responsePayload)
+            : rejected(`Function tools with reasoning_effort are not supported for ${model} in /v1/chat/completions. Use /v1/responses.`)
+        ));
+        const result = await official.complete({
+          messages: [{ role: 'user', content: 'Read package.json' }],
+          tools,
+          toolChoice: { type: 'function', function: { name: 'read_file' } },
+          maxTokens: 256,
+          temperature: 0.2,
+        });
+        expect(result.content).toBe('OK');
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0][0]).toBe('https://api.openai.com/v1/responses');
+        const body = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
+        expect(body).toMatchObject({
+          model, max_output_tokens: 256, store: false,
+          reasoning: { effort: 'high' },
+          tool_choice: { type: 'function', name: 'read_file' },
+          tools: [{ type: 'function', name: 'read_file', strict: false }],
+        });
+        expect(body.temperature).toBeUndefined();
+        expect(body.max_tokens).toBeUndefined();
+        expect(body.max_completion_tokens).toBeUndefined();
+      },
+    );
+
+    it('replays encrypted reasoning and tool outputs with multimodal input on the next Responses turn', async () => {
+      const official = new OpenAIProvider({ apiKey: 'test-key', model: 'gpt-6-astra', reasoningEffort: 'high' });
+      const reasoning = { type: 'reasoning', id: 'rs_1', summary: [], encrypted_content: 'opaque-signed-reasoning' };
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(wrappedResponsesSseResponse({
+          ...responsePayload,
+          output: [reasoning, { type: 'function_call', call_id: 'call_1', name: 'read_file', arguments: '{"path":"package.json"}' }],
+        }))
+        .mockResolvedValueOnce(wrappedResponsesSseResponse(responsePayload));
+      const controller = new AbortController();
+      const first = await official.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools, signal: controller.signal });
+      expect(first.reasoningBlocks).toEqual([reasoning]);
+      const messages: MultimodalMessage[] = [
+        { role: 'user', content: 'Inspect' },
+        { role: 'assistant', content: first.content, tool_calls: first.toolCalls, reasoningBlocks: first.reasoningBlocks },
+        { role: 'tool', tool_call_id: 'call_1', content: 'file contents' },
+        { role: 'user', content: [{ type: 'text', text: 'Compare the image' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }] },
+      ];
+      const original = structuredClone(messages);
+      const second = await official.complete({ messages, tools, signal: controller.signal });
+      expect(second.usage).toMatchObject({ promptTokens: 25, completionTokens: 7, totalTokens: 32 });
+      const body = JSON.parse(String(fetchSpy.mock.calls[1][1]?.body));
+      expect(body.input).toContainEqual(reasoning);
+      expect(body.input).toContainEqual({ type: 'function_call', call_id: 'call_1', name: 'read_file', arguments: '{"path":"package.json"}' });
+      expect(body.input).toContainEqual({ type: 'function_call_output', call_id: 'call_1', output: 'file contents' });
+      expect(body.input).toContainEqual({ type: 'message', role: 'user', content: [
+        { type: 'input_text', text: 'Compare the image' }, { type: 'input_image', image_url: 'data:image/png;base64,AAAA' },
+      ] });
+      expect(fetchSpy.mock.calls[1][1]?.signal).toBe(controller.signal);
+      expect(messages).toEqual(original);
+    });
+
+    it('omits foreign reasoning blocks and malformed calls from Responses history', async () => {
+      const official = new OpenAIProvider({ apiKey: 'test-key', model: 'gpt-6-astra', reasoningEffort: 'high' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(wrappedResponsesSseResponse(responsePayload));
+      await official.complete({ tools, messages: [
+        { role: 'user', content: 'Inspect' },
+        { role: 'assistant', content: '', reasoningBlocks: [{ type: 'thinking', thinking: 'foreign private thought', signature: 'anthropic-signature' }], tool_calls: [
+          { id: 'bad_call', type: 'function', function: { name: 'read_file', arguments: '{"path":"unfinished' } },
+        ] },
+        { role: 'tool', tool_call_id: 'bad_call', content: 'Previously observed output' },
+      ] });
+      const body = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
+      expect(body.input.some((item: { type: string }) => item.type === 'function_call')).toBe(false);
+      expect(JSON.stringify(body.input)).not.toContain('anthropic-signature');
+      expect(JSON.stringify(body.input)).toContain('Previously observed output');
+    });
+
+    it('preserves valid zero sampling with explicitly disabled reasoning', async () => {
+      const official = new OpenAIProvider({ apiKey: 'test-key', model: 'gpt-6-sol', reasoningEffort: 'none' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(wrappedResponsesSseResponse(responsePayload));
+      await official.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools, temperature: 0 });
+      const body = JSON.parse(String(fetchSpy.mock.calls[0][1]?.body));
+      expect(body.reasoning).toEqual({ effort: 'none' });
+      expect(body.temperature).toBe(0);
+    });
+
+    it('omits unsupported sampling for GPT-6 Astra text-only requests (#746)', async () => {
+      const official = new OpenAIProvider({ apiKey: 'test-key', model: 'gpt-6-astra' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        return body.temperature === undefined ? chatResponse() : rejected("Unsupported value: 'temperature' does not support 0.2 with this model. Only the default (1) value is supported.");
+      });
+      await expect(official.complete({ messages: [{ role: 'user', content: 'Hello' }], temperature: 0.2 })).resolves.toMatchObject({ content: 'OK' });
+      expect(JSON.parse(String(fetchSpy.mock.calls[0][1]?.body)).temperature).toBeUndefined();
+    });
+
+    it('preserves an explicit zero sampling temperature for a legacy model', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(chatResponse());
+      await provider.complete({ messages: [{ role: 'user', content: 'Hello' }], temperature: 0 });
+      expect(JSON.parse(String(fetchSpy.mock.calls[0][1]?.body)).temperature).toBe(0);
+    });
+
+    it('keeps custom gateways on Chat Completions until they explicitly require Responses', async () => {
+      const gateway = new OpenAIProvider({ baseUrl: 'https://gateway.example/v1', apiKey: 'gateway-key', model: 'gpt-6-astra', reasoningEffort: 'high' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(rejected('Function tools with reasoning_effort are not supported for gpt-6-astra in /v1/chat/completions. To use function tools, use /v1/responses.'))
+        .mockResolvedValueOnce(wrappedResponsesSseResponse(responsePayload));
+      await expect(gateway.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools, maxTokens: 128 })).resolves.toMatchObject({ content: 'OK' });
+      expect(fetchSpy.mock.calls.map(call => call[0])).toEqual(['https://gateway.example/v1/chat/completions', 'https://gateway.example/v1/responses']);
+      const body = JSON.parse(String(fetchSpy.mock.calls[1][1]?.body));
+      expect(body.reasoning).toEqual({ effort: 'high' });
+      expect(body.max_output_tokens).toBe(128);
+      expect(fetchSpy.mock.calls[1][1]?.headers).toMatchObject({ Authorization: 'Bearer gateway-key' });
+    });
+
+    it('does not repeat or redirect a failed custom Responses fallback', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(rejected('Function calling is not supported by Chat Completions. Use the Responses API.'))
+        .mockResolvedValueOnce(rejected('Responses endpoint unavailable', 404));
+      await expect(provider.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools })).rejects.toBeInstanceOf(ApiError);
+      expect(fetchSpy.mock.calls.map(call => call[0])).toEqual(['http://localhost:9999/chat/completions', 'http://localhost:9999/responses']);
+    });
+
+    it.each([400, 401, 403])('does not switch endpoints for an unrelated status %i rejection', async (status) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(rejected('Invalid request mentions /v1/responses in user data', status));
+      await expect(provider.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools })).rejects.toBeInstanceOf(ApiError);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('honors cancellation before attempting a compatibility fallback', async () => {
+      const controller = new AbortController();
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementationOnce(async () => {
+        controller.abort();
+        return rejected('Function tools with reasoning_effort are not supported in /v1/chat/completions. Use /v1/responses.');
+      });
+      await expect(provider.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools, signal: controller.signal })).rejects.toMatchObject({ code: 'cancelled' });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries an unknown model token parameter once without mutating the request', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(rejected("Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."))
+        .mockResolvedValueOnce(chatResponse());
+      const request = { model: 'vendor-next', maxTokens: 256, messages: [{ role: 'user' as const, content: 'Hello' }] };
+      const original = structuredClone(request);
+      await expect(provider.complete(request)).resolves.toMatchObject({ content: 'OK' });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const body = JSON.parse(String(fetchSpy.mock.calls[1][1]?.body));
+      expect(body.max_completion_tokens).toBe(256);
+      expect(body.max_tokens).toBeUndefined();
+      expect(request).toEqual(original);
+    });
+
+    it('stops after a repeated token rejection and never retries an absent token field', async () => {
+      const message = "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.";
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => rejected(message));
+      await expect(provider.complete({ model: 'vendor-next', maxTokens: 256, messages: [{ role: 'user', content: 'Hello' }] })).rejects.toMatchObject({ code: 'invalid_request' });
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      fetchSpy.mockClear();
+      await expect(provider.complete({ model: 'vendor-next', messages: [{ role: 'user', content: 'Hello' }] })).rejects.toMatchObject({ code: 'invalid_request' });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects unsupported none reasoning on Astra before sending a billable request', async () => {
+      const official = new OpenAIProvider({ apiKey: 'test-key', model: 'gpt-6-astra', reasoningEffort: 'none' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => rejected('Unexpected request', 400));
+      await expect(official.complete({ messages: [{ role: 'user', content: 'Inspect' }], tools })).rejects.toMatchObject({ code: 'invalid_request', retryable: false });
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
   });
 

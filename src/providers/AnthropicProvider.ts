@@ -10,6 +10,7 @@ import Anthropic, {
   APIError as AnthropicAPIError,
   APIUserAbortError,
 } from "@anthropic-ai/sdk";
+import { randomUUID } from 'node:crypto';
 import type {
   Message,
   MessageCreateParamsNonStreaming,
@@ -42,6 +43,7 @@ import { ApiError, classifyApiError, type ApiErrorCode } from "./errors.js";
 import { normalizeProviderFinishReason } from "./finishReason.js";
 import { getProviderModelIds } from "./modelCatalog.js";
 import { normalizeLLMUsage } from "./usage.js";
+import { buildOpenCodeGoHeaders } from './openCodeGo.js';
 
 const DEFAULT_BASE_URL = "https://api.anthropic.com";
 const DEFAULT_MAX_TOKENS = 16_000;
@@ -191,16 +193,19 @@ export class AnthropicProvider implements LLMProvider {
   private readonly client: Anthropic;
   private readonly apiKey: string;
   private readonly reasoningEffort: AnthropicSettings["reasoningEffort"];
+  private readonly baseUrl: string;
+  private readonly auxiliarySessionId = randomUUID();
   private model: string;
 
   constructor(settings: AnthropicSettings, networkSettings?: NetworkSettings) {
     this.apiKey = settings.apiKey;
     this.model = settings.model;
     this.reasoningEffort = settings.reasoningEffort;
+    this.baseUrl = settings.baseUrl ?? DEFAULT_BASE_URL;
     const configuredRetries = networkSettings?.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.client = new Anthropic({
       apiKey: settings.apiKey,
-      baseURL: settings.baseUrl ?? DEFAULT_BASE_URL,
+      baseURL: this.baseUrl,
       maxRetries: Math.min(Math.max(0, configuredRetries), MAX_ALLOWED_RETRIES),
       timeout: resolveAnthropicTimeout(networkSettings),
     });
@@ -263,6 +268,7 @@ export class AnthropicProvider implements LLMProvider {
     try {
       const message = await this.client.messages.create(params, {
         signal: request.signal,
+        headers: buildOpenCodeGoHeaders(this.baseUrl, request, this.auxiliarySessionId),
       });
       const text = message.content
         .filter((block) => block.type === "text")

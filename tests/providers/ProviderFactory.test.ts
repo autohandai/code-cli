@@ -12,6 +12,7 @@ vi.mock("../../src/utils/platform", () => ({
 }));
 
 import { ProviderFactory } from "../../src/providers/ProviderFactory";
+import { createOpenRouterDeadlineFixture } from '../../src/testing/scenarios/openRouterDeadlineScenario.js';
 
 describe("ProviderFactory", () => {
   afterEach(() => {
@@ -80,6 +81,23 @@ describe("ProviderFactory", () => {
   });
 
   describe("create()", () => {
+    it('forwards the configured OpenRouter deadline and retry limit', async () => {
+      const fixture = await createOpenRouterDeadlineFixture('body');
+      const provider = ProviderFactory.create({
+        provider: 'openrouter',
+        openrouter: { model: 'openai/gpt-4o-mini', baseUrl: fixture.baseUrl },
+        network: { timeout: 200, maxRetries: 0 },
+      });
+      try {
+        await expect(provider.complete({
+          messages: [{ role: 'user', content: 'hello' }], signal: AbortSignal.timeout(1500),
+        })).rejects.toMatchObject({ code: 'timeout', retryable: true });
+        expect(fixture.committedResponses()).toBe(1);
+      } finally {
+        await fixture.close();
+      }
+    });
+
     it("should create OllamaProvider when ollama is configured", () => {
       const config: AutohandConfig = {
         provider: "ollama",

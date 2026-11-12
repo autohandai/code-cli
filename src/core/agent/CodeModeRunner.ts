@@ -95,9 +95,14 @@ function isArgumentObject(value: unknown): value is NonNullable<ToolCallRequest[
 }
 
 function toOutcome(result: ToolExecutionResult): SandboxToolOutcome {
+  const completion = result.success ? {
+    ...(result.status === undefined ? {} : { status: result.status }),
+    ...(result.reason === undefined ? {} : { reason: result.reason }),
+  } : {};
   if (result.modelOutput !== undefined) {
     return result.success
       ? { ok: true, output: result.modelOutput,
+          ...completion,
           ...(result.imagePaths?.length || result.imageRefs?.length ? { images: true } : {}) }
       : { ok: false, kind: result.kind, error: 'Command failed.', output: result.modelOutput };
   }
@@ -105,6 +110,7 @@ function toOutcome(result: ToolExecutionResult): SandboxToolOutcome {
   if (result.success) {
     return {
       ok: true, output: result.output ?? '',
+      ...completion,
       ...(result.imagePaths?.length || result.imageRefs?.length ? { images: true } : {}),
     };
   }

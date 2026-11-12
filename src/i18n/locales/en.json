@@ -249,6 +249,8 @@
       "agent": {
         "maxIterations": "Max iterations",
         "maxIterationsDesc": "Maximum tool iterations per request",
+        "subagentMaxIterations": "Sub-agent request limit",
+        "subagentMaxIterationsDesc": "Default model requests per delegated task, including its final partial-work summary (1–1000)",
         "enableRequestQueue": "Request queue",
         "enableRequestQueueDesc": "Allow typing while agent works",
         "idleLogoutEnabled": "Idle session timeout",

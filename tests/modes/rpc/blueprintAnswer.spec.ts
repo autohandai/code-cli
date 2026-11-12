@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { readFile } from 'node:fs/promises';
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -124,6 +124,52 @@ describe('Blueprint answer-only contract', () => {
       artifact.size > 0 && /^[a-f0-9]{64}$/u.test(artifact.sha256)
     ))).toBe(true);
     expect(identity.identityHash).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
+  it.each(['checkout', 'worktree'])('binds packed repository refs in a %s', async (kind) => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'autohand identity refs '));
+    const packageRoot = path.join(directory, 'package');
+    const common = path.join(directory, 'common.git');
+    const gitDirectory = kind === 'worktree' ? path.join(common, 'worktrees', 'session') : path.join(packageRoot, '.git');
+    const commit = 'a'.repeat(40);
+    try {
+      await mkdir(path.join(packageRoot, 'src'), { recursive: true });
+      await writeFile(path.join(packageRoot, 'package.json'), JSON.stringify({ name: 'autohand-cli', version: '1.2.3' }));
+      await writeFile(path.join(packageRoot, 'src', 'index.ts'), 'export {};\n');
+      await mkdir(gitDirectory, { recursive: true });
+      await writeFile(path.join(gitDirectory, 'HEAD'), 'ref: refs/heads/main\n');
+      if (kind === 'worktree') {
+        await writeFile(path.join(packageRoot, '.git'), `gitdir: ${gitDirectory}\n`);
+        await writeFile(path.join(gitDirectory, 'commondir'), '../..\n');
+      }
+      await writeFile(path.join(kind === 'worktree' ? common : gitDirectory, 'packed-refs'),
+        `# pack-refs with: peeled fully-peeled sorted\n${'b'.repeat(40)} refs/heads/main-other\n${commit} refs/heads/main\n^${'c'.repeat(40)}\n`);
+
+      const identity = await inspectBlueprintCliIdentity(path.join(packageRoot, 'src', 'index.ts'));
+      expect(identity.package).toMatchObject({ name: 'autohand-cli', version: '1.2.3', commit });
+      expect(identity.identityHash).toMatch(/^[a-f0-9]{64}$/u);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('prefers the current loose ref over a stale packed ref', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'autohand identity loose '));
+    const commit = 'd'.repeat(40);
+    try {
+      await mkdir(path.join(directory, 'src'), { recursive: true });
+      await mkdir(path.join(directory, '.git', 'refs', 'heads'), { recursive: true });
+      await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'autohand-cli', version: '1.2.3' }));
+      await writeFile(path.join(directory, 'src', 'index.ts'), 'export {};\n');
+      await writeFile(path.join(directory, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      await writeFile(path.join(directory, '.git', 'refs', 'heads', 'main'), commit + '\n');
+      await writeFile(path.join(directory, '.git', 'packed-refs'), `${'e'.repeat(40)} refs/heads/main\n`);
+
+      const identity = await inspectBlueprintCliIdentity(path.join(directory, 'src', 'index.ts'));
+      expect(identity.package.commit).toBe(commit);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it.each([

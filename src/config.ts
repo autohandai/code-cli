@@ -53,6 +53,7 @@ import { isAwsBedrockProviderEnabled } from "./features/featureRegistry.js";
 import { getCustomProviderConfig, isCustomProviderName } from "./providers/customProviders.js";
 import { getProviderDefaultModel, getProviderModelOptions, getProviderRuntimeDefaultModel, normalizeOpenRouterModelId } from "./providers/modelCatalog.js";
 import { MAX_CONCURRENT_THREADS_PER_SESSION, isValidSessionThreadLimit } from "./core/agents/SessionThreadBudget.js";
+import { isValidSubagentIterationLimit, MAX_SUBAGENT_ITERATIONS } from './core/agents/subagentIterations.js';
 import { atomicWriteFile, withFileLock, type AtomicCommitOptions } from './utils/atomicFile.js';
 
 const DEFAULT_CONFIG_PATH = AUTOHAND_FILES.configJson;
@@ -1728,6 +1729,9 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
 
   // Validate agent config
   if (config.agent) {
+    if (config.agent.subagentMaxIterations !== undefined && !isValidSubagentIterationLimit(config.agent.subagentMaxIterations)) {
+      throw new Error(`agent.subagentMaxIterations must be an integer between 1 and ${MAX_SUBAGENT_ITERATIONS} in ${configPath}`);
+    }
     if (
       config.agent.toolSelectionCache !== undefined &&
       typeof config.agent.toolSelectionCache !== "boolean"

@@ -8,6 +8,45 @@ const client = () => new LLMGatewayClient({ apiKey: 'fixture', model: 'moa' }, {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('cloud inference streaming', () => {
+  it.each([
+    "This message was blocked by Autohand's safety check. Rephrase it and try again.",
+    { message: "This message was blocked by Autohand's safety check. Rephrase it and try again." },
+  ])('withholds a preceding tool batch when a stream ends with a legacy safety verdict: %j', async error => {
+    const tool = { index: 0, id: 'call-withheld', type: 'function', function: { name: 'run_command', arguments: '{}' } };
+    const fetch = vi.fn().mockResolvedValue(new Response(
+      event({ choices: [{ delta: { tool_calls: [tool] }, finish_reason: 'tool_calls' }] }) + event({ error }),
+      { headers: { 'content-type': 'text/event-stream', 'x-autohand-request-id': 'legacy-stream-request' } },
+    ));
+    vi.stubGlobal('fetch', fetch);
+    const cloud = new LLMGatewayClient({ apiKey: 'fixture', model: 'fantail' }, { maxRetries: 2, retryDelay: 1 }, {
+      serviceName: 'Autohand AI', credentialName: 'Autohand API key', accountName: 'Autohand account',
+    }, 'autohandai');
+    const completion = cloud.complete({ messages: [], stream: true });
+    await expect(completion).rejects.toMatchObject({ code: 'content_blocked', retryable: false });
+    await expect(completion).rejects.toThrow('Request ID: legacy-stream-request');
+    await expect(completion).rejects.not.toThrow(/malformed|network|Check \/usage/);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { error: { message: "This message was blocked by Autohand's safety check. Rephrase it and try again." } },
+    { error: "This message was blocked by Autohand's safety check. Rephrase it and try again." },
+    { message: "This message was blocked by Autohand's safety check. Rephrase it and try again." },
+  ])('keeps legacy HTTP safety rejections distinct from malformed requests: %j', async body => {
+    const fetch = vi.fn().mockResolvedValue(Response.json(body, {
+      status: 400, headers: { 'x-autohand-request-id': 'legacy-http-request' },
+    }));
+    vi.stubGlobal('fetch', fetch);
+    const cloud = new LLMGatewayClient({ apiKey: 'fixture', model: 'fantail' }, { maxRetries: 2, retryDelay: 1 }, {
+      serviceName: 'Autohand AI', credentialName: 'Autohand API key', accountName: 'Autohand account',
+    }, 'autohandai');
+    const completion = cloud.complete({ messages: [] });
+    await expect(completion).rejects.toMatchObject({ code: 'content_blocked', retryable: false });
+    await expect(completion).rejects.toThrow('Request ID: legacy-http-request');
+    await expect(completion).rejects.not.toThrow(/malformed|network|Check \/usage/);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it.each(['', '{"choices":'])('does not replay accepted malformed HTTP JSON and identifies its transport stage: %j', async body => {
     const fetch = vi.fn().mockImplementation(() => new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetch);

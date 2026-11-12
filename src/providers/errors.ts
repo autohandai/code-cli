@@ -22,6 +22,7 @@ export type ApiErrorCode =
   | 'model_not_found'
   | 'invalid_request'
   | 'content_blocked'
+  | 'storage_full'
   | 'auth_failed'
   | 'payment_required'
   | 'access_denied'
@@ -78,6 +79,8 @@ export const FRIENDLY_MESSAGES: Record<ApiErrorCode, string> = {
     'The request was malformed and could not be processed.',
   content_blocked:
     'The safety check blocked this request.',
+  storage_full:
+    'Local storage is full. Free disk space before continuing. Recent session data may not have been saved.',
   auth_failed:
     'Authentication failed. Please verify your API key in ~/.autohand/config.json.',
   payment_required:
@@ -98,19 +101,53 @@ export const FRIENDLY_MESSAGES: Record<ApiErrorCode, string> = {
     'An unexpected error occurred. Please try again.',
 };
 
+const LEGACY_CONTENT_BLOCKED_MESSAGE = "This message was blocked by Autohand's safety check. Rephrase it and try again.";
+const LEGACY_MANAGED_IDENTITY_FAILURE_MESSAGE = 'Managed Identity token acquisition failed. This auth method only works inside Azure VMs, App Service, or containers with managed identity enabled.';
+
+function isLegacyContentBlockedMessage(message: unknown): boolean {
+  return message === LEGACY_CONTENT_BLOCKED_MESSAGE
+    || message === `${FRIENDLY_MESSAGES.invalid_request}\n${LEGACY_CONTENT_BLOCKED_MESSAGE}`;
+}
+
+export function readStorageCapacityError(value: unknown): ApiError | undefined {
+  let current = value;
+  for (let depth = 0; depth < 4; depth++) {
+    if (current instanceof ApiError) {
+      if (current.code === 'storage_full') return current;
+      if (current.httpStatus !== 0) return undefined;
+    }
+    const record = current && typeof current === 'object'
+      ? current as Record<string, unknown> : undefined;
+    const message = typeof current === 'string'
+      ? current : typeof record?.message === 'string' ? record.message : '';
+    if (record?.code === 'ENOSPC' || record?.code === 'EDQUOT'
+      || /^(?:Error:\s*)?(?:ENOSPC|EDQUOT):/.test(message)
+      || message === FRIENDLY_MESSAGES.storage_full
+      || message.startsWith(`${FRIENDLY_MESSAGES.storage_full}\n`)) {
+      const display = message.startsWith(FRIENDLY_MESSAGES.storage_full)
+        ? message : `${FRIENDLY_MESSAGES.storage_full}${message ? `\n${message}` : ''}`;
+      return new ApiError(display, 'storage_full', 0, false, undefined, message);
+    }
+    current = record?.cause;
+    if (!current) break;
+  }
+  return undefined;
+}
+
 export function readContentBlockedError(
   value: unknown,
   httpStatus: number,
   requestId?: string | null,
 ): ApiError | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const error = value as Record<string, unknown>;
-  if (error.type !== 'content_blocked') return undefined;
-  const categories = Array.isArray(error.categories)
+  const error = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined;
+  if (error?.type !== 'content_blocked'
+    && !isLegacyContentBlockedMessage(typeof value === 'string' ? value : error?.message)) return undefined;
+  const categories = Array.isArray(error?.categories)
     ? [...new Set(error.categories.filter((category): category is string =>
       typeof category === 'string' && /^S(?:[1-9]|1[0-4])$/.test(category)))].slice(0, 14)
     : [];
-  const candidate = requestId ?? error.requestId;
+  const candidate = requestId ?? error?.requestId;
   const id = typeof candidate === 'string' && /^[a-zA-Z0-9._:-]{1,128}$/.test(candidate)
     ? candidate : undefined;
   const details = [
@@ -141,6 +178,23 @@ const MODEL_NOT_FOUND_PATTERNS = [
   "\" was not found",
 ] as const;
 
+function isUnconfiguredModel(body: string): boolean {
+  const pattern = /^model (?:"[^"\r\n]+"|'[^'\r\n]+'|[a-z0-9][a-z0-9_./:@+-]*) is not configured\.?$/i;
+  if (pattern.test(body.trim())) return true;
+  if (!body.includes('autohand_router_error')) return false;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const record = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown> : undefined;
+    const error = record?.error && typeof record.error === 'object' && !Array.isArray(record.error)
+      ? record.error as Record<string, unknown> : undefined;
+    return error?.type === 'autohand_router_error'
+      && typeof error.message === 'string' && pattern.test(error.message.trim());
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Patterns that indicate a context/payload overflow in a 400 body.
  * These must be narrow enough to avoid false positives for generic errors
@@ -162,6 +216,8 @@ const CONTEXT_OVERFLOW_PATTERNS = [
   'tokens per minute',
   '(tpm)',
   'prefill memory guard rejected',
+  'exceed_context_size_error',
+  'exceeds the available context size',
 ] as const;
 
 /** Patterns that indicate cancellation in status-0 / unknown errors. */
@@ -257,6 +313,20 @@ export function classifyApiError(
   headers?: Headers,
 ): ApiError {
   const lower = errorBody.toLowerCase();
+  if (httpStatus === 0) {
+    const storage = readStorageCapacityError(errorBody);
+    if (storage) return storage;
+    if (errorBody === LEGACY_MANAGED_IDENTITY_FAILURE_MESSAGE) {
+      return new ApiError(
+        'Managed Identity token acquisition failed. Check the selected Azure identity configuration and endpoint connectivity before retrying.',
+        'auth_failed', 0, false, undefined, errorBody,
+      );
+    }
+  }
+  if ((httpStatus === 0 || httpStatus === 400) && isLegacyContentBlockedMessage(errorBody)) {
+    const blocked = readContentBlockedError(errorBody, httpStatus, headers?.get('x-autohand-request-id'));
+    if (blocked) return blocked;
+  }
   if (httpStatus === 0 && (errorBody === FRIENDLY_MESSAGES.content_blocked
     || errorBody.startsWith(`${FRIENDLY_MESSAGES.content_blocked}\n`))) {
     return new ApiError(errorBody, 'content_blocked', httpStatus, false);
@@ -314,7 +384,7 @@ export function classifyApiError(
     }
 
     // 1. Model-not-found check runs FIRST
-    if (matchesAny(lower, MODEL_NOT_FOUND_PATTERNS)) {
+    if (matchesAny(lower, MODEL_NOT_FOUND_PATTERNS) || isUnconfiguredModel(errorBody)) {
       return makeError('model_not_found', httpStatus, false, errorBody, headers);
     }
 
@@ -347,7 +417,7 @@ export function classifyApiError(
   if (httpStatus === 0 || httpStatus === undefined) {
     // Check model-not-found patterns before overflow. Some providers prepend
     // stale or generic friendly text ahead of the real "invalid model ID" body.
-    if (matchesAny(lower, MODEL_NOT_FOUND_PATTERNS)) {
+    if (matchesAny(lower, MODEL_NOT_FOUND_PATTERNS) || isUnconfiguredModel(errorBody)) {
       return makeError('model_not_found', httpStatus, false, errorBody, headers);
     }
     if (matchesAny(lower, RATE_LIMIT_PATTERNS)) {

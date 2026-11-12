@@ -7,10 +7,20 @@ keep their existing behavior.
 
 The lead plans, edits code, runs tests, and integrates results. It can delegate
 independent file discovery, symbol and AST summaries, and documentation lookup
-to Fantail research workers. The default session limit is four threads: the
-lead and three workers. Workers receive read-only inspection tools and return
+to an explicit read-only research pool using `research_only: true`. The default
+Cloud orchestration limit is four threads: the lead and three workers. Research
+workers receive read-only inspection tools and return
 compact findings with file references, contracts, documentation sources, and
 uncertainties. Their private tool transcripts stay out of the lead's context.
+Ordinary reviewer and implementer delegations retain their agent definitions,
+tools, and reasoning settings; orchestration does not turn them into research
+workers. Explicit research-only restrictions also apply outside Cloud mode.
+
+Delegated agents have an independent default limit of 30 model requests. Use
+`agent.subagentMaxIterations`, agent-definition `maxIterations`, or a lower
+per-call `maxIterations` to control it. The final request asks for a summary
+without tools. Available work returns as an explicit partial result when the
+limit is reached, including through Code Mode; it is not reported as completed.
 
 Moa also provides independent, tool-free advice at three checkpoints:
 
@@ -24,15 +34,19 @@ Each review receives the current session conversation, including any earlier
 context compaction, and the checkpoint evidence. Commit and completion reviews
 also receive the workspace diff against HEAD, including staged and untracked
 files, without changing the real Git index. Oversized or failed diff captures
-are reported as unavailable, not approved. Non-Git workspaces are identified
+are reported as unavailable, not approved. A completion-only capture that
+exceeds its time budget can instead be reviewed using session evidence, with
+the missing diff explicitly disclosed. Approval still requires the advisor's
+verdict; commit capture failures remain blocking. Non-Git workspaces are identified
 explicitly in the review evidence. Arbitrary scripts that stage or commit
 internally cannot be detected as Git checkpoints; the final review still runs.
 
 The lead addresses requested changes before proceeding. An unavailable review
 or three rejected checkpoints ends the turn as incomplete with the reason
-visible. When a final answer is ready, it remains visible as an unreviewed or
-unapproved draft alongside the review feedback. The turn retains a failed
-footer and a prepared goal stays active with its successor queued. Goal
+visible. An approved answer is delivered after review. A rejected or unavailable
+candidate may be shown as an explicitly unreviewed or unapproved draft alongside
+the feedback. In that case the turn retains a failed footer and a prepared goal
+stays active with its successor queued. Goal
 completion is persisted only after approval and final answer delivery succeed.
 Resolve the review feedback and ask to continue; a visible draft is not proof
 of approval. Simple chat and routine shell steps do not call the advisor. Advisor
@@ -63,7 +77,8 @@ replayed by the transport. A late or malformed answer never counts as approval.
 
 The orchestration setting is saved as `autohandai.orchestration`. Explicit
 `features.multi_agent_v2.max_concurrent_threads_per_session` values override the
-four-thread default. Worker model overrides remain supported; model suggestions
-in agent definitions do not override Fantail while orchestration is enabled.
+four-thread Cloud default. Worker model overrides remain supported. Agent
+definitions and their reasoning requirements are respected subject to account
+entitlements, rather than being replaced by a blanket Fantail assignment.
 Moa reasoning effort is high for advisor requests. Fantail requests do not send
 a reasoning-effort parameter.

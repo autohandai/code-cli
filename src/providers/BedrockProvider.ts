@@ -435,6 +435,7 @@ function classifyBedrockError(error: unknown): ApiError {
   if (code) {
     const friendly: Record<ApiErrorCode, string> = {
       content_blocked: 'The safety check blocked this request.',
+      storage_full: 'Local storage is full. Free disk space before continuing. Recent session data may not have been saved.',
       auth_failed:
         "AWS Bedrock credentials were not found or were rejected. Configure AWS credentials, AWS_PROFILE, instance metadata, or choose Bedrock API key auth.",
       access_denied:

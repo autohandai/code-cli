@@ -32,7 +32,9 @@ describe('foreground CLI session lifecycle', () => {
       traces: { enabled: true, cloudSync: true, consentVersion: 1 },
       mcp: { enabled: true, servers: [{ name: 'forbidden-helper', transport: 'stdio', command: 'forbidden-background-helper' }] },
     } });
-    const audit = await createBackgroundProcessAudit(state.workspaceRoot);
+    const auditDirectory = path.join(state.workspaceRoot, 'process audit with spaces');
+    await fs.ensureDir(auditDirectory);
+    const audit = await createBackgroundProcessAudit(auditDirectory);
     session = await launchBuiltAutohand(['--no-daemon', '--path', state.workspaceRoot, '--config', state.configPath], {
       autohandHome: state.autohandHome, cwd: state.workspaceRoot,
       env: { NODE_OPTIONS: `--import=${audit.preload}`, AUTOHAND_AHTRACES_EXECUTABLE: 'forbidden-traces-helper' },

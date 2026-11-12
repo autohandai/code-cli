@@ -147,6 +147,63 @@ describe('ProviderConfigManager.applyModelChangeRemote', () => {
     expect(setActiveProvider).toHaveBeenCalledWith('openrouter');
   });
 
+  it.each([4096, 262144])('refreshes the llama.cpp server limit to %s without waiting before switching', async (limit) => {
+    const metadata = Promise.withResolvers<number | undefined>();
+    const nextProvider: LLMProvider = {
+      ...createMockLlm(),
+      getName: () => 'llamacpp',
+      getContextWindow: vi.fn(() => metadata.promise),
+    };
+    let activeProvider = createMockLlm();
+    const contextUpdates = vi.fn();
+    runtime.config.llamacpp = { model: 'old-model', baseUrl: 'http://localhost:8080' };
+    mockCreate.mockReturnValue(nextProvider);
+    manager = new ProviderConfigManager(
+      runtime, () => activeProvider,
+      (provider) => { activeProvider = provider; },
+      () => runtime.config.provider ?? 'openrouter', setActiveProvider,
+      () => undefined, setDelegator, new TelemetryManager({ enabled: false }),
+      {} as ActionExecutor, contextUpdates, vi.fn(), vi.fn(),
+    );
+
+    const result = await manager.applyModelChangeRemote('llamacpp', 'canvas-pirate');
+    expect(result.status).toBe('applied');
+    expect(nextProvider.getContextWindow).toHaveBeenCalledOnce();
+    metadata.resolve(limit);
+    await vi.waitFor(() => expect(contextUpdates).toHaveBeenLastCalledWith(limit));
+  });
+
+  it('does not apply a stale context limit after a second model switch', async () => {
+    const firstMetadata = Promise.withResolvers<number | undefined>();
+    const secondMetadata = Promise.withResolvers<number | undefined>();
+    const firstProvider: LLMProvider = {
+      ...createMockLlm(), getName: () => 'llamacpp', getContextWindow: () => firstMetadata.promise,
+    };
+    const secondProvider: LLMProvider = {
+      ...createMockLlm(), getName: () => 'llamacpp', getContextWindow: () => secondMetadata.promise,
+    };
+    let activeProvider = createMockLlm();
+    const contextUpdates = vi.fn();
+    runtime.config.llamacpp = { model: 'old-model', baseUrl: 'http://localhost:8080' };
+    mockCreate.mockReturnValueOnce(firstProvider).mockReturnValueOnce(secondProvider);
+    manager = new ProviderConfigManager(
+      runtime, () => activeProvider,
+      (provider) => { activeProvider = provider; },
+      () => runtime.config.provider ?? 'openrouter', setActiveProvider,
+      () => undefined, setDelegator, new TelemetryManager({ enabled: false }),
+      {} as ActionExecutor, contextUpdates, vi.fn(), vi.fn(),
+    );
+
+    await manager.applyModelChangeRemote('llamacpp', 'canvas-pirate');
+    await manager.applyModelChangeRemote('llamacpp', 'another-model');
+    secondMetadata.resolve(8192);
+    await vi.waitFor(() => expect(contextUpdates).toHaveBeenLastCalledWith(8192));
+    firstMetadata.resolve(4096);
+    await firstMetadata.promise;
+    await Promise.resolve();
+    expect(contextUpdates).toHaveBeenLastCalledWith(8192);
+  });
+
   it('preserves live subagent observers after switching the provider model', async () => {
     const registry = AgentRegistry.getInstance();
     vi.spyOn(registry, 'loadAgents').mockResolvedValue();

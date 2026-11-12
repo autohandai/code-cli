@@ -10,7 +10,7 @@ The release pipeline is `.github/workflows/release.yml`. Use Node.js 24 and the 
 4. Dispatch the stable release from the approved commit on main:
 
 ```sh
-gh workflow run release.yml --ref main -f version=0.9.10 -f channel=release
+gh workflow run release.yml --ref main -f version=0.9.11 -f channel=release
 ```
 
 If the workflow has been disabled by a maintainer, it must be enabled for an authorized release before dispatch. Enabling it also enables its main-push trigger. A push to main produces an **alpha**, not a stable release; a stable release requires manual dispatch with `channel=release`.

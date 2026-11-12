@@ -13,6 +13,16 @@ import { ConversationManager } from '../../../src/core/conversationManager.js';
 import { classifyApiError } from '../../../src/providers/errors.js';
 
 describe('isAgentRetryableSessionError', () => {
+  it.each(['ENOSPC', 'EDQUOT'])('does not replay a provider turn when local saving fails with %s', code => {
+    const error = Object.assign(new Error('Session write failed'), { code });
+    expect(isAgentRetryableSessionError(error)).toBe(false);
+    expect(isAgentRetryableSessionError(new Error('Session persistence failed', { cause: error }))).toBe(false);
+  });
+
+  it('does not session-retry a disk failure that crossed a text-only transport', () => {
+    expect(isAgentRetryableSessionError(new Error('ENOSPC: no space left on device, write'))).toBe(false);
+  });
+
   // Rate limits are terminal for the SESSION retry loop. ApiError.retryable means
   // "retryable eventually at transport level", which is not the same as "retry this
   // turn right now" — burning the retry budget on a quota that resets tomorrow just

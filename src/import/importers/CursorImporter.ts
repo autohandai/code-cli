@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import fse from 'fs-extra';
 import type {
   ImportSource,
@@ -17,6 +18,26 @@ import type {
 import type { SessionMessage } from '../../session/types.js';
 import { AUTOHAND_PATHS } from '../../constants.js';
 import { BaseImporter } from './BaseImporter.js';
+
+const PROJECT_URI_SCAN_BYTES = 100000;
+
+function projectPathFromBlob(buffer: Buffer): string | undefined {
+  const text = buffer.toString('utf8', 0, Math.min(buffer.length, PROJECT_URI_SCAN_BYTES));
+  for (const match of text.matchAll(/file:\/\/[^\p{Cc}"]+/giu)) {
+    const uri = match[0];
+    if (/[\s\\\uFFFD?#]/u.test(uri)) continue;
+    if (match.index + uri.length === text.length && buffer.length > PROJECT_URI_SCAN_BYTES) continue;
+    try {
+      const url = new URL(uri);
+      if (url.protocol !== 'file:') continue;
+      const projectPath = fileURLToPath(url);
+      if (!/\p{Cc}/u.test(projectPath)) return projectPath;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Importer for Cursor editor data (~/.cursor).
@@ -466,12 +487,7 @@ export class CursorImporter extends BaseImporter {
       for (const row of blobRows) {
         const buf = Buffer.isBuffer(row.data) ? row.data : Buffer.from(row.data as unknown as ArrayBuffer);
 
-        // Scan for file:// URIs to extract project path
-        const bufStr = buf.toString('utf-8', 0, Math.min(buf.length, 100000));
-        const fileMatch = bufStr.match(/file:\/\/\/([\w/.\-]+)/);
-        if (fileMatch) {
-          projectPath = '/' + fileMatch[1];
-        }
+        projectPath = projectPathFromBlob(buf) ?? projectPath;
 
         // Scan for JSON objects with role field
         this.extractJsonMessages(buf, rawMessages, seenContent);

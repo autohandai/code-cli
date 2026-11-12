@@ -14,6 +14,7 @@ vi.mock('../../../src/core/agent/WorkspaceChangeCapture.js', async (importOrigin
   return {
     ...actual,
     WorkspaceChangeCapture: {
+      pending: vi.fn(async () => null),
       create: vi.fn(async () => ({
         hasExceededBudget: () => false,
         begin: async () => ({ token: 'stub-checkpoint' }),
@@ -41,8 +42,137 @@ import type {
 } from '../../../src/types.js';
 import { ReactionParser } from '../../../src/core/agent/ReactionParser.js';
 import { PromptCacheToolSet } from '../../../src/core/agent/PromptCache.js';
+import { WorkspaceChangeCapture, WorkspaceChangeCaptureBudgetError } from '../../../src/core/agent/WorkspaceChangeCapture.js';
 
 describe('ReactLoopRunner composer status', () => {
+  it('reviews completion with disclosed session evidence after the workspace diff exceeds its budget', async () => {
+    vi.mocked(WorkspaceChangeCapture.pending).mockClear();
+    vi.mocked(WorkspaceChangeCapture.pending).mockRejectedValueOnce(new WorkspaceChangeCaptureBudgetError('git add -A', 3000));
+    const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [
+      { tool: 'read_file', args: { path: 'package.json' } },
+    ] }) }).mockResolvedValueOnce({ content: 'Repository facts verified.' })
+      .mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [
+        { tool: 'read_file', args: { path: 'package.json' } },
+      ] }) }).mockResolvedValue({ content: 'Repository facts verified.' });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    host.toolManager.execute = vi.fn().mockResolvedValue([{ tool: 'read_file', success: true, output: 'Verified package' }]);
+    const review = vi.fn(async () => ({ verdict: 'approved' as const, feedback: 'Session evidence reviewed; workspace diff unavailable.' }));
+    host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review });
+
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'completed' });
+    expect(review).toHaveBeenCalledWith('completion', expect.objectContaining({
+      context: expect.stringContaining('Workspace diff unavailable'),
+    }));
+    expect(review).toHaveBeenCalledWith('completion', expect.objectContaining({
+      context: expect.stringContaining('git add -A exceeded the 3000 ms workspace change capture budget'),
+    }));
+    expect(review).toHaveBeenCalledWith('completion', expect.objectContaining({
+      context: expect.stringContaining('Do not assume the workspace has no changes'),
+    }));
+    expect(host.workspaceChangeCaptureDisabled).toBe(true);
+    expect(host.emitOutput).toHaveBeenCalledWith(expect.objectContaining({ type: 'message', content: 'Repository facts verified.' }));
+    expect(host.conversation.addSystemNote).toHaveBeenCalledWith(expect.stringContaining('workspace diff unavailable'));
+
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'completed' });
+    expect(WorkspaceChangeCapture.pending).toHaveBeenCalledOnce();
+    expect(review).toHaveBeenCalledTimes(2);
+    expect(review).toHaveBeenLastCalledWith('completion', expect.objectContaining({
+      context: expect.stringContaining('Workspace diff unavailable'),
+    }));
+  });
+
+  it.each(['changes_requested', 'unavailable'] as const)('preserves a real %s verdict after a completion capture timeout', async verdict => {
+    vi.mocked(WorkspaceChangeCapture.pending).mockClear();
+    vi.mocked(WorkspaceChangeCapture.pending).mockRejectedValueOnce(new WorkspaceChangeCaptureBudgetError('git add -A', 3000));
+    const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [
+      { tool: 'read_file', args: { path: 'package.json' } },
+    ] }) }).mockResolvedValue({ content: 'Repository facts verified.' });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    host.toolManager.execute = vi.fn().mockResolvedValue([{ tool: 'read_file', success: true, output: 'Verified package' }]);
+    const review = vi.fn(async () => ({ verdict, feedback: 'Review still needs verification evidence.' }));
+    host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review });
+
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'advisor_review' });
+    expect(review).toHaveBeenCalledTimes(verdict === 'unavailable' ? 2 : 3);
+    expect(WorkspaceChangeCapture.pending).toHaveBeenCalledOnce();
+    expect(host.emitOutput).toHaveBeenCalledWith(expect.objectContaining({ type: 'message',
+      content: expect.stringContaining('Review still needs verification evidence.'),
+    }));
+  });
+
+  it('keeps a non-budget workspace capture error blocking completion review', async () => {
+    const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [
+      { tool: 'read_file', args: { path: 'package.json' } },
+    ] }) }).mockResolvedValue({ content: 'Repository facts verified.' });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    host.captureAdvisorDiff = async () => { throw new Error('Git index is corrupt'); };
+    const review = vi.fn(async () => ({ verdict: 'approved' as const, feedback: 'Unexpected approval' }));
+    host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review });
+
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'advisor_review' });
+    expect(review).not.toHaveBeenCalled();
+    expect(host.workspaceChangeCaptureDisabled).not.toBe(true);
+    expect(host.emitOutput).toHaveBeenCalledWith(expect.objectContaining({ type: 'message',
+      content: expect.stringContaining('Git index is corrupt'),
+    }));
+  });
+
+  it.each([
+    { omittedFiles: 1, patch: '' },
+    { omittedFiles: 0, patch: '[diff truncated]' },
+  ])('keeps an explicitly truncated workspace diff blocking completion review: %j', async ({ omittedFiles, patch }) => {
+    vi.mocked(WorkspaceChangeCapture.pending).mockResolvedValueOnce({ omittedFiles, files: [{
+      path: 'large.ts', kind: 'modified', additions: 1, deletions: 1, binary: false, patch,
+    }] });
+    const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [
+      { tool: 'read_file', args: { path: 'package.json' } },
+    ] }) }).mockResolvedValue({ content: 'Repository facts verified.' });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    const review = vi.fn(async () => ({ verdict: 'approved' as const, feedback: 'Unexpected approval' }));
+    host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review });
+
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'advisor_review' });
+    expect(review).not.toHaveBeenCalled();
+    expect(host.workspaceChangeCaptureDisabled).not.toBe(true);
+  });
+
+  it('keeps commit execution blocked when its workspace capture exceeds the budget', async () => {
+    const complete = vi.fn().mockResolvedValue({ content: JSON.stringify({ toolCalls: [
+      { tool: 'git_commit', args: { message: 'Must not commit unreviewed changes' } },
+    ] }) });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    host.captureAdvisorDiff = async () => { throw new WorkspaceChangeCaptureBudgetError('git add -A', 3000); };
+    const review = vi.fn(async () => ({ verdict: 'approved' as const, feedback: 'Unexpected approval' }));
+    host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review });
+
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'advisor_review' });
+    expect(review).not.toHaveBeenCalled();
+    expect(host.toolManager.execute).not.toHaveBeenCalled();
+  });
+
+  it('preserves cancellation while a completion capture exceeds its budget', async () => {
+    const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [
+      { tool: 'read_file', args: { path: 'package.json' } },
+    ] }) }).mockResolvedValue({ content: 'Repository facts verified.' });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    const controller = new AbortController();
+    host.captureAdvisorDiff = async () => {
+      controller.abort();
+      throw new WorkspaceChangeCaptureBudgetError('git add -A', 3000);
+    };
+    const review = vi.fn(async () => ({ verdict: 'approved' as const, feedback: 'Unexpected approval' }));
+    host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review });
+
+    await expect(runAgentReactLoop(host, controller)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(review).not.toHaveBeenCalled();
+  });
+
   it('publishes one confirmed reply only after the required completion review approves it', async () => {
     const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [
       { tool: 'run_command', args: { command: 'seq 1 400000' } },
@@ -79,6 +209,103 @@ describe('ReactLoopRunner composer status', () => {
     ];
     await expect(runAgentReactLoop(host, new AbortController())).rejects.toThrow(/context.*limit/i);
     expect(complete).not.toHaveBeenCalled();
+  });
+
+  it.each([32768, 262144])('waits for first-turn runtime context %s before budgeting a fast request', async (limit) => {
+    const complete = vi.fn().mockResolvedValue({ id: 'local', created: 1, content: 'Done.', raw: {} });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    const metadata = Promise.withResolvers<number | undefined>();
+    host.llm.getContextWindow = vi.fn(() => metadata.promise);
+    const prepareRequest = vi.mocked(host.contextOrchestrator.prepareRequest);
+    const turn = runAgentReactLoop(host, new AbortController());
+    try {
+      await vi.waitFor(() => expect(host.llm.getContextWindow).toHaveBeenCalledOnce());
+      expect(prepareRequest).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+      metadata.resolve(limit);
+      await turn;
+      expect(host.contextWindow).toBe(limit);
+      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ maxTokens: Math.min(16000, limit / 4) }));
+    } finally {
+      metadata.resolve(limit);
+      await turn;
+    }
+  });
+
+  it('rejects a prompt larger than the discovered4096-token context before provider spending', async () => {
+    const complete = vi.fn().mockResolvedValue({ id: 'unexpected', created: 1, content: 'Done.', raw: {} });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.llm.getContextWindow = async () => 4096;
+    host.getMessagesWithImages = async () => [
+      { role: 'system', content: 'Policy' },
+      { role: 'user', content: 'uncroppable content '.repeat(4000) },
+    ];
+    await expect(runAgentReactLoop(host, new AbortController())).rejects.toThrow(/configured context limit \(4096 tokens\)/i);
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it.each([{ bare: true }, { daemon: false }])('keeps optional metadata off for %j requests', async (options) => {
+    const complete = vi.fn().mockResolvedValue({ id: 'local', created: 1, content: 'Done.', raw: {} });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    Object.assign(host.runtime.options, options);
+    host.llm.getContextWindow = vi.fn(async () => 4096);
+    await runAgentReactLoop(host, new AbortController());
+    expect(host.llm.getContextWindow).not.toHaveBeenCalled();
+  });
+
+  it('ignores stale metadata after a provider switches while preflight is pending', async () => {
+    const complete = vi.fn().mockResolvedValue({ id: 'local', created: 1, content: 'Done.', raw: {} });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    const metadata = Promise.withResolvers<number | undefined>();
+    const oldProvider = host.llm;
+    oldProvider.getContextWindow = vi.fn(() => metadata.promise);
+    const turn = runAgentReactLoop(host, new AbortController());
+    try {
+      await vi.waitFor(() => expect(oldProvider.getContextWindow).toHaveBeenCalledOnce());
+      host.llm = { ...oldProvider, getContextWindow: undefined };
+      metadata.resolve(4096);
+      await turn;
+      expect(host.contextWindow).toBe(128000);
+    } finally {
+      metadata.resolve(4096);
+      await turn;
+    }
+  });
+
+  it('cancels pending metadata without sending or budgeting a request', async () => {
+    const complete = vi.fn().mockResolvedValue({ id: 'unexpected', created: 1, content: 'Done.', raw: {} });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.llm.getContextWindow = vi.fn(() => new Promise(() => {}));
+    const controller = new AbortController();
+    const turn = runAgentReactLoop(host, controller);
+    await vi.waitFor(() => expect(host.llm.getContextWindow).toHaveBeenCalledOnce());
+    controller.abort();
+    await expect(turn).resolves.toMatchObject({ status: 'aborted' });
+    expect(host.contextOrchestrator.prepareRequest).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('refreshes metadata after the model changes during preflight', async () => {
+    const complete = vi.fn().mockResolvedValue({ id: 'local', created: 1, content: 'Done.', raw: {} });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    const metadata = Promise.withResolvers<number | undefined>();
+    const oldProvider = host.llm;
+    oldProvider.getContextWindow = vi.fn(() => metadata.promise);
+    const nextDiscovery = vi.fn(async () => 32768);
+    const turn = runAgentReactLoop(host, new AbortController());
+    try {
+      await vi.waitFor(() => expect(oldProvider.getContextWindow).toHaveBeenCalledOnce());
+      host.runtime.options.model = 'new-local-model';
+      host.llm = { ...oldProvider, getContextWindow: nextDiscovery };
+      metadata.resolve(4096);
+      await turn;
+      expect(nextDiscovery).toHaveBeenCalledOnce();
+      expect(host.contextWindow).toBe(32768);
+      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ model: 'new-local-model', maxTokens: 8192 }));
+    } finally {
+      metadata.resolve(4096);
+      await turn;
+    }
   });
 
   it('stops before a lead request when specialist preparation already denied unattended approval', async () => {
@@ -367,6 +594,7 @@ describe('ReactLoopRunner composer status', () => {
     await runAgentReactLoop(host, new AbortController());
 
     expect(llmComplete.mock.calls[0]?.[0]?.promptCache).toBeUndefined();
+    expect(llmComplete.mock.calls[0]?.[0]?.sessionId).toBe('session-123');
   });
 
   it('uses a stable opaque session cache key even when the active provider changes', async () => {

@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const root = path.resolve(import.meta.dirname, '../..');
@@ -25,7 +26,7 @@ let configuration: string;
 let child: ChildProcess | undefined;
 
 beforeEach(async () => {
-  temporary = await realpath(await mkdtemp(path.join(tmpdir(), 'autohand-prompt-lifecycle-')));
+  temporary = await realpath(await mkdtemp(path.join(tmpdir(), 'autohand-prompt-lifecycle with spaces-')));
   workspace = path.join(temporary, 'repo');
   await mkdir(workspace);
   await mkdir(path.join(temporary, 'home'));
@@ -117,7 +118,7 @@ function startCli(args: string[], preload: string, env: Record<string, string> =
       AUTOHAND_API_KEY: '',
       AUTOHAND_NO_BANNER: '1',
       AUTOHAND_DISABLE_AUTO_REPORT: '1',
-      NODE_OPTIONS: `--import ${preload}`,
+      NODE_OPTIONS: `--import ${pathToFileURL(preload).href}`,
       ...env,
     },
   });

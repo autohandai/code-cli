@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AzureTokenManager } from '../../src/providers/azure/tokenManager';
+import { ApiError } from '../../src/providers/errors.js';
 
 describe('AzureTokenManager', () => {
   let manager: AzureTokenManager;
@@ -195,6 +196,18 @@ describe('AzureTokenManager', () => {
       await expect(
         manager.getToken({ authMethod: 'managed-identity' })
       ).rejects.toThrow('Managed Identity');
+    });
+
+    it('stops whole-turn replay before inference and retains a private diagnostic cause', async () => {
+      const cause = Object.assign(new Error('IMDS connection failed; fixture-private-detail'), { code: 'ECONNREFUSED' });
+      vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(cause);
+      const error = await manager.getToken({ authMethod: 'managed-identity' }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ code: 'auth_failed', httpStatus: 0, retryable: false, cause });
+      expect(error).toHaveProperty('message', expect.stringContaining('before a model request'));
+      expect(String(error)).not.toContain('fixture-private-detail');
+      expect(JSON.stringify(error)).not.toContain('fixture-private-detail');
+      expect(fetch).toHaveBeenCalledTimes(1);
     });
   });
 

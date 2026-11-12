@@ -80,6 +80,7 @@ export class SimpleChatHandler {
         tools: [],
         maxTokens: 1000,
         temperature: 0.7,
+        ...(sessionId ? { sessionId } : {}),
         ...(promptCache ? { promptCache } : {}),
         ...(supportsStreaming ? { stream: true, onDelta: preview?.onDelta } : {}),
       });

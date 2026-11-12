@@ -124,7 +124,7 @@ describe('mobile instruction lifecycle', () => {
     expect(relayB.finishClaimedTurn).not.toHaveBeenCalled();
   });
 
-  it('routes follow-up questions through the claimed turn origin relay only', async () => {
+  it('routes mobile questions through the origin relay and restores the existing ACP answer channel', async () => {
     const agent = Object.create(AutohandAgent.prototype) as any;
     installMobileSessionBoundaryFixtures(agent);
     agent.sessionManager = {
@@ -156,6 +156,8 @@ describe('mobile instruction lifecycle', () => {
     agent.mobileTurnFailureMessage = null;
     agent.lastAssistantResponseForNotification = '';
     agent.runtime = { options: {} };
+    const acpAnswer = vi.fn().mockResolvedValue('Answer from ACP');
+    agent.setFollowupQuestionCallback(acpAnswer);
     agent.peerAwaitingInputCount = 0;
     agent.consecutiveCancellations = 0;
     agent.instructionRunner = {
@@ -184,7 +186,10 @@ describe('mobile instruction lifecycle', () => {
       ['Staging', 'Production'],
     );
     expect(relayB.requestFollowupQuestion).not.toHaveBeenCalled();
-    expect(agent.followupQuestionCallback).toBeUndefined();
+    expect(agent.followupQuestionCallback).toBe(acpAnswer);
+    await expect(agent.executeAskFollowupQuestion('Back in ACP?'))
+      .resolves.toBe('<answer>Answer from ACP</answer>');
+    expect(acpAnswer).toHaveBeenCalledWith('Back in ACP?', undefined);
   });
 
   it('terminalizes the claimed turn when preview setup fails before execution', async () => {

@@ -656,6 +656,14 @@ describe("AutoReportManager", () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
+    it.each(['ENOSPC', 'EDQUOT'])("does not auto-report an expected local capacity failure: %s", async code => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), "0.9.10");
+      await mgr.reportError(Object.assign(new Error('Session write failed'), { code }));
+      await mgr.reportError(new Error(`${code}: no storage available, write`));
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it("skips ApiError with access_denied code", async () => {
       mockFetch.mockResolvedValue(okResponse({ success: true }));
       const mgr = new AutoReportManager(makeConfig(), "0.7.14");

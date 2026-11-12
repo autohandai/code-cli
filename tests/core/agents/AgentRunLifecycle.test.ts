@@ -27,6 +27,16 @@ function harness(executeHooks = vi.fn().mockResolvedValue([])) {
 }
 
 describe('subagent lifecycle controls', () => {
+  it('carries the capped-run reason through the real store and terminal lifecycle hook', async () => {
+    const { handle, executeHooks } = harness();
+    const store = new AgentRunStore({ onLifecycleEvent: handle });
+    store.start({ id: 'limited', source: 'delegate', name: 'reviewer', task: 'Review source.' });
+    store.finish('limited', { status: 'partial', reason: 'iteration_limit', result: 'Findings remain available.' });
+    await store.waitForLifecycle('limited');
+    expect(executeHooks).toHaveBeenCalledWith('subagent-stop', expect.objectContaining({
+      subagentId: 'limited', subagentStatus: 'partial', subagentReason: 'iteration_limit', subagentSuccess: false,
+    }));
+  });
   it('queues hook messages through the real store without recursive action events or deadlock', async () => {
     const executeHooks = vi.fn().mockResolvedValue(results({ additionalContext: 'Check tests' }));
     const store: AgentRunStore = new AgentRunStore({ onLifecycleEvent: createAgentRunLifecycleHandler({

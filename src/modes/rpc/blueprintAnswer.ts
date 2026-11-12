@@ -10,7 +10,6 @@ import {
   readdir,
   readlink,
   realpath,
-  stat,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +35,7 @@ import {
   verifyBlueprintLocalModelArtifact,
 } from '../../providers/BlueprintLocalProvider.js';
 import { runtimeVersion } from '../../utils/runtimeVersion.js';
+import { readRepoHead } from '../../session/peers/RepoStateReader.js';
 
 export const BLUEPRINT_ANSWER_CONTRACT_VERSION = 1 as const;
 
@@ -675,51 +675,8 @@ async function fileArtifact(file: string): Promise<{
 }
 
 async function readRepositoryCommit(packageRoot: string): Promise<string | undefined> {
-  const dotGit = path.join(packageRoot, '.git');
-  let gitDirectory = dotGit;
-  try {
-    const metadata = await stat(dotGit);
-    if (!metadata.isDirectory()) {
-      const pointer = (await readFile(dotGit, 'utf8')).trim();
-      if (!pointer.startsWith('gitdir:')) return undefined;
-      gitDirectory = path.resolve(packageRoot, pointer.slice('gitdir:'.length).trim());
-    }
-  } catch {
-    try {
-      const pointer = (await readFile(dotGit, 'utf8')).trim();
-      if (!pointer.startsWith('gitdir:')) return undefined;
-      gitDirectory = path.resolve(packageRoot, pointer.slice('gitdir:'.length).trim());
-    } catch {
-      return undefined;
-    }
-  }
-
-  let head: string;
-  try {
-    head = (await readFile(path.join(gitDirectory, 'HEAD'), 'utf8')).trim();
-  } catch {
-    return undefined;
-  }
-  if (/^[a-f0-9]{40}$/u.test(head)) return head;
-  if (!head.startsWith('ref: ')) return undefined;
-
-  const reference = head.slice('ref: '.length);
-  const candidates = [path.join(gitDirectory, reference)];
-  try {
-    const common = (await readFile(path.join(gitDirectory, 'commondir'), 'utf8')).trim();
-    candidates.push(path.resolve(gitDirectory, common, reference));
-  } catch {
-    // Normal checkouts have no commondir file.
-  }
-  for (const candidate of candidates) {
-    try {
-      const commit = (await readFile(candidate, 'utf8')).trim();
-      if (/^[a-f0-9]{40}$/u.test(commit)) return commit;
-    } catch {
-      // Try the next worktree/common-dir location.
-    }
-  }
-  return undefined;
+  const head = await readRepoHead(packageRoot);
+  return head && /^[a-f0-9]{40}$/u.test(head.sha) ? head.sha : undefined;
 }
 
 export async function inspectBlueprintCliIdentity(

@@ -14,6 +14,7 @@ import { resolveEmbeddedBuiltinAssetDirectory } from '../../skills/embeddedBuilt
 import type { ExternalAgentsConfig, InlineAgentDefinition } from '../../types.js';
 import type { ExtensionAgentContribution, ExtensionScope } from '../../extensions/types.js';
 import { BUILTIN_AGENT_HANDOFF } from './builtinAgentContract.js';
+import { isValidSubagentIterationLimit, MAX_SUBAGENT_ITERATIONS } from './subagentIterations.js';
 import {
     isCatalogManagedContent,
     readCatalogProvenance,
@@ -46,6 +47,7 @@ export const AgentConfigSchema = z.object({
     systemPrompt: z.string(),
     tools: z.array(z.string()),
     model: z.string().optional(),
+    maxIterations: z.number().int().min(1).max(MAX_SUBAGENT_ITERATIONS).optional(),
     /** Reasoning depth the agent wants; providers with a reasoning tier route it there. */
     reasoning: z.enum(AGENT_REASONING_LEVELS).optional(),
     /** Skills whose instructions are active for this agent from the first request. */
@@ -71,6 +73,7 @@ export const InlineAgentInputSchema = z.object({
     prompt: z.string().min(1, 'agent "prompt" is required'),
     tools: z.union([z.array(z.string()), z.string()]).optional(),
     model: z.string().optional(),
+    maxIterations: z.number().int().min(1).max(MAX_SUBAGENT_ITERATIONS).optional(),
     reasoning: z.enum(AGENT_REASONING_LEVELS).optional(),
     skills: z.union([z.array(z.string()), z.string()]).optional(),
 });
@@ -125,6 +128,7 @@ export function parseInlineAgents(input: string | Record<string, unknown>): Inli
         systemPrompt: def.prompt,
         tools: normalizeInlineTools(def.tools),
         model: def.model,
+        ...(def.maxIterations === undefined ? {} : { maxIterations: def.maxIterations }),
         ...(def.reasoning ? { reasoning: def.reasoning } : {}),
         ...(normalizeInlineTools(def.skills).length ? { skills: normalizeInlineTools(def.skills) } : {}),
     }));
@@ -161,6 +165,7 @@ function parseMarkdownAgent(content: string): {
     systemPrompt: string;
     tools: string[];
     model?: string;
+    maxIterations?: number;
     reasoning?: AgentConfig['reasoning'];
     skills?: string[];
 } {
@@ -182,11 +187,17 @@ function parseMarkdownAgent(content: string): {
         }
     }
 
+    const maxIterations = meta.maxIterations === undefined ? undefined : Number(meta.maxIterations);
+    if (maxIterations !== undefined && !isValidSubagentIterationLimit(maxIterations)) {
+        throw new Error(`maxIterations must be an integer between 1 and ${MAX_SUBAGENT_ITERATIONS}.`);
+    }
+
     return {
         description: meta.description || extractMarkdownTitle(body),
         systemPrompt: body.trim(),
         tools: meta.tools ? meta.tools.split(',').map((t) => t.trim()).filter(Boolean) : [],
         model: meta.model,
+        ...(maxIterations === undefined ? {} : { maxIterations }),
         reasoning: parseAgentReasoning(meta.reasoning),
         ...(meta.skills ? { skills: meta.skills.split(',').map((name) => name.trim()).filter(Boolean) } : {}),
     };
@@ -362,6 +373,7 @@ export class AgentRegistry {
                 systemPrompt: def.systemPrompt,
                 tools: def.tools.length > 0 ? def.tools : ['*'],
                 model: def.model,
+                ...(def.maxIterations === undefined ? {} : { maxIterations: def.maxIterations }),
                 ...(def.reasoning ? { reasoning: def.reasoning } : {}),
                 ...(def.skills?.length ? { skills: def.skills } : {}),
             });
@@ -429,6 +441,7 @@ export class AgentRegistry {
                     : parsed.systemPrompt,
                 tools: parsed.tools.length > 0 ? parsed.tools : ['*'],
                 model: parsed.model,
+                ...(parsed.maxIterations === undefined ? {} : { maxIterations: parsed.maxIterations }),
                 ...(parsed.reasoning ? { reasoning: parsed.reasoning } : {}),
                 ...(parsed.skills?.length ? { skills: parsed.skills } : {}),
             };

@@ -60,6 +60,45 @@ function defaultToolDefinition(name: ToolDefinition['name']): ToolDefinition {
 }
 
 describe('ToolManager', () => {
+  it('infers a single apply_patch envelope path before validation and approval hooks', async () => {
+    const executor = vi.fn().mockResolvedValue(successfulOutcome('patched'));
+    const runPreToolHooks = vi.fn().mockResolvedValue([]);
+    const manager = new ToolManager({
+      executor,
+      definitions: [defaultToolDefinition('apply_patch')],
+      confirmApproval: vi.fn().mockResolvedValue({ decision: 'allow_once' }),
+      authorization: { permissionManager: new PermissionManager({ mode: 'unrestricted' }), runPreToolHooks },
+    });
+    const patch = '*** Begin Patch\n*** Update File: src/example.ts\n@@\n-old\n+new\n*** End Patch';
+
+    const [result] = await manager.execute([{ tool: 'apply_patch', args: { patch } }]);
+
+    expect(result.success).toBe(true);
+    expect(runPreToolHooks).toHaveBeenCalledWith(expect.objectContaining({
+      args: expect.objectContaining({ path: 'src/example.ts', patch }),
+    }));
+    expect(executor).toHaveBeenCalledWith(expect.objectContaining({ path: 'src/example.ts', patch }), expect.anything());
+  });
+
+  it('enforces protected-path permissions for paths inferred from a patch envelope', async () => {
+    const executor = vi.fn().mockResolvedValue(successfulOutcome('should not run'));
+    const runPreToolHooks = vi.fn().mockResolvedValue([]);
+    const manager = new ToolManager({
+      executor,
+      definitions: [defaultToolDefinition('apply_patch')],
+      confirmApproval: vi.fn().mockResolvedValue({ decision: 'allow_once' }),
+      authorization: { permissionManager: new PermissionManager({ mode: 'unrestricted' }), runPreToolHooks },
+    });
+
+    const [result] = await manager.execute([{ tool: 'apply_patch', args: {
+      patch: '*** Begin Patch\n*** Update File: .env\n@@\n-secret\n+replacement\n*** End Patch',
+    } }]);
+
+    expect(result).toMatchObject({ success: false, kind: 'authorization' });
+    expect(executor).not.toHaveBeenCalled();
+    expect(runPreToolHooks).not.toHaveBeenCalled();
+  });
+
   it('exposes delegation, team coordination, and tool discovery tools by default', () => {
     const names = new Set(DEFAULT_TOOL_DEFINITIONS.map((tool) => tool.name));
 

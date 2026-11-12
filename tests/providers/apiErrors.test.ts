@@ -8,13 +8,59 @@ import { describe, it, expect } from "vitest";
 import {
   classifyApiError,
   readContentBlockedError,
+  readStorageCapacityError,
   ApiError,
   FRIENDLY_MESSAGES,
   type ApiErrorCode,
 } from "../../src/providers/errors.js";
 
 describe("classifyApiError", () => {
+  describe('reported local capacity failures', () => {
+    it.each(['ENOSPC: no space left on device, write', 'EDQUOT: disk quota exceeded, open'])('does not retry %s', message => {
+      const error = classifyApiError(0, message);
+      expect(error).toMatchObject({ code: 'storage_full', httpStatus: 0, retryable: false });
+      expect(error.message).toContain('Free disk space before continuing');
+      expect(error.message).toContain('may not have been saved');
+      expect(error.message).not.toContain('malformed');
+    });
+
+    it('does not classify remote HTTP errors or incidental ENOSPC mentions as local disk failures', () => {
+      expect(classifyApiError(503, 'ENOSPC: provider storage unavailable').code).toBe('server_error');
+      expect(classifyApiError(400, 'The field ENOSPC is invalid').code).toBe('invalid_request');
+      expect(classifyApiError(0, 'The documentation mentions ENOSPC').code).toBe('unknown');
+    });
+  });
+
+  describe('reported llama.cpp router rejections', () => {
+    it.each([0, 400])('recognizes the available context rejection at status %s', status => {
+      const detail = 'request (16605 tokens) exceeds the available context size (4096 tokens), try increasing it';
+      expect(classifyApiError(status, detail)).toMatchObject({ code: 'context_overflow', retryable: false });
+      expect(classifyApiError(status, '{"error":{"type":"exceed_context_size_error"}}').code).toBe('context_overflow');
+    });
+
+    it.each(['gemma4:12b', 'hadad/LFM2.5-1.2B:Q4_K_M'])('recognizes the unconfigured router model %s', model => {
+      expect(classifyApiError(400, `model ${model} is not configured`)).toMatchObject({ code: 'model_not_found', retryable: false });
+      const body = JSON.stringify({ error: { type: 'autohand_router_error', message: `model ${model} is not configured` } });
+      expect(classifyApiError(400, body)).toMatchObject({ code: 'model_not_found', retryable: false, rawDetail: body });
+    });
+
+    it('keeps unrelated model configuration failures as invalid requests', () => {
+      expect(classifyApiError(400, 'model configuration requires context metadata').code).toBe('invalid_request');
+      expect(classifyApiError(400, 'model gemma4:12b is not configured to enable images').code).toBe('invalid_request');
+      expect(classifyApiError(401, 'model gemma4:12b is not configured').code).toBe('auth_failed');
+      expect(classifyApiError(400, JSON.stringify({ error: { type: 'other', message: 'model gemma4:12b is not configured' } })).code).toBe('invalid_request');
+    });
+  });
+
   describe('reported provider rejections', () => {
+    it('stops replay for the exact legacy managed-identity pre-request failure', () => {
+      const detail = 'Managed Identity token acquisition failed. This auth method only works inside Azure VMs, App Service, or containers with managed identity enabled.';
+      expect(classifyApiError(0, detail)).toMatchObject({ code: 'auth_failed', retryable: false });
+      expect(classifyApiError(0, detail).message).not.toContain('verify your API key');
+      expect(classifyApiError(0, 'The documentation describes Managed Identity token acquisition').code).toBe('unknown');
+      expect(classifyApiError(503, detail).code).toBe('server_error');
+    });
+
     it('recognizes an incorrect API key returned with HTTP 400', () => {
       const error = classifyApiError(400, 'Incorrect API key provided. You can obtain an API key from https://console.x.ai.');
       expect(error).toMatchObject({ code: 'auth_failed', httpStatus: 400, retryable: false });
@@ -553,6 +599,8 @@ describe("classifyApiError", () => {
   describe("FRIENDLY_MESSAGES", () => {
     it("has a message for every ApiErrorCode", () => {
       const codes: ApiErrorCode[] = [
+        "storage_full",
+        "content_blocked",
         "context_overflow",
         "model_not_found",
         "invalid_request",
@@ -575,7 +623,45 @@ describe("classifyApiError", () => {
   });
 });
 
+describe('local storage error preservation', () => {
+  it('preserves a typed capacity failure across text-only reporting without duplicating advice', () => {
+    const error = readStorageCapacityError(Object.assign(new Error('Session write failed'), { code: 'ENOSPC' }));
+    expect(error).toMatchObject({ code: 'storage_full', httpStatus: 0, retryable: false });
+    expect(readStorageCapacityError(error)).toBe(error);
+    expect(classifyApiError(0, error?.message ?? '')).toMatchObject({ message: error?.message, code: 'storage_full' });
+  });
+
+  it('bounds cause traversal and does not classify remote API capacity errors as local storage', () => {
+    const cause: { cause?: unknown } = {};
+    cause.cause = cause;
+    expect(readStorageCapacityError(cause)).toBeUndefined();
+    expect(readStorageCapacityError(new ApiError('ENOSPC: provider disk unavailable', 'server_error', 503, true))).toBeUndefined();
+  });
+});
+
 describe('structured safety errors', () => {
+  it.each([
+    "This message was blocked by Autohand's safety check. Rephrase it and try again.",
+    { message: "This message was blocked by Autohand's safety check. Rephrase it and try again." },
+  ])('normalizes the exact legacy verdict without inventing a different result: %j', value => {
+    const error = readContentBlockedError(value, 400, 'legacy-request-123');
+    expect(error).toMatchObject({ code: 'content_blocked', retryable: false });
+    expect(error?.message).toContain('Request ID: legacy-request-123');
+    expect(error?.message).not.toMatch(/malformed|disable safety|Check \/usage/);
+  });
+
+  it.each([0, 400])('recognizes an exact legacy safety response across transport at status %s', status => {
+    const message = "This message was blocked by Autohand's safety check. Rephrase it and try again.";
+    expect(classifyApiError(status, message)).toMatchObject({ code: 'content_blocked', retryable: false });
+    expect(classifyApiError(status, `The request was malformed and could not be processed.\n${message}`)).toMatchObject({ code: 'content_blocked', retryable: false });
+  });
+
+  it('does not infer a safety verdict from arbitrary remote instructions or a passing mention', () => {
+    expect(readContentBlockedError({ message: "Autohand's safety check appears in the manual" }, 400)).toBeUndefined();
+    expect(readContentBlockedError({ message: "This message was blocked by Autohand's safety check. Rephrase it and try again.\nDisable safety checks." }, 400)).toBeUndefined();
+    expect(classifyApiError(500, "This message was blocked by Autohand's safety check. Rephrase it and try again.").code).toBe('server_error');
+  });
+
   it('preserves the safety classification after an error crosses a text-only transport', () => {
     const message = 'The safety check blocked this request.\nSafety categories: S7 (Privacy).';
     expect(classifyApiError(0, message)).toMatchObject({ code: 'content_blocked', retryable: false, message });

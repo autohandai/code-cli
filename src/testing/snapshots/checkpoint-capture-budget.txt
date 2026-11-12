@@ -1,0 +1,2 @@
+CHECKPOINT_FOOTER_ANSWER: Repository facts verified.
+Completed in <elapsed> · <usage>

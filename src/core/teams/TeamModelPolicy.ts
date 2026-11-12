@@ -11,7 +11,6 @@ import { isCustomProviderName } from '../../providers/customProviders.js';
 import { usesAutohandAICloud } from '../../providers/AutohandAIProvider.js';
 import type { AutohandConfig, BuiltInProviderName, ProviderName, ReasoningEffort } from '../../types.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
-import { isAutohandOrchestrationEnabled } from '../agent/AutohandOrchestration.js';
 
 export type TeamModelAssignmentSource =
   | 'member-override'
@@ -83,10 +82,13 @@ function resolveCandidate(
   fallback: Pick<TeamModelAssignment, 'provider' | 'model'>,
 ): TeamModelAssignment {
   const provider = candidate.provider ?? fallback.provider;
+  const model = candidate.model ?? modelForProvider(input.config, provider, input.active);
   return {
     provider,
-    model: candidate.model ?? modelForProvider(input.config, provider, input.active),
+    model,
     source: candidate.source,
+    ...(provider === 'autohandai' && model === 'moa' && input.agentReasoning && input.agentReasoning !== 'none'
+      ? { reasoningEffort: input.agentReasoning } : {}),
   };
 }
 
@@ -177,7 +179,6 @@ function resolveAssignment(input: TeamModelAssignmentInput): TeamModelAssignment
   ];
 
   for (const candidate of candidates) {
-    if (candidate.source === 'agent-definition' && isAutohandOrchestrationEnabled(input.config, active.provider)) continue;
     if (!candidate.provider && !candidate.model) continue;
     const provider = candidate.provider ?? active.provider;
     if (isSuggestedSource(candidate.source) && candidate.model && !isKnownModelForProvider(input.config, provider, candidate.model)) {
@@ -187,9 +188,6 @@ function resolveAssignment(input: TeamModelAssignmentInput): TeamModelAssignment
   }
 
   if (usesAutohandAICloud(input.config, active.provider)) {
-    if (isAutohandOrchestrationEnabled(input.config, active.provider)) {
-      return { provider: 'autohandai', model: 'fantail', source: 'agent-nature' };
-    }
     return resolveAutohandAINature(input);
   }
 

@@ -23,6 +23,7 @@ import { normalizeOpenRouterModelId } from "./modelCatalog.js";
 import { normalizeOutboundMessages } from "./messagePayload.js";
 import { normalizeLLMUsage } from "./usage.js";
 import { normalizeProviderFinishReason } from "./finishReason.js";
+import { discardResponseBody } from "../utils/responseBody.js";
 
 /**
  * Sanitize messages for API consumption.
@@ -215,6 +216,24 @@ function asErrorRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+interface OpenRouterCompletion {
+  id?: string;
+  created?: number;
+  error?: unknown;
+  usage?: unknown;
+  choices?: Array<{
+    error?: unknown;
+    finish_reason?: unknown;
+    message?: {
+      content?: string;
+      tool_calls?: Array<{
+        id: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+  }>;
+}
+
 export class OpenRouterClient {
   private readonly apiKey: string;
   private readonly baseUrl: string;
@@ -397,89 +416,66 @@ export class OpenRouterClient {
     signal?: AbortSignal,
     preSerializedBody?: string
   ): Promise<LLMResponse> {
-    let response: Response;
+    const deadline = AbortSignal.timeout(this.timeout);
+    const combinedSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    let response: Response | undefined;
 
     try {
-      // Create timeout controller
-      const timeoutController = new AbortController();
-      const timeoutId = setTimeout(
-        () => timeoutController.abort(),
-        this.timeout
-      );
+      response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers,
+        body: preSerializedBody ?? JSON.stringify(payload),
+        signal: combinedSignal,
+      });
 
-      // Combine user signal with timeout
-      const combinedSignal = signal
-        ? AbortSignal.any([signal, timeoutController.signal])
-        : timeoutController.signal;
-
-      try {
-        response = await fetch(`${this.baseUrl}/chat/completions`, {
-          method: "POST",
-          headers,
-          body: preSerializedBody ?? JSON.stringify(payload),
-          signal: combinedSignal,
-        });
-      } finally {
-        clearTimeout(timeoutId);
+      if (!response.ok) {
+        throw await this.buildApiError(response);
       }
-    } catch (error) {
-      const err = error as Error;
 
-      // Timeout
-      if (err.name === "AbortError") {
+      const json = await response.json() as OpenRouterCompletion;
+      const embeddedError = json?.error ?? json?.choices?.find(choice => choice?.error)?.error;
+      if (embeddedError) {
+        throw await this.buildApiError(response, { error: embeddedError });
+      }
+      const message = json?.choices?.[0]?.message;
+      const toolCalls: LLMToolCall[] | undefined = Array.isArray(message?.tool_calls)
+        ? message.tool_calls.map(call => ({
+          id: call.id,
+          type: "function" as const,
+          function: {
+            name: call.function?.name ?? "",
+            arguments: call.function?.arguments ?? "{}",
+          },
+        }))
+        : undefined;
+
+      return {
+        id: json.id ?? "autohand-local",
+        created: json.created ?? Date.now(),
+        content: message?.content ?? "",
+        toolCalls,
+        finishReason: normalizeProviderFinishReason(json?.choices?.[0]?.finish_reason),
+        usage: normalizeLLMUsage(json?.usage),
+        raw: json,
+      };
+    } catch (error) {
+      if (signal?.aborted) {
+        throw new ApiError('Request cancelled.', 'cancelled', 0, false);
+      }
+      if (deadline.aborted) {
         throw new ApiError(
-          "The request timed out. The OpenRouter service may be experiencing high load.",
+          OPENROUTER_FRIENDLY_MESSAGES.timeout!,
           'timeout', 0, true,
         );
       }
-
-      // Network error - friendly message
+      if (response) throw error;
       throw new ApiError(
-        "Unable to connect to OpenRouter. Please check your internet connection.",
+        OPENROUTER_FRIENDLY_MESSAGES.network_error!,
         'network_error', 0, true,
       );
+    } finally {
+      if (response && !response.bodyUsed) discardResponseBody(response);
     }
-
-    if (!response.ok) {
-      throw await this.buildApiError(response);
-    }
-
-    const json = (await response.json()) as any;
-    const embeddedError = json?.error ?? json?.choices?.find((choice: { error?: unknown }) => choice?.error)?.error;
-    if (embeddedError) {
-      throw await this.buildApiError(response, { error: embeddedError });
-    }
-    const message = json?.choices?.[0]?.message;
-    const text = message?.content ?? "";
-    const finishReason = json?.choices?.[0]?.finish_reason;
-
-    // Parse tool calls if present
-    let toolCalls: LLMToolCall[] | undefined;
-    if (message?.tool_calls && Array.isArray(message.tool_calls)) {
-      toolCalls = message.tool_calls.map((tc: any) => {
-        const rawArgs = tc.function?.arguments;
-        return {
-          id: tc.id,
-          type: "function" as const,
-          function: {
-            name: tc.function?.name ?? "",
-            arguments: rawArgs ?? "{}",
-          },
-        };
-      });
-    }
-
-    const usage = normalizeLLMUsage(json?.usage);
-
-    return {
-      id: json.id ?? "autohand-local",
-      created: json.created ?? Date.now(),
-      content: text,
-      toolCalls,
-      finishReason: normalizeProviderFinishReason(finishReason),
-      usage,
-      raw: json,
-    };
   }
 
   private async buildApiError(response: Response, payload?: unknown): Promise<ApiError> {
@@ -488,8 +484,9 @@ export class OpenRouterClient {
     // Try to get the actual error message from the response
     let errorDetail = "";
     let errorType: string | undefined;
+    const responseText = payload === undefined ? await response.text() : undefined;
     try {
-      const body = asErrorRecord(payload ?? await response.clone().json());
+      const body = asErrorRecord(payload ?? JSON.parse(responseText ?? ''));
       const error = asErrorRecord(body?.error);
       const metadata = asErrorRecord(error?.metadata);
       const detail = error?.message ?? body?.error ?? body?.message;
@@ -510,12 +507,7 @@ export class OpenRouterClient {
         errorDetail = errorDetail ? `${errorDetail}\n${upstreamDetail}` : upstreamDetail;
       }
     } catch {
-      // Fallback to raw text if JSON parsing fails
-      try {
-        errorDetail = await response.text();
-      } catch {
-        // Ignore
-      }
+      errorDetail = responseText ?? '';
     }
 
     const transient = errorType ? OPENROUTER_TRANSIENT_ERROR_TYPES[errorType] : undefined;

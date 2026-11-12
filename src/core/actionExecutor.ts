@@ -74,6 +74,7 @@ import { webRepo, formatRepoInfo, formatRepoDir } from '../actions/webRepo.js';
 import { projectTracker } from '../actions/projectTracker.js';
 import { installSubAgentFromCatalog, searchSubAgentsCatalog } from '../actions/subAgentsCatalog.js';
 import { PermissionManager } from '../permissions/PermissionManager.js';
+import { extractPatchTarget } from '../utils/patchValidator.js';
 import {
   getPermissionPolicyDisposition,
   type PermissionContext,
@@ -908,7 +909,16 @@ export class ActionExecutor {
     }
   }
 
+  private normalizePatchAction(action: AgentAction): AgentAction {
+    if (!action || action.type !== 'apply_patch') return action;
+    const patch = this.pickText(action.patch, action.diff);
+    if (!patch) return action;
+    const target = extractPatchTarget(patch);
+    return !action.path && target !== undefined ? { ...action, path: target } : action;
+  }
+
   async execute(action: AgentAction, context?: ToolExecutionContext): Promise<string | undefined> {
+    action = this.normalizePatchAction(action);
     return this.withToolActivity(action, () => this.executeLegacy(action, context));
   }
 
@@ -918,6 +928,13 @@ export class ActionExecutor {
   ): Promise<ToolActionOutcome> {
     if (context?.signal?.aborted) {
       return this.createAbortedOutcome();
+    }
+
+    try {
+      action = this.normalizePatchAction(action);
+    } catch (error) {
+      const message = this.normalizeToolError(error);
+      return { success: false, kind: 'validation', error: message, output: `Error: ${message}` };
     }
 
     const validationFailure = this.validateToolAction(action);

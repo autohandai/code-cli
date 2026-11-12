@@ -448,17 +448,26 @@ export async function requestAgentDirectoryAccess(host: AgentCommandRuntimeHost,
     return undefined;
   }
 
+function cancelFollowupQuestion(host: AgentCommandRuntimeHost): string {
+  host.consecutiveCancellations++;
+  console.log(chalk.yellow('\n  (Question cancelled)\n'));
+  return '<answer>User cancelled this question. Do NOT call ask_followup_question again. Continue with your best judgment or provide a final response.</answer>';
+}
+
 export async function executeAgentAskFollowupQuestion(host: AgentCommandRuntimeHost, question: string, suggestedAnswers?: string[]): Promise<string> {
     if (host.followupQuestionCallback) {
       try {
-        const mobileAnswer = await withProgramStatusWait('question', question, () => host.followupQuestionCallback(question, suggestedAnswers));
-        if (typeof mobileAnswer === 'string' && mobileAnswer.trim()) {
+        const answer = await withProgramStatusWait('question', question, () => host.followupQuestionCallback(question, suggestedAnswers));
+        if (answer === null) {
+          return cancelFollowupQuestion(host);
+        }
+        if (typeof answer === 'string' && answer.trim()) {
           host.consecutiveCancellations = 0;
-          console.log(chalk.green(`\n✓ Answer: ${mobileAnswer}\n`));
-          return `<answer>${mobileAnswer}</answer>`;
+          console.log(chalk.green(`\n✓ Answer: ${answer}\n`));
+          return `<answer>${answer}</answer>`;
         }
       } catch {
-        // A mobile transport failure falls through to the existing local prompt.
+        // An unavailable remote channel can still fall back to a local interactive prompt.
       }
     }
 
@@ -488,9 +497,7 @@ export async function executeAgentAskFollowupQuestion(host: AgentCommandRuntimeH
       });
 
       if (answer === null) {
-        host.consecutiveCancellations++;
-        console.log(chalk.yellow('\n  (Question cancelled)\n'));
-        return '<answer>User cancelled this question. Do NOT call ask_followup_question again. Continue with your best judgment or provide a final response.</answer>';
+        return cancelFollowupQuestion(host);
       }
 
       host.consecutiveCancellations = 0;

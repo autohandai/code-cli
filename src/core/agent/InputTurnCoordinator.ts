@@ -8,7 +8,7 @@ import { deliverAgentTargetMessage, listAgentMessageTargets, type MessageTargetH
 import { parseLeadingTargetMessage } from '../../ui/messageTargets.js';
 import readline from 'node:readline';
 import { format as formatText } from 'node:util';
-import { ApiError, classifyApiError } from '../../providers/errors.js';
+import { ApiError, classifyApiError, readStorageCapacityError } from '../../providers/errors.js';
 import { safeEmitKeypressEvents } from '../../ui/inputPrompt.js';
 import { safeSetRawMode } from '../../ui/rawMode.js';
 import { isImmediateCommand, isShellCommand, parseShellCommand } from '../../ui/shellCommand.js';
@@ -439,6 +439,7 @@ export function isAgentContextOverflowError(errorOrMessage: Error | string): boo
  * which lets the caller surface the quota and fire the rate-limit hook.
  */
 export function isAgentRetryableSessionError(error: Error): boolean {
+    if (readStorageCapacityError(error)) return false;
     const classified = error instanceof ApiError ? error : classifyApiError(0, error.message);
     if (classified.code === 'rate_limited') return false;
     return classified.retryable;

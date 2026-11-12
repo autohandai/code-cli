@@ -53,4 +53,7 @@ export interface LLMProvider {
      * Providers that do not implement this are treated as legacy/fallback.
      */
     getCapabilities?(): LLMProviderCapabilities;
+
+    /** Effective runtime context limit, when the provider can report it. */
+    getContextWindow?(signal?: AbortSignal): Promise<number | undefined>;
 }

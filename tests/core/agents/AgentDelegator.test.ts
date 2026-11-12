@@ -66,7 +66,7 @@ describe('AgentDelegator typed outcomes', () => {
     const delegator = new AgentDelegator(provider, { executeForTool } as unknown as ActionExecutor, {
       featureConfig: { provider: 'autohandai', autohandai: { plan: 'cloud', model: 'moa' } },
     });
-    expect((await delegator.delegateTaskForTool('reader', 'Inspect source')).success).toBe(true);
+    expect((await delegator.delegateTaskForTool('reader', 'Inspect source', { researchOnly: true })).success).toBe(true);
     expect(executeForTool).not.toHaveBeenCalled();
     expect(requests[0].tools?.map(tool => tool.name)).toEqual(['run_tool_script', 'tool_search']);
     expect(JSON.stringify(requests[1].messages)).toContain('Unknown tool');
