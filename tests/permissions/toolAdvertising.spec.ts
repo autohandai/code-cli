@@ -43,6 +43,25 @@ describe('filterAdvertisedTools', () => {
 });
 
 describe('run tool scope', () => {
+  it('denies every advertised and fabricated tool with the bare all-tools pattern', () => {
+    const scope = resolveRunToolScope({ disallowedTools: ['*'], allowedTools: ['read_file'] });
+    const manager = new PermissionManager({ mode: 'unrestricted' });
+    manager.setRunToolScope(scope);
+    expect(manager.filterAdvertisedTools(tools)).toEqual([]);
+    for (const kind of ['read_file', 'run_command', 'mcp__future__tool', 'orchestrate_specialists']) {
+      expect(isToolAdvertisedByScope(scope, kind)).toBe(false);
+      expect(checkRunToolScope(scope, { kind, target: 'anything' })).toEqual({ allowed: false, reason: 'run_scope_denied' });
+    }
+  });
+
+  it('keeps a parent all-tools denial when a child allows a tool', () => {
+    const parent = resolveRunToolScope({ disallowedTools: ['*'] });
+    const child = resolveRunToolScope({ allowedTools: ['read_file'] });
+    const scope = { allowed: [], denied: [], allOf: [parent!, child!] };
+    expect(isToolAdvertisedByScope(scope, 'read_file')).toBe(false);
+    expect(checkRunToolScope(scope, { kind: 'read_file', target: 'a.ts' }).allowed).toBe(false);
+  });
+
   it('collects repeated and comma-separated values', () => {
     const collected = collectToolPatternOption('read_file,write_file', collectToolPatternOption('run_command(git:*)'));
     expect(collected).toEqual(['run_command(git:*)', 'read_file,write_file']);

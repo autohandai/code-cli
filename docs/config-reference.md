@@ -3114,7 +3114,7 @@ These flags override config file settings:
 | `--no-idle-logout`            | Keep authenticated sessions alive past the idle timeout for long-running agents                |
 | `--yolo [pattern]`            | Auto-approve tool calls matching pattern (e.g., `allow:read,write` or `deny:delete`)           |
 | `--allowed-tools <patterns>`  | Only offer and authorize these tools this run; comma-separated or repeated (e.g. `read_file,run_command(git:*)`). A run-only restriction on top of every configured policy: never saved, never widened by a local or extension allowlist |
-| `--disallowed-tools <patterns>` | Never offer or authorize these tools this run. Matched on the tool the model names, before capability mapping, so `delete_path` stays blocked even when unrestricted. Applies to MCP and delegated tools too |
+| `--disallowed-tools <patterns>` | Never offer or authorize these tools this run. A bare `*` denies every tool, including automatic specialist dispatch. Matched on the tool the model names, before capability mapping, so `delete_path` stays blocked even when unrestricted. Applies to MCP and delegated tools too |
 | `--timeout <seconds>`         | Time window for `--yolo` auto-approval; when it ends, the permission settings from before `--yolo` return and normal approval resumes |
 | `--max-requests <n>`          | Stop the run after this many model requests, sub-agents included; the turn fails with the limit named and exit code 1 in command mode |
 | `--max-tokens <n>`            | Stop the run once reported token usage reaches this total, sub-agents included                  |

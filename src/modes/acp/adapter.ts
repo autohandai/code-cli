@@ -47,6 +47,7 @@ import { FileActionManager } from '../../actions/filesystem.js';
 import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
 import { prepareBareModeConfig } from '../../runtime/bareMode.js';
+import { resolveRunToolScope } from '../../permissions/runToolScope.js';
 import type { AgentOutputEvent, AgentRuntime, CLIOptions, LoadedConfig, LLMToolCall } from '../../types.js';
 import type { McpServerConfig } from '../../mcp/types.js';
 import { cleanupSessionWorktree, isSessionWorktreeEnabled, prepareSessionWorktree, type SessionWorktreeInfo } from '../../utils/sessionWorktree.js';
@@ -633,6 +634,8 @@ export class AutohandAcpAdapter implements Agent {
 
     // Load config once for the lifetime of the connection
     this.config = await this.ensureConfig();
+    const scope = resolveRunToolScope(this.cliOptions);
+    const allToolsDeny = scope?.denied.some(pattern => pattern.kind === '*' && !pattern.argument) === true;
 
     return {
       protocolVersion: PROTOCOL_VERSION,
@@ -665,6 +668,7 @@ export class AutohandAcpAdapter implements Agent {
         // Context a host prepends to a prompt (`<autohand_*>`, `<*_context>` blocks) is
         // not read as the user asking for specialists; see userAuthoredInstruction.
         hostContext: { version: 1 },
+        autohandRunToolScope: { version: 1, allToolsDeny },
         ...(this.config.sessions?.communication?.enabled && this.clientCapabilities?._meta?.autohandPeerEvents === 1
           ? { peerCommunication: { version: 1 } } : {}),
       },

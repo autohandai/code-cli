@@ -352,12 +352,20 @@ describe("AutohandAcpAdapter", () => {
   });
 
   describe("initialize()", () => {
+    it("reports whether the process activated an all-tools denial", async () => {
+      const scoped = new AutohandAcpAdapter(connection, { disallowedTools: ['*'] });
+      const initialized = await scoped.initialize(makeInitRequest());
+      expect(initialized._meta).toMatchObject({ autohandRunToolScope: { version: 1, allToolsDeny: true } });
+      const partial = new AutohandAcpAdapter(connection, { disallowedTools: ['read_file'] });
+      expect((await partial.initialize(makeInitRequest()))._meta).toMatchObject({ autohandRunToolScope: { version: 1, allToolsDeny: false } });
+    });
+
     it("tells the client that host context blocks are not read as user intent", async () => {
       // Clients gate context they prepend to a prompt (response modes, user profile)
       // on this: an agent that does not advertise it would scan that text for
       // specialist requests. Advertised to every client, with or without peer events.
       const result = await adapter.initialize(makeInitRequest());
-      expect(result._meta).toMatchObject({ hostContext: { version: 1 } });
+      expect(result._meta).toMatchObject({ hostContext: { version: 1 }, autohandRunToolScope: { version: 1, allToolsDeny: false } });
 
       config.sessions = { communication: { enabled: true } };
       const withPeers = await adapter.initialize(makeInitRequest({
@@ -368,6 +376,7 @@ describe("AutohandAcpAdapter", () => {
         autohandWorkflowSkillHooks: 1,
         autohandWorkflowExecution: 2,
         hostContext: { version: 1 },
+        autohandRunToolScope: { version: 1, allToolsDeny: false },
         peerCommunication: { version: 1 },
       });
     });
