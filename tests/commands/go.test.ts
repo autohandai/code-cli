@@ -108,7 +108,20 @@ describe('/go command', () => {
     expect(stripAnsi(result || '')).toContain('No active session to pair.');
   });
 
-  it('creates a mobile handoff and renders the returned QR link', async () => {
+  it('rejects unsupported mobile platforms before registering a device', async () => {
+    const registerDevice = vi.fn();
+    const result = await go({
+      sessionManager: createSessionManager(createSession()),
+      workspaceRoot: '/Users/test/project',
+      model: 'test-model',
+      config: { configPath: '/unused/config.json', auth: { token: 'token' } },
+      client: { registerDevice } as unknown as MobileHandoffClientLike,
+    }, ['windows']);
+    expect(stripAnsi(result || '')).toContain('Usage: /mobile [ios|android]');
+    expect(registerDevice).not.toHaveBeenCalled();
+  });
+
+  it.each(['ios', 'android'] as const)('creates a %s mobile handoff and renders the returned QR link', async (platform) => {
     const client: MobileHandoffClientLike = {
       getDeviceId: vi.fn().mockResolvedValue('device-1'),
       registerDevice: vi.fn().mockResolvedValue(undefined),
@@ -140,7 +153,7 @@ describe('/go command', () => {
         auth: { token: 'token', user: { id: 'user-1', email: 'user@example.com', name: 'User' } },
       },
       client,
-    });
+    }, [platform]);
 
     const output = stripAnsi(result || '');
     expect(output).toContain('Autohand Code mobile handoff');
@@ -155,6 +168,7 @@ describe('/go command', () => {
     );
     expect(output).toContain('autohand-code://go?pairing=pairing-1&token=secret');
     expect(output).toContain('https://autohand.ai/code/go?pairing=pairing-1&token=secret');
+    expect(output).toContain(`Platform: ${platform === 'ios' ? 'iOS' : 'Android'}`);
     expect(output).toContain('Mode: queue');
     expect(output).toContain('Relay: prompts will wait in the queue');
     expect(client.registerDevice).toHaveBeenCalledWith('token', expect.objectContaining({
@@ -174,6 +188,7 @@ describe('/go command', () => {
       capabilities: ['prompt', 'approval', 'notifications'],
       metadata: expect.objectContaining({
         sessionSnapshot: expect.any(String),
+        targetPlatform: platform,
       }),
     }));
     const payload = (client.createPairing as ReturnType<typeof vi.fn>).mock.calls[0][1];

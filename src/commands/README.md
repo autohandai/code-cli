@@ -24,6 +24,7 @@ Each command is a separate TypeScript file that exports:
 | `/sessions` | `sessions.ts` | List saved sessions |
 | `/rename` | `rename.ts` | Name the current session for /sessions and /resume |
 | `/resume` | `resume.ts` | Resume a previous session |
+| `/mobile [ios\|android]` | `go.ts`, `mobile/MobileCommand.ts` | Pair the current session with Autohand mobile; `/mobile(ios)`, `/mobile(android)`, `/ios`, and `/android` use the same flow. `/go` remains compatible. The native iOS app is available first; Android uses the shared protocol entry point. |
 | `/handoff web` | `handoff-web.ts` | Continue this conversation in Web; `--workspace` includes repository changes, `--new` starts a new Web conversation instead of resuming the one this session was imported from, and `--no-open` prints the link |
 | `/memory` | `memory.ts` | List memory or inspect, zoom, forget derived summaries, rebuild projections, and delete entries |
 | `/feedback` | `feedback.ts` | Send feedback with the session transcript; without a message, opens the survey line |

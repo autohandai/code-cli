@@ -39,11 +39,24 @@ import {
   type MobileRelayController,
 } from '../mobile/MobileRelay.js';
 import { MobileTerminalReporter } from '../mobile/MobileTerminalReporter.js';
+import { mobilePairingOptions, MOBILE_COMMAND_USAGE } from '../mobile/MobileCommand.js';
 
 export const metadata: SlashCommand = {
   command: '/go',
   description: 'pair this session with the Autohand Code iOS app',
   implemented: true,
+};
+
+export const mobileMetadata: SlashCommand = {
+  command: '/mobile',
+  description: 'pair this session with the Autohand mobile app (iOS or Android)',
+  implemented: true,
+};
+export const iosMetadata: SlashCommand = {
+  ...mobileMetadata, command: '/ios', description: 'open /mobile for iOS pairing',
+};
+export const androidMetadata: SlashCommand = {
+  ...mobileMetadata, command: '/android', description: 'open /mobile for Android pairing',
 };
 
 export const handoffSessionMetadata: SlashCommand = {
@@ -150,6 +163,8 @@ function parseMode(args: string[], canSteer: boolean): GoMode {
 }
 
 export async function go(ctx: GoContext, args: string[] = []): Promise<string | null> {
+  const options = mobilePairingOptions(args);
+  if (!options || options.help) return MOBILE_COMMAND_USAGE;
   const mode = parseMode(args, Boolean(ctx.enqueueInstruction));
 
   if (mode === 'steer' && !ctx.enqueueInstruction) {
@@ -197,6 +212,7 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
         hostname: os.hostname(),
         client: session.metadata.client,
         clientVersion: session.metadata.clientVersion,
+        targetPlatform: options.platform,
       },
     });
 
@@ -226,6 +242,7 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
         client: session.metadata.client,
         clientVersion: session.metadata.clientVersion,
         sessionSnapshot: JSON.stringify(buildMobileSessionSnapshot(session)),
+        targetPlatform: options.platform,
       },
     });
 
@@ -278,13 +295,16 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
     return [
       '',
       chalk.bold('Autohand Code mobile handoff'),
-      chalk.gray('Scan this with the iOS app to continue this session from your phone.'),
+      chalk.gray(options.platform === 'ios'
+        ? 'Scan this with the iOS app to continue this session from your phone.'
+        : 'Use the shared mobile pairing flow for Android. The native iOS app is available first.'),
       '',
       qr,
       '',
       `${chalk.gray('Scan or open:')} ${formatUrl(pairing.pairingUrl)}`,
       `${chalk.gray('Simulator fallback:')} ${formatUrl(appUrl)}`,
       `${chalk.gray('Project:')} ${chalk.cyan(session.metadata.projectName)}`,
+      `${chalk.gray('Platform:')} ${options.platform === 'ios' ? 'iOS' : 'Android'}`,
       `${chalk.gray('Session:')} ${chalk.cyan(session.metadata.sessionId)}`,
       `${chalk.gray('Mode:')} ${mode === 'steer' ? chalk.green('steer live') : chalk.yellow('queue')}`,
       `${chalk.gray('Relay:')} ${mode === 'steer' ? chalk.green('listening for mobile prompts') : chalk.yellow('prompts will wait in the queue')}`,
