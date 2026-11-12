@@ -10,6 +10,7 @@ import type { SlashCommand } from './slashCommands.js';
 
 import type { SlashCommandContext } from './slashCommandTypes.js';
 import type { ExtensionRuntimeHost } from '../extensions/ExtensionRuntimeHost.js';
+import { parseMobileSlashCommand } from '../mobile/MobileCommand.js';
 import {
   BROWSER_SLASH_COMMAND,
   LEGACY_BROWSER_SLASH_COMMAND,
@@ -32,6 +33,8 @@ export class SlashCommandHandler {
    * Check if a command is supported (exists in the command map)
    */
   isCommandSupported(command: string): boolean {
+    const mobile = parseMobileSlashCommand(command);
+    if (mobile) return this.commandMap.has('/mobile');
     if (command === LEGACY_BROWSER_SLASH_COMMAND) {
       return this.commandMap.has(BROWSER_SLASH_COMMAND);
     }
@@ -43,6 +46,8 @@ export class SlashCommandHandler {
   }
 
   async handle(command: string, args: string[] = []): Promise<string | null> {
+    const mobile = parseMobileSlashCommand([command, ...args].join(' '));
+    if (mobile && command !== '/mobile') return this.handle('/mobile', mobile.args);
     if (command === LEGACY_BROWSER_SLASH_COMMAND) {
       if (!this.commandMap.has(BROWSER_SLASH_COMMAND)) {
         return this.formatUnsupported(command);
@@ -385,6 +390,7 @@ export class SlashCommandHandler {
           });
           return null;
         }
+        case '/mobile':
         case '/go': {
           const { go } = await import('../commands/go.js');
           return go({

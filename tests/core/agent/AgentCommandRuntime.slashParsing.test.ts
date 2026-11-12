@@ -213,3 +213,17 @@ describe('runAgentSlashCommandWithInput', () => {
     }
   });
 });
+
+
+describe('native mobile pairing shortcuts', () => {
+  it.each([
+    ['/mobile', []],
+    ['/mobile ios', ['ios']],
+    ['/mobile(ios)', ['ios']],
+    ['/mobile(android) --queue', ['android', '--queue']],
+    ['/ios --steer', ['ios', '--steer']],
+    ['/android', ['android']],
+  ])('routes %s to the canonical mobile command', (input, args) => {
+    expect(parseAgentSlashCommand({} as never, input)).toEqual({ command: '/mobile', args });
+  });
+});

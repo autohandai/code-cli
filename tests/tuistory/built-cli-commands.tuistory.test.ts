@@ -571,7 +571,7 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
     await exitInteractive(session);
   });
 
-  it('renders a scan-grade, high-contrast QR code with a full quiet zone for /go', async () => {
+  it.each(['/go --queue', '/mobile(ios) --queue', '/mobile(android) --queue', '/ios --queue', '/android --queue'])('renders a scan-grade QR code and restores the composer for %s', async (command) => {
     const state = await createTempAutohandHome();
     tempStates.push(state);
     const pairingPreload = await createMockMobilePairingFetchPreload();
@@ -597,7 +597,8 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
     }));
 
     await waitForComposer(session);
-    await session.type('/go --queue');
+    await session.type(command);
+    await session.text({ waitFor: text => text.includes(`❯ ${command}`), timeout: 5_000 });
     await session.press('enter');
     const screen = stripAnsi(await session.text({
       timeout: 15_000,
@@ -610,7 +611,8 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
       trimEnd: true,
     }));
     const lines = screen.split('\n');
-    const instructionsIndex = lines.findIndex((line) => line.includes('Scan this with the iOS app'));
+    const instructionsIndex = lines.findIndex((line) => line.includes(command.includes('android')
+      ? 'Use the shared mobile pairing flow for Android' : 'Scan this with the iOS app'));
     const linkIndex = lines.findIndex((line) => line.includes('Scan or open:'));
     const qrLines = lines
       .slice(instructionsIndex + 1, linkIndex)
