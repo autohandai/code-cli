@@ -68,3 +68,22 @@ describe('localized --help', () => {
     expect(help).not.toContain('Options:');
   });
 });
+
+
+describe('editor-approved terminology', () => {
+  it.each([
+    'commands.settings.search.provider',
+    'commands.settings.search.providerDesc',
+    'commands.status.provider',
+  ])('uses the approved Japanese provider spelling for %s', async (key) => {
+    await changeLanguage('ja');
+    expect(t(key)).toContain('プロバイダー');
+    expect(t(key)).not.toMatch(/プロバイダ(?!ー)/);
+  });
+
+  it.each(['Codex', 'Codex e Claude Code'])('describes detected agents without a number agreement for %s', async (agents) => {
+    await changeLanguage('pt-br');
+    expect(t('setup.keybindings.description', { agents })).toMatch(/^Encontrado: /);
+    expect(t('setup.keybindings.description', { agents })).toContain(agents);
+  });
+});

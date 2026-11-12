@@ -727,8 +727,8 @@
         "maxTeammatesDesc": "同時の最大チームメイト数"
       },
       "search": {
-        "provider": "検索プロバイダ",
-        "providerDesc": "アクティブなウェブ検索プロバイダ",
+        "provider": "検索プロバイダー",
+        "providerDesc": "アクティブなウェブ検索プロバイダー",
         "braveApiKey": "Brave APIキー",
         "braveApiKeyDesc": "Brave Search用のAPIキー",
         "parallelApiKey": "Parallel APIキー",
@@ -752,7 +752,7 @@
       "version": "バージョン",
       "sessionId": "セッションID",
       "cwd": "現在のディレクトリ",
-      "provider": "プロバイダ",
+      "provider": "プロバイダー",
       "model": "モデル",
       "locale": "言語",
       "apiStatus": "APIステータス",

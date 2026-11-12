@@ -1156,7 +1156,7 @@
     },
     "keybindings": {
       "title": "Atalhos de teclado",
-      "description": "{{agents}} encontrado nesta máquina. O Autohand pode seguir os atalhos que você já conhece; altere isso quando quiser em /settings.",
+      "description": "Encontrado: {{agents}}. O Autohand pode seguir os atalhos que você já conhece; altere isso quando quiser em /settings.",
       "prompt": "Quais atalhos de teclado o campo de entrada deve usar?",
       "autohandOption": "Padrões do Autohand (recomendado)",
       "autohandDescription": "Shift+Tab alterna os modos, Shift+Enter ou Alt+Enter insere uma nova linha, Ctrl+C duas vezes sai",
