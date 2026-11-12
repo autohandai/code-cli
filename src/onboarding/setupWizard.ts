@@ -440,10 +440,10 @@ export class SetupWizard {
     console.clear();
     console.log(chalk.gray(ASCII_FRIEND));
     console.log();
-    console.log(chalk.cyan.bold('  Welcome to Autohand!'));
-    console.log(chalk.gray('  Your super fast self evolving coding agent'));
+    console.log(chalk.cyan.bold(`  ${t('setup.welcome')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.subtitle')}`));
     console.log();
-    console.log(chalk.white('  Let\'s get you set up in just a few steps.'));
+    console.log(chalk.white(`  ${t('setup.letsStart')}`));
     console.log();
 
     await this.pressEnter();
@@ -535,7 +535,7 @@ export class SetupWizard {
     const existingKey = this.getExistingApiKey(provider);
     if (existingKey && existingKey !== 'replace-me') {
       const useExisting = await showConfirm({
-        title: `Use existing ${this.getProviderDisplayName(provider)} API key? (ends with ...${existingKey.slice(-4)})`,
+        title: t('setup.flow.useExistingKey', { provider: this.getProviderDisplayName(provider), suffix: existingKey.slice(-4) }),
         defaultValue: true
       });
 
@@ -891,11 +891,11 @@ export class SetupWizard {
    */
   private async promptReasoningEffort(): Promise<void> {
     const options: ModalOption[] = [
-      { label: 'none', value: 'none', description: 'No extended reasoning' },
-      { label: 'low', value: 'low', description: 'Faster responses, minimal reasoning' },
-      { label: 'medium', value: 'medium', description: 'Balanced speed and reasoning' },
-      { label: 'high', value: 'high', description: 'Thorough reasoning (recommended)' },
-      { label: 'xhigh', value: 'xhigh', description: 'Maximum reasoning depth' },
+      { label: 'none', value: 'none', description: t('setup.flow.effort.none') },
+      { label: 'low', value: 'low', description: t('setup.flow.effort.low') },
+      { label: 'medium', value: 'medium', description: t('setup.flow.effort.medium') },
+      { label: 'high', value: 'high', description: t('setup.flow.effort.high') },
+      { label: 'xhigh', value: 'xhigh', description: t('setup.flow.effort.xhigh') },
     ];
 
     const result = await showModal({
@@ -914,9 +914,9 @@ export class SetupWizard {
    */
   private async promptAutohandAIMoaReasoningEffort(): Promise<ReasoningEffort | undefined> {
     const options: ModalOption[] = [
-      { label: 'medium', value: 'medium', description: 'Balanced thinking for everyday coding' },
-      { label: 'high', value: 'high', description: 'Deeper reasoning for complex changes' },
-      { label: 'xhigh', value: 'xhigh', description: 'Maximum thinking depth for difficult work' },
+      { label: 'medium', value: 'medium', description: t('setup.flow.moaEffort.medium') },
+      { label: 'high', value: 'high', description: t('setup.flow.moaEffort.high') },
+      { label: 'xhigh', value: 'xhigh', description: t('setup.flow.moaEffort.xhigh') },
     ];
 
     const result = await showModal({
@@ -936,33 +936,33 @@ export class SetupWizard {
 
     console.log();
     console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
-    console.log(chalk.white.bold('  Help us improve Autohand'));
+    console.log(chalk.white.bold(`  ${t('setup.telemetry.title')}`));
     console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
     console.log();
-    console.log(chalk.gray('  Product telemetry uses persistent pseudonymous device and session IDs'));
-    console.log(chalk.gray('  to understand how Autohand is used and where it can improve.'));
+    console.log(chalk.gray(`  ${t('setup.flow.telemetry.line1')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.telemetry.line2')}`));
     console.log();
-    console.log(chalk.gray('  What we collect:'));
-    console.log(chalk.gray('  - Command usage (which features are popular)'));
-    console.log(chalk.gray('  - Tool outcomes, errors, and performance/runtime metrics'));
-    console.log(chalk.gray('  - Model, provider, skill, goal, and context lifecycle metadata'));
+    console.log(chalk.gray(`  ${t('setup.telemetry.whatWeCollect')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.telemetry.item1')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.telemetry.item2')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.telemetry.item3')}`));
     console.log();
-    console.log(chalk.gray('  Conversation messages, file contents, diffs, and tool arguments/results'));
-    console.log(chalk.gray('  are not telemetry fields. Error and status text can contain sensitive information.'));
-    console.log(chalk.gray('  Common home paths are sanitized; this is not a general secret detector.'));
+    console.log(chalk.gray(`  ${t('setup.flow.telemetry.notCollected1')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.telemetry.notCollected2')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.telemetry.notCollected3')}`));
     console.log();
 
     const telemetryEnabled = await showConfirm({
-      title: 'Share pseudonymous product usage data to help improve Autohand?',
+      title: t('setup.telemetry.prompt'),
       defaultValue: false
     });
 
     this.state.telemetryEnabled = telemetryEnabled;
 
     if (telemetryEnabled) {
-      console.log(chalk.green('  Thanks for helping us improve Autohand!'));
+      console.log(chalk.green(`  ${t('setup.telemetry.thanks')}`));
     } else {
-      console.log(chalk.gray('  No problem! You can change this anytime in config.'));
+      console.log(chalk.gray(`  ${t('setup.telemetry.declined')}`));
     }
 
     await this.promptTraceConsent();
@@ -980,32 +980,32 @@ export class SetupWizard {
 
     console.log();
     console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
-    console.log(chalk.white.bold('  Auto Report Issues'));
+    console.log(chalk.white.bold(`  ${t('setup.flow.autoReport.title')}`));
     console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
     console.log();
-    console.log(chalk.gray('  When errors occur, Autohand can automatically report'));
-    console.log(chalk.gray('  them as GitHub issues to help us fix bugs faster.'));
+    console.log(chalk.gray(`  ${t('setup.flow.autoReport.line1')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.autoReport.line2')}`));
     console.log();
-    console.log(chalk.gray('  What gets reported:'));
-    console.log(chalk.gray('  - Error type, message, and sanitized stack trace'));
-    console.log(chalk.gray('  - CLI/device/runtime data and call-site diagnostic context'));
+    console.log(chalk.gray(`  ${t('setup.flow.autoReport.whatGetsReported')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.autoReport.item1')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.autoReport.item2')}`));
     console.log();
-    console.log(chalk.gray('  Reports do not attach session messages or source files, but error text'));
-    console.log(chalk.gray('  and diagnostic context can contain sensitive information.'));
-    console.log(chalk.gray('  Path sanitization is not a general secret detector.'));
+    console.log(chalk.gray(`  ${t('setup.flow.autoReport.note1')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.autoReport.note2')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.autoReport.note3')}`));
     console.log();
 
     const autoReportEnabled = await showConfirm({
-      title: 'Automatically report errors to help us fix bugs faster?',
+      title: t('setup.flow.autoReport.prompt'),
       defaultValue: true
     });
 
     this.state.autoReportEnabled = autoReportEnabled;
 
     if (autoReportEnabled) {
-      console.log(chalk.green('  Thanks! This helps us catch and fix issues quickly.'));
+      console.log(chalk.green(`  ${t('setup.flow.autoReport.thanks')}`));
     } else {
-      console.log(chalk.gray('  No problem! You can enable this anytime in config.'));
+      console.log(chalk.gray(`  ${t('setup.flow.autoReport.declined')}`));
     }
   }
 
@@ -1016,7 +1016,7 @@ export class SetupWizard {
     this.state.currentStep = 'preferences';
 
     const configurePrefs = await showConfirm({
-      title: 'Would you like to configure additional preferences? (theme, auto-confirm)',
+      title: t('setup.flow.preferences.prompt'),
       defaultValue: false
     });
 
@@ -1046,7 +1046,7 @@ export class SetupWizard {
     }));
 
     const themeResult = await showModal({
-      title: 'Select a theme',
+      title: t('setup.flow.preferences.theme'),
       options: themeOptions,
       initialIndex: themes.indexOf(getDefaultThemeName())
     });
@@ -1054,12 +1054,12 @@ export class SetupWizard {
     const theme = themeResult?.value || getDefaultThemeName();
 
     const autoConfirm = await showConfirm({
-      title: 'Auto-confirm non-destructive actions?',
+      title: t('setup.flow.preferences.autoConfirm'),
       defaultValue: false
     });
 
     const checkForUpdates = await showConfirm({
-      title: 'Check for updates on startup?',
+      title: t('setup.flow.preferences.checkUpdates'),
       defaultValue: true
     });
 
@@ -1177,41 +1177,41 @@ export class SetupWizard {
     // If exists, ask to overwrite
     if (exists) {
       const overwrite = await showConfirm({
-        title: 'AGENTS.md already exists. Would you like to regenerate it?',
+        title: t('setup.flow.agents.regenerate'),
         defaultValue: false
       });
 
       if (!overwrite) {
         this.state.skipped.push('agentsFile');
-        console.log(chalk.gray('  Keeping existing AGENTS.md'));
+        console.log(chalk.gray(`  ${t('setup.flow.agents.keeping')}`));
         return;
       }
     } else {
       // Ask if they want to create it
       console.log();
       console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
-      console.log(chalk.white.bold('  Project Configuration'));
+      console.log(chalk.white.bold(`  ${t('setup.flow.agents.title')}`));
       console.log(chalk.gray('  ────────────────────────────────────────────────────────'));
       console.log();
-      console.log(chalk.gray('  AGENTS.md helps Autohand understand your project better.'));
-      console.log(chalk.gray('  It contains instructions specific to your codebase.'));
+      console.log(chalk.gray(`  ${t('setup.flow.agents.line1')}`));
+      console.log(chalk.gray(`  ${t('setup.flow.agents.line2')}`));
       console.log();
 
       const createAgents = await showConfirm({
-        title: 'Generate AGENTS.md based on your project?',
+        title: t('setup.flow.agents.prompt'),
         defaultValue: true
       });
 
       if (!createAgents) {
         this.state.skipped.push('agentsFile');
-        console.log(chalk.gray('  You can create it later with /init'));
+        console.log(chalk.gray(`  ${t('setup.flow.agents.later')}`));
         return;
       }
     }
 
     // Analyze project and generate
     console.log();
-    console.log(chalk.gray('  Analyzing your project...'));
+    console.log(chalk.gray(`  ${t('setup.flow.agents.analyzing')}`));
 
     const analyzer = new ProjectAnalyzer(this.workspaceRoot);
     const projectInfo = await analyzer.analyze();
@@ -1224,13 +1224,13 @@ export class SetupWizard {
         console.log(chalk.white(`  - Language: ${projectInfo.language}`));
       }
       if (projectInfo.framework) {
-        console.log(chalk.white(`  - Framework: ${projectInfo.framework}`));
+        console.log(chalk.white(`  - ${t('setup.flow.agents.framework', { name: projectInfo.framework })}`));
       }
       if (projectInfo.packageManager) {
-        console.log(chalk.white(`  - Package manager: ${projectInfo.packageManager}`));
+        console.log(chalk.white(`  - ${t('setup.flow.agents.packageManager', { name: projectInfo.packageManager })}`));
       }
       if (projectInfo.testFramework) {
-        console.log(chalk.white(`  - Test framework: ${projectInfo.testFramework}`));
+        console.log(chalk.white(`  - ${t('setup.flow.agents.testFramework', { name: projectInfo.testFramework })}`));
       }
     }
 
@@ -1241,8 +1241,8 @@ export class SetupWizard {
 
     this.state.agentsFileCreated = true;
     console.log();
-    console.log(chalk.green('  Created AGENTS.md'));
-    console.log(chalk.gray('  You can customize it anytime to improve Autohand\'s understanding.'));
+    console.log(chalk.green(`  ${t('setup.flow.agents.created')}`));
+    console.log(chalk.gray(`  ${t('setup.flow.agents.customize')}`));
   }
 
   /**
@@ -1568,21 +1568,21 @@ export class SetupWizard {
   private showCompletionMessage(): void {
     console.log();
     console.log();
-    console.log(chalk.green('  Setup complete!'));
+    console.log(chalk.green(`  ${t('setup.complete')}`));
     console.log();
 
-    console.log(chalk.gray('  What was created:'));
-    console.log(chalk.white('  - ~/.autohand/config.toml/yaml/json (your settings)'));
+    console.log(chalk.gray(`  ${t('setup.created')}`));
+    console.log(chalk.white(`  ${t('setup.flow.createdConfig')}`));
     if (this.state.agentsFileCreated) {
-      console.log(chalk.white('  - AGENTS.md (project instructions for Autohand)'));
+      console.log(chalk.white(`  ${t('setup.flow.createdAgents')}`));
     }
     console.log();
 
-    console.log(chalk.gray('  Quick tips:'));
-    console.log(chalk.white('  - Type your request and press Enter to start'));
-    console.log(chalk.white('  - Use @filename to mention files'));
-    console.log(chalk.white('  - Type /help for all commands'));
-    console.log(chalk.white('  - Press Ctrl+C twice to exit'));
+    console.log(chalk.gray(`  ${t('setup.flow.tips.title')}`));
+    console.log(chalk.white(`  ${t('setup.flow.tips.enter')}`));
+    console.log(chalk.white(`  ${t('setup.flow.tips.mention')}`));
+    console.log(chalk.white(`  ${t('setup.flow.tips.help')}`));
+    console.log(chalk.white(`  ${t('setup.flow.tips.exit')}`));
     console.log();
   }
 
@@ -1753,7 +1753,7 @@ export class SetupWizard {
 
     // Show gcloud status
     if (gcloudInstalled) {
-      console.log(chalk.green('  ✓ gcloud CLI detected'));
+      console.log(chalk.green(`  ${t('setup.flow.vertex.gcloudDetected')}`));
       if (gcloudAccount) {
         console.log(chalk.gray(`    Account: ${gcloudAccount}`));
       }
@@ -1762,8 +1762,8 @@ export class SetupWizard {
       }
       console.log();
     } else {
-      console.log(chalk.yellow('  ⚠ gcloud CLI not detected'));
-      console.log(chalk.gray('  Install it for automatic token management:'));
+      console.log(chalk.yellow(`  ${t('setup.flow.vertex.gcloudMissing')}`));
+      console.log(chalk.gray(`  ${t('setup.flow.vertex.installHint')}`));
       console.log(chalk.gray('  https://cloud.google.com/sdk/docs/install'));
       console.log();
     }
@@ -1795,16 +1795,16 @@ export class SetupWizard {
     let authToken: string;
 
     if (gcloudInstalled) {
-      console.log(chalk.gray('\n  Fetching access token from gcloud...'));
+      console.log(chalk.gray(`\n  ${t('setup.flow.vertex.fetching')}`));
       const tokenResult = await getGcloudAccessToken();
 
       if (tokenResult.token) {
-        console.log(chalk.green('  ✓ Access token obtained (valid for ~25 minutes)'));
-        console.log(chalk.gray('  Tokens are automatically refreshed when using gcloud.'));
+        console.log(chalk.green(`  ${t('setup.flow.vertex.tokenObtained')}`));
+        console.log(chalk.gray(`  ${t('setup.flow.vertex.autoRefresh')}`));
         authToken = tokenResult.token;
       } else {
         console.log(chalk.yellow(`  ⚠ ${tokenResult.error}`));
-        console.log(chalk.gray('  Please enter token manually or run: gcloud auth login'));
+        console.log(chalk.gray(`  ${t('setup.flow.vertex.manual')}`));
         console.log();
 
         const manualToken = await showPassword({
@@ -1857,7 +1857,7 @@ export class SetupWizard {
     console.log(chalk.green('\n✓ ' + t('providers.config.configuredSuccessfully', { provider: t('providers.vertexai') })));
     console.log(chalk.gray('  ' + t('providers.config.modelLabel', { model })));
     if (gcloudInstalled) {
-      console.log(chalk.gray('  Token auto-refresh enabled via gcloud CLI'));
+      console.log(chalk.gray(`  ${t('setup.flow.vertex.refreshEnabled')}`));
     }
     console.log();
 
@@ -2185,39 +2185,39 @@ export class SetupWizard {
 
     if (probe.baseUrl) {
       this.state.providerBaseUrl = probe.baseUrl;
-      console.log(chalk.green(`  Detected llama.cpp server at ${probe.baseUrl}`));
+      console.log(chalk.green(`  ${t('setup.flow.llamacpp.detected', { url: probe.baseUrl })}`));
     } else if (probe.installed) {
-      console.log(chalk.gray('  llama.cpp is installed but no running server was detected.'));
+      console.log(chalk.gray(`  ${t('setup.flow.llamacpp.noServer')}`));
     } else if (!probe.installPlan) {
-      console.log(chalk.yellow('  llama.cpp is not installed and no supported package manager was detected.'));
+      console.log(chalk.yellow(`  ${t('setup.flow.llamacpp.noPackageManager')}`));
     } else {
-      console.log(chalk.yellow(`  llama.cpp is not installed. Autohand can install it with: ${probe.installPlan.label}`));
+      console.log(chalk.yellow(`  ${t('setup.flow.llamacpp.canInstall', { command: probe.installPlan.label })}`));
       const shouldInstall = await showConfirm({
-        title: 'Install llama.cpp now?',
+        title: t('setup.flow.llamacpp.installPrompt'),
         defaultValue: true
       });
 
       if (shouldInstall) {
-        console.log(chalk.gray(`  Installing llama.cpp with ${probe.installPlan.label}...`));
+        console.log(chalk.gray(`  ${t('setup.flow.llamacpp.installing', { command: probe.installPlan.label })}`));
         const install = await installLlamaCpp(probe.installPlan, this.workspaceRoot);
 
         if (!install.ok) {
-          console.log(chalk.red('  llama.cpp installation failed.'));
+          console.log(chalk.red(`  ${t('setup.flow.llamacpp.installFailed')}`));
           if (install.output) {
             console.log(chalk.gray(`  ${install.output}`));
           }
           return false;
         }
 
-        console.log(chalk.green('  llama.cpp installation completed.'));
+        console.log(chalk.green(`  ${t('setup.flow.llamacpp.installed')}`));
 
         const refreshed = await probeLlamaCppEnvironment(this.workspaceRoot);
         detectedPort = refreshed.port;
         if (refreshed.baseUrl) {
           this.state.providerBaseUrl = refreshed.baseUrl;
-          console.log(chalk.green(`  Detected llama.cpp server at ${refreshed.baseUrl}`));
+          console.log(chalk.green(`  ${t('setup.flow.llamacpp.detected', { url: refreshed.baseUrl })}`));
         } else {
-          console.log(chalk.gray('  Start llama-server with your model, then Autohand will connect on the detected port.'));
+          console.log(chalk.gray(`  ${t('setup.flow.llamacpp.startServer')}`));
         }
       }
     }
@@ -2390,12 +2390,12 @@ export class SetupWizard {
     const included = identity ? await new ManagedWebSearch(identity).available() : false;
     if (included && !this.existingConfig?.search?.provider) {
       this.state.search = { provider: 'autohand' };
-      console.log(chalk.gray('Autohand Web Search is included with your plan and ready to use.'));
+      console.log(chalk.gray(t('setup.flow.search.included')));
       return;
     }
     const options: ModalOption[] = [
       ...SEARCH_PROVIDER_OPTIONS.filter(option => option.value !== 'autohand' || included),
-      { label: 'Set up later', value: 'later', description: 'Use /search before requesting web searches' },
+      { label: t('setup.flow.search.later'), value: 'later', description: t('setup.flow.search.laterDescription') },
     ];
     const result = await showModal({ title: t('setup.search.prompt'), options,
       initialIndex: Math.max(0, options.findIndex(option => option.value === (this.existingConfig?.search?.provider ?? 'browser-profile'))) });
@@ -2407,15 +2407,15 @@ export class SetupWizard {
     if (keyField) {
       const environment = provider === 'brave' ? process.env.BRAVE_SEARCH_API_KEY : provider === 'parallel' ? process.env.PARALLEL_API_KEY : provider === 'keenable' ? process.env.KEENABLE_API_KEY : process.env.EXA_API_KEY;
       const existing = this.existingConfig?.search?.[keyField];
-      const key = resolveSearchApiKey(existing, environment) ?? await showPassword({ title: `Enter ${choice.label} API key:`, placeholder: t('ui.apiKeyPlaceholder') });
+      const key = resolveSearchApiKey(existing, environment) ?? await showPassword({ title: t('setup.flow.search.enterKey', { provider: choice.label }), placeholder: t('ui.apiKeyPlaceholder') });
       if (!key?.trim()) {
-        console.log(chalk.yellow('Search setup deferred: an API key is required. Run /search to finish setup.'));
+        console.log(chalk.yellow(t('setup.flow.search.deferred')));
         this.state.skipped.push('search');
         return;
       }
       searchState[keyField] = key.trim();
     }
-    if (provider === 'browser-profile') console.log(chalk.gray('Connect Chromium with /browser for search, or keep a Chrome/Brave profile available. Use /search if your browser blocks automated requests.'));
+    if (provider === 'browser-profile') console.log(chalk.gray(t('setup.flow.search.browserHint')));
     this.state.search = searchState;
   }
 
@@ -2501,7 +2501,7 @@ export class SetupWizard {
     console.log();
 
     if (this.state.locale) {
-      console.log(chalk.white(`  Language: ${LANGUAGE_DISPLAY_NAMES[this.state.locale]}`));
+      console.log(chalk.white(`  ${t('setup.flow.summary.language', { value: LANGUAGE_DISPLAY_NAMES[this.state.locale] })}`));
     }
     if (this.state.provider) {
       console.log(chalk.white('  ' + t('setup.review.provider', { provider: this.getProviderDisplayName(this.state.provider) })));
@@ -2513,29 +2513,29 @@ export class SetupWizard {
       console.log(chalk.white('  ' + t('providers.config.reasoningEffortLabel', { level: this.state.reasoningEffort })));
     }
     if (this.state.permissionMode) {
-      console.log(chalk.white(`  Permissions: ${this.state.permissionMode}`));
+      console.log(chalk.white(`  ${t('setup.flow.summary.permissions', { value: this.state.permissionMode })}`));
     }
-    console.log(chalk.white(`  Telemetry: ${this.state.telemetryEnabled ? 'enabled' : 'disabled'}`));
-    console.log(chalk.white(`  Agent traces: ${this.state.traceConsent ?? 'disabled'}`));
-    console.log(chalk.white(`  Auto-report: ${this.state.autoReportEnabled ? 'enabled' : 'disabled'}`));
+    console.log(chalk.white(`  ${t('setup.flow.summary.telemetry', { value: this.state.telemetryEnabled ? t('setup.flow.summary.enabled') : t('setup.flow.summary.disabled') })}`));
+    console.log(chalk.white(`  ${t('setup.flow.summary.traces', { value: this.state.traceConsent ?? t('setup.flow.summary.disabled') })}`));
+    console.log(chalk.white(`  ${t('setup.flow.summary.autoReport', { value: this.state.autoReportEnabled ? t('setup.flow.summary.enabled') : t('setup.flow.summary.disabled') })}`));
 
     if (this.state.notifications) {
-      console.log(chalk.white(`  Notifications: ${this.state.notifications.enabled ? 'enabled' : 'disabled'}`));
+      console.log(chalk.white(`  ${t('setup.flow.summary.notifications', { value: this.state.notifications.enabled ? t('setup.flow.summary.enabled') : t('setup.flow.summary.disabled') })}`));
     }
     if (this.state.search?.provider) {
-      console.log(chalk.white(`  Search: ${this.state.search.provider}`));
+      console.log(chalk.white(`  ${t('setup.flow.summary.search', { value: this.state.search.provider })}`));
     }
     if (this.state.mcpEnabled !== undefined) {
-      console.log(chalk.white(`  MCP: ${this.state.mcpEnabled ? 'enabled' : 'disabled'}`));
+      console.log(chalk.white(`  ${t('setup.flow.summary.mcp', { value: this.state.mcpEnabled ? t('setup.flow.summary.enabled') : t('setup.flow.summary.disabled') })}`));
     }
     if (this.state.keybindingProfile) {
-      console.log(chalk.white(`  Keyboard shortcuts: ${getKeybindingProfile(this.state.keybindingProfile).label}`));
+      console.log(chalk.white(`  ${t('setup.flow.summary.keybindings', { value: getKeybindingProfile(this.state.keybindingProfile).label })}`));
     }
     if (this.state.importedAgents?.length) {
-      console.log(chalk.white(`  Imported from: ${describeDetectedAgents(this.state.importedAgents)}`));
+      console.log(chalk.white(`  ${t('setup.flow.summary.importedFrom', { value: describeDetectedAgents(this.state.importedAgents) })}`));
     }
     if (this.state.authUser) {
-      console.log(chalk.white(`  Account: ${this.state.authUser.email}`));
+      console.log(chalk.white(`  ${t('setup.flow.summary.account', { value: this.state.authUser.email })}`));
     }
     console.log();
 
@@ -2684,7 +2684,7 @@ export class SetupWizard {
   }
 
   private async pressEnter(): Promise<void> {
-    console.log(chalk.gray('  Press Enter to continue...'));
+    console.log(chalk.gray(`  ${t('setup.flow.pressEnter')}`));
     // Wait for Enter key
     await new Promise<void>(resolve => {
       process.stdin.once('data', () => resolve());

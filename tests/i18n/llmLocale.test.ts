@@ -126,6 +126,13 @@ describe('llmLocale', () => {
         expect(result).toContain('हिन्दी');
       });
 
+      it('should include language preference header for Kazakh', () => {
+        const result = buildLocaleInstruction('kk');
+        expect(result).toContain('## Response Language Preference');
+        expect(result).toContain('Kazakh');
+        expect(result).toContain('Қазақ тілі');
+      });
+
       it('should include language preference header for Bahasa Indonesia', () => {
         const result = buildLocaleInstruction('id');
         expect(result).toContain('## Response Language Preference');

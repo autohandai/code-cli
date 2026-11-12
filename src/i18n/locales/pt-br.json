@@ -36,31 +36,93 @@
       "model": "Substituir o modelo LLM configurado",
       "config": "Caminho para arquivo de configuração (padrão ~/.autohand/config.json)",
       "temperature": "Temperatura de amostragem",
-      "displayLanguage": "Definir idioma de exibição (ex: en, zh-cn, fr, de)",
-      "autoCommit": "Auto-commit com mensagem gerada pela IA",
-      "unrestricted": "Executar sem prompts de aprovação",
+      "displayLanguage": "Define o idioma de exibição (ex.: en, id, zh-cn, fr, de, ja)",
+      "autoCommit": "Auto-commit com mensagem gerada por LLM (executa lint e testes antes)",
+      "unrestricted": "Executa sem nenhum prompt de aprovação (use com cuidado)",
       "restricted": "Negar automaticamente operações perigosas",
       "autoSkill": "Auto-gerar skills baseado na análise do projeto",
-      "skillInstall": "Instalar uma skill da comunidade",
-      "project": "Instalar skill no nível do projeto",
+      "skillInstall": "Instala uma skill da comunidade (abre o navegador se não houver nome)",
+      "project": "Instala a skill no nível do projeto (com --skill-install)",
       "permissions": "Exibir configurações de permissões atuais e sair",
       "login": "Entrar na sua conta Autohand",
       "logout": "Sair da sua conta Autohand",
-      "syncSettings": "Habilitar/desabilitar sincronização de configurações",
-      "patch": "Gerar patch git sem aplicar mudanças",
-      "output": "Arquivo de saída para patch (padrão: stdout)",
-      "autoMode": "Iniciar loop de desenvolvimento autônomo",
+      "syncSettings": "Ativa/desativa a sincronização de configurações (padrão: false)",
+      "patch": "Gera um patch git sem aplicar as mudanças (requer --prompt)",
+      "output": "Arquivo de saída do patch (padrão: stdout, usado com --patch)",
+      "autoMode": "Ativa o modo auto interativo ou inicia um loop independente com uma tarefa inline",
       "maxIterations": "Máx. iterações no modo auto (padrão: 50)",
-      "completionPromise": "Texto marcador de conclusão (padrão: DONE)",
+      "completionPromise": "Texto marcador de conclusão (padrão: \"DONE\")",
       "noWorktree": "Desabilitar isolamento de worktree git no modo auto",
       "checkpointInterval": "Commit git a cada N iterações (padrão: 5)",
       "maxRuntime": "Tempo máximo de execução em minutos (padrão: 120)",
       "maxCost": "Custo máximo da API em dólares (padrão: 10)",
-      "setup": "Executar assistente de configuração",
-      "addDir": "Adicionar diretórios adicionais ao escopo do workspace",
+      "setup": "Executa o assistente de configuração para configurar ou reconfigurar o Autohand",
+      "addDir": "Adiciona diretórios extras ao escopo do workspace (pode ser usado várias vezes)",
       "thinking": "Definir profundidade de pensamento/raciocínio (none, normal, extended)",
       "yolo": "Auto-aprovar chamadas de ferramentas correspondentes ao padrão (ex: allow:read,write ou deny:delete)",
-      "timeout": "Tempo limite em segundos para modo auto-aprovar"
+      "timeout": "Tempo limite em segundos para modo auto-aprovar",
+      "browser": "Ativa a integração com o navegador (igual a /browser)",
+      "noBrowser": "Desativa a integração com o navegador",
+      "cloud": "Executa com um agente Autohand hospedado e durável (Pro, Pro+, Max)",
+      "cloudAccount": "Seleciona a conta Autohand para a sessão na nuvem",
+      "cloudRepository": "Anexa um repositório autorizado a uma nova sessão na nuvem",
+      "cloudConnector": "Conector de repositório ou conexão de GitHub App a usar",
+      "cloudBranch": "Branch remota do workspace na nuvem",
+      "cloudProvider": "Provedor de sandbox gerenciado: cloudflare, daytona ou box",
+      "continue": "Retoma a última sessão desta pasta (aceita -p)",
+      "resume": "Retoma uma sessão salva ou abre o seletor de pastas se não houver; com --cloud, retoma uma sessão na nuvem própria por ID ou URL Web",
+      "version": "exibe a versão atual",
+      "outputFormat": "Formato de saída do comando: stream-json",
+      "json": "Saída JSON do comando: stream (padrão) ou local",
+      "outputSchema": "Somente modo comando: a resposta final deve ser um único documento JSON válido segundo este arquivo JSON Schema",
+      "bare": "Modo mínimo: ignora hooks, sincronização de plugins, atribuição, memória automática, pré-carregamentos em segundo plano, leituras do keychain e descoberta automática de AGENTS.md",
+      "noDaemon": "Desativa serviços em segundo plano e processos filhos; mantém ferramentas em primeiro plano e comandos de sessão",
+      "offline": "Desativa operações de rede na inicialização, incluindo atualizações do catálogo de modelos",
+      "dir": "Alias de --path",
+      "y": "Alias de --yes",
+      "plan": "Inicia no modo plan somente leitura; exige aprovação antes da execução",
+      "answerOnly": "Executa o perfil RPC de resposta Blueprint classificada e sem ferramentas",
+      "setupOnly": "Executa apenas o perfil RPC restrito de autorização de dispositivo do Autohand",
+      "clientContext": "Contexto do cliente RPC: cli, vscode, browser, slack, api, restricted ou blueprint (padrão: cli)",
+      "noIdleLogout": "Desativa o logout por inatividade autenticado em sessões longas do agente",
+      "goal": "Executa /goal de forma não interativa (status se omitido; caso contrário, os mesmos argumentos de /goal)",
+      "learn": "Executa o consultor de skills /learn de forma não interativa (analisa e instala as skills recomendadas)",
+      "learnUpdate": "Reanalisa o projeto e regenera skills geradas por LLM desatualizadas",
+      "settings": "Configura o Autohand (igual a /settings no modo interativo)",
+      "tracesOn": "Ativa o monitoramento local do agente e a sincronização de metadados com o Autohand Console",
+      "tracesOff": "Interrompe o monitoramento do agente e a sincronização na nuvem, e remove os dados de trace locais derivados",
+      "mode": "Modo de execução: interactive (padrão), rpc ou acp",
+      "acp": "Atalho para --mode acp (Agent Client Protocol via stdio)",
+      "teammateMode": "Preferência legada de exibição de equipe; a visão ao vivo da equipe permanece no terminal do líder",
+      "worktree": "Executa a sessão em um worktree git isolado (nome opcional)",
+      "tmux": "Inicia em uma sessão tmux dedicada (aceita --worktree ou --zit)",
+      "zit": "Executa a sessão em um workspace Zit descartável, registrado como uma mudança Zit ao sair (intenção opcional)",
+      "maxRequests": "Interrompe a execução após este número de requisições ao modelo, incluindo subagentes",
+      "maxTokens": "Interrompe a execução quando o uso de tokens informado atingir este total, incluindo subagentes",
+      "maxDuration": "Interrompe a execução após este tempo decorrido",
+      "interactiveOnComplete": "Quando o modo auto terminar, passa direto para o modo interativo (somente TTY)",
+      "about": "Mostra informações sobre o Autohand",
+      "feedback": "Envia feedback",
+      "contextCompact": "Ativa a compactação de contexto (padrão: ativada)",
+      "noContextCompact": "Desativa a compactação de contexto",
+      "searchEngine": "Define o provedor de busca na web (autohand, browser-profile, exa, google, brave, duckduckgo, parallel)",
+      "sysPrompt": "Substitui todo o system prompt (string inline ou caminho de arquivo)",
+      "systemPrompt": "Substitui todo o system prompt (string inline ou caminho de arquivo)",
+      "systemPromptFile": "Substitui todo o system prompt pelo conteúdo de um arquivo",
+      "appendSysPrompt": "Acrescenta ao system prompt (string inline ou caminho de arquivo)",
+      "appendSystemPrompt": "Acrescenta ao system prompt (string inline ou caminho de arquivo)",
+      "appendSystemPromptFile": "Acrescenta o conteúdo de um arquivo ao system prompt",
+      "mcpConfig": "Arquivo de configuração MCP explícito",
+      "agents": "Agentes personalizados como JSON inline ({\"reviewer\":{\"description\":\"...\",\"prompt\":\"...\"}}) ou um diretório externo de agentes",
+      "pluginDir": "Diretório explícito de plugins/meta-ferramentas",
+      "allowedTools": "Oferece e autoriza somente estas ferramentas nesta execução, separadas por vírgula ou repetidas (ex.: read_file,run_command(git:*))",
+      "disallowedTools": "Nunca oferece nem autoriza estas ferramentas nesta execução, separadas por vírgula ou repetidas (ex.: delete_path,run_command)",
+      "fork": "Cria e retoma uma nova ramificação de sessão a partir de uma referência de sessão existente",
+      "rename": "Dá um nome à sessão mais recente deste workspace e sai",
+      "ephemeral": "Mantém esta execução fora do histórico de sessões: sem arquivos de sessão, sem memória automática, sem sincronização de sessão",
+      "profile": "Aplica profiles.<name> da configuração a esta execução sem salvá-lo",
+      "set": "Substitui uma configuração nesta execução, ex.: --set ui.theme=aurora (repetível, nunca salvo)",
+      "help": "exibe a ajuda do comando"
     },
     "thinking": {
       "enabled": "Pensamento estendido habilitado",
@@ -70,6 +132,323 @@
       "reading": "Lendo entrada via pipe...",
       "timeout": "Tempo limite de leitura stdin",
       "empty": "Nenhuma entrada recebida via pipe"
+    },
+    "rootDescription": "Agente de código autônomo",
+    "commands": {
+      "browser": {
+        "description": "instala e configura a ponte da extensão de navegador do Autohand",
+        "install": {
+          "description": "instala a ponte de mensagens nativas para os navegadores compatíveis",
+          "options": {
+            "browser": "navegador de destino: chrome, chromium, brave, edge ou all",
+            "extensionId": "id da extensão de navegador instalada a usar no handoff direto",
+            "installUrl": "URL alternativa de instalação/continuação",
+            "cliPath": "caminho do binário da CLI a registrar no host nativo",
+            "open": "abre a página de instalação/continuação após instalar"
+          }
+        }
+      },
+      "computer": {
+        "description": "Instala e diagnostica o Autohand Computer Use",
+        "options": {
+          "json": "Imprime o status em formato legível por máquina"
+        },
+        "status": {
+          "description": "Mostra a prontidão do Autohand Computer Use",
+          "options": {
+            "json": "Imprime o status em formato legível por máquina"
+          }
+        },
+        "install": {
+          "description": "Instala ou repara o Autohand Computer Use",
+          "options": {
+            "binDir": "Diretório do executável do mecanismo de computer use",
+            "force": "Reinstala mesmo que já exista um driver compatível",
+            "nonInteractive": "Executa sem prompts de confirmação do Autohand",
+            "json": "Imprime o resultado em formato legível por máquina"
+          }
+        },
+        "doctor": {
+          "description": "Executa os diagnósticos do Autohand Computer Use",
+          "options": {
+            "json": "Verifica a prontidão da instalação sem prompts de permissão interativos"
+          }
+        }
+      },
+      "extensions": {
+        "description": "Valida, instala, inspeciona e gerencia as extensões do Autohand Code",
+        "list": {
+          "description": "Lista as extensões instaladas",
+          "options": {
+            "json": "Emite JSON legível por máquina",
+            "scope": "Filtra por escopo de usuário ou projeto"
+          }
+        },
+        "show": {
+          "description": "Mostra uma extensão instalada e suas contribuições",
+          "options": {
+            "json": "Emite JSON legível por máquina",
+            "scope": "Seleciona o escopo de usuário ou projeto"
+          }
+        },
+        "validate": {
+          "description": "Valida um pacote de extensão sem instalá-lo",
+          "options": {
+            "json": "Emite JSON legível por máquina"
+          }
+        },
+        "install": {
+          "description": "Instala uma extensão a partir de um diretório local",
+          "options": {
+            "scope": "Instala no escopo de usuário ou projeto",
+            "link": "Vincula o diretório de origem para desenvolvimento da extensão",
+            "replace": "Substitui atomicamente o conteúdo instalado diferente",
+            "trust": "Permite que o código de runtime revisado seja executado dentro do Autohand"
+          }
+        },
+        "enable": {
+          "description": "Ativa uma extensão instalada",
+          "options": {
+            "scope": "Seleciona o escopo de usuário ou projeto"
+          }
+        },
+        "disable": {
+          "description": "Desativa uma extensão instalada",
+          "options": {
+            "scope": "Seleciona o escopo de usuário ou projeto"
+          }
+        },
+        "remove": {
+          "description": "Remove uma extensão instalada",
+          "options": {
+            "scope": "Seleciona o escopo de usuário ou projeto",
+            "yes": "Confirma a remoção sem perguntar"
+          }
+        },
+        "doctor": {
+          "description": "Diagnostica os pacotes de extensão instalados",
+          "options": {
+            "json": "Emite JSON legível por máquina"
+          }
+        }
+      },
+      "discovery": {
+        "description": "Descobre fluxos de trabalho do repositório localmente; lista ou envia rascunhos para o Build my agent",
+        "options": {
+          "workspace": "Repositório, ou pasta de repositórios, a analisar (padrão: --path ou o diretório atual)",
+          "json": "Emite resultados legíveis por máquina",
+          "dryRun": "Visualiza sem gravar arquivos nem enviar fluxos de trabalho",
+          "select": "Lista ou envia os IDs de fluxos de trabalho locais selecionados",
+          "depth": "Procura projetos até dois níveis de diretório abaixo do workspace",
+          "skillQuery": "Filtra nomes e descrições de skills",
+          "noBehavior": "Ignora o histórico local de mensagens do usuário",
+          "github": "Inclui pull requests mescladas usando a CLI gh autenticada",
+          "analyze": "Refina as recomendações com a skill de análise de descoberta",
+          "withReport": "Envia os achados derivados e solicita correspondências de fluxos de trabalho hospedados",
+          "push": "Analisa, salva e envia os fluxos de trabalho sugeridos com seus achados",
+          "since": "Período retroativo do Work Map, como 30d, 24h ou 60m",
+          "agent": "Filtro de harness de agente do Work Map",
+          "output": "Grava atomicamente o JSON agregado do Work Map"
+        }
+      },
+      "review": {
+        "description": "Executa o Autohand Review de forma não interativa (beta público). Tipos: changes, code, architecture, security, performance, forensics ou serve. Use /review no modo interativo.",
+        "options": {
+          "audience": "Público do relatório: mixed, executive, technical ou forensic",
+          "format": "Formato do relatório de revisão: markdown ou json",
+          "base": "Base de comparação para revisão de mudanças ou forense",
+          "head": "Ponta da comparação; padrão: a árvore de trabalho",
+          "focus": "Foco adicional da revisão",
+          "port": "Porta de loopback do visualizador do relatório; 0 seleciona uma porta livre",
+          "noOpen": "Não abre o visualizador do relatório no navegador",
+          "path": "Caminho do workspace a revisar",
+          "config": "Caminho do arquivo de configuração do Autohand",
+          "model": "Substitui o modelo de revisão configurado",
+          "offline": "Desativa operações de rede na inicialização",
+          "bare": "Usa a inicialização mínima para a revisão",
+          "json": "Transmite os eventos do ciclo de vida do comando como JSON",
+          "outputFormat": "Formato de transporte do comando: stream-json"
+        }
+      },
+      "transfer": {
+        "description": "Importa uma conversa privada do Autohand Code Web e continua localmente",
+        "options": {
+          "account": "A conta Autohand mostrada na transferência pela Web",
+          "path": "Pasta pai de um novo checkout de repositório, ou o workspace de um chat sem repositório",
+          "config": "Caminho do arquivo de configuração do Autohand",
+          "offline": "Ignora a atualização do catálogo de modelos ao retomar",
+          "accept": "Aceita a transferência revisada sem confirmação interativa",
+          "importOnly": "Salva a sessão local sem iniciar a CLI interativa"
+        }
+      },
+      "doctor": {
+        "description": "Verifica a instalação: runtime, configuração, ferramentas, terminal, conta, servidores MCP e extensões",
+        "options": {
+          "json": "Imprime o relatório como JSON",
+          "skipMcp": "Não se conecta aos servidores MCP configurados",
+          "path": "Workspace a verificar",
+          "config": "Caminho do arquivo de configuração do Autohand"
+        }
+      },
+      "resume": {
+        "description": "Retoma uma sessão salva por nome, ID, caminho ou prefixo único de ID; caso contrário, abre o seletor de projetos",
+        "options": {
+          "last": "Retoma a sessão ativa mais recentemente",
+          "all": "Inclui sessões de todos os projetos",
+          "path": "Caminho do workspace onde operar e pelo qual filtrar as sessões",
+          "config": "Caminho do arquivo de configuração do Autohand",
+          "model": "Substitui o modelo LLM configurado",
+          "offline": "Desativa a atualização do catálogo de modelos nesta sessão retomada"
+        }
+      },
+      "login": {
+        "description": "Entra na sua conta Autohand"
+      },
+      "account": {
+        "description": "Lista as contas Autohand a que você pertence ou troca a que esta CLI usa (use <team>, clear)"
+      },
+      "logout": {
+        "description": "Sai da sua conta Autohand"
+      },
+      "squad": {
+        "description": "Abre o Squad, lista agentes, envia mensagens, lê o histórico ou serve o MCP integrado"
+      },
+      "queue": {
+        "description": "Mostra a fila local do Autohand Squad"
+      },
+      "config": {
+        "description": "Configura o Autohand",
+        "set": {
+          "description": "Define um valor de configuração, ex.: autohand config set verbs activity false"
+        }
+      },
+      "mcp": {
+        "description": "Gerencia servidores MCP (Model Context Protocol)",
+        "add": {
+          "description": "Adiciona um servidor MCP à configuração e conecta automaticamente na próxima sessão",
+          "options": {
+            "transport": "Tipo de transporte: stdio | http | sse",
+            "scope": "Escopo da configuração: user | project"
+          }
+        },
+        "remove": {
+          "description": "Remove um servidor MCP da configuração",
+          "options": {
+            "scope": "Escopo da configuração: user | project"
+          }
+        },
+        "connect": {
+          "description": "Ativa a conexão automática de um servidor MCP configurado",
+          "options": {
+            "scope": "Escopo da configuração: user | project"
+          }
+        },
+        "disconnect": {
+          "description": "Desativa a conexão automática de um servidor MCP configurado",
+          "options": {
+            "scope": "Escopo da configuração: user | project"
+          }
+        },
+        "list": {
+          "description": "Lista os servidores MCP configurados",
+          "options": {
+            "scope": "Escopo da configuração: user | project"
+          }
+        },
+        "install": {
+          "description": "Navega e instala servidores MCP da comunidade",
+          "options": {
+            "scope": "Escopo da configuração: user | project"
+          }
+        }
+      },
+      "experiments": {
+        "description": "Lista e alterna os experimentos do Autohand",
+        "list": {
+          "description": "Lista os experimentos e o estado atual"
+        },
+        "status": {
+          "description": "Mostra um experimento"
+        },
+        "refresh": {
+          "description": "Baixa as feature flags remotas da API do Autohand"
+        },
+        "enable": {
+          "description": "Ativa um experimento"
+        },
+        "disable": {
+          "description": "Desativa um experimento"
+        }
+      },
+      "agents": {
+        "description": "Mostra os agentes ativos da CLI do Autohand",
+        "options": {
+          "once": "Imprime um snapshot e sai"
+        }
+      },
+      "sessions": {
+        "description": "Lista as sessões salvas",
+        "options": {
+          "project": "Filtra as sessões pelo nome do projeto"
+        }
+      },
+      "init": {
+        "description": "Cria um arquivo AGENTS.md no workspace",
+        "options": {
+          "path": "Caminho do workspace"
+        }
+      },
+      "completion": {
+        "description": "Gera scripts de autocompletar do shell (bash, zsh, fish)"
+      },
+      "update": {
+        "description": "Verifica atualizações e instala, se houver",
+        "options": {
+          "check": "Apenas verifica atualizações, sem instalar",
+          "models": "Atualiza o catálogo remoto de modelos sem atualizar a CLI"
+        }
+      },
+      "upgrade": {
+        "description": "Verifica atualizações e instala, se houver",
+        "options": {
+          "check": "Apenas verifica atualizações, sem instalar",
+          "models": "Atualiza o catálogo remoto de modelos sem atualizar a CLI"
+        }
+      },
+      "autoResearch": {
+        "description": "Inicia, inspeciona ou finaliza uma sessão de auto-research em .auto/"
+      },
+      "import": {
+        "description": "Importa dados de outros agentes de código (claude, codex, gemini, cursor, cline, continue, augment, opencode, kimi, grok)",
+        "options": {
+          "all": "Importa todas as categorias disponíveis sem perguntar",
+          "categories": "Lista de categorias a importar, separadas por vírgula (sessions,settings,skills,memory,mcp,hooks)",
+          "dryRun": "Mostra o que seria importado sem fazer alterações",
+          "retryFailed": "Tenta novamente os itens de importação que falharam antes"
+        }
+      },
+      "traces": {
+        "description": "Controla o monitoramento de traces do agente (status, on ou off)",
+        "options": {
+          "json": "Emite o status em formato legível por máquina"
+        }
+      }
+    },
+    "help": {
+      "usage": "Uso:",
+      "options": "Opções:",
+      "globalOptions": "Opções globais:",
+      "commands": "Comandos:",
+      "arguments": "Argumentos:",
+      "default": "padrão",
+      "examples": "Exemplos:",
+      "exampleContinue": "Continuar nesta pasta",
+      "exampleContinueHeadless": "Continuar sem interface",
+      "examplePick": "Escolher uma sessão salva",
+      "exampleResume": "Retomar uma sessão salva"
+    },
+    "arguments": {
+      "prompt": "Execute uma única instrução no modo comando (igual a -p)"
     }
   },
   "welcome": {
@@ -146,7 +525,8 @@
       "selectPrompt": "Selecione um idioma:",
       "changed": "Idioma alterado para {{language}}",
       "noChange": "Nenhuma alteração feita.",
-      "restartHint": "Algumas mudanças podem exigir reiniciar o CLI para ter efeito completo."
+      "restartHint": "Algumas mudanças podem exigir reiniciar o CLI para ter efeito completo.",
+      "cancelled": "Seleção de idioma cancelada."
     },
     "quit": {
       "description": "sair do Autohand",
@@ -157,6 +537,11 @@
       "created": "Criado AGENTS.md em {{path}}",
       "alreadyExists": "AGENTS.md já existe em {{path}}",
       "overwritePrompt": "Sobrescrever AGENTS.md existente?"
+    },
+    "upgrade": {
+      "signIn": "Entre com /login para ver as opções de upgrade.",
+      "opening": "Abrindo {{url}}",
+      "link": "Faça upgrade do seu plano Autohand: {{url}}"
     },
     "undo": {
       "description": "reverter última mutação de arquivo",
@@ -188,9 +573,11 @@
       "categories": {
         "ui": "UI & Exibição",
         "agent": "Comportamento do Agente",
+        "sessions": "Sessões",
         "permissions": "Permissões",
         "network": "Rede",
         "telemetry": "Telemetria & Relatórios",
+        "traces": "Traces do agente e Work Map",
         "automode": "Auto-mode",
         "teams": "Times",
         "search": "Busca"
@@ -200,18 +587,40 @@
         "locale": "Idioma",
         "autoConfirm": "Auto-confirmar ações",
         "autoConfirmDesc": "Pular prompts de confirmação para ações de ferramentas",
+        "silentToolOutput": "Saída silenciosa de ferramentas",
+        "silentToolOutputDesc": "Oculta os blocos de saída de ferramentas no terminal, mantendo o contexto do modelo",
+        "toolOutput": "Saída de ferramentas",
+        "toolOutputDesc": "compact mostra as primeiras linhas de um resultado e abre o restante com Ctrl+O ou um clique; full exibe tudo",
+        "taskListPosition": "Posição da lista de tarefas",
+        "taskListPositionDesc": "Coloca as tarefas ativas acima do status ou logo acima do campo de entrada",
         "showThinking": "Mostrar pensamento da IA",
         "showThinkingDesc": "Exibir processo de raciocínio do modelo",
+        "renderMarkdown": "Renderizar markdown",
+        "renderMarkdownDesc": "Exibe títulos, listas, código e tabelas do assistente formatados em vez de markdown bruto",
+        "defaultInteractionMode": "Modo inicial",
+        "defaultInteractionModeDesc": "Modo em que uma sessão interativa começa: default (pergunta antes de ações arriscadas), plan, automode ou yolo",
+        "showTips": "Dicas de recursos",
+        "showTipsDesc": "Alterna dicas de recursos abaixo do status de trabalho ou do resumo de conclusão, acima do campo de entrada",
         "terminalBell": "Sino do terminal",
         "terminalBellDesc": "Tocar sino quando tarefa completa",
         "checkForUpdates": "Verificar atualizações",
         "checkForUpdatesDesc": "Verificar atualizações do CLI ao iniciar",
         "showCompletionNotification": "Notificações de conclusão",
         "showCompletionNotificationDesc": "Mostrar notificação do sistema quando trabalho completa",
+        "completionReportEnabled": "Resumo da resposta final",
+        "completionReportEnabledDesc": "Inclui um breve resumo de resultados, lições e memórias confirmadas nas respostas finais",
         "promptSuggestions": "Sugestões de prompt",
         "promptSuggestionsDesc": "Mostrar sugestões de próximos passos geradas pela IA",
+        "mouseComposerCursor": "Cursor do campo de entrada com mouse",
+        "mouseComposerCursorDesc": "Clique no texto do campo de entrada para posicionar o cursor",
+        "keybindingProfile": "Atalhos de teclado",
+        "keybindingProfileDesc": "Segue os atalhos de outro agente de código (Ctrl+J nova linha, Ctrl+D sair, Ctrl+R histórico)",
+        "activityVerbsEnabled": "Verbos de atividade",
+        "activityVerbsEnabledDesc": "Exibe verbos de atividade alternados enquanto o agente trabalha",
         "activitySymbol": "Símbolo de atividade",
         "activitySymbolDesc": "Símbolo mostrado antes do verbo de atividade",
+        "statusLine": "Linha de status",
+        "statusLineDesc": "Escolha o que aparece na linha de status do campo de entrada",
         "statusBar": "Barra de status",
         "statusBarDesc": "Configurar seções e layout da barra de status",
         "updateCheckInterval": "Intervalo de verificação de atualizações (horas)",
@@ -220,14 +629,48 @@
       "agent": {
         "maxIterations": "Máx. iterações",
         "maxIterationsDesc": "Máximo de iterações de ferramentas por requisição",
+        "subagentMaxIterations": "Limite de requisições de subagentes",
+        "subagentMaxIterationsDesc": "Número padrão de requisições ao modelo por tarefa delegada, incluindo o resumo final do trabalho parcial (1–1000)",
         "enableRequestQueue": "Fila de requisições",
         "enableRequestQueueDesc": "Permitir digitar enquanto agente trabalha",
+        "idleLogoutEnabled": "Tempo limite de sessão inativa",
+        "idleLogoutEnabledDesc": "Encerra a sessão após 4 horas de inatividade (você continua conectado)",
         "sessionRetryLimit": "Limite de tentativas de sessão",
         "sessionRetryLimitDesc": "Máx. tentativas antes desistir",
         "sessionRetryDelay": "Atraso entre tentativas (ms)",
         "sessionRetryDelayDesc": "Atraso entre tentativas em milissegundos",
         "debug": "Modo debug",
-        "debugDesc": "Habilitar saída de depuração"
+        "debugDesc": "Habilitar saída de depuração",
+        "adaptiveSkills": "Skills adaptativas",
+        "adaptiveSkillsDesc": "Descobre skills sob demanda e carrega instruções para esta tarefa; requer reinício",
+        "skillLearning": "Aprendizado automático de skills",
+        "skillLearningDesc": "Permite que trabalhos verificados e elegíveis criem rascunhos privados; requer skills adaptativas e verificações independentes configuradas",
+        "skillLearningScope": "Escopo das skills aprendidas",
+        "skillLearningScopeDesc": "Mantém os rascunhos neste projeto ou seleciona explicitamente sua biblioteca pessoal",
+        "skillInstructionBudget": "Orçamento de tokens de instruções de skills",
+        "skillInstructionBudgetDesc": "Orçamento opcional de instruções; instruções obrigatórias grandes demais causam erro em vez de truncamento",
+        "skillDecisions": "Modelos de decisão remotos",
+        "skillDecisionsDesc": "Permite recursos de decisão habilitados separadamente em um provedor configurado e elegível",
+        "skillDecisionProvider": "Provedor de decisão",
+        "skillDecisionProviderDesc": "O ID do provedor deve corresponder ao provedor de execução ativo",
+        "skillDecisionModel": "Modelo de decisão",
+        "skillDecisionModelDesc": "Modelo usado pelos recursos de decisão habilitados; Weka requer execução elegível na Autohand AI Cloud",
+        "skillSelectionDecision": "Decisões de seleção de skills",
+        "skillSelectionDecisionDesc": "Permite reordenação remota de uma lista local limitada",
+        "skillPreviewDecision": "Decisões de prévia do prompt",
+        "skillPreviewDecisionDesc": "Permite decisões de prévia; texto digitado remoto também requer consentimento para prévia remota",
+        "skillRemotePreview": "Enviar texto digitado para prévia remota",
+        "skillRemotePreviewDesc": "Permite explicitamente a prévia remota do texto digitado antes do envio",
+        "skillLearningDecision": "Decisões de aprendizado de skills",
+        "skillLearningDecisionDesc": "Permite extração remota elegível de rascunhos; o aprendizado automático continua sendo um controle separado",
+        "skillCompactionDecision": "Decisões de compactação de contexto",
+        "skillCompactionDecisionDesc": "Permite decisões remotas elegíveis de compactação, com fallback local",
+        "skillDecisionTimeout": "Tempo limite de decisão (ms)",
+        "skillDecisionTimeoutDesc": "Prazo para uma solicitação de decisão, de 1 a 10000 milissegundos"
+      },
+      "sessions": {
+        "awareness": "Percepção de sessões simultâneas",
+        "awarenessDesc": "Como esta sessão reage quando há outras abertas no mesmo projeto: passive as mostra, warn também sinaliza momentos de risco, coordinate pergunta antes de gravar arquivos reservados por outra sessão"
       },
       "permissions": {
         "mode": "Modo de permissão",
@@ -239,15 +682,27 @@
         "maxRetries": "Máx. tentativas",
         "maxRetriesDesc": "Máximo de tentativas para requisições falhas",
         "timeout": "Tempo limite (ms)",
-        "timeoutDesc": "Tempo limite de requisição em milissegundos",
+        "timeoutDesc": "Deixe em branco para usar o padrão de cada provedor, por exemplo 300 s para o Autohand e pelo menos 600 s para a Anthropic.",
         "retryDelay": "Atraso entre tentativas (ms)",
         "retryDelayDesc": "Atraso entre tentativas em milissegundos"
       },
       "telemetry": {
         "enabled": "Telemetria",
-        "enabledDesc": "Enviar dados de uso anônimos",
+        "enabledDesc": "Envia eventos pseudonimizados de uso do produto e de diagnóstico; erros em texto livre podem conter informações sensíveis",
+        "enableSessionSync": "Sincronização do histórico de sessões",
+        "enableSessionSyncDesc": "Envia as mensagens e metadados completos das sessões Autohand após o login; separado dos traces do agente",
         "autoReportEnabled": "Relato automático de erros",
-        "autoReportEnabledDesc": "Relatar erros automaticamente para GitHub"
+        "autoReportEnabledDesc": "Envia erros com caminhos sanitizados e contexto de diagnóstico; o texto do erro pode conter dados sensíveis"
+      },
+      "traces": {
+        "enabled": "Monitoramento de traces do agente",
+        "enabledDesc": "Executa o monitor local ahtraces e ativa o Work Map",
+        "cloudSync": "Sincronização de traces na nuvem",
+        "cloudSyncDesc": "Envia dados de trace normalizados para sua conta Autohand autenticada",
+        "contentMode": "Modo de conteúdo na nuvem",
+        "contentModeDesc": "metadata exclui o conteúdo das mensagens; full inclui mensagens e partes de ferramentas com dados sensíveis removidos",
+        "discoveryMap": "Work Map de descoberta",
+        "discoveryMapDesc": "Usa agregados de trace locais na descoberta e na inspeção do agente"
       },
       "automode": {
         "maxIterations": "Máx. iterações",
@@ -262,6 +717,8 @@
         "useWorktreeDesc": "Usar worktree git por padrão"
       },
       "teams": {
+        "sessionThreadLimit": "Limite de threads da sessão (incluindo o agente principal)",
+        "sessionThreadLimitDesc": "1–64 threads no total; padrão 9 = agente principal + até 8 subagentes. Use 1 para desativar a delegação.",
         "enabled": "Times habilitados",
         "enabledDesc": "Habilitar recursos de coordenação em times",
         "teammateMode": "Modo de colega de time",
@@ -276,9 +733,18 @@
         "braveApiKeyDesc": "Chave API para Brave Search",
         "parallelApiKey": "Chave Parallel API",
         "parallelApiKeyDesc": "Chave API para Parallel.ai",
-        "keenableApiKey": "Keenable API key",
-        "keenableApiKeyDesc": "API key for Keenable"
+        "keenableApiKey": "Chave de API do Keenable",
+        "keenableApiKeyDesc": "Chave de API para o Keenable",
+        "exaApiKey": "API key do Exa",
+        "exaApiKeyDesc": "API key do Exa.ai"
       }
+    },
+    "setup": {
+      "description": "executa o assistente de configuração para configurar ou reconfigurar o Autohand",
+      "interactiveOnly": "A configuração requer um terminal interativo. Use a flag --setup da CLI.",
+      "cancelled": "Configuração cancelada.",
+      "failed": "A configuração falhou. Tente novamente.",
+      "complete": "Configuração concluída! Execute `autohand` para começar."
     },
     "status": {
       "description": "mostrar status atual",
@@ -295,12 +761,46 @@
       "sessions": "Sessões",
       "total": "{{count}} total"
     },
+    "statusline": {
+      "description": "configura a exibição da linha de status",
+      "title": "Linha de status",
+      "done": "Concluído",
+      "saved": "Configurações da linha de status salvas.",
+      "fields": {
+        "showProviderModel": "Provedor e modelo",
+        "showProviderModelDesc": "Mostra o provedor e o nome do modelo ativos",
+        "showContext": "Contexto restante",
+        "showContextDesc": "Mostra o percentual de contexto atual",
+        "showWorkspacePath": "Caminho do workspace",
+        "showWorkspacePathDesc": "Mostra o diretório atual do projeto com um caminho limitado",
+        "showGitBranch": "Branch git",
+        "showGitBranchDesc": "Mostra a branch ativa, ou o nome do worktree quando desanexado",
+        "showCommandHint": "Dicas de comandos",
+        "showCommandHintDesc": "Mostra atalhos para comandos, menções e entrada no terminal",
+        "showPullRequest": "Pull request",
+        "showPullRequestDesc": "Mostra o número do PR associado, ou PR #123 quando não há nenhum associado",
+        "showSessionLines": "Linhas alteradas na sessão",
+        "showSessionLinesDesc": "Mostra as linhas adicionadas e removidas durante esta sessão",
+        "showQueue": "Solicitações na fila",
+        "showQueueDesc": "Mostra quantas solicitações de acompanhamento estão na fila",
+        "showActiveStatus": "Status do turno ativo",
+        "showActiveStatusDesc": "Mostra o texto de status de trabalho atual enquanto o Autohand está em execução",
+        "showActiveMetrics": "Métricas do turno ativo",
+        "showActiveMetricsDesc": "Mostra o tempo decorrido e as métricas de tokens enquanto o Autohand está em execução",
+        "showCancelHint": "Dica de cancelamento",
+        "showCancelHintDesc": "Mostra a dica de cancelar com Esc enquanto o Autohand está em execução",
+        "showModeLabel": "Rótulo do modo",
+        "showModeLabelDesc": "Mostra PLAN, YOLO ou AUTO ao lado do indicador de modo"
+      }
+    },
     "sessions": {
       "description": "listar sessões salvas",
       "title": "Sessões Salvas",
       "noSessions": "Nenhuma sessão salva encontrada.",
       "selectPrompt": "Selecione uma sessão para retomar:",
-      "sessionInfo": "{{name}} - {{date}}"
+      "sessionInfo": "{{name}} - {{date}}",
+      "peerActive": "1 outra sessão está ativa neste projeto",
+      "peersActive": "{{count}} outras sessões estão ativas neste projeto"
     },
     "resume": {
       "description": "retomar sessão anterior",
@@ -324,14 +824,75 @@
       "mode": "Modo: {{mode}}",
       "allowed": "Ações permitidas:",
       "denied": "Ações negadas:",
-      "pending": "Aprovação pendente:"
+      "pending": "Aprovação pendente:",
+      "prompt": {
+        "yes": "Sim",
+        "no": "Não",
+        "allowOnce": "Permitir uma vez",
+        "denyOnce": "Negar uma vez",
+        "allowAlways": "Permitir sempre",
+        "denyAlways": "Negar sempre",
+        "allowPrefixAlways": "Sempre permitir comandos `{{prefix}}`",
+        "alternativeCommand": "Executar outro comando...",
+        "alternativeCommandTitle": "Comando substituto a executar (vazio para cancelar)",
+        "alternativePath": "Usar outro caminho...",
+        "alternativePathTitle": "Caminho substituto a usar (vazio para cancelar)",
+        "scopeTitle": "Escolha onde salvar esta decisão",
+        "scopeProject": "Projeto",
+        "scopeUser": "Usuário",
+        "scopeCancel": "Cancelar"
+      }
+    },
+    "account": {
+      "description": "lista suas contas Autohand ou troca a conta usada por esta CLI",
+      "signedOut": "Entre com /login antes de escolher uma conta.",
+      "unavailable": "Não foi possível carregar suas contas. Tente novamente.",
+      "usage": "Uso: /account, /account use <nome ou id da equipe>, /account clear",
+      "notFound": "Nenhuma conta corresponde a \"{{target}}\". Execute /account para ver a lista.",
+      "choose": "Qual conta esta CLI deve usar?",
+      "useDefault": "Deixar o Autohand escolher (sua equipe quando ela paga uma licença, senão a pessoal)",
+      "switched": "Agora usando {{name}}. As novas solicitações são cobradas nessa conta.",
+      "cleared": "Escolha de conta removida. O Autohand volta a escolher a conta.",
+      "team": "equipe",
+      "personal": "pessoal",
+      "hint": "Troque com /account use <name>, ou use /account clear para deixar o Autohand escolher."
     },
     "login": {
       "description": "entrar na sua conta Autohand",
       "prompt": "Digite seu código de login:",
       "success": "Logado com sucesso como {{email}}",
       "failed": "Login falhou: {{error}}",
-      "cancelled": "Login cancelado."
+      "cancelled": "Login cancelado.",
+      "switchToFantail": "Seu {{provider}} atingiu o limite de requisições. Tentar o modelo Fantail do Autohand?",
+      "openUrlManually": "Abra esta URL manualmente:",
+      "alreadyLoggedIn": "Você já está conectado como {{email}}. Entrar com outra conta?",
+      "initiating": "Iniciando a autenticação...",
+      "unknownError": "Erro desconhecido",
+      "visit": "Para entrar, acesse:",
+      "enterCodeManually": "Ou digite este código manualmente:",
+      "browserOpened": "Navegador aberto. Conclua o login no navegador.",
+      "browserFailed": "Não foi possível abrir o navegador automaticamente. Acesse a URL acima.",
+      "waiting": "Aguardando autorização...",
+      "pressCtrlCToCancel": "(Pressione Ctrl+C para cancelar)",
+      "waitingShort": "Aguardando",
+      "traceRefreshFailed": "Login concluído, mas o companheiro de traces não conseguiu atualizar a conta. Ele tentará de novo no próximo comando do Autohand.",
+      "profileApplied": "Perfil de configurações do Coding Agent aplicado: {{name}}",
+      "plan": "Plano: {{plan}}",
+      "codeExpired": "O código de autorização expirou. Tente novamente.",
+      "authCancelled": "Autenticação cancelada. Execute /login de novo quando estiver pronto.",
+      "timedOut": "A autorização expirou por tempo limite. Tente novamente.",
+      "syncFound": "Dados de sincronização na nuvem encontrados ({{count}} arquivos, {{size}})",
+      "syncIncludes": "Isso inclui suas configurações, agentes, skills, sessões e hooks.",
+      "syncRestorePrompt": "Deseja restaurar suas configurações da nuvem?",
+      "syncSkipped": "Restauração ignorada. Você pode sincronizar depois com /sync.",
+      "syncRestoring": "Restaurando as configurações da nuvem...",
+      "pressEscToCancel": "(Pressione Esc ou Ctrl+C para cancelar)",
+      "syncCancelled": "Restauração da sincronização cancelada.",
+      "syncLater": "Você pode sincronizar depois com /sync.",
+      "syncRestored": "{{count}} arquivos restaurados da nuvem.",
+      "syncFailed": "Falha ao restaurar a sincronização: {{error}}",
+      "syncRetryLater": "Você pode tentar novamente depois com /sync.",
+      "syncCheckFailed": "Não foi possível verificar os dados de sincronização na nuvem."
     },
     "logout": {
       "description": "sair da sua conta Autohand",
@@ -366,6 +927,45 @@
       "available": "Skills disponíveis:",
       "noSkills": "Nenhuma skill instalada."
     },
+    "learn": {
+      "description": "Analisa seu projeto e recomenda skills",
+      "analyzing": "Analisando seu projeto...",
+      "analyzingDeep": "Analisando seu projeto a fundo...",
+      "projectSummary": "Projeto: {{summary}}",
+      "auditTitle": "Auditoria de skills",
+      "recommendationsTitle": "Skills recomendadas",
+      "noRecommendations": "Nenhuma correspondência forte encontrada no registro da comunidade",
+      "offerGenerate": "Quer que eu gere uma skill personalizada para o seu projeto?",
+      "generating": "Gerando uma skill personalizada...",
+      "generatedSuccess": "Skill gerada e instalada: {{name}}",
+      "generatedFailed": "Falha ao gerar uma skill personalizada",
+      "updateTitle": "Verificando atualizações de skills...",
+      "updateRegenerated": "{{name}} regenerada para o contexto atualizado do projeto",
+      "updateUnchanged": "Todas as skills geradas por LLM estão atualizadas",
+      "scopePrompt": "Onde esta skill deve ser instalada?",
+      "securityWarning": "Alerta de segurança: pontuação {{score}}/100",
+      "securityBlocked": "Bloqueada: pontuação de segurança {{score}}/100 (abaixo do mínimo)",
+      "securityOverride": "Instalar mesmo assim? Esta skill tem uma pontuação de segurança baixa.",
+      "hookBlocked": "Instalação bloqueada pelo hook pre-learn",
+      "searching": "Buscando '{{query}}'...",
+      "noResults": "Nenhuma skill encontrada para '{{query}}'",
+      "found": "{{count}} skills encontradas:",
+      "installing": "Instalando {{name}}...",
+      "installed": "{{name}} instalada com sucesso",
+      "alreadyInstalled": "{{name}} já está instalada",
+      "removed": "{{name}} removida",
+      "removeNotFound": "Skill '{{name}}' não encontrada",
+      "updated": "{{count}} skills atualizadas",
+      "upToDate": "Todas as skills estão atualizadas",
+      "feedbackThanks": "Obrigado por avaliar {{name}}!",
+      "feedbackInvalid": "A nota deve ser de 1 a 5",
+      "trendingTitle": "Skills em alta",
+      "listTitle": "Skills instaladas (via /learn)",
+      "listEmpty": "Nenhuma skill instalada via /learn ainda",
+      "selectPrompt": "Selecione uma skill para instalar:",
+      "confirmInstall": "Instalar {{name}}?",
+      "confirmRemove": "Remover {{name}}?"
+    },
     "mcp": {
       "title": "Servidores MCP",
       "description": "gerenciar servidores MCP (Model Context Protocol)",
@@ -384,8 +984,9 @@
       "failed": "Exportação falhou: {{error}}"
     },
     "agents": {
-      "description": "gerenciar sub-agentes",
-      "title": "Sub-Agentes",
+      "description": "mostrar os agentes ativos do Autohand CLI",
+      "title": "Agentes ativos do Autohand",
+      "definitionsTitle": "Definições de subagentes",
       "noAgents": "Nenhum sub-agente configurado."
     },
     "automode": {
@@ -446,16 +1047,16 @@
     "connectionFailed": "Conexão falhou: {{error}}",
     "telemetry": {
       "title": "Ajude-nos a melhorar o Autohand",
-      "description": "Coletamos dados de uso anônimos para entender como o Autohand é usado.",
+      "description": "Coletamos dados pseudonimizados de uso do produto com IDs persistentes de dispositivo e de sessão.",
       "whatWeCollect": "O que coletamos:",
       "collectItem1": "Uso de comandos (quais recursos são populares)",
-      "collectItem2": "Taxas de erro (para corrigir bugs mais rápido)",
-      "collectItem3": "Métricas de desempenho (para acelerar coisas)",
-      "whatWeNeverCollect": "O que nunca coletamos:",
-      "neverItem1": "Seu código ou conteúdo de arquivos",
-      "neverItem2": "Chaves API ou credenciais",
-      "neverItem3": "Informações pessoais",
-      "prompt": "Compartilhar dados de uso anônimos para ajudar a melhorar o Autohand?",
+      "collectItem2": "Resultados de ferramentas, erros em texto livre e métricas de execução",
+      "collectItem3": "Metadados de modelo, provedor, skill, objetivo e ciclo de vida do contexto",
+      "whatWeNeverCollect": "O que nunca coletamos como campos dedicados de telemetria:",
+      "neverItem1": "Mensagens da conversa",
+      "neverItem2": "Conteúdo de arquivos ou diffs",
+      "neverItem3": "Argumentos e resultados de ferramentas (o texto de erros ainda pode conter dados sensíveis)",
+      "prompt": "Compartilhar dados pseudonimizados de uso do produto para ajudar a melhorar o Autohand?",
       "thanks": "Obrigado por ajudar a melhorar o Autohand!",
       "declined": "Sem problemas! Você pode mudar isso a qualquer momento na configuração."
     },
@@ -465,8 +1066,245 @@
     "agentsFile": "AGENTS.md (instruções do projeto para Autohand)",
     "nextSteps": "Próximos passos:",
     "tryCommand": "Experimente: autohand",
+    "language": {
+      "title": "Seleção de idioma",
+      "description": "Escolha o idioma de exibição do Autohand.",
+      "prompt": "Selecione seu idioma preferido:",
+      "detected": "Idioma detectado: {{language}}",
+      "changed": "Idioma alterado para {{language}}"
+    },
+    "apiKeyValidation": {
+      "validating": "Validando API key...",
+      "success": "A API key é válida!",
+      "failed": "Falha na validação da API key: {{error}}",
+      "hint": "Verifique se sua API key está correta e tem as permissões necessárias.",
+      "skipped": "Validação da API key ignorada."
+    },
+    "connectionTest": {
+      "testing": "Testando a conexão com {{provider}}...",
+      "success": "Conectado a {{provider}} com sucesso!",
+      "failed": "Não foi possível conectar a {{provider}}: {{error}}",
+      "hintOllama": "Verifique se o Ollama está em execução: ollama serve",
+      "hintLlamacpp": "Verifique se o servidor llama.cpp está em execução: ./server -m model.gguf",
+      "hintMlx": "Verifique se o servidor MLX está em execução: mlx_lm.server --model <model-name>",
+      "continueAnyway": "Continuar sem uma conexão funcionando?"
+    },
+    "permissions": {
+      "title": "Modo de permissão",
+      "description": "Controle como o Autohand lida com as permissões de ferramentas.",
+      "interactive": "Interativo — pergunta antes de ações arriscadas (recomendado)",
+      "unrestricted": "Irrestrito — aprova tudo automaticamente",
+      "restricted": "Restrito — nega todas as operações perigosas",
+      "rememberPrompt": "Lembrar as decisões de permissão em cada sessão?",
+      "set": "Modo de permissão definido como {{mode}}.",
+      "warning": "O modo irrestrito permite todas as ações sem confirmação. Use com cuidado."
+    },
+    "workspaceSafety": {
+      "checking": "Verificando a segurança do workspace...",
+      "safe": "O workspace é seguro.",
+      "unsafe": "Este workspace pode não ser seguro: {{reason}}",
+      "continueUnsafe": "Continuar neste diretório mesmo assim?"
+    },
+    "notifications": {
+      "title": "Notificações",
+      "description": "Receba uma notificação quando o Autohand terminar uma tarefa.",
+      "enablePrompt": "Ativar notificações na área de trabalho?",
+      "soundPrompt": "Tocar um som com as notificações?"
+    },
     "network": {
+      "title": "Configurações de rede",
+      "description": "Configure o comportamento de novas tentativas e tempo limite das requisições à API.",
+      "needCustom": "Configurar ajustes de rede personalizados? (tentativas, tempos limite)",
+      "maxRetries": "Máximo de novas tentativas (1-5):",
       "timeout": "Deixe em branco para usar o padrão do provedor, ou digite 5000-600000 ms"
+    },
+    "search": {
+      "title": "Provedor de busca na web",
+      "description": "Escolha um provedor de busca na web para a ferramenta /search.",
+      "prompt": "Selecione um provedor de busca:",
+      "braveKeyPrompt": "Informe sua API key do Brave Search:",
+      "parallelKeyPrompt": "Informe sua API key do Parallel.ai:"
+    },
+    "mcp": {
+      "title": "MCP (Model Context Protocol)",
+      "description": "O MCP permite que o Autohand se conecte a servidores de ferramentas externos para ampliar seus recursos.",
+      "enablePrompt": "Ativar o suporte a MCP?",
+      "enabled": "Suporte a MCP ativado. Configure os servidores em /settings ou config.json."
+    },
+    "agent": {
+      "title": "Comportamento do agente",
+      "maxIterationsPrompt": "Máximo de iterações por solicitação (10-500):",
+      "debugPrompt": "Ativar o modo de depuração? (log detalhado)",
+      "set": "Configurações do agente definidas."
+    },
+    "review": {
+      "title": "Revise suas configurações",
+      "provider": "Provedor: {{provider}}",
+      "model": "Modelo: {{model}}",
+      "confirm": "Salvar estas configurações e concluir a configuração?",
+      "goBack": "Reiniciando a configuração..."
+    },
+    "communitySkills": {
+      "title": "Skills da comunidade",
+      "description": "As skills da comunidade ampliam o Autohand com recursos específicos de projeto compartilhados pela comunidade.",
+      "enablePrompt": "Ativar as skills da comunidade?"
+    },
+    "advanced": {
+      "title": "Configurações avançadas",
+      "description": "Configure notificações, rede, busca, MCP, comportamento do agente e skills da comunidade.",
+      "prompt": "Deseja configurar as opções avançadas?"
+    },
+    "keybindings": {
+      "title": "Atalhos de teclado",
+      "description": "Encontrado: {{agents}}. O Autohand pode seguir os atalhos que você já conhece; altere isso quando quiser em /settings.",
+      "prompt": "Quais atalhos de teclado o campo de entrada deve usar?",
+      "autohandOption": "Padrões do Autohand (recomendado)",
+      "autohandDescription": "Shift+Tab alterna os modos, Shift+Enter ou Alt+Enter insere uma nova linha, Ctrl+C duas vezes sai",
+      "agentOption": "Igual ao {{agent}}",
+      "agentDescription": "Adiciona os atalhos desse agente, como Ctrl+J para nova linha, Ctrl+D para sair e Ctrl+R para o histórico"
+    },
+    "importAgents": {
+      "title": "Importar de outros agentes",
+      "description": "Memórias, sessões e skills podem ser trazidas com o mesmo comando /import que você pode executar depois.",
+      "prompt": "Importar memórias, sessões e skills de {{agents}}?",
+      "running": "Importando de {{agents}}...",
+      "skipped": "Ignorado. Execute /import quando quiser trazê-las.",
+      "failed": "A importação não foi concluída: {{error}}. A configuração continua; execute /import depois para tentar de novo."
+    },
+    "registration": {
+      "title": "Conta Autohand",
+      "description": "Crie uma conta Autohand gratuita para liberar sincronização na nuvem, recursos de equipe e análises de uso.",
+      "descriptionMandatory": "Uma conta Autohand é necessária para usar o Autohand. Cadastre-se gratuitamente com Google, GitHub ou e-mail.",
+      "prompt": "Criar uma conta Autohand? (Cadastre-se com Google, GitHub ou e-mail)",
+      "retryPrompt": "Deseja tentar novamente?",
+      "skipped": "Você pode criar uma conta depois com /login",
+      "initiating": "Iniciando a autenticação...",
+      "failed": "Não foi possível iniciar a autenticação: {{error}}",
+      "tryLater": "Você pode tentar novamente depois com /login",
+      "visit": "Para se cadastrar ou entrar, acesse:",
+      "code": "Ou digite este código manualmente:",
+      "browserOpened": "Navegador aberto. Conclua o cadastro no navegador.",
+      "openManually": "Não foi possível abrir o navegador automaticamente. Acesse a URL acima.",
+      "waiting": "Aguardando autorização... (Pressione Ctrl+C para cancelar)",
+      "success": "Bem-vindo, {{name}}! Sua conta está conectada.",
+      "expired": "O código de autorização expirou.",
+      "timeout": "A autorização expirou por tempo limite."
+    },
+    "flow": {
+      "subtitle": "Seu agente de código superrápido que evolui sozinho",
+      "useExistingKey": "Usar a API key existente de {{provider}}? (termina em ...{{suffix}})",
+      "effort": {
+        "none": "Sem raciocínio estendido",
+        "low": "Respostas mais rápidas, raciocínio mínimo",
+        "medium": "Equilíbrio entre velocidade e raciocínio",
+        "high": "Raciocínio aprofundado (recomendado)",
+        "xhigh": "Máxima profundidade de raciocínio"
+      },
+      "moaEffort": {
+        "medium": "Raciocínio equilibrado para o código do dia a dia",
+        "high": "Raciocínio mais profundo para mudanças complexas",
+        "xhigh": "Máxima profundidade de raciocínio para trabalhos difíceis"
+      },
+      "telemetry": {
+        "line1": "A telemetria do produto usa IDs pseudônimos persistentes de dispositivo e sessão",
+        "line2": "para entender como o Autohand é usado e onde pode melhorar.",
+        "item1": "- Uso de comandos (quais recursos são populares)",
+        "item2": "- Resultados de ferramentas, erros e métricas de desempenho/runtime",
+        "item3": "- Metadados do ciclo de vida de modelo, provedor, skill, goal e contexto",
+        "notCollected1": "Mensagens da conversa, conteúdo de arquivos, diffs e argumentos/resultados de ferramentas",
+        "notCollected2": "não são campos de telemetria. Textos de erro e status podem conter informações sensíveis.",
+        "notCollected3": "Caminhos comuns de home são sanitizados; isto não é um detector geral de segredos."
+      },
+      "autoReport": {
+        "title": "Relato automático de problemas",
+        "line1": "Quando ocorrerem erros, o Autohand pode relatá-los automaticamente",
+        "line2": "como issues no GitHub para nos ajudar a corrigir bugs mais rápido.",
+        "whatGetsReported": "O que é relatado:",
+        "item1": "- Tipo do erro, mensagem e stack trace sanitizado",
+        "item2": "- Dados da CLI/dispositivo/runtime e contexto de diagnóstico do ponto de chamada",
+        "note1": "Os relatos não anexam mensagens da sessão nem arquivos-fonte, mas o texto do erro",
+        "note2": "e o contexto de diagnóstico podem conter informações sensíveis.",
+        "note3": "A sanitização de caminhos não é um detector geral de segredos.",
+        "prompt": "Relatar erros automaticamente para nos ajudar a corrigir bugs mais rápido?",
+        "thanks": "Obrigado! Isso nos ajuda a identificar e corrigir problemas rapidamente.",
+        "declined": "Sem problemas! Você pode ativar isso a qualquer momento na configuração."
+      },
+      "preferences": {
+        "prompt": "Deseja configurar preferências adicionais? (tema, confirmação automática)",
+        "theme": "Selecione um tema",
+        "autoConfirm": "Confirmar automaticamente ações não destrutivas?",
+        "checkUpdates": "Verificar atualizações ao iniciar?"
+      },
+      "agents": {
+        "regenerate": "O AGENTS.md já existe. Deseja gerá-lo novamente?",
+        "keeping": "Mantendo o AGENTS.md existente",
+        "title": "Configuração do projeto",
+        "line1": "O AGENTS.md ajuda o Autohand a entender melhor o seu projeto.",
+        "line2": "Ele contém instruções específicas do seu código.",
+        "prompt": "Gerar o AGENTS.md com base no seu projeto?",
+        "later": "Você pode criá-lo depois com /init",
+        "analyzing": "Analisando seu projeto...",
+        "framework": "Framework: {{name}}",
+        "packageManager": "Gerenciador de pacotes: {{name}}",
+        "testFramework": "Framework de testes: {{name}}",
+        "created": "AGENTS.md criado",
+        "customize": "Você pode personalizá-lo a qualquer momento para melhorar o entendimento do Autohand."
+      },
+      "createdConfig": "- ~/.autohand/config.toml/yaml/json (suas configurações)",
+      "createdAgents": "- AGENTS.md (instruções do projeto para o Autohand)",
+      "tips": {
+        "title": "Dicas rápidas:",
+        "enter": "- Digite sua solicitação e pressione Enter para começar",
+        "mention": "- Use @filename para mencionar arquivos",
+        "help": "- Digite /help para ver todos os comandos",
+        "exit": "- Pressione Ctrl+C duas vezes para sair"
+      },
+      "vertex": {
+        "gcloudDetected": "✓ CLI gcloud detectada",
+        "gcloudMissing": "⚠ CLI gcloud não detectada",
+        "installHint": "Instale-a para o gerenciamento automático de tokens:",
+        "tokenObtained": "✓ Token de acesso obtido (válido por ~25 minutos)",
+        "autoRefresh": "Os tokens são renovados automaticamente ao usar o gcloud.",
+        "manual": "Informe o token manualmente ou execute: gcloud auth login",
+        "refreshEnabled": "Renovação automática de token ativada pela CLI gcloud",
+        "fetching": "Obtendo o token de acesso do gcloud..."
+      },
+      "llamacpp": {
+        "detected": "Servidor llama.cpp detectado em {{url}}",
+        "noServer": "O llama.cpp está instalado, mas nenhum servidor em execução foi detectado.",
+        "noPackageManager": "O llama.cpp não está instalado e nenhum gerenciador de pacotes compatível foi detectado.",
+        "canInstall": "O llama.cpp não está instalado. O Autohand pode instalá-lo com: {{command}}",
+        "installPrompt": "Instalar o llama.cpp agora?",
+        "installing": "Instalando o llama.cpp com {{command}}...",
+        "installFailed": "A instalação do llama.cpp falhou.",
+        "installed": "Instalação do llama.cpp concluída.",
+        "startServer": "Inicie o llama-server com seu modelo e o Autohand se conectará na porta detectada."
+      },
+      "search": {
+        "included": "O Autohand Web Search está incluído no seu plano e pronto para uso.",
+        "later": "Configurar depois",
+        "laterDescription": "Use /search antes de solicitar buscas na web",
+        "enterKey": "Informe a API key de {{provider}}:",
+        "deferred": "Configuração da busca adiada: é necessária uma API key. Execute /search para concluir a configuração.",
+        "browserHint": "Conecte o Chromium com /browser para buscar, ou mantenha um perfil do Chrome/Brave disponível. Use /search se o seu navegador bloquear requisições automatizadas."
+      },
+      "summary": {
+        "permissions": "Permissões: {{value}}",
+        "telemetry": "Telemetria: {{value}}",
+        "traces": "Traces do agente: {{value}}",
+        "autoReport": "Relato automático: {{value}}",
+        "notifications": "Notificações: {{value}}",
+        "search": "Busca: {{value}}",
+        "mcp": "MCP: {{value}}",
+        "keybindings": "Atalhos de teclado: {{value}}",
+        "importedFrom": "Importado de: {{value}}",
+        "account": "Conta: {{value}}",
+        "enabled": "ativado",
+        "disabled": "desativado",
+        "language": "Idioma: {{value}}"
+      },
+      "pressEnter": "Pressione Enter para continuar...",
+      "cancelled": "Configuração cancelada."
     }
   },
   "errors": {
@@ -514,6 +1352,8 @@
   },
   "providers": {
     "openrouter": "OpenRouter",
+    "anthropic": "Anthropic",
+    "autohandai": "Autohand AI",
     "openai": "OpenAI",
     "ollama": "Ollama",
     "llamacpp": "llama.cpp",
@@ -521,12 +1361,50 @@
     "llmgateway": "LLM Gateway",
     "azure": "Azure OpenAI",
     "zai": "Z.ai",
+    "sakana": "Sakana.AI",
     "vertexai": "Google Cloud Vertex AI",
     "xai": "xAI (Grok)",
     "cerebras": "Cerebras AI",
     "nvidia": "NVIDIA AI Cloud",
+    "deepseek": "DeepSeek",
+    "bedrock": "AWS Bedrock",
+    "openaiAuth": {
+      "chooseTitle": "Escolha como conectar a OpenAI",
+      "apiKeyLabel": "Usar API key",
+      "apiKeyDescription": "Cobrança por uso com sua API key da OpenAI",
+      "chatgptLabel": "Usar conta do ChatGPT",
+      "chatgptDescription": "Use sua assinatura do ChatGPT com o login da OpenAI",
+      "starting": "Iniciando o login na OpenAI...",
+      "browserPrompt": "Conclua o login na OpenAI no navegador:",
+      "browserOpened": "Navegador aberto. Conclua o login para continuar.",
+      "openManually": "Não foi possível abrir o navegador automaticamente. Acesse a URL acima.",
+      "waiting": "Aguardando a conclusão do login no navegador...",
+      "devicePrompt": "Entre com sua conta OpenAI para continuar:",
+      "deviceCodeLabel": "Digite este código: {{code}}",
+      "failed": "Falha no login na OpenAI: {{message}}",
+      "changeAuthOnly": "Alterar somente a autenticação",
+      "changeModelAndAuth": "Alterar modelo e autenticação"
+    },
+    "xaiAuth": {
+      "chooseTitle": "Escolha como conectar a xAI (Grok)",
+      "apiKeyLabel": "Usar API key",
+      "apiKeyDescription": "Cobrança por uso com sua API key do xAI Console",
+      "oauthLabel": "Usar conta Grok (OAuth)",
+      "oauthDescription": "Entre com SuperGrok ou X Premium — não precisa de API key",
+      "reuseGrokCliLabel": "Reutilizar o login existente do Grok CLI",
+      "reuseGrokCliDescription": "Usa as credenciais já armazenadas em ~/.grok/auth.json",
+      "starting": "Iniciando o login na xAI / Grok...",
+      "browserPrompt": "Conclua o login na xAI no navegador:",
+      "browserOpened": "Navegador aberto. Conclua o login para continuar.",
+      "openManually": "Não foi possível abrir o navegador automaticamente. Acesse a URL acima.",
+      "deviceCodeLabel": "Digite este código, se solicitado: {{code}}",
+      "waiting": "Aguardando a conclusão do login no navegador...",
+      "failed": "Falha no login na xAI: {{message}}"
+    },
     "hints": {
       "openrouter": "Nuvem - Acesso a 100+ modelos (Claude, GPT-4, etc.)",
+      "anthropic": "Nuvem - API Anthropic Messages nativa para modelos Claude",
+      "autohandai": "Nuvem ou local - modelos Fantail hospedados pela Autohand, ou inferência local MLX no Apple Silicon",
       "openai": "Nuvem - Modelos oficiais OpenAI (GPT-4o, o1, etc.)",
       "ollama": "Local - Executar modelos na sua máquina (grátis)",
       "llamacpp": "Local - Inferência rápida com modelos GGUF",
@@ -534,21 +1412,47 @@
       "llmgateway": "Nuvem - API unificada para vários provedores LLM",
       "azure": "Nuvem - Serviço Azure OpenAI (enterprise)",
       "zai": "Nuvem - Z.ai GLM models (glm-5.2, glm-5.1, GLM-4.5, CogView)",
+      "sakana": "Nuvem - modelos multiagente Sakana Fugu pela API da Sakana",
       "vertexai": "Nuvem - Google Cloud Vertex AI (Gemini, Claude, GLM)",
-      "xai": "Nuvem - xAI Grok models with web search, X search, and code execution",
-      "cerebras": "Cloud - Cerebras AI with GLM and Qwen models",
-      "nvidia": "Nuvem - Modelos NVIDIA NIM (Llama, Phi, Gemma, Mixtral, etc.)"
+      "xai": "Nuvem - xAI Grok 4.5 e modelos Grok (API key ou OAuth do SuperGrok)",
+      "cerebras": "Nuvem - Cerebras AI com modelos GLM e Qwen",
+      "nvidia": "Nuvem - Modelos NVIDIA NIM (Llama, Phi, Gemma, Mixtral, etc.)",
+      "deepseek": "Nuvem - modelos da API DeepSeek (V4 Flash, V4 Pro, reasoning)",
+      "bedrock": "Nuvem - modelos corporativos do AWS Bedrock e endpoints compatíveis com OpenAI"
+    },
+    "autohandaiPlan": {
+      "choose": "Escolha um plano Autohand",
+      "cloud": "Hospedado",
+      "cloudDescription": "Use os modelos Fantail e Moa hospedados pela Autohand em api.autohand.ai",
+      "local": "Local",
+      "localDescription": "Instale o MLX localmente, escolha um modelo de código que seu Mac consiga executar e inicie um servidor local",
+      "accountAuth": "Usar sua conta Autohand conectada",
+      "apiKeyRequiredForSdk": "O uso do SDK da Autohand AI requer uma API key.",
+      "mlxUnsupported": "A Autohand AI Local requer um Mac com Apple Silicon.",
+      "mlxProbe": "Verificando o servidor MLX local...",
+      "mlxInstall": "Instalando o runtime local do MLX...",
+      "mlxDownload": "Baixando o modelo de código local selecionado...",
+      "detectModels": "Detectando modelos de código locais para este Mac",
+      "settingUpLocal": "Configurando a Autohand AI Local",
+      "startingLocal": "Iniciando seu modelo local da Autohand AI",
+      "selectLocalModel": "Escolha um modelo de código local",
+      "selectMoaEffort": "Escolha o esforço de raciocínio do Moa",
+      "noLocalModels": "Nenhum modelo de código local estava disponível para esta máquina.",
+      "localSetupFailed": "Falha na configuração da Autohand AI Local.",
+      "localConfigured": "Autohand AI Local configurada e pronta."
     },
     "config": {
       "chooseProvider": "Escolha um provedor LLM",
       "groupAutohand": "Autohand AI",
       "groupThirdParty": "Provedores de terceiros",
       "groupCustom": "Provedores personalizados",
+      "newProvider": "Novo provedor...",
       "cancelled": "Configuração cancelada.",
       "notConfigured": "{{provider}} ainda não está configurado. Vamos configurá-lo!",
       "configuredSuccessfully": "{{provider}} configurado com sucesso!",
       "selectModel": "Selecione um modelo",
       "selectReasoningEffort": "Selecione o nível de raciocínio",
+      "customModel": "Modelo personalizado...",
       "reasoningEffortLabel": "Nível de raciocínio: {{level}}",
       "enterModelId": "Digite o ID do modelo",
       "enterApiKey": "Digite sua chave API {{provider}}",
@@ -559,10 +1463,16 @@
       "settingsUpdated": "Configurações de {{provider}} atualizadas com sucesso!",
       "currentModel": "Modelo atual: {{model}}",
       "currentApiKey": "Chave API atual: {{key}}",
+      "currentAuthToken": "Token de autenticação atual: {{key}}",
+      "authTypeApiKey": "Tipo de autenticação: API key: {{key}}",
+      "authTypeChatGPT": "Tipo de autenticação: conta do ChatGPT",
       "whatToChange": "O que você gostaria de alterar?",
       "changeModelOnly": "Alterar apenas modelo",
       "changeApiKeyOnly": "Alterar apenas chave API",
       "changeBoth": "Alterar ambos modelo e chave API",
+      "changeProvider": "Alterar provedor",
+      "changeReasoningEffort": "Alterar esforço de raciocínio",
+      "changeBaseUrl": "Alterar URL base/endpoint",
       "validatingApiKey": "Validando chave API...",
       "apiKeyValid": "Chave API é válida",
       "apiKeyRequired": "Chave API é obrigatória",
@@ -589,10 +1499,42 @@
       "notSet": "não definido",
       "apiReturnedStatus": "API retornou status {{status}}"
     },
+    "custom": {
+      "enterDisplayName": "Nome de exibição do provedor",
+      "displayNameRequired": "O nome do provedor é obrigatório",
+      "invalidId": "O nome do provedor deve conter pelo menos uma letra ou número.",
+      "enterBaseUrl": "URL base compatível com OpenAI",
+      "baseUrlRequired": "A URL base é obrigatória",
+      "baseUrlInvalid": "A URL base deve começar com http:// ou https://",
+      "apiKeyRequired": "Este provedor exige uma API key?",
+      "enterOptionalApiKey": "Informe sua API key de {{provider}} (opcional)",
+      "modelRequired": "O ID do modelo é obrigatório",
+      "enterContextWindow": "Tokens da janela de contexto (opcional)",
+      "contextWindowInvalid": "A janela de contexto deve ser um número positivo.",
+      "configureReasoningEffort": "Configurar o esforço de raciocínio para este modelo?",
+      "removeProvider": "Remover provedor personalizado",
+      "removeConfirm": "Remover {{provider}} dos seus provedores personalizados?",
+      "removeMissing": "O provedor personalizado não está mais configurado.",
+      "removed": "{{provider}} removido dos provedores personalizados.",
+      "verificationFailedStatus": "A verificação do provedor falhou com HTTP {{status}}.",
+      "verificationFailedHint": "Verifique a URL base, a API key e se o endpoint implementa a API /models compatível com OpenAI.",
+      "verificationNetworkError": "A verificação do provedor falhou porque o Autohand não conseguiu acessar o endpoint.",
+      "modelNotFound": "O modelo {{model}} não foi retornado por /models. Alguns provedores, como roteadores e gateways, aceitam nomes de modelo que não listam.",
+      "modelNotFoundHint": "Modelos disponíveis incluem: {{models}}",
+      "saveAnyway": "Salvar este provedor com o modelo {{model}} mesmo assim?"
+    },
     "wizard": {
       "openrouter": {
         "title": "Configuração OpenRouter",
         "apiKeyUrl": "https://openrouter.ai/keys"
+      },
+      "anthropic": {
+        "title": "Configuração da Anthropic",
+        "apiKeyUrl": "https://console.anthropic.com/settings/keys"
+      },
+      "autohandai": {
+        "title": "Configuração da Autohand AI",
+        "apiKeyUrl": "https://api.autohand.ai/keys"
       },
       "openai": {
         "title": "Configuração OpenAI",
@@ -626,6 +1568,10 @@
         "title": "Configuração Z.ai",
         "apiKeyUrl": "https://z.ai/api-keys"
       },
+      "sakana": {
+        "title": "Configuração da Sakana.AI",
+        "apiKeyUrl": "https://sakana.ai"
+      },
       "vertexai": {
         "title": "Configuração Google Cloud Vertex AI",
         "getStarted": "Conecte-se ao Google Cloud Vertex AI para acessar Gemini, Claude e outros modelos",
@@ -642,6 +1588,49 @@
         "authTokenCommand": "gcloud auth print-access-token",
         "enterAuthToken": "Insira seu token de autenticação do Google Cloud",
         "enterModel": "Insira o ID do modelo (ex: zai-org/glm-5-maas, google/gemini-1.5-pro)"
+      },
+      "xai": {
+        "title": "Configuração da xAI (Grok)",
+        "apiKeyUrl": "https://console.x.ai/team/default/api-keys",
+        "enterModel": "Informe o ID do modelo (ex.: grok-4.5, grok-4.3, grok-4.20-reasoning)"
+      },
+      "cerebras": {
+        "title": "Configuração da Cerebras AI",
+        "apiKeyUrl": "https://cloud.cerebras.ai/platform/",
+        "enterModel": "Selecione um modelo da Cerebras"
+      },
+      "nvidia": {
+        "title": "Configuração NVIDIA AI Cloud",
+        "apiKeyUrl": "https://build.nvidia.com/api-key",
+        "enterModel": "Selecione um modelo NVIDIA"
+      },
+      "deepseek": {
+        "title": "Configuração da DeepSeek",
+        "apiKeyUrl": "https://platform.deepseek.com/api_keys",
+        "enterModel": "Selecione um modelo da DeepSeek"
+      },
+      "bedrock": {
+        "title": "Configuração do AWS Bedrock",
+        "getStarted": "Conecte-se ao AWS Bedrock usando a Converse ou os endpoints de inferência do Bedrock compatíveis com OpenAI.",
+        "apiKeyUrl": "https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html",
+        "awsCredentialsHint": "Para a Converse, use autenticação pela cadeia de credenciais da AWS: aws configure sso, AWS_PROFILE, função IAM, credenciais de contêiner ou metadados da instância.",
+        "modelAccessHint": "Ative o acesso ao modelo selecionado no console do AWS Bedrock antes de usá-lo.",
+        "apiKeyHint": "As API keys do Bedrock servem apenas para endpoints do Bedrock compatíveis com OpenAI. Elas não são API keys da OpenAI.",
+        "chooseApiMode": "Escolha o modo de API do Bedrock",
+        "modeConverse": "Converse",
+        "modeConverseHint": "API nativa do Bedrock e modo corporativo padrão.",
+        "modeOpenAIChat": "OpenAI Chat Completions",
+        "modeOpenAIChatHint": "Endpoint de chat compatível com OpenAI para caminhos de migração.",
+        "modeOpenAIResponses": "OpenAI Responses",
+        "modeOpenAIResponsesHint": "Endpoint Responses compatível com OpenAI para caminhos de migração.",
+        "chooseAuthMode": "Escolha a autenticação do Bedrock",
+        "authAwsCredentials": "Credenciais/perfil da AWS",
+        "authAwsCredentialsHint": "Usa a cadeia de credenciais do AWS SDK; o Autohand não armazena chaves de acesso da AWS.",
+        "authBedrockApiKey": "API key do Bedrock",
+        "authBedrockApiKeyHint": "Armazena uma API key do Bedrock para endpoints do Bedrock compatíveis com OpenAI.",
+        "enterRegion": "Informe a região da AWS",
+        "enterProfile": "Perfil da AWS (opcional)",
+        "enterEndpoint": "Endpoint personalizado/privado (opcional)"
       },
       "azure": {
         "title": "Configuração Azure OpenAI",
@@ -684,11 +1673,6 @@
         "enterDeploymentNameChange": "Digite o nome do seu deployment",
         "deploymentChangeHint": "Digite o nome do seu modelo implantado do Azure AI Foundry > Deployments",
         "deploymentChangeExample": "ex: gpt-4o, gpt-4o-mini, gpt-4-turbo (NÃO uma URL)"
-      },
-      "nvidia": {
-        "title": "Configuração NVIDIA AI Cloud",
-        "apiKeyUrl": "https://build.nvidia.com/api-key",
-        "enterModel": "Selecione um modelo NVIDIA"
       }
     }
   },
@@ -698,7 +1682,46 @@
     "toolMissing": "{{tool}} não encontrado",
     "installHint": "Instale com: {{command}}",
     "allToolsReady": "Todas as ferramentas prontas!",
-    "someToolsMissing": "Algumas ferramentas estão faltando. Alguns recursos podem não funcionar."
+    "someToolsMissing": "Algumas ferramentas estão faltando. Alguns recursos podem não funcionar.",
+    "workspaceTrust": {
+      "projectHooks_one": "{{count}} hook do projeto",
+      "projectHooks_other": "{{count}} hooks do projeto",
+      "mcpServers_one": "{{count}} servidor MCP",
+      "mcpServers_other": "{{count}} servidores MCP",
+      "projectToolFiles_one": "{{count}} arquivo de ferramentas do projeto",
+      "projectToolFiles_other": "{{count}} arquivos de ferramentas do projeto",
+      "hooksHeading": "Hooks",
+      "mcpServersHeading": "Servidores MCP",
+      "projectToolsHeading": "Ferramentas do projeto: {{count}} arquivo(s)",
+      "intro": "Este workspace quer executar comandos dos arquivos de projeto em .autohand.",
+      "warning": "Confie apenas em workspaces cujos arquivos você revisou.",
+      "trust": "Confiar neste workspace",
+      "trustDescription": "Executa agora e em sessões futuras. O Autohand pergunta de novo se eles mudarem.",
+      "skip": "Agora não",
+      "skipDescription": "Inicia sem eles. O Autohand pergunta de novo na próxima vez.",
+      "skippedUntrusted": "{{entries}} de {{path}} ignorados porque este workspace não é confiável. Execute o autohand nessa pasta no modo interativo para revisá-los e confiar neles.",
+      "startedWithout": "Iniciado sem {{entries}} de {{path}}. O Autohand pergunta de novo na próxima vez."
+    },
+    "auth": {
+      "upgrading": "Atualizando o Autohand...",
+      "running": "Executando: {{command}}",
+      "upgradeDone": "Atualização concluída com sucesso!",
+      "restart": "Reinicie o Autohand para usar a nova versão.",
+      "upgradeFailed": "A atualização falhou.",
+      "tryManually": "Você pode tentar manualmente:",
+      "error": "Erro: {{message}}",
+      "bareRequiresKey": "O modo bare requer AUTOHAND_API_KEY ou auth.apiKeyHelper em --settings/config.",
+      "login": "Entrar",
+      "upgradeAvailable": "Atualizar (v{{version}} disponível)",
+      "exit": "Sair",
+      "newVersion": "Nova versão disponível!",
+      "signInToContinue": "Entre para continuar.",
+      "loginRequired": "Falha no login. O Autohand exige autenticação para executar.",
+      "expired": "Seu login no Autohand expirou.",
+      "notSignedIn": "Você não está conectado.",
+      "nonInteractiveHint": "Execute `autohand login` ou, em CI, defina AUTOHAND_API_KEY e adicione --bare.",
+      "ciDocs": "Login em CI: {{url}}"
+    }
   },
   "confirmation": {
     "proceed": "Continuar?",
@@ -719,8 +1742,11 @@
     "discarded": "Alterações descartadas."
   },
   "ui": {
+    "cancel": "Cancelar",
     "escToCancel": "esc para cancelar",
-    "commandHint": "? atalhos · / comandos · @ mencionar arquivos · $ skills · ! terminal",
+    "upgradeHint": "Você atingiu o limite do seu plano {{plan}}. Execute /upgrade para passar para {{next}}.",
+    "upgradeHintManaged": "Você atingiu o limite do seu plano. Execute /upgrade para revisar seu plano.",
+    "commandHint": "? atalhos · / comandos · @ mencionar arquivos · $ skills · : mensagem para agentes · ! terminal",
     "ctrlCToExit": "Pressione Ctrl+C novamente para sair",
     "noMatchingCommands": "Nenhum comando correspondente.",
     "selectFile": "Selecionar um arquivo",
@@ -738,13 +1764,18 @@
     "questionSelectHint": "↑↓ Navegar · ↵ Selecionar · 1-9 Atalho · ESC Cancelar",
     "noOptionsAvailable": "Nenhuma opção disponível",
     "planRevise": "Não, revise o plano",
-    "planEditHint": "ctrl-g para editar no VS Code",
+    "planEditHint": "ctrl-g para abrir o plano no seu editor",
+    "planOpened": "Aberto com {{command}}. Suas edições são aplicadas quando você aceitar.",
+    "planOpenFailed": "Não foi possível abrir um editor. Abra o arquivo acima para ler ou editar o plano.",
     "confirmYes": "Sim",
     "confirmNo": "Não",
     "inputHint": "Enter para enviar, ESC para cancelar",
     "inputPlaceholder": "Digite sua resposta...",
     "passwordPlaceholder": "Digite senha...",
-    "validationError": "Entrada inválida"
+    "apiKeyPlaceholder": "Cole sua API key...",
+    "validationError": "Entrada inválida",
+    "multiSelectHint": "Espaço alterna · Enter confirma · Esc cancela",
+    "filterHint": "/ buscar"
   },
   "homebrew": {
     "formulaGenerated": "Fórmula Homebrew gerada em {{path}}"
@@ -781,6 +1812,33 @@
     "permissionRequested": "Permissão solicitada: {{action}}",
     "error": "Erro ACP: {{message}}"
   },
+  "permissions": {
+    "directoryPrompt": {
+      "title": "Diretório fora do workspace detectado",
+      "subtitle": "Você mencionou um diretório fora do seu workspace atual. Deseja adicioná-lo às suas permissões?",
+      "allow": "Permitir",
+      "deny": "Negar",
+      "added": "{{directory}} adicionado às permissões"
+    },
+    "prompt": {
+      "yes": "Sim",
+      "no": "Não",
+      "allowOnce": "Permitir uma vez",
+      "denyOnce": "Negar uma vez",
+      "allowAlways": "Permitir sempre",
+      "denyAlways": "Negar sempre",
+      "scopeTitle": "Escopo da decisão permanente",
+      "scopeProject": "Somente o projeto",
+      "scopeUser": "Usuário (todos os projetos)",
+      "scopeCancel": "Cancelar",
+      "alternative": "Informar alternativa...",
+      "alternativeTitle": "Informe um comando ou caminho alternativo"
+    },
+    "title": "Configurações de permissão",
+    "description": "Gerencie as permissões de ferramentas e ações",
+    "mode": "Modo: {{mode}}",
+    "rememberSession": "Lembrar decisões da sessão: {{value}}"
+  },
   "languages": {
     "en": "Inglês",
     "zh-cn": "简体中文 (Chinês Simplificado)",
@@ -797,6 +1855,150 @@
     "pl": "Polski (Polonês)",
     "cs": "Čeština (Tcheco)",
     "hu": "Magyar (Húngaro)",
-    "hi": "हिन्दी (Hindi)"
+    "hi": "हिन्दी (Hindi)",
+    "id": "Bahasa Indonesia (Indonesian)",
+    "kk": "Қазақ тілі (Kazakh)"
+  },
+  "announcements": {
+    "launchLabel": "Novidades",
+    "moreHint": "+{{count}} mais · /whatsnew",
+    "lineHint": "^X ocultar  /whatsnew",
+    "modalTitle": "Novidades",
+    "modalHint": "↑↓ mover  ·  enter dispensar  ·  esc fechar",
+    "none": "Nenhum anúncio novo.",
+    "unavailable": "Os anúncios não estão disponíveis nesta sessão."
+  },
+  "feedback": {
+    "survey": {
+      "question": "Como o Autohand está se saindo nesta sessão? (opcional)",
+      "bad": "Ruim",
+      "poor": "Fraco",
+      "fine": "Ok",
+      "good": "Bom",
+      "great": "Ótimo",
+      "dismiss": "Dispensar",
+      "thanks": "Obrigado pelo feedback!",
+      "thanksLow": "Obrigado. Conte o que deu errado: /feedback <message>"
+    }
+  },
+  "slashCommands": {
+    "quit": "sair do Autohand",
+    "exit": "sair do Autohand",
+    "model": "escolher modelo e esforço de raciocínio a usar",
+    "cc": "ativa/desativa a compactação de contexto",
+    "search": "configura o provedor de busca na web (autohand, browser-profile, exa, google, brave, duckduckgo, parallel, keenable)",
+    "init": "criar arquivo AGENTS.md",
+    "help": "descreve os comandos slash disponíveis e dicas",
+    "?": "alias de /help",
+    "resume": "retomar sessão anterior",
+    "sessions": "listar sessões salvas",
+    "session": "mostra os detalhes da sessão atual",
+    "agents": "gerenciar sub-agentes",
+    "agents new": "cria um novo subagente a partir de uma descrição",
+    "feedback": "enviar feedback sobre o CLI",
+    "bug": "relata um bug: abre uma issue no GitHub com seu ambiente e esta sessão anexados",
+    "bug-report": "relata um bug: abre uma issue no GitHub com seu ambiente e esta sessão anexados",
+    "undo": "reverte as edições de arquivos do agente no último turno e remove esse turno",
+    "new": "inicia uma conversa nova (salva a sessão atual)",
+    "clear": "compacta o contexto atual mantendo um handoff da sessão",
+    "settings": "configurar configurações do autohand",
+    "statusbar": "configura as seções e o layout da barra de status",
+    "statusline": "configura a exibição da linha de status",
+    "memory": "gerenciar memória de projeto e usuário",
+    "formatters": "Lista os formatadores de código disponíveis",
+    "lint": "Lista os linters de código disponíveis",
+    "completion": "Gera scripts de autocompletar do shell",
+    "export": "exportar dados da sessão",
+    "status": "Mostra o status do Autohand, incluindo versão, modelo, conectividade com a API e uso",
+    "usage": "Explore uso, sessões, skills, extensões e insights de traces",
+    "upgrade": "abre o console para fazer upgrade do seu plano Autohand",
+    "login": "entrar na sua conta Autohand",
+    "account": "lista suas contas Autohand ou troca a conta usada por esta CLI",
+    "logout": "sair da sua conta Autohand",
+    "permissions": "exibir configurações de permissões atuais",
+    "hooks": "explorar e criar hooks de ciclo de vida",
+    "skills": "descobre e instala skills para o seu projeto",
+    "discovery": "visualiza fluxos de trabalho úteis do workspace atual",
+    "skills use": "ativa uma skill",
+    "skills install": "navega e instala skills da comunidade",
+    "skills search": "busca skills da comunidade",
+    "skills trending": "mostra as skills da comunidade em alta",
+    "skills remove": "remove uma skill instalada",
+    "skills new": "cria uma nova skill a partir de uma descrição",
+    "skills-new": "cria uma nova skill a partir de uma descrição",
+    "learn": "Analisa seu projeto e recomenda skills",
+    "theme": "mudar tema de cores do terminal",
+    "automode": "gerenciar modo autônomo",
+    "share": "compartilhar sessão",
+    "go": "pareia esta sessão com o app Autohand Code para iOS",
+    "handoff": "continua esta sessão na nuvem, na Web ou no app Autohand Code para iOS",
+    "cloud": "inicia ou retoma um agente hospedado durável (Pro, Pro+, Max)",
+    "handoff cloud": "continua esta conversa e o repositório em um agente na nuvem",
+    "open": "abre a sessão atual na nuvem na Web ou no Desktop",
+    "handoff session": "faz o handoff desta sessão para o app Autohand Code para iOS",
+    "handoff web": "continua esta conversa no Autohand Web (--workspace inclui mudanças do repositório, --new inicia uma nova conversa na Web)",
+    "sync": "gerenciar sincronização de configurações",
+    "add-dir": "adicionar diretórios ao escopo do workspace",
+    "language": "mudar idioma de exibição",
+    "plan": "planeja e divide uma tarefa complexa",
+    "ps": "lista os processos de shell em segundo plano iniciados pelo agente",
+    "stop": "interrompe um processo de shell em segundo plano iniciado pelo agente",
+    "about": "mostra informações sobre o Autohand",
+    "ide": "conectar a uma IDE em execução",
+    "history": "Histórico de sessões",
+    "whatityped": "Escolha uma mensagem digitada anteriormente em qualquer diretório",
+    "mcp": "gerenciar servidores MCP (Model Context Protocol)",
+    "mcp install": "navega e instala servidores MCP da comunidade",
+    "team": "Gerencia equipes de agentes (criar, status, encerrar)",
+    "tasks": "Mostra a lista de tarefas da equipe com status e responsáveis",
+    "peers": "Descobre pares locais, envia mensagens e abre sua caixa de entrada",
+    "message": "Envia mensagem a um colega local ou a um agente Squad selecionado",
+    "import": "importar dados de outros agentes de codificação",
+    "repeat": "Agenda um prompt recorrente em um intervalo fixo",
+    "browser": "continua a sessão atual na extensão de navegador do Autohand",
+    "review": "executa o fluxo de revisão do Autohand sobre mudanças, código, arquitetura, segurança, desempenho ou histórico",
+    "deep-research": "pesquisa um tema a fundo e salva um relatório do projeto com citações",
+    "deep-search": "alias de /deep-research",
+    "publish-research": "valida, visualiza e publica um relatório de pesquisa salvo",
+    "autoresearch": "Executa loops autônomos de experimentos: editar, medir, manter ou reverter, repetir.",
+    "pr-review": "revisa um diff local ou uma pull request explícita com achados baseados em evidências",
+    "deslop": "remove complexidade gerada desnecessária com testes que preservam o comportamento",
+    "tester": "planeja a verificação, executa os testes do projeto e captura evidências reais no navegador",
+    "setup": "executa o assistente de configuração para configurar ou reconfigurar o Autohand",
+    "yolo": "Alterna o modo YOLO — aprova todas as ações automaticamente",
+    "tools": "Lista, inspeciona, desativa, renomeia ou exclui meta-ferramentas persistidas",
+    "extensions": "valida, instala, inspeciona e gerencia extensões do Code",
+    "experiments": "lista e alterna os experimentos do Autohand",
+    "goal": "Cria, inspeciona, refina, pausa, retoma, conclui, limpa e enfileira goals persistentes",
+    "goals": "Abre a fila de goals ao vivo e gerencia goals persistentes",
+    "squad": "Seleciona um agente Squad, lê sua conversa ou abre o app",
+    "fork": "ramifica uma nova sessão a partir da sessão ativa ou de uma mensagem anterior do usuário",
+    "clone": "duplica a ramificação ativa da sessão em uma nova sessão",
+    "tree": "mostra a árvore de forks e clones deste projeto",
+    "rename": "dá um nome à sessão atual para que /sessions e /resume mostrem para que ela serve",
+    "whatsnew": "vê e dispensa os anúncios da CLI",
+    "changelog": "vê as notas de lançamento recentes no GitHub",
+    "readiness": "revisa os achados do repositório e escolhe se vai agir"
+  },
+  "traces": {
+    "consent": {
+      "disabled": "Desativado (padrão recomendado)",
+      "disabledDescription": "Não monitora arquivos de sessão de agentes de código e não executa o ahtraces.",
+      "local": "Somente Work Map local",
+      "localDescription": "Processa as sessões localmente e mantém sinais agregados de uso, resultado e fluxo de trabalho.",
+      "cloudMetadata": "Sincronização na nuvem — somente metadados",
+      "cloudMetadataDescription": "Envia metadados pseudônimos de tempo, agente, modelo, provedor, raciocínio, tokens, relacionamento e resultado.",
+      "cloudFull": "Sincronização na nuvem — traces completos com dados sensíveis removidos",
+      "cloudFullDescription": "Também envia partes limitadas e sanitizadas de mensagens e ferramentas; isso pode incluir prompts, respostas e raciocínio.",
+      "title": "Traces do agente e Work Map",
+      "line1": "O Autohand pode monitorar os arquivos de sessão de agentes de código compatíveis depois que a CLI sair.",
+      "line2": "O modo local guarda um índice agregado pseudônimo, nunca prompts brutos nem código.",
+      "line3": "Os modos na nuvem adicionam visibilidade entre agentes em https://console.autohand.ai/traces.",
+      "line4": "A ingestão e o armazenamento de traces não contam no seu uso da API do Autohand.",
+      "line5": "Os modos na nuvem exigem autenticação e uma escolha explícita separada abaixo.",
+      "line6": "Pare a qualquer momento com autohand --traces-off ou ahtraces off.",
+      "line7": "Você pode excluir os dados de trace na nuvem a qualquer momento em https://console.autohand.ai/account.",
+      "prompt": "Escolha o monitoramento de traces e o compartilhamento na nuvem"
+    }
   }
 }

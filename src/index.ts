@@ -54,6 +54,7 @@ import { validateAuthOnStartup } from './auth/startupAuth.js';
 import { installProcessErrorHandlers } from './reporting/processErrorReporting.js';
 import { checkForUpdates, getInstallHint, type VersionCheckResult } from './utils/versionCheck.js';
 import { initI18n, detectLocale, t } from './i18n/index.js';
+import { localizeCommanderHelp, readDisplayLanguageArg } from './i18n/cliHelp.js';
 import { initPingService, shutdownPingService, startPingService } from './telemetry/index.js';
 import { detectStdinType, readPipedStdin } from './utils/stdinDetector.js';
 import { buildPipePrompt } from './modes/pipeMode.js';
@@ -145,10 +146,24 @@ if (process.argv.includes('--answer-only') || process.argv.includes('--setup-onl
 
 const startupBranding = new StartupBranding();
 
+/**
+ * Sign-in, setup and other early paths run before runCLI initializes i18n, so
+ * apply the display language (--display-language, then ui.locale, then env)
+ * as soon as the config is known.
+ */
+function applyDisplayLocale(config: LoadedConfig): void {
+  const { locale } = detectLocale({
+    cliOverride: readDisplayLanguageArg(),
+    configLocale: config.ui?.locale,
+  });
+  void initI18n(locale);
+}
+
 function authenticateForStartup(
   config: LoadedConfig,
   options: Parameters<typeof ensureAuthenticated>[1] = {},
 ): Promise<LoadedConfig> {
+  applyDisplayLocale(config);
   return ensureAuthenticated(config, {
     ...options,
     onLoginPromptShown: startupBranding.onLoginPromptShown,
@@ -340,7 +355,7 @@ import { isDiscoveryInvocation, registerDiscoveryCommand } from './discovery/cli
 
 installProcessErrorHandlers();
 
-export const program = new Command();
+export const program = localizeCommanderHelp(new Command());
 
 const collectRepeatable = (value: string, previous: string[] = []): string[] => [...previous, value];
 
@@ -528,7 +543,16 @@ program
   .option('--ephemeral', 'Keep this run out of session history: no session files, no auto-memory, no session sync', false)
   .option('--profile <name>', 'Layer profiles.<name> from the config onto this run without saving it')
   .option('--set <key=value>', 'Override one setting for this run, e.g. --set ui.theme=aurora (repeatable, never saved)', collectRepeatable)
-  .addHelpText('after', '\nExamples:\n  autohand -c                       Continue in this folder\n  autohand -c -p "Continue the fix"  Continue headlessly\n  autohand -r                       Pick a saved session\n  autohand -r <id>                  Resume a saved session\n  autohand --auto-commit -p "Fix lint"\n')
+  .addHelpText('after', () => [
+    '',
+    t('cli.help.examples'),
+    `  autohand -c                       ${t('cli.help.exampleContinue')}`,
+    `  autohand -c -p "Continue the fix"  ${t('cli.help.exampleContinueHeadless')}`,
+    `  autohand -r                       ${t('cli.help.examplePick')}`,
+    `  autohand -r <id>                  ${t('cli.help.exampleResume')}`,
+    '  autohand --auto-commit -p "Fix lint"',
+    '',
+  ].join('\n'))
   .action(async (positionalPrompt: string | undefined, opts: RootCliOptions) => {
     // Clear screen immediately for Cursor-like behavior (before any output)
     if (
@@ -695,6 +719,7 @@ program
     if (opts.login) {
       const { login } = await import('./commands/login.js');
       const config = await loadConfig(opts.config);
+      applyDisplayLocale(config);
       await login({ config });
       process.exit(0);
     }
@@ -703,6 +728,7 @@ program
     if (opts.logout) {
       const { logout } = await import('./commands/logout.js');
       const config = await loadConfig(opts.config);
+      applyDisplayLocale(config);
       await logout({ config });
       process.exit(0);
     }
@@ -735,6 +761,7 @@ program
     // Handle --setup flag
     if (opts.setup) {
       const config = await loadConfig(opts.config, process.cwd());
+      applyDisplayLocale(config);
       const workspaceRoot = resolveWorkspaceRoot(config, opts.path);
       await exitUnlessWorkspaceIsSafe(workspaceRoot);
 
@@ -743,7 +770,7 @@ program
       const result = await wizard.run({ skipWelcome: false });
 
       if (result.cancelled) {
-        console.log(chalk.gray('\nSetup cancelled.'));
+        console.log(chalk.gray(`\n${t('setup.flow.cancelled')}`));
         process.exit(0);
       }
 
@@ -968,6 +995,7 @@ program
   .action(async () => {
     const { login } = await import('./commands/login.js');
     const config = await loadConfig();
+    applyDisplayLocale(config);
     await login({ config });
     process.exit(0);
   });
@@ -978,6 +1006,7 @@ program
   .action(async (action?: string, target?: string) => {
     const { account } = await import('./commands/account.js');
     const config = await loadConfig();
+    applyDisplayLocale(config);
     const output = await account({ config, args: [action, target].filter((value): value is string => Boolean(value)) });
     if (output) console.log(output);
     process.exit(0);
@@ -989,6 +1018,7 @@ program
   .action(async () => {
     const { logout } = await import('./commands/logout.js');
     const config = await loadConfig();
+    applyDisplayLocale(config);
     await logout({ config });
     process.exit(0);
   });
@@ -1744,7 +1774,7 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
       );
 
       if (result.cancelled) {
-        console.log(chalk.gray('\nSetup cancelled.'));
+        console.log(chalk.gray(`\n${t('setup.flow.cancelled')}`));
         process.exitCode = 0;
         return;
       }

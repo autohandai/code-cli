@@ -84,7 +84,41 @@ import * as readinessCmd from '../commands/readiness.js';
 import * as discoveryCmd from '../commands/discovery.js';
 
 import type { SlashCommand } from './slashCommandTypes.js';
+import { t } from '../i18n/index.js';
 export type { SlashCommand } from './slashCommandTypes.js';
+
+/** i18n key holding the user-facing description of a slash command, e.g. `slashCommands.login`. */
+export function slashCommandDescriptionKey(command: string): string {
+  return `slashCommands.${command.replace(/^\//, '')}`;
+}
+
+const LOCALIZED_DESCRIPTION = Symbol.for('autohand.slashCommand.localizedDescription');
+
+/**
+ * Command metadata is evaluated at import time, before the display language is
+ * known, so descriptions are resolved lazily on read. The metadata object keeps
+ * its identity; the registered English text stays the fallback when a key is
+ * missing from every locale.
+ */
+function localizeDescription(cmd: SlashCommand): SlashCommand {
+  const target = cmd as SlashCommand & { [LOCALIZED_DESCRIPTION]?: true };
+  if (target[LOCALIZED_DESCRIPTION] || Object.isFrozen(cmd)) return cmd;
+  let fallback = cmd.description;
+  const key = slashCommandDescriptionKey(cmd.command);
+  Object.defineProperty(cmd, 'description', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      const value = t(key);
+      return value === key ? fallback : value;
+    },
+    set(next: string) {
+      fallback = next;
+    },
+  });
+  Object.defineProperty(cmd, LOCALIZED_DESCRIPTION, { value: true, enumerable: false });
+  return cmd;
+}
 
 export const SLASH_COMMANDS: SlashCommand[] = ([
   quit.metadata,
@@ -184,4 +218,6 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   whatsnewCmd.metadata,
   changelogCmd.metadata,
   readinessCmd.metadata,
-] as (SlashCommand | undefined)[]).filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string');
+] as (SlashCommand | undefined)[])
+  .filter((cmd): cmd is SlashCommand => cmd != null && typeof cmd.command === 'string')
+  .map(localizeDescription);

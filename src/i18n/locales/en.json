@@ -36,31 +36,93 @@
       "model": "Override the configured LLM model",
       "config": "Path to config file (default ~/.autohand/config.json)",
       "temperature": "Sampling temperature",
-      "displayLanguage": "Set display language (e.g., en, id, zh-cn, fr, de)",
-      "autoCommit": "Auto-commit with LLM-generated message",
-      "unrestricted": "Run without any approval prompts",
+      "displayLanguage": "Set display language (e.g., en, id, zh-cn, fr, de, ja)",
+      "autoCommit": "Auto-commit with LLM-generated message (runs lint & test first)",
+      "unrestricted": "Run without any approval prompts (use with caution)",
       "restricted": "Deny all dangerous operations automatically",
       "autoSkill": "Auto-generate skills based on project analysis",
-      "skillInstall": "Install a community skill",
-      "project": "Install skill to project level",
+      "skillInstall": "Install a community skill (opens browser if no name)",
+      "project": "Install skill to project level (with --skill-install)",
       "permissions": "Display current permission settings and exit",
       "login": "Sign in to your Autohand account",
       "logout": "Sign out of your Autohand account",
-      "syncSettings": "Enable/disable settings sync",
-      "patch": "Generate git patch without applying changes",
-      "output": "Output file for patch (default: stdout)",
-      "autoMode": "Start autonomous development loop",
+      "syncSettings": "Enable/disable settings sync (default: false)",
+      "patch": "Generate git patch without applying changes (requires --prompt)",
+      "output": "Output file for patch (default: stdout, used with --patch)",
+      "autoMode": "Enable interactive auto-mode, or start a standalone loop with an inline task",
       "maxIterations": "Max auto-mode iterations (default: 50)",
-      "completionPromise": "Completion marker text (default: DONE)",
+      "completionPromise": "Completion marker text (default: \"DONE\")",
       "noWorktree": "Disable git worktree isolation in auto-mode",
       "checkpointInterval": "Git commit every N iterations (default: 5)",
       "maxRuntime": "Max runtime in minutes (default: 120)",
       "maxCost": "Max API cost in dollars (default: 10)",
-      "setup": "Run the setup wizard",
-      "addDir": "Add additional directories to workspace scope",
+      "setup": "Run the setup wizard to configure or reconfigure Autohand",
+      "addDir": "Add additional directories to workspace scope (can be used multiple times)",
       "thinking": "Set thinking/reasoning depth (none, normal, extended)",
       "yolo": "Auto-approve tool calls matching pattern (e.g., allow:read,write or deny:delete)",
-      "timeout": "Timeout in seconds for auto-approve mode"
+      "timeout": "Timeout in seconds for auto-approve mode",
+      "browser": "Enable browser integration (same as /browser)",
+      "noBrowser": "Disable browser integration",
+      "cloud": "Run with a durable hosted Autohand agent (Pro, Pro+, Max)",
+      "cloudAccount": "Select the Autohand account for the cloud session",
+      "cloudRepository": "Attach an authorized repository to a new cloud session",
+      "cloudConnector": "Repository connector or GitHub App connection to use",
+      "cloudBranch": "Remote branch for the cloud workspace",
+      "cloudProvider": "Managed sandbox provider: cloudflare, daytona, or box",
+      "continue": "Resume the latest session in this folder (supports -p)",
+      "resume": "Resume a saved session, or open the folder picker without one; with --cloud, resume an owned cloud session by ID or Web URL",
+      "version": "output the current version",
+      "outputFormat": "Command output format: stream-json",
+      "json": "Command JSON output: stream (default) or local",
+      "outputSchema": "Command mode only: the final answer must be one JSON document valid against this JSON Schema file",
+      "bare": "Minimal mode: skip hooks, plugin sync, attribution, auto-memory, background prefetches, keychain reads, and AGENTS.md auto-discovery",
+      "noDaemon": "Disable background services and child processes; keep foreground tools and session commands",
+      "offline": "Disable startup network operations, including model catalog refreshes",
+      "dir": "Alias for --path",
+      "y": "Alias for --yes",
+      "plan": "Start in read-only plan mode; require approval before execution",
+      "answerOnly": "Run the classified, tool-free Blueprint answer RPC profile",
+      "setupOnly": "Run only the scoped Autohand device-authorization RPC profile",
+      "clientContext": "RPC client context: cli, vscode, browser, slack, api, restricted, or blueprint (default: cli)",
+      "noIdleLogout": "Disable authenticated idle logout for long-running agent sessions",
+      "goal": "Run /goal non-interactively (status when omitted, otherwise same arguments as /goal)",
+      "learn": "Run /learn skill advisor non-interactively (analyze and install recommended skills)",
+      "learnUpdate": "Re-analyze project and regenerate outdated LLM-generated skills",
+      "settings": "Configure Autohand settings (same as /settings in interactive mode)",
+      "tracesOn": "Enable local agent monitoring and metadata sync to Autohand Console",
+      "tracesOff": "Stop agent monitoring and cloud sync, and remove local derived trace data",
+      "mode": "Run mode: interactive (default), rpc, or acp",
+      "acp": "Shorthand for --mode acp (Agent Client Protocol over stdio)",
+      "teammateMode": "Legacy team display preference; live team view stays in the lead terminal",
+      "worktree": "Run session in isolated git worktree (optional name)",
+      "tmux": "Launch in a dedicated tmux session (supports --worktree or --zit)",
+      "zit": "Run session in a disposable Zit workspace, recorded as a Zit change on exit (optional intent)",
+      "maxRequests": "Stop the run after this many model requests, sub-agents included",
+      "maxTokens": "Stop the run once reported token usage reaches this total, sub-agents included",
+      "maxDuration": "Stop the run after this much wall time",
+      "interactiveOnComplete": "After auto-mode ends, hand off directly to interactive mode (TTY only)",
+      "about": "Show information about Autohand",
+      "feedback": "Submit feedback",
+      "contextCompact": "Enable context compaction (default: on)",
+      "noContextCompact": "Disable context compaction",
+      "searchEngine": "Set web search provider (autohand, browser-profile, exa, google, brave, duckduckgo, parallel)",
+      "sysPrompt": "Replace entire system prompt (inline string or file path)",
+      "systemPrompt": "Replace entire system prompt (inline string or file path)",
+      "systemPromptFile": "Replace entire system prompt with file contents",
+      "appendSysPrompt": "Append to system prompt (inline string or file path)",
+      "appendSystemPrompt": "Append to system prompt (inline string or file path)",
+      "appendSystemPromptFile": "Append file contents to system prompt",
+      "mcpConfig": "Explicit MCP config file",
+      "agents": "Custom agents as inline JSON ({\"reviewer\":{\"description\":\"...\",\"prompt\":\"...\"}}) or an external agents directory",
+      "pluginDir": "Explicit plugin/meta-tool directory",
+      "allowedTools": "Only offer and authorize these tools this run, comma-separated or repeated (e.g. read_file,run_command(git:*))",
+      "disallowedTools": "Never offer or authorize these tools this run, comma-separated or repeated (e.g. delete_path,run_command)",
+      "fork": "Create and resume a new session branch from an existing session reference",
+      "rename": "Name the most recent session of this workspace and exit",
+      "ephemeral": "Keep this run out of session history: no session files, no auto-memory, no session sync",
+      "profile": "Layer profiles.<name> from the config onto this run without saving it",
+      "set": "Override one setting for this run, e.g. --set ui.theme=aurora (repeatable, never saved)",
+      "help": "display help for command"
     },
     "thinking": {
       "enabled": "Extended thinking enabled",
@@ -70,6 +132,323 @@
       "reading": "Reading piped input...",
       "timeout": "Stdin read timeout",
       "empty": "No input received from pipe"
+    },
+    "rootDescription": "Autonomous coding agent",
+    "commands": {
+      "browser": {
+        "description": "install and configure the Autohand browser extension bridge",
+        "install": {
+          "description": "install the native messaging bridge for supported browsers",
+          "options": {
+            "browser": "target browser: chrome, chromium, brave, edge, or all",
+            "extensionId": "installed browser extension id to use for direct handoff",
+            "installUrl": "fallback install/continue URL",
+            "cliPath": "CLI binary path to register in the native host",
+            "open": "open the install/continue page after installation"
+          }
+        }
+      },
+      "computer": {
+        "description": "Install and diagnose Autohand Computer Use",
+        "options": {
+          "json": "Print machine-readable status"
+        },
+        "status": {
+          "description": "Show Autohand Computer Use readiness",
+          "options": {
+            "json": "Print machine-readable status"
+          }
+        },
+        "install": {
+          "description": "Install or repair Autohand Computer Use",
+          "options": {
+            "binDir": "Directory for the computer-use engine executable",
+            "force": "Reinstall even when a supported driver already exists",
+            "nonInteractive": "Run without Autohand confirmation prompts",
+            "json": "Print machine-readable result"
+          }
+        },
+        "doctor": {
+          "description": "Run Autohand Computer Use diagnostics",
+          "options": {
+            "json": "Check installation readiness without interactive permission prompts"
+          }
+        }
+      },
+      "extensions": {
+        "description": "Validate, install, inspect, and manage Autohand Code extensions",
+        "list": {
+          "description": "List installed extensions",
+          "options": {
+            "json": "Emit machine-readable JSON",
+            "scope": "Filter by user or project scope"
+          }
+        },
+        "show": {
+          "description": "Show one installed extension and its contributions",
+          "options": {
+            "json": "Emit machine-readable JSON",
+            "scope": "Select user or project scope"
+          }
+        },
+        "validate": {
+          "description": "Validate an extension package without installing it",
+          "options": {
+            "json": "Emit machine-readable JSON"
+          }
+        },
+        "install": {
+          "description": "Install an extension from a local directory",
+          "options": {
+            "scope": "Install at user or project scope",
+            "link": "Link the source directory for extension development",
+            "replace": "Atomically replace different installed content",
+            "trust": "Allow reviewed runtime code to execute inside Autohand"
+          }
+        },
+        "enable": {
+          "description": "Enable an installed extension",
+          "options": {
+            "scope": "Select user or project scope"
+          }
+        },
+        "disable": {
+          "description": "Disable an installed extension",
+          "options": {
+            "scope": "Select user or project scope"
+          }
+        },
+        "remove": {
+          "description": "Remove an installed extension",
+          "options": {
+            "scope": "Select user or project scope",
+            "yes": "Confirm removal without prompting"
+          }
+        },
+        "doctor": {
+          "description": "Diagnose installed extension packages",
+          "options": {
+            "json": "Emit machine-readable JSON"
+          }
+        }
+      },
+      "discovery": {
+        "description": "Discover repository workflows locally; list or push drafts to Build my agent",
+        "options": {
+          "workspace": "Repository, or folder of repositories, to scan (defaults to --path or the current directory)",
+          "json": "Emit machine-readable results",
+          "dryRun": "Preview without writing files or uploading workflows",
+          "select": "List or push selected local workflow IDs",
+          "depth": "Search for projects up to two directory levels below the workspace",
+          "skillQuery": "Filter skill names and descriptions",
+          "noBehavior": "Skip local user message history",
+          "github": "Include merged pull requests using the authenticated gh CLI",
+          "analyze": "Refine recommendations with the discovery analysis skill",
+          "withReport": "Upload derived findings and request hosted workflow matches",
+          "push": "Scan, save and upload suggested workflows with their findings",
+          "since": "Work Map lookback such as 30d, 24h, or 60m",
+          "agent": "Work Map agent harness filter",
+          "output": "Write the aggregate Work Map JSON atomically"
+        }
+      },
+      "review": {
+        "description": "Run Autohand Review non-interactively (public beta). Kinds: changes, code, architecture, security, performance, forensics, or serve. Use /review interactively.",
+        "options": {
+          "audience": "Report audience: mixed, executive, technical, or forensic",
+          "format": "Review report format: markdown or json",
+          "base": "Comparison base for change or forensic review",
+          "head": "Comparison head; defaults to the working tree",
+          "focus": "Additional review focus",
+          "port": "Loopback report viewer port; 0 selects a free port",
+          "noOpen": "Do not open the report viewer in a browser",
+          "path": "Workspace path to review",
+          "config": "Path to the Autohand config file",
+          "model": "Override the configured review model",
+          "offline": "Disable startup network operations",
+          "bare": "Use minimal startup for the review",
+          "json": "Stream command lifecycle events as JSON",
+          "outputFormat": "Command transport format: stream-json"
+        }
+      },
+      "transfer": {
+        "description": "Import a private Autohand Code Web conversation and continue locally",
+        "options": {
+          "account": "The Autohand account shown in the Web transfer",
+          "path": "Parent for a new repository checkout, or the workspace for a chat without a repository",
+          "config": "Path to the Autohand config file",
+          "offline": "Skip model catalogue refresh when resuming",
+          "accept": "Accept the reviewed transfer without an interactive confirmation",
+          "importOnly": "Save the local session without starting the interactive CLI"
+        }
+      },
+      "doctor": {
+        "description": "Check the installation: runtime, config, tools, terminal, account, MCP servers, and extensions",
+        "options": {
+          "json": "Print the report as JSON",
+          "skipMcp": "Do not connect to configured MCP servers",
+          "path": "Workspace to check",
+          "config": "Path to the Autohand config file"
+        }
+      },
+      "resume": {
+        "description": "Resume a saved session by name, ID, path, or unique ID prefix; otherwise open the project picker",
+        "options": {
+          "last": "Resume the most recently active session",
+          "all": "Include sessions from all projects",
+          "path": "Workspace path to operate in and filter sessions by",
+          "config": "Path to the Autohand config file",
+          "model": "Override the configured LLM model",
+          "offline": "Disable the model catalog refresh for this resumed session"
+        }
+      },
+      "login": {
+        "description": "Sign in to your Autohand account"
+      },
+      "account": {
+        "description": "List the Autohand accounts you belong to, or switch the one this CLI uses (use <team>, clear)"
+      },
+      "logout": {
+        "description": "Sign out of your Autohand account"
+      },
+      "squad": {
+        "description": "Open Squad, list agents, send messages, read history, or serve the built-in MCP"
+      },
+      "queue": {
+        "description": "Show the local Autohand Squad queue"
+      },
+      "config": {
+        "description": "Configure Autohand settings",
+        "set": {
+          "description": "Set a config value, e.g. autohand config set verbs activity false"
+        }
+      },
+      "mcp": {
+        "description": "Manage MCP (Model Context Protocol) servers",
+        "add": {
+          "description": "Add an MCP server to config and auto-connect on next session",
+          "options": {
+            "transport": "Transport type: stdio | http | sse",
+            "scope": "Config scope: user | project"
+          }
+        },
+        "remove": {
+          "description": "Remove an MCP server from config",
+          "options": {
+            "scope": "Config scope: user | project"
+          }
+        },
+        "connect": {
+          "description": "Enable automatic connection for a configured MCP server",
+          "options": {
+            "scope": "Config scope: user | project"
+          }
+        },
+        "disconnect": {
+          "description": "Disable automatic connection for a configured MCP server",
+          "options": {
+            "scope": "Config scope: user | project"
+          }
+        },
+        "list": {
+          "description": "List configured MCP servers",
+          "options": {
+            "scope": "Config scope: user | project"
+          }
+        },
+        "install": {
+          "description": "Browse and install community MCP servers",
+          "options": {
+            "scope": "Config scope: user | project"
+          }
+        }
+      },
+      "experiments": {
+        "description": "List and toggle Autohand experiments",
+        "list": {
+          "description": "List experiments and current state"
+        },
+        "status": {
+          "description": "Show one experiment"
+        },
+        "refresh": {
+          "description": "Download remote feature flags from the Autohand API"
+        },
+        "enable": {
+          "description": "Enable an experiment"
+        },
+        "disable": {
+          "description": "Disable an experiment"
+        }
+      },
+      "agents": {
+        "description": "Show active Autohand CLI agents",
+        "options": {
+          "once": "Print one snapshot and exit"
+        }
+      },
+      "sessions": {
+        "description": "List saved sessions",
+        "options": {
+          "project": "Filter sessions by project name"
+        }
+      },
+      "init": {
+        "description": "Create an AGENTS.md file in the workspace",
+        "options": {
+          "path": "Workspace path"
+        }
+      },
+      "completion": {
+        "description": "Generate shell completion scripts (bash, zsh, fish)"
+      },
+      "update": {
+        "description": "Check for updates and install if available",
+        "options": {
+          "check": "Only check for updates without installing",
+          "models": "Refresh the remote model catalog without updating the CLI"
+        }
+      },
+      "upgrade": {
+        "description": "Check for updates and install if available",
+        "options": {
+          "check": "Only check for updates without installing",
+          "models": "Refresh the remote model catalog without updating the CLI"
+        }
+      },
+      "autoResearch": {
+        "description": "Start, inspect, or finalize an auto-research session under .auto/"
+      },
+      "import": {
+        "description": "Import data from other coding agents (claude, codex, gemini, cursor, cline, continue, augment, opencode, kimi, grok)",
+        "options": {
+          "all": "Import all available categories without prompting",
+          "categories": "Comma-separated list of categories to import (sessions,settings,skills,memory,mcp,hooks)",
+          "dryRun": "Preview what would be imported without making changes",
+          "retryFailed": "Retry previously failed import items"
+        }
+      },
+      "traces": {
+        "description": "Control agent trace monitoring (status, on, or off)",
+        "options": {
+          "json": "Emit machine-readable status"
+        }
+      }
+    },
+    "help": {
+      "usage": "Usage:",
+      "options": "Options:",
+      "globalOptions": "Global Options:",
+      "commands": "Commands:",
+      "arguments": "Arguments:",
+      "default": "default",
+      "examples": "Examples:",
+      "exampleContinue": "Continue in this folder",
+      "exampleContinueHeadless": "Continue headlessly",
+      "examplePick": "Pick a saved session",
+      "exampleResume": "Resume a saved session"
+    },
+    "arguments": {
+      "prompt": "Run a single instruction in command mode (same as -p)"
     }
   },
   "welcome": {
@@ -146,7 +525,8 @@
       "selectPrompt": "Select a language:",
       "changed": "Language changed to {{language}}",
       "noChange": "No change made.",
-      "restartHint": "Some changes may require restarting the CLI to take full effect."
+      "restartHint": "Some changes may require restarting the CLI to take full effect.",
+      "cancelled": "Language selection cancelled."
     },
     "quit": {
       "description": "exit Autohand",
@@ -482,7 +862,37 @@
       "prompt": "Enter your login code:",
       "success": "Successfully logged in as {{email}}",
       "failed": "Login failed: {{error}}",
-      "cancelled": "Login cancelled."
+      "cancelled": "Login cancelled.",
+      "switchToFantail": "Your {{provider}} hit a rate limit. Try Autohand's Fantail model instead?",
+      "openUrlManually": "Please open this URL manually:",
+      "alreadyLoggedIn": "Already logged in as {{email}}. Log in with a different account?",
+      "initiating": "Initiating authentication...",
+      "unknownError": "Unknown error",
+      "visit": "To sign in, visit:",
+      "enterCodeManually": "Or enter this code manually:",
+      "browserOpened": "Browser opened. Complete the login in your browser.",
+      "browserFailed": "Could not open browser automatically. Please visit the URL above.",
+      "waiting": "Waiting for authorization...",
+      "pressCtrlCToCancel": "(Press Ctrl+C to cancel)",
+      "waitingShort": "Waiting",
+      "traceRefreshFailed": "Signed in, but the trace companion could not refresh its account. It will retry on the next Autohand command.",
+      "profileApplied": "Applied Coding Agent settings profile: {{name}}",
+      "plan": "Plan: {{plan}}",
+      "codeExpired": "Authorization code expired. Please try again.",
+      "authCancelled": "Authentication cancelled. Run /login again when you are ready.",
+      "timedOut": "Authorization timed out. Please try again.",
+      "syncFound": "Found cloud sync data ({{count}} files, {{size}})",
+      "syncIncludes": "This includes your settings, agents, skills, sessions, and hooks.",
+      "syncRestorePrompt": "Would you like to restore your settings from the cloud?",
+      "syncSkipped": "Skipped sync restore. You can sync later with /sync.",
+      "syncRestoring": "Restoring settings from cloud...",
+      "pressEscToCancel": "(Press Esc or Ctrl+C to cancel)",
+      "syncCancelled": "Sync restore cancelled.",
+      "syncLater": "You can sync later with /sync.",
+      "syncRestored": "Restored {{count}} files from cloud.",
+      "syncFailed": "Sync restore failed: {{error}}",
+      "syncRetryLater": "You can try again later with /sync.",
+      "syncCheckFailed": "Could not check cloud sync data."
     },
     "logout": {
       "description": "sign out of your Autohand account",
@@ -779,6 +1189,122 @@
       "success": "Welcome, {{name}}! Your account is connected.",
       "expired": "Authorization code expired.",
       "timeout": "Authorization timed out."
+    },
+    "flow": {
+      "subtitle": "Your super fast self evolving coding agent",
+      "useExistingKey": "Use existing {{provider}} API key? (ends with ...{{suffix}})",
+      "effort": {
+        "none": "No extended reasoning",
+        "low": "Faster responses, minimal reasoning",
+        "medium": "Balanced speed and reasoning",
+        "high": "Thorough reasoning (recommended)",
+        "xhigh": "Maximum reasoning depth"
+      },
+      "moaEffort": {
+        "medium": "Balanced thinking for everyday coding",
+        "high": "Deeper reasoning for complex changes",
+        "xhigh": "Maximum thinking depth for difficult work"
+      },
+      "telemetry": {
+        "line1": "Product telemetry uses persistent pseudonymous device and session IDs",
+        "line2": "to understand how Autohand is used and where it can improve.",
+        "item1": "- Command usage (which features are popular)",
+        "item2": "- Tool outcomes, errors, and performance/runtime metrics",
+        "item3": "- Model, provider, skill, goal, and context lifecycle metadata",
+        "notCollected1": "Conversation messages, file contents, diffs, and tool arguments/results",
+        "notCollected2": "are not telemetry fields. Error and status text can contain sensitive information.",
+        "notCollected3": "Common home paths are sanitized; this is not a general secret detector."
+      },
+      "autoReport": {
+        "title": "Auto Report Issues",
+        "line1": "When errors occur, Autohand can automatically report",
+        "line2": "them as GitHub issues to help us fix bugs faster.",
+        "whatGetsReported": "What gets reported:",
+        "item1": "- Error type, message, and sanitized stack trace",
+        "item2": "- CLI/device/runtime data and call-site diagnostic context",
+        "note1": "Reports do not attach session messages or source files, but error text",
+        "note2": "and diagnostic context can contain sensitive information.",
+        "note3": "Path sanitization is not a general secret detector.",
+        "prompt": "Automatically report errors to help us fix bugs faster?",
+        "thanks": "Thanks! This helps us catch and fix issues quickly.",
+        "declined": "No problem! You can enable this anytime in config."
+      },
+      "preferences": {
+        "prompt": "Would you like to configure additional preferences? (theme, auto-confirm)",
+        "theme": "Select a theme",
+        "autoConfirm": "Auto-confirm non-destructive actions?",
+        "checkUpdates": "Check for updates on startup?"
+      },
+      "agents": {
+        "regenerate": "AGENTS.md already exists. Would you like to regenerate it?",
+        "keeping": "Keeping existing AGENTS.md",
+        "title": "Project Configuration",
+        "line1": "AGENTS.md helps Autohand understand your project better.",
+        "line2": "It contains instructions specific to your codebase.",
+        "prompt": "Generate AGENTS.md based on your project?",
+        "later": "You can create it later with /init",
+        "analyzing": "Analyzing your project...",
+        "framework": "Framework: {{name}}",
+        "packageManager": "Package manager: {{name}}",
+        "testFramework": "Test framework: {{name}}",
+        "created": "Created AGENTS.md",
+        "customize": "You can customize it anytime to improve Autohand's understanding."
+      },
+      "createdConfig": "- ~/.autohand/config.toml/yaml/json (your settings)",
+      "createdAgents": "- AGENTS.md (project instructions for Autohand)",
+      "tips": {
+        "title": "Quick tips:",
+        "enter": "- Type your request and press Enter to start",
+        "mention": "- Use @filename to mention files",
+        "help": "- Type /help for all commands",
+        "exit": "- Press Ctrl+C twice to exit"
+      },
+      "vertex": {
+        "gcloudDetected": "✓ gcloud CLI detected",
+        "gcloudMissing": "⚠ gcloud CLI not detected",
+        "installHint": "Install it for automatic token management:",
+        "tokenObtained": "✓ Access token obtained (valid for ~25 minutes)",
+        "autoRefresh": "Tokens are automatically refreshed when using gcloud.",
+        "manual": "Please enter token manually or run: gcloud auth login",
+        "refreshEnabled": "Token auto-refresh enabled via gcloud CLI",
+        "fetching": "Fetching access token from gcloud..."
+      },
+      "llamacpp": {
+        "detected": "Detected llama.cpp server at {{url}}",
+        "noServer": "llama.cpp is installed but no running server was detected.",
+        "noPackageManager": "llama.cpp is not installed and no supported package manager was detected.",
+        "canInstall": "llama.cpp is not installed. Autohand can install it with: {{command}}",
+        "installPrompt": "Install llama.cpp now?",
+        "installing": "Installing llama.cpp with {{command}}...",
+        "installFailed": "llama.cpp installation failed.",
+        "installed": "llama.cpp installation completed.",
+        "startServer": "Start llama-server with your model, then Autohand will connect on the detected port."
+      },
+      "search": {
+        "included": "Autohand Web Search is included with your plan and ready to use.",
+        "later": "Set up later",
+        "laterDescription": "Use /search before requesting web searches",
+        "enterKey": "Enter {{provider}} API key:",
+        "deferred": "Search setup deferred: an API key is required. Run /search to finish setup.",
+        "browserHint": "Connect Chromium with /browser for search, or keep a Chrome/Brave profile available. Use /search if your browser blocks automated requests."
+      },
+      "summary": {
+        "permissions": "Permissions: {{value}}",
+        "telemetry": "Telemetry: {{value}}",
+        "traces": "Agent traces: {{value}}",
+        "autoReport": "Auto-report: {{value}}",
+        "notifications": "Notifications: {{value}}",
+        "search": "Search: {{value}}",
+        "mcp": "MCP: {{value}}",
+        "keybindings": "Keyboard shortcuts: {{value}}",
+        "importedFrom": "Imported from: {{value}}",
+        "account": "Account: {{value}}",
+        "enabled": "enabled",
+        "disabled": "disabled",
+        "language": "Language: {{value}}"
+      },
+      "pressEnter": "Press Enter to continue...",
+      "cancelled": "Setup cancelled."
     }
   },
   "errors": {
@@ -1156,7 +1682,46 @@
     "toolMissing": "{{tool}} not found",
     "installHint": "Install with: {{command}}",
     "allToolsReady": "All tools ready!",
-    "someToolsMissing": "Some tools are missing. Some features may not work."
+    "someToolsMissing": "Some tools are missing. Some features may not work.",
+    "workspaceTrust": {
+      "projectHooks_one": "{{count}} project hook",
+      "projectHooks_other": "{{count}} project hooks",
+      "mcpServers_one": "{{count}} MCP server",
+      "mcpServers_other": "{{count}} MCP servers",
+      "projectToolFiles_one": "{{count}} project tool file",
+      "projectToolFiles_other": "{{count}} project tool files",
+      "hooksHeading": "Hooks",
+      "mcpServersHeading": "MCP servers",
+      "projectToolsHeading": "Project tools: {{count}} file(s)",
+      "intro": "This workspace wants to run commands from its .autohand project files.",
+      "warning": "Only trust workspaces whose files you have reviewed.",
+      "trust": "Trust this workspace",
+      "trustDescription": "Run these now and in later sessions. Autohand asks again if they change.",
+      "skip": "Not now",
+      "skipDescription": "Start without them. Autohand asks again next time.",
+      "skippedUntrusted": "Skipped {{entries}} from {{path}} because this workspace is not trusted. Run autohand in that folder interactively to review and trust them.",
+      "startedWithout": "Started without {{entries}} from {{path}}. Autohand will ask again next time."
+    },
+    "auth": {
+      "upgrading": "Upgrading Autohand...",
+      "running": "Running: {{command}}",
+      "upgradeDone": "Upgrade completed successfully!",
+      "restart": "Please restart Autohand to use the new version.",
+      "upgradeFailed": "Upgrade failed.",
+      "tryManually": "You can try manually:",
+      "error": "Error: {{message}}",
+      "bareRequiresKey": "Bare mode requires AUTOHAND_API_KEY or auth.apiKeyHelper in --settings/config.",
+      "login": "Login",
+      "upgradeAvailable": "Upgrade (v{{version}} available)",
+      "exit": "Exit",
+      "newVersion": "New version available!",
+      "signInToContinue": "Sign in to continue.",
+      "loginRequired": "Login failed. Autohand requires authentication to run.",
+      "expired": "Your Autohand sign-in has expired.",
+      "notSignedIn": "Not signed in.",
+      "nonInteractiveHint": "Run `autohand login`, or in CI set AUTOHAND_API_KEY and add --bare.",
+      "ciDocs": "CI sign-in: {{url}}"
+    }
   },
   "confirmation": {
     "proceed": "Proceed?",
@@ -1208,7 +1773,9 @@
     "inputPlaceholder": "Type your answer...",
     "passwordPlaceholder": "Enter password...",
     "apiKeyPlaceholder": "Paste your API key...",
-    "validationError": "Invalid input"
+    "validationError": "Invalid input",
+    "multiSelectHint": "Space toggle · Enter confirm · ESC cancel",
+    "filterHint": "/ search"
   },
   "homebrew": {
     "formulaGenerated": "Homebrew formula generated at {{path}}"
@@ -1289,7 +1856,8 @@
     "cs": "Čeština (Czech)",
     "hu": "Magyar (Hungarian)",
     "hi": "हिन्दी (Hindi)",
-    "id": "Bahasa Indonesia (Indonesian)"
+    "id": "Bahasa Indonesia (Indonesian)",
+    "kk": "Қазақ тілі (Kazakh)"
   },
   "announcements": {
     "launchLabel": "What's new",
@@ -1311,6 +1879,126 @@
       "dismiss": "Dismiss",
       "thanks": "Thanks for the feedback!",
       "thanksLow": "Thanks. Tell us what went wrong: /feedback <message>"
+    }
+  },
+  "slashCommands": {
+    "quit": "exit Autohand",
+    "exit": "exit Autohand",
+    "model": "choose what model and reasoning effort to use",
+    "cc": "toggle context compaction on/off",
+    "search": "configure web search provider (autohand, browser-profile, exa, google, brave, duckduckgo, parallel, keenable)",
+    "init": "create AGENTS.md file",
+    "help": "describe available slash commands and tips",
+    "?": "alias for /help",
+    "resume": "resume a previous session",
+    "sessions": "list saved sessions",
+    "session": "show the current session details",
+    "agents": "show active Autohand CLI agents",
+    "agents new": "create a new sub-agent from a description",
+    "feedback": "submit feedback about the CLI",
+    "bug": "report a bug: opens a GitHub issue with your environment and this session attached",
+    "bug-report": "report a bug: opens a GitHub issue with your environment and this session attached",
+    "undo": "revert agent file edits from the last turn and remove that turn",
+    "new": "start a fresh conversation (saves current session)",
+    "clear": "compact current context while retaining a session handoff",
+    "settings": "configure autohand settings",
+    "statusbar": "configure status bar sections and layout",
+    "statusline": "configure status line display",
+    "memory": "manage project and user memory",
+    "formatters": "List available code formatters",
+    "lint": "List available code linters",
+    "completion": "Generate shell completion scripts",
+    "export": "export session data",
+    "status": "Show Autohand status including version, model, API connectivity, and usage",
+    "usage": "Explore usage, sessions, skills, extensions, and trace insights",
+    "upgrade": "open the console to upgrade your Autohand plan",
+    "login": "sign in to your Autohand account",
+    "account": "list your Autohand accounts or switch the one this CLI uses",
+    "logout": "sign out of your Autohand account",
+    "permissions": "display current permission settings",
+    "hooks": "browse and create lifecycle hooks",
+    "skills": "discover and install skills for your project",
+    "discovery": "preview useful workflows from the current workspace",
+    "skills use": "activate a skill",
+    "skills install": "browse and install community skills",
+    "skills search": "search community skills",
+    "skills trending": "show trending community skills",
+    "skills remove": "remove an installed skill",
+    "skills new": "create a new skill from a description",
+    "skills-new": "create a new skill from a description",
+    "learn": "Analyze your project and recommend skills",
+    "theme": "change terminal color theme",
+    "automode": "manage autonomous mode",
+    "share": "share session",
+    "go": "pair this session with the Autohand Code iOS app",
+    "handoff": "continue this session in Cloud, Web, or the Autohand Code iOS app",
+    "cloud": "start or resume a durable hosted agent (Pro, Pro+, Max)",
+    "handoff cloud": "continue this conversation and repository in a cloud agent",
+    "open": "open the current cloud session in Web or Desktop",
+    "handoff session": "handoff this session to the Autohand Code iOS app",
+    "handoff web": "continue this conversation in Autohand Web (--workspace includes repository changes, --new starts a new Web conversation)",
+    "sync": "manage settings sync",
+    "add-dir": "add directories to workspace scope",
+    "language": "change display language",
+    "plan": "plan and break down a complex task",
+    "ps": "list background shell processes started by the agent",
+    "stop": "stop a background shell process started by the agent",
+    "about": "show information about Autohand",
+    "ide": "connect to a running IDE",
+    "history": "Session History",
+    "whatityped": "Choose a previously typed message from any directory",
+    "mcp": "manage MCP (Model Context Protocol) servers",
+    "mcp install": "browse and install community MCP servers",
+    "team": "Manage agent teams (create, status, shutdown)",
+    "tasks": "Show team task list with status and owners",
+    "peers": "Discover local peers, send messages, and open your inbox",
+    "message": "Message a local teammate or a selected Squad agent",
+    "import": "import data from other coding agents",
+    "repeat": "Schedule a recurring prompt at a fixed interval",
+    "browser": "continue the current session in the Autohand browser extension",
+    "review": "run the Autohand review workflow against changes, code, architecture, security, performance, or history",
+    "deep-research": "research a topic deeply and save a cited project report",
+    "deep-search": "alias for /deep-research",
+    "publish-research": "validate, preview, and publish a saved research report",
+    "autoresearch": "Run autonomous experiment loops: edit, benchmark, keep or revert, repeat.",
+    "pr-review": "review a local diff or explicit pull request with evidence-backed findings",
+    "deslop": "remove unnecessary generated complexity with behavior-preserving tests",
+    "tester": "plan verification, run project tests, and capture real browser evidence",
+    "setup": "run the setup wizard to configure or reconfigure Autohand",
+    "yolo": "Toggle YOLO mode — auto-approve all actions",
+    "tools": "List, inspect, disable, rename, or delete persisted meta-tools",
+    "extensions": "validate, install, inspect, and manage Code extensions",
+    "experiments": "list and toggle Autohand experiments",
+    "goal": "Create, inspect, refine, pause, resume, complete, clear, and queue persistent goals",
+    "goals": "Open the live goals queue and manage persistent goals",
+    "squad": "Select a Squad agent, read its conversation, or open the app",
+    "fork": "branch a new session from the active session or an earlier user message",
+    "clone": "duplicate the active session branch into a new session",
+    "tree": "show the fork and clone tree for this project",
+    "rename": "name the current session so /sessions and /resume show what it is for",
+    "whatsnew": "view and dismiss CLI announcements",
+    "changelog": "view recent GitHub release notes",
+    "readiness": "review repository findings and choose whether to act"
+  },
+  "traces": {
+    "consent": {
+      "disabled": "Disabled (recommended default)",
+      "disabledDescription": "Do not monitor coding-agent session files and do not run ahtraces.",
+      "local": "Local Work Map only",
+      "localDescription": "Process sessions locally and retain aggregate usage, outcome, and workflow signals.",
+      "cloudMetadata": "Cloud sync — metadata only",
+      "cloudMetadataDescription": "Upload pseudonymous timing, agent, model, provider, reasoning, token, relationship, and outcome metadata.",
+      "cloudFull": "Cloud sync — redacted full traces",
+      "cloudFullDescription": "Also upload bounded, redacted message and tool parts; this can include prompts, responses, and reasoning.",
+      "title": "Agent traces and Work Map",
+      "line1": "Autohand can monitor supported coding-agent session files after the CLI exits.",
+      "line2": "Local mode stores a pseudonymous aggregate index, never raw prompts or code.",
+      "line3": "Cloud modes add cross-agent visibility at https://console.autohand.ai/traces.",
+      "line4": "Trace ingestion and storage does not count against your Autohand API usage.",
+      "line5": "Cloud modes require authentication and a separate explicit choice below.",
+      "line6": "Stop anytime with autohand --traces-off or ahtraces off.",
+      "line7": "You can delete cloud trace data anytime from https://console.autohand.ai/account.",
+      "prompt": "Choose trace monitoring and cloud sharing"
     }
   }
 }

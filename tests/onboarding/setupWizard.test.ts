@@ -715,7 +715,12 @@ describe("SetupWizard", () => {
 
       await wizard.run({ skipWelcome: true });
 
-      const output = vi.mocked(console.log).mock.calls.flat().join("\n");
+      // t() is mocked to return keys; resolve them against the English copy.
+      const { default: en } = await import("../../src/i18n/locales/en.json");
+      const english = (key: string): string => String(key.split(".").reduce<unknown>(
+        (node, part) => (node as Record<string, unknown> | undefined)?.[part], en) ?? key);
+      const output = vi.mocked(console.log).mock.calls.flat().join("\n")
+        .replace(/[a-zA-Z]+(?:\.[a-zA-Z0-9]+)+/g, (match) => english(match));
       expect(output).toContain("persistent pseudonymous device and session IDs");
       expect(output).toContain("Error and status text can contain sensitive information");
       expect(output).toContain("Path sanitization is not a general secret detector");
