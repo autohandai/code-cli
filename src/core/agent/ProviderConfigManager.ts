@@ -149,6 +149,7 @@ export class ProviderConfigManager {
     private updateContextWindow: (contextWindow: number) => void,
     private resetContextPercent: () => void,
     private emitStatus: () => void,
+    private syncProviderModelStatusLine: () => void = () => {},
   ) {}
 
   private async resolveContextWindow(provider: ProviderName, model: string): Promise<number> {
@@ -4069,6 +4070,7 @@ export class ProviderConfigManager {
     this.updateContextWindow(contextWindow);
     this.resetContextPercent();
     this.emitStatus();
+    this.syncProviderModelStatusLine();
 
     // Track model switch
     this.refreshRuntimeContextWindow(newModel);

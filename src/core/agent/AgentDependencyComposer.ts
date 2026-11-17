@@ -1228,7 +1228,8 @@ export function initializeAgentDependencies(
         host.updateContextUsage?.(host.conversation.history());
       },
       () => { host.contextPercentLeft = 100; },
-      () => host.emitStatus()
+      () => host.emitStatus(),
+      () => host.syncProviderModelStatusLine()
     );
 
     const specialistTools: ToolDefinition[] = getFeatureState(runtime.config, 'automatic_specialists')?.enabled === true
@@ -2318,9 +2319,12 @@ export function initializeAgentDependencies(
       getContextWindow: () => host.contextWindow,
       getAccountEntitlement: () => {
         const autohand = runtime.config.autohandai;
-        const token = runtime.config.auth?.token
-          ?? autohand?.accountToken
-          ?? (autohand?.authMode === 'api-key' ? autohand.apiKey : undefined);
+        const isAutohandCloud = host.activeProvider === 'autohandai' && autohand?.plan === 'cloud';
+        const token = isAutohandCloud
+          ? (autohand?.authMode === 'account'
+              ? autohand?.accountToken ?? runtime.config.auth?.token
+              : autohand?.apiKey ?? runtime.config.auth?.token)
+          : runtime.config.auth?.token;
         return token ? getAuthClient().fetchEntitlement(token, selectedAccountId(runtime.config)) : Promise.resolve(null);
       },
       applyAccountChange: async () => {
