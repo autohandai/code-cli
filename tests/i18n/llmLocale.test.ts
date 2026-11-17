@@ -14,13 +14,19 @@ import type { SupportedLocale } from '../../src/i18n/localeDetector';
 describe('llmLocale', () => {
   describe('buildLocaleInstruction', () => {
     describe('English locale', () => {
-      it('should return empty string for English', () => {
+      it('states English explicitly so a remembered language cannot take over', () => {
         const result = buildLocaleInstruction('en');
-        expect(result).toBe('');
+        expect(result).toContain('## Response Language Preference');
+        expect(result).toContain('Respond in English');
+        expect(result).toContain('overrides any remembered language preference');
       });
     });
 
     describe('non-English locales', () => {
+      it('makes the configured language override remembered language preferences', () => {
+        expect(buildLocaleInstruction('fr')).toContain('overrides any remembered language preference');
+      });
+
       it('should include language preference header for French', () => {
         const result = buildLocaleInstruction('fr');
         expect(result).toContain('## Response Language Preference');
@@ -194,9 +200,10 @@ describe('llmLocale', () => {
     const basePrompt = 'You are a helpful coding assistant.\n\n## Tools\n\nYou have access to the following tools:';
 
     describe('English locale', () => {
-      it('should return original prompt unchanged for English', () => {
+      it('appends an explicit English instruction', () => {
         const result = injectLocaleIntoPrompt(basePrompt, 'en');
-        expect(result).toBe(basePrompt);
+        expect(result).toContain(basePrompt);
+        expect(result).toContain('Respond in English');
       });
     });
 
@@ -246,11 +253,8 @@ describe('llmLocale', () => {
       it.each(allLocales)('should handle %s locale correctly', (locale) => {
         const result = injectLocaleIntoPrompt(basePrompt, locale);
 
-        // English should return unchanged
-        if (locale === 'en') {
-          expect(result).toBe(basePrompt);
-        } else {
-          // All others should have the locale instruction
+        // Every locale, English included, states the response language
+        {
           expect(result).toContain(basePrompt);
           expect(result).toContain('## Response Language Preference');
           expect(result.length).toBeGreaterThan(basePrompt.length);

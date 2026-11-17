@@ -307,6 +307,31 @@ describe('extractAndSaveSessionMemories', () => {
   });
 
   // 3. Returns empty array when LLM returns empty array
+  it('never saves a response-language preference, which belongs to the language setting', async () => {
+    const llmPayload: ExtractedMemory[] = [
+      {
+        content: 'Igor communicates in Portuguese; respond in Portuguese by default unless requested otherwise.',
+        level: 'user',
+        tags: ['language', 'communication'],
+      },
+      { content: 'Reply in Spanish for project explanations.', level: 'user', tags: ['communication'] },
+      { content: 'Prefers tabs over spaces', level: 'user', tags: ['style'] },
+    ];
+    const provider = createMockProvider(JSON.stringify(llmPayload));
+
+    const result = await extractAndSaveSessionMemories({
+      llm: provider,
+      memoryManager,
+      conversationHistory: buildHistory(3),
+      workspaceRoot: '/workspace',
+    });
+
+    expect(result.map((memory) => memory.content)).toEqual(['Prefers tabs over spaces']);
+    expect(memoryManager.store).toHaveBeenCalledTimes(1);
+    const prompt = JSON.stringify((provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]);
+    expect(prompt).toContain('Never save which language to respond in');
+  });
+
   it('returns empty array when LLM returns empty array', async () => {
     const provider = createMockProvider('[]');
     const deps: ExtractionDeps = {
