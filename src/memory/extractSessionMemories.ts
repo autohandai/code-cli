@@ -72,6 +72,7 @@ Rules:
 - Be concise: each memory should be 1-2 sentences max
 - Prefer updating/refining durable memories over restating obvious session facts
 - Skip trivial, one-off, or context-specific observations
+- Never save which language to respond in; the response language is a user setting (/language), not a memory
 - If nothing is worth saving, return an empty array
 
 Return ONLY a JSON array (no markdown, no explanation):
@@ -124,6 +125,21 @@ function stripCodeFences(raw: string): string {
   const fenceRegex = /^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/;
   const match = fenceRegex.exec(trimmed);
   return match ? match[1].trim() : trimmed;
+}
+
+const LANGUAGE_NAMES = 'english|portuguese|portugu[eê]s|spanish|espa[nñ]ol|french|german|italian|japanese|korean|chinese|russian|turkish|polish|czech|hungarian|hindi|indonesian';
+const RESPONSE_LANGUAGE_PATTERN = new RegExp(
+  `\\b(respond|reply|answer|communicat\\w*|speak\\w*|write|writes|talk\\w*)\\b[^.;]{0,60}\\b(${LANGUAGE_NAMES})\\b`,
+  'i',
+);
+
+/**
+ * Response language is a setting (`ui.locale`). A memory that pins a reply language
+ * outlives the session that suggested it and silently overrides the setting.
+ */
+function isResponseLanguageMemory(memory: ExtractedMemory): boolean {
+  if (memory.tags?.some((tag) => /^(language|locale)$/i.test(tag))) return true;
+  return RESPONSE_LANGUAGE_PATTERN.test(memory.content);
 }
 
 /** Validate and type-narrow a single parsed entry */
@@ -220,6 +236,7 @@ export async function extractAndSaveSessionMemories(
       level: raw.level,
       tags: normaliseTags(rawObj.tags),
     };
+    if (isResponseLanguageMemory(memory)) continue;
 
     try {
       if (memory.level === 'project' && expectedProjectScope !== undefined

@@ -36,17 +36,27 @@ const LANGUAGE_NAMES_FOR_LLM: Record<SupportedLocale, string> = {
  * while keeping code, paths, and technical identifiers in English.
  */
 export function buildLocaleInstruction(locale: SupportedLocale): string {
-  // No instruction needed for English (default)
-  if (locale === 'en') {
-    return '';
-  }
-
   const languageName = LANGUAGE_NAMES_FOR_LLM[locale];
+  // English is stated too: with no instruction, a remembered or inferred language
+  // preference would be the only language guidance the model sees.
+  const precedence = `This configured language overrides any remembered language preference. Switch languages only when the user explicitly asks in the current conversation.`;
+
+  if (locale === 'en') {
+    return `
+## Response Language Preference
+
+The user has configured their preferred language as **English**. Respond in English.
+
+${precedence}
+`;
+  }
 
   return `
 ## Response Language Preference
 
 The user has configured their preferred language as **${languageName}**.
+
+${precedence}
 
 Please respond in ${languageName} when providing:
 - Explanations and descriptions
