@@ -85,6 +85,11 @@ export function buildSessionChatLog(messages: SessionMessage[]): ChatLogMessage[
     }
 
     if (message.role === 'assistant') {
+      // Text sent alongside tool calls is the live turn's transient preview, never a
+      // transcript entry. Replaying it repeats every step's preamble with no tool rows between.
+      if (Array.isArray(message.toolCalls) && message.toolCalls.length > 0) {
+        continue;
+      }
       const content = getAssistantChatLogContent(message.content);
       if (content) {
         chatMessages.push({ role: 'assistant', content });
