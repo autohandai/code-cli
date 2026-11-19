@@ -111,6 +111,20 @@ describe('runAgentCommandMode', () => {
     else Reflect.deleteProperty(process.stdout, 'isTTY');
   });
 
+  it.each(['completed', 'failed', 'interrupted'] as const)('tells the command-mode stop hook the turn was %s', async outcome => {
+    const host = createHost(outcome === 'completed');
+    host.runInstruction = vi.fn(async () => {
+      host.lastTurnOutcome = outcome;
+      return outcome === 'completed';
+    });
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await runAgentCommandMode(host, 'any instruction');
+
+    const stop = vi.mocked(host.hookManager.executeHooks).mock.calls.find(([event]) => event === 'stop');
+    expect(stop?.[1]).toMatchObject({ turnOutcome: outcome });
+  });
+
   it('returns false and suppresses success-only effects after a failed turn', async () => {
     const host = createHost(false);
     const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);

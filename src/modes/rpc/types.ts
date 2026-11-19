@@ -4,7 +4,7 @@
  * Spec: https://www.jsonrpc.org/specification
  */
 import type { PermissionPromptDecision, PermissionPromptResult } from '../../permissions/types.js';
-import type { AuthUser, McpServerConfigEntry, ToolRegistryEntry } from '../../types.js';
+import type { AuthUser, McpServerConfigEntry, ToolRegistryEntry, TurnOutcome } from '../../types.js';
 import type { AgentDefinition } from '../../core/agents/AgentRegistry.js';
 import type { AgentRunTerminalStatus } from '../../core/agents/AgentRunStore.js';
 import type {
@@ -824,6 +824,8 @@ export interface ToolEndParams {
   parentToolId?: string;
   toolName: string;
   success: boolean;
+  /** The tool was stopped by the user or host. `success` is false, but it did not fail. */
+  interrupted?: boolean;
   output?: string;
   error?: string;
   timestamp: string;
@@ -945,6 +947,8 @@ export interface HookStopNotificationParams {
   tokensUsageStatus?: 'actual' | 'unavailable';
   toolCallsCount: number;
   duration: number;
+  /** How the turn ended. `interrupted` means the user or host stopped it; it did not fail. */
+  outcome?: TurnOutcome;
   timestamp: string;
 }
 

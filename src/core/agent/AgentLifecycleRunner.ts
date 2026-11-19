@@ -1258,6 +1258,7 @@ export async function runAgentCommandMode(
         await awaitFinalizationStep(executeCommandHook('stop', {
           sessionId,
           turnDuration: Date.now() - turnStartedAt,
+          ...(host.lastTurnOutcome ? { turnOutcome: host.lastTurnOutcome } : {}),
           tokensUsed: snapshot?.tokensUsed ?? 0,
           tokensUsageStatus: snapshot?.tokensUsageStatus ?? 'unavailable',
         }));
@@ -2083,6 +2084,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
         host.hookManager.executeHooks('stop', {
           sessionId: session?.metadata.sessionId,
           turnDuration,
+          turnOutcome: host.lastTurnOutcome ?? (turnSucceeded ? 'completed' : 'failed'),
           tokensUsed: snapshot.tokensUsed,
           tokensUsageStatus: snapshot.tokensUsageStatus,
         }).catch(() => {

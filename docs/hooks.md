@@ -514,6 +514,7 @@ echo "Tool: $TOOL_NAME with args: $TOOL_ARGS"
   "tool_calls_count": null,
   "turn_tool_calls": null,
   "turn_duration": null,
+  "turn_outcome": null,
   "duration": null,
   "error": null,
   "error_code": null,
@@ -663,6 +664,7 @@ When your hook command executes, these environment variables are available:
 | `HOOK_COMPUTER_USE_STATUS` | Action or turn lifecycle status | computer-use-start, computer-use-progress, computer-use-error, computer-use-stop |
 | `HOOK_ARGS` | JSON-encoded tool arguments | pre-tool, post-tool |
 | `HOOK_SUCCESS` | "true" or "false" | post-tool |
+| `HOOK_INTERRUPTED` | "true" when the tool was stopped by the user or host instead of failing (`HOOK_SUCCESS` is "false") | post-tool |
 | `HOOK_OUTPUT` | Tool output/result | post-tool |
 | `HOOK_DURATION` | Execution time in ms | post-tool, stop, session-end |
 | `HOOK_PATH` | File path | file-modified, permission-request, permission-denied |
@@ -673,6 +675,7 @@ When your hook command executes, these environment variables are available:
 | `HOOK_TOOL_CALLS_COUNT` | Number of tool calls | stop |
 | `HOOK_TURN_TOOL_CALLS` | Tool calls in current turn | stop |
 | `HOOK_TURN_DURATION` | Turn duration in ms | stop |
+| `HOOK_TURN_OUTCOME` | How the turn ended: `completed`, `failed` or `interrupted`. An interrupted turn was stopped by the user or the host; it did not fail | stop |
 | `HOOK_ERROR` | Error message | session-error, rate-limit |
 | `HOOK_ERROR_CODE` | Error code | session-error, rate-limit |
 | `HOOK_RETRY_AFTER_MS` | Provider-advertised retry delay in ms (only when sent) | rate-limit |

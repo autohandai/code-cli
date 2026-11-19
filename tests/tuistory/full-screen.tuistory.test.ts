@@ -439,6 +439,70 @@ describe('full-screen terminal', () => {
     await exitInteractive(session);
   }, 120_000);
 
+  it('reports a turn stopped with Escape as interrupted, not failed', async () => {
+    let release: () => void = () => {};
+    server = await createMockAutohandAINativeSequenceServer([
+      { content: 'never delivered', responseGate: new Promise<void>(resolve => { release = resolve; }) },
+    ]);
+    state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-test-key', model: 'moa', baseUrl: server.baseUrl },
+      features: { fullScreenMode: true, autohand_inference: true },
+      agent: { autoMemory: false, maxIterations: 3, sessionRetryLimit: 0 },
+      network: { maxRetries: 0, retryDelay: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    session = await launchBuiltAutohand(['--yes', '--config', state.configPath, '--path', state.workspaceRoot], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000, cols: 100, rows: 30,
+    });
+    await session.waitForText('❯', { timeout: 20_000 });
+    // Under load the text and Enter can arrive as one chunk, which the composer treats as a paste.
+    await session.type('start something long'); await session.waitForText('start something long'); await session.waitIdle();
+    await session.press('enter');
+    await session.waitForText('esc to cancel', { timeout: 20_000 });
+    await session.press('esc');
+    await session.waitForText('Interrupted in', { timeout: 10_000 });
+    await session.waitIdle();
+    expect(outputViewport(session)).not.toContain('Failed in');
+    expect(outputViewport(session)).not.toContain('Session failed');
+    release();
+    await session.type('still usable'); await session.waitForText('❯ still usable');
+    await exitInteractive(session);
+  }, 90_000);
+
+  it('shows a command stopped with Escape as interrupted, not as a failed tool', async () => {
+    server = await createMockAutohandAINativeSequenceServer([
+      { content: 'Running.', toolCall: { id: 'long-command', name: 'run_command', args: { command: 'sleep', args: ['30'] } } },
+      { content: 'never reached' },
+    ]);
+    state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-test-key', model: 'moa', baseUrl: server.baseUrl },
+      features: { fullScreenMode: true, autohand_inference: true },
+      agent: { autoMemory: false, maxIterations: 3, sessionRetryLimit: 0 },
+      network: { maxRetries: 0, retryDelay: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    session = await launchBuiltAutohand(['--yes', '--config', state.configPath, '--path', state.workspaceRoot], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000, cols: 100, rows: 30,
+    });
+    await session.waitForText('❯', { timeout: 20_000 });
+    // Under load the text and Enter can arrive as one chunk, which the composer treats as a paste.
+    await session.type('run something long'); await session.waitForText('run something long'); await session.waitIdle();
+    await session.press('enter');
+    await session.waitForText('run_command sleep 30', { timeout: 20_000 });
+    await session.press('esc');
+    await session.waitForText('Interrupted in', { timeout: 10_000 });
+    await session.waitIdle();
+    const screen = outputViewport(session);
+    expect(screen).toContain('⊘ run_command');
+    expect(screen).not.toContain('× run_command');
+    expect(screen).not.toContain('Tool execution aborted');
+    expect(screen).not.toContain('Failed in');
+    expect(server.requests).toHaveLength(1);
+    await exitInteractive(session);
+  }, 90_000);
+
   it('returns from status when Ghostty sends protocol-encoded Escape', async () => {
     state = await createTempAutohandHome({ config: { features: { fullScreenMode: true }, ui: { promptSuggestions: false } } });
     session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], {

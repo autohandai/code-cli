@@ -698,6 +698,36 @@ describe('ReactLoopRunner composer status', () => {
     expect(shouldDisplayToolOutput({ ui: { silentToolOutput: true } } as any)).toBe(false);
   });
 
+  it('shows a tool the user interrupted as interrupted, not as a failed tool', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const parser = new ReactionParser();
+    const addToolOutput = vi.fn();
+    const llmComplete = vi.fn().mockResolvedValueOnce({
+      id: 'tool-call', created: 1, raw: {},
+      content: JSON.stringify({ thought: 'Run it.', toolCalls: [{ tool: 'run_command', args: { command: 'sleep', args: ['30'] } }] }),
+    });
+    const host = createReactLoopTestHost(llmComplete, parser);
+    host.runtime.config.ui = { silentToolOutput: false };
+    host.inkRenderer = {
+      setStatus: vi.fn(), addToolCall: vi.fn(), addToolOutputBatch: vi.fn(), addToolOutput,
+      setThinking: vi.fn(), setElapsed: vi.fn(), setTokens: vi.fn(), setWorking: vi.fn(), setFinalResponse: vi.fn(),
+    };
+    const controller = new AbortController();
+    host.toolManager.execute = vi.fn(async (_calls, onResult) => {
+      controller.abort();
+      const result = { tool: 'run_command' as const, success: false as const, kind: 'aborted' as const, error: 'Tool execution aborted.' };
+      onResult(0, result);
+      return [result];
+    });
+
+    try {
+      await runAgentReactLoop(host, controller);
+      expect(addToolOutput).toHaveBeenCalledWith('run_command', false, 'Interrupted', undefined, undefined, { interrupted: true });
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('logs parsed tool calls to Ink by default before completed tool output', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const parser = new ReactionParser();

@@ -177,6 +177,7 @@ export interface ReactLoopInkRenderer {
     output: string,
     thought?: string,
     expandedOutput?: string,
+    options?: { interrupted?: boolean },
   ): void;
   addWorkspaceChanges?(changeSet: WorkspaceChangeSet): void;
   setThinking(thought: string | null): void;
@@ -530,6 +531,10 @@ function getToolCallFilePath(call: ToolCallRequest | undefined): string | null {
 }
 
 export { isDeferredFinalResponse };
+
+function wasInterrupted(result: ToolExecutionResult): boolean {
+  return !result.success && result.kind === 'aborted';
+}
 
 export async function runAgentReactLoop(
   host: AgentReactLoopHost,
@@ -1503,6 +1508,11 @@ export async function runAgentReactLoop(
             if (result.tool === 'todo_write' && result.success) {
               return;
             }
+            // A tool the user stopped is not a failed tool; its abort message is not an error to read.
+            if (wasInterrupted(result)) {
+              host.inkRenderer.addToolOutput(result.tool, false, 'Interrupted', undefined, undefined, { interrupted: true });
+              return;
+            }
             if (deferDiffPreview && workspaceChangeCapture && isFileDiffPreview(result)) {
               deferredDiffResults.push({ result, call, thought: resultThought });
               return;
@@ -1617,6 +1627,12 @@ export async function runAgentReactLoop(
               const group = host.inkRenderer && displayToolOutput ? pendingGroups.get(result.tool) : undefined;
               if (!group) {
                 renderToolResult(result, call, resultThought);
+                return;
+              }
+              if (wasInterrupted(result)) {
+                group.expected -= 1;
+                renderToolResult(result, call, resultThought);
+                if (group.items.length >= group.expected) flushToolGroup(group);
                 return;
               }
               if (workspaceChangeCapture && isFileDiffPreview(result)) {

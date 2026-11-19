@@ -33,7 +33,7 @@ export interface AxoBuddyProps {
   readonly axo: AxoUIState;
   readonly isWorking: boolean;
   /** How the most recent turn ended. */
-  readonly turnStatus: 'completed' | 'failed' | undefined;
+  readonly turnStatus: 'completed' | 'failed' | 'interrupted' | undefined;
   readonly input: string;
   readonly columns: number;
   readonly rows: number | undefined;
@@ -71,7 +71,8 @@ export const AxoBuddy = memo(function AxoBuddy({
       setFinishedAt(null);
     } else if (!isWorking && wasWorking) {
       if (turnStatus === 'failed') setFailed(true);
-      else setFinishedAt(Date.now());
+      // An interrupted turn is neither a failure nor something to celebrate.
+      else if (turnStatus !== 'interrupted') setFinishedAt(Date.now());
     }
   }, [isWorking, turnStatus]);
 

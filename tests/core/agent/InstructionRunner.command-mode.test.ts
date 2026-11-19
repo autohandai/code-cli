@@ -125,6 +125,116 @@ function createHost(): AgentInstructionHost {
   };
 }
 
+describe('InstructionRunner turn outcome', () => {
+  it('records a finished turn as completed', async () => {
+    const host = createHost();
+    expect(await new InstructionRunner(host).run('explain this function')).toBe(true);
+    expect(host.lastTurnOutcome).toBe('completed');
+  });
+
+  it('records a turn that threw as failed', async () => {
+    const host = createHost();
+    host.runReactLoop = vi.fn(async () => { throw new Error('provider exploded'); });
+    expect(await new InstructionRunner(host).run('explain this function')).toBe(false);
+    expect(host.lastTurnOutcome).toBe('failed');
+    expect(host.stopUI).toHaveBeenCalledWith(true, 'Session failed');
+  });
+
+  it('records a turn the user interrupted as interrupted, never as failed', async () => {
+    // ESC used to end the turn through the failure path: "Failed in 3s", a failed terminal title,
+    // and protocol hosts and stop hooks that could not tell an interruption from an error.
+    const host = createHost();
+    host.runReactLoop = vi.fn(async (controller: AbortController) => {
+      controller.abort();
+      return { status: 'aborted' as const };
+    });
+    expect(await new InstructionRunner(host).run('explain this function')).toBe(false);
+    expect(host.lastTurnOutcome).toBe('interrupted');
+    const stops = vi.mocked(host.stopUI).mock.calls;
+    expect(stops.length).toBeGreaterThan(0);
+    for (const call of stops) expect(call).toEqual([false, undefined, { interrupted: true }]);
+  });
+
+  it('treats an abort raised as an error the same way', async () => {
+    const host = createHost();
+    host.runReactLoop = vi.fn(async (controller: AbortController) => {
+      controller.abort();
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    });
+    expect(await new InstructionRunner(host).run('explain this function')).toBe(false);
+    expect(host.lastTurnOutcome).toBe('interrupted');
+    expect(host.stopUI).not.toHaveBeenCalledWith(true, 'Session failed');
+    expect(host.emitOutput).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+  });
+});
+
+describe('InstructionRunner Escape target while a turn starts', () => {
+  const inkHost = () => Object.assign(createHost(), {
+    useInkRenderer: true,
+    inkRenderer: {},
+    currentInkAbortController: null as AbortController | null,
+    currentInkOnCancel: null as (() => void) | null,
+  });
+
+  it('keeps Escape wired to the turn between the pre-prompt phase and the UI start', async () => {
+    // Recorded in a terminal: the status row already said "esc to cancel", Escape was pressed in
+    // this gap, found no controller, and the turn ran on for as long as the model took.
+    const host = inkHost();
+    let targetInGap: AbortController | null | undefined;
+    host.clearExplorationLog = vi.fn(() => { targetInGap ??= host.currentInkAbortController; });
+
+    expect(await new InstructionRunner(host).run('explain this function')).toBe(true);
+
+    expect(targetInGap).toBeInstanceOf(AbortController);
+    expect(host.currentInkAbortController).toBeNull();
+  });
+
+  it('interrupts the turn when Escape lands in that gap', async () => {
+    const host = inkHost();
+    let pressed = false;
+    host.clearExplorationLog = vi.fn(() => {
+      if (pressed) return;
+      pressed = true;
+      host.currentInkAbortController?.abort();
+    });
+
+    expect(await new InstructionRunner(host).run('explain this function')).toBe(false);
+
+    expect(host.runReactLoop).not.toHaveBeenCalled();
+    expect(host.lastTurnOutcome).toBe('interrupted');
+    expect(host.stopUI).toHaveBeenCalledWith(false, undefined, { interrupted: true });
+    expect(host.currentInkAbortController).toBeNull();
+  });
+
+  it('reports a turn interrupted during the pre-prompt phase as interrupted', async () => {
+    const host = inkHost();
+    host.hookManager = new HookManager({ workspaceRoot: '/tmp', settings: { hooks: [{ event: 'pre-prompt', command: 'echo guarded' }] } });
+    vi.spyOn(host.hookManager, 'executeHooks').mockImplementation(async () => {
+      host.currentInkAbortController?.abort();
+      return [];
+    });
+
+    expect(await new InstructionRunner(host).run('cancel before it starts')).toBe(false);
+
+    expect(host.lastTurnOutcome).toBe('interrupted');
+    expect(host.stopUI).toHaveBeenCalledWith(false, undefined, { interrupted: true });
+    expect(host.currentInkAbortController).toBeNull();
+  });
+
+  it('releases the Escape target when the pre-prompt phase ends the turn without an interruption', async () => {
+    const host = inkHost();
+    host.hookManager = new HookManager({ workspaceRoot: '/tmp', settings: { hooks: [{ event: 'pre-prompt', command: 'echo guarded' }] } });
+    vi.spyOn(host.hookManager, 'executeHooks').mockResolvedValue([
+      { hook: { event: 'pre-prompt', command: 'echo guarded' }, success: true, duration: 1, exitCode: 0, response: { decision: 'block', reason: 'PROMPT_BLOCKED' } },
+    ] as never);
+
+    expect(await new InstructionRunner(host).run('blocked prompt')).toBe(false);
+
+    expect(host.currentInkAbortController).toBeNull();
+    expect(host.runReactLoop).not.toHaveBeenCalled();
+  });
+});
+
 describe('InstructionRunner command mode UI', () => {
   it.each(['finished', 'failed', 'cancelled'] as const)('uses computer auto mode and restores it when %s', async status => {
     const host = createHost();

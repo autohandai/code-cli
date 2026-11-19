@@ -23,6 +23,8 @@ export interface ChatLogMessage {
   renderMarkdown?: boolean;
   tool?: string;
   success?: boolean;
+  /** The user stopped the tool mid-run. It did not succeed, and it did not fail either. */
+  interrupted?: boolean;
   groups?: ChatToolBatchGroup[];
   /** Bounded tool detail shown only after an explicit expand gesture. */
   expandedOutput?: string;

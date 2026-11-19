@@ -78,7 +78,7 @@ import type { ChatLogMessage } from '../../session/chatLog.js';
 import type { ComputerUseStep } from '../../computer/computerUseOutput.js';
 import { ComputerUseProgress } from './ComputerUseProgress.js';
 import { TypedMessageHistory, type TypedMessageEntry } from '../../session/TypedMessageHistory.js';
-import type { TaskListPosition } from '../../types.js';
+import type { TaskListPosition, TurnOutcome } from '../../types.js';
 import { formatCompactTokens } from '../../core/agent/AgentFormatter.js';
 import type { InteractionMode } from '../../core/agent/InteractionModeController.js';
 import { AnnouncementLine } from './AnnouncementLine.js';
@@ -135,7 +135,7 @@ export interface ContextTokenDisplay {
   total: number;
 }
 
-export type TurnCompletionStatus = 'completed' | 'failed';
+export type TurnCompletionStatus = TurnOutcome;
 
 export interface AnnouncementLineState {
   id: string;
@@ -152,7 +152,8 @@ export interface TipLineState {
 
 /** The "Completed in 0m 4s · ↑1.2k ↓40" line a finished turn leaves above the composer. */
 export function formatCompletionSummary(stats: { elapsed: string; tokens: string; status?: TurnCompletionStatus }): string {
-  return `${stats.status === 'failed' ? 'Failed' : 'Completed'} in ${stats.elapsed} · ${stats.tokens}`;
+  const label = stats.status === 'failed' ? 'Failed' : stats.status === 'interrupted' ? 'Interrupted' : 'Completed';
+  return `${label} in ${stats.elapsed} · ${stats.tokens}`;
 }
 
 /** A slash-command result held in the fixed composer area until the next turn. */
@@ -2822,7 +2823,7 @@ export function AgentUI({
     if (!chatIncludesToolOutput) for (const item of toolOutputItems) {
       messages.push(item.type === 'batch'
         ? { role: 'tool_batch', content: '', groups: item.groups, success: item.allSuccess }
-        : { role: 'tool', tool: item.tool, content: item.output, success: item.success, ...(item.expandedOutput ? { detailsId: item.id } : {}) });
+        : { role: 'tool', tool: item.tool, content: item.output, success: item.success, ...(item.interrupted ? { interrupted: true } : {}), ...(item.expandedOutput ? { detailsId: item.id } : {}) });
     }
     for (const item of liveCommandItems) {
       const { stdoutView, stderrView } = getLiveCommandViews(item);
@@ -3102,6 +3103,7 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
           id: `chat-tool-${index}`,
           tool: message.tool ?? 'tool',
           success: message.success ?? true,
+          ...(message.interrupted ? { interrupted: true } : {}),
           output: message.content,
           expandedOutput: message.expandedOutput,
           timestamp: index,

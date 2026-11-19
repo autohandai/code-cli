@@ -124,6 +124,8 @@ export interface InkRendererOptions {
 
 export interface SetWorkingOptions {
   succeeded?: boolean;
+  /** The user stopped the turn: not a success, and not a failure either. */
+  interrupted?: boolean;
 }
 
 const MAX_LIVE_OUTPUT_CHARS = 256 * 1024;
@@ -822,11 +824,13 @@ export class InkRenderer {
     // Only a turn that actually ran gets a summary: an idle transition after a
     // slash command would otherwise reuse the previous turn's counters and
     // label them "Completed" even when that turn failed.
-    const turnEnded = options.succeeded !== undefined || this.countersChangedSinceSummary;
+    const turnEnded = options.succeeded !== undefined || options.interrupted === true || this.countersChangedSinceSummary;
     if (!isWorking && turnEnded && (this.state.elapsed || this.state.tokens)) {
-      const completionStatus = options.succeeded === false
-        ? 'failed'
-        : this.state.completionStats?.status;
+      const completionStatus = options.interrupted
+        ? 'interrupted'
+        : options.succeeded === false
+          ? 'failed'
+          : this.state.completionStats?.status;
       updates.completionStats = {
         elapsed: this.state.elapsed || '0s',
         tokens: this.state.tokens || '0 tokens',
@@ -837,6 +841,7 @@ export class InkRenderer {
 
     // Turn outcome for ambient UI (Axo): known even when no summary row is written.
     if (isWorking) updates.lastTurnOutcome = undefined;
+    else if (options.interrupted) updates.lastTurnOutcome = 'interrupted';
     else if (options.succeeded !== undefined) {
       updates.lastTurnOutcome = options.succeeded ? 'completed' : 'failed';
     }
@@ -1019,11 +1024,14 @@ export class InkRenderer {
     output: string,
     thought?: string,
     expandedOutput?: string,
+    options: { interrupted?: boolean } = {},
   ): void {
+    const interrupted = options.interrupted === true ? { interrupted: true } : {};
     const entry: ToolOutputEntry = {
       id: `tool-${++this.toolIdCounter}`,
       tool,
       success,
+      ...interrupted,
       output,
       timestamp: Date.now(),
       thought,
@@ -1034,7 +1042,7 @@ export class InkRenderer {
       expandedToolOutputId: undefined,
       chatMessages: [
         ...this.state.chatMessages,
-        { role: 'tool', tool, success, content: output, expandedOutput },
+        { role: 'tool', tool, success, ...interrupted, content: output, expandedOutput },
       ],
     });
   }

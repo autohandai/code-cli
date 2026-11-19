@@ -468,7 +468,14 @@ export function setAgentComposerFinalResponse(host: AgentUIRuntimeHost, response
     host.ui?.setFinalResponse(response);
   }
 
-export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: string): void {
+export interface StopAgentUIOptions {
+  /** The user stopped the turn. It is reported as interrupted, never as failed. */
+  interrupted?: boolean;
+}
+
+export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: string, options: StopAgentUIOptions = {}): void {
+    const interrupted = options.interrupted === true;
+    failed = failed && !interrupted;
     host.terminalTitle?.setState(failed ? 'failed' : 'idle');
     if (host.inkRenderer) {
       host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
@@ -477,7 +484,7 @@ export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: 
         Boolean(host.sessionTokenUsageUnavailable || host.currentTurnHadUnavailableUsage)
       ) ?? formatTurnUsage(getDisplayTurnUsage(host));
       host.inkRenderer.setTokens(stopTokens);
-      host.inkRenderer.setWorking(false, message ?? '', { succeeded: !failed });
+      host.inkRenderer.setWorking(false, message ?? '', interrupted ? { succeeded: false, interrupted: true } : { succeeded: !failed });
       if (message) {
         host.inkRenderer.setFinalResponse(message);
       }

@@ -72,7 +72,7 @@ function formatMessage(message: ChatLogMessage, width: number): string[] {
   }
   if (message.role === 'assistant' && message.renderMarkdown !== false) text = formatAssistantMarkdown(text, { width });
   else if (message.role === 'user') text = `❯ ${text}`;
-  else if (message.role === 'tool') text = `${message.success === false ? '×' : '✓'} ${message.tool ?? 'Tool'}\n${text}`;
+  else if (message.role === 'tool') text = `${message.interrupted ? '⊘' : message.success === false ? '×' : '✓'} ${message.tool ?? 'Tool'}\n${text}`;
   else if (message.role === 'tool_call') text = `… ${message.tool ?? 'Tool'} ${text}`;
   else if (message.role === 'tool_batch') text = (message.groups ?? []).flatMap(group => group.items.map(item => `${item.success ? '✓' : '×'} ${item.label}${item.detail ? ` · ${item.detail}` : ''}`)).join('\n');
   else if (message.role === 'thinking') text = `Thinking · ${text}`;

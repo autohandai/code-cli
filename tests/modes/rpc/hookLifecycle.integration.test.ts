@@ -235,7 +235,7 @@ describe('HookManager to RPC lifecycle integration', () => {
       instruction: 'Fix it', mentionedFiles: ['README.md'],
     });
     await hookManager.executeHooks('stop', {
-      tokensUsed: 34, tokensUsageStatus: 'actual', toolCallsCount: 2, turnDuration: 56,
+      tokensUsed: 34, tokensUsageStatus: 'actual', toolCallsCount: 2, turnDuration: 56, turnOutcome: 'interrupted',
     });
     await hookManager.executeHooks('session-error', {
       error: 'boom', errorCode: 'E_BOOM',
@@ -270,7 +270,7 @@ describe('HookManager to RPC lifecycle integration', () => {
       ['autohand.hook.postTool', { toolId: 'tool-1', toolName: 'read_file', success: true, duration: 12, output: 'ok', timestamp }],
       ['autohand.hook.fileModified', { filePath: '/workspace/README.md', changeType: 'modify', toolId: 'tool-1', timestamp }],
       ['autohand.hook.prePrompt', { instruction: 'Fix it', mentionedFiles: ['README.md'], timestamp }],
-      ['autohand.hook.stop', { tokensUsed: 34, tokensUsageStatus: 'actual', toolCallsCount: 2, duration: 56, timestamp }],
+      ['autohand.hook.stop', { tokensUsed: 34, tokensUsageStatus: 'actual', toolCallsCount: 2, duration: 56, outcome: 'interrupted', timestamp }],
       ['autohand.hook.postResponse', { tokensUsed: 34, tokensUsageStatus: 'actual', toolCallsCount: 2, duration: 56, timestamp }],
       ['autohand.hook.sessionError', { error: 'boom', code: 'E_BOOM', context: undefined, timestamp }],
       ['autohand.hook.sessionStart', { sessionType: 'resume', timestamp }],
@@ -354,6 +354,7 @@ describe('HookManager to RPC lifecycle integration', () => {
         tokensUsageStatus: 'actual',
         toolCallsCount: 2,
         duration: expect.any(Number),
+        outcome: 'completed',
         timestamp,
       }],
       ['autohand.hook.stop', {
@@ -361,6 +362,7 @@ describe('HookManager to RPC lifecycle integration', () => {
         tokensUsageStatus: 'actual',
         toolCallsCount: 0,
         duration: expect.any(Number),
+        outcome: 'completed',
         timestamp,
       }],
     ]);

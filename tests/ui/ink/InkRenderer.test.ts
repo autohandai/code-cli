@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { formatCompletionSummary } from '../../../src/ui/ink/AgentUI.js';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { InkRenderer } from '../../../src/ui/ink/InkRenderer.js';
@@ -358,6 +359,35 @@ describe('InkRenderer live command blocks', () => {
     expect(renderer.getState().expandedToolOutputId).toBeUndefined();
     renderer.toggleToolOutputExpanded();
     expect(renderer.getState().expandedToolOutputId).toBe(newer);
+  });
+
+  it.each([
+    [{ succeeded: true }, 'completed', 'Completed in'],
+    [{ succeeded: false }, 'failed', 'Failed in'],
+    [{ succeeded: false, interrupted: true }, 'interrupted', 'Interrupted in'],
+  ] as const)('summarises a turn that ended with %o as %s', (options, outcome, label) => {
+    const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+    renderer.setWorking(true, 'Working');
+    renderer.setElapsed('0m 03s');
+    renderer.setTokens('54 tokens');
+    renderer.setWorking(false, '', options);
+
+    expect(renderer.getState().lastTurnOutcome).toBe(outcome);
+    const summary = renderer.getState().completionStats;
+    expect(summary).not.toBeNull();
+    expect(formatCompletionSummary(summary!)).toBe(`${label} 0m 03s · 54 tokens`);
+  });
+
+  it('keeps an interrupted tool result distinct from a failed one in the transcript state', () => {
+    const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
+    renderer.addToolOutput('write_file', false, 'permission denied');
+    renderer.addToolOutput('run_command', false, 'Interrupted', undefined, undefined, { interrupted: true });
+
+    const [failed, interrupted] = renderer.getState().toolOutputs;
+    expect(failed).toMatchObject({ tool: 'write_file', success: false });
+    expect(failed).not.toHaveProperty('interrupted', true);
+    expect(interrupted).toMatchObject({ tool: 'run_command', success: false, interrupted: true });
+    expect(renderer.getState().chatMessages.at(-1)).toMatchObject({ role: 'tool', tool: 'run_command', interrupted: true });
   });
 
   it('collapses completed tool details when live command output starts', () => {

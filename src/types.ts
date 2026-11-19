@@ -2151,6 +2151,12 @@ export type ToolFailureKind =
   | 'aborted'
   | 'operational';
 
+/**
+ * How a turn ended. A turn the user stopped is not a failure: UIs, protocol hosts and
+ * lifecycle hooks report it separately so nobody chases an error that never happened.
+ */
+export type TurnOutcome = 'completed' | 'failed' | 'interrupted';
+
 export type ToolImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
 
 export interface ToolImageInput {
@@ -2295,6 +2301,8 @@ export interface AgentOutputEvent {
   toolArgs?: Record<string, unknown>;
   toolOutput?: string;
   toolSuccess?: boolean;
+  /** The tool was stopped by the user or host; `toolSuccess` is false but nothing failed. */
+  toolInterrupted?: boolean;
   toolError?: string;
   scheduleId?: string;
   /** File path for file_modified events */

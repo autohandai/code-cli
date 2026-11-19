@@ -271,6 +271,7 @@ import {
   startAgentStatusUpdates,
   stopAgentStatusUpdates,
   stopAgentUI,
+  type StopAgentUIOptions,
   updateAgentInputLine,
   withAgentModalPause,
   steerAgentActiveInstruction,
@@ -442,6 +443,7 @@ export class AutohandAgent {
   private simpleChatHandler!: SimpleChatHandler;
   private readonly promptCacheToolSet = new PromptCacheToolSet();
   private isInstructionActive = false;
+  private lastTurnOutcome: import('../types.js').TurnOutcome | undefined;
   private hasPrintedExplorationHeader = false;
   private activeProvider!: ProviderName;
   private errorLogger!: ErrorLogger;
@@ -1860,8 +1862,8 @@ export class AutohandAgent {
   /**
    * Stop the UI and show completion state.
    */
-  private stopUI(failed = false, message?: string): void {
-    return stopAgentUI(this, failed, message);
+  private stopUI(failed = false, message?: string, options?: StopAgentUIOptions): void {
+    return stopAgentUI(this, failed, message, options);
   }
 
   /**
@@ -3133,6 +3135,11 @@ export class AutohandAgent {
   private emitStatus(): void {
     emitAgentStatus(this as unknown as AgentSessionAccountingHost);
     this.activeAgentHeartbeat?.update(this.isInstructionActive ? 'working' : 'idle').catch(() => {});
+  }
+
+  /** How the most recent turn ended: an interrupted turn is distinct from a failed one. */
+  getLastTurnOutcome(): import('../types.js').TurnOutcome | undefined {
+    return this.lastTurnOutcome;
   }
 
   getStatusSnapshot(): AgentStatusSnapshot {

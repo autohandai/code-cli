@@ -1130,6 +1130,9 @@ export class RPCAdapter {
                 tokensUsed: snapshot?.tokensUsed ?? 0,
                 tokensUsageStatus: snapshot?.tokensUsageStatus,
                 toolCallsCount: prompt.toolCallsCount,
+                turnOutcome: prompt.abortController.signal.aborted || this.agent?.getLastTurnOutcome?.() === 'interrupted'
+                  ? 'interrupted'
+                  : success ? 'completed' : 'failed',
               },
               { signal: prompt.abortController.signal },
             );
@@ -1849,7 +1852,7 @@ export class RPCAdapter {
         const toolCallsCount = context.toolCallsCount ?? context.toolCallsInTurn ?? 0;
         const duration = context.turnDuration ?? context.duration ?? 0;
         const usageStatus = context.tokensUsageStatus ?? 'unavailable';
-        this.emitHookStop(tokensUsed, toolCallsCount, duration, usageStatus);
+        this.emitHookStop(tokensUsed, toolCallsCount, duration, usageStatus, context.turnOutcome);
         this.emitHookPostResponse(tokensUsed, toolCallsCount, duration, usageStatus);
         break;
       }
@@ -2111,13 +2114,14 @@ export class RPCAdapter {
    * Emit hook stop notification
    * Called when agent finishes responding to a turn
    */
-  emitHookStop(tokensUsed: number, toolCallsCount: number, duration: number, tokensUsageStatus: 'actual' | 'unavailable' = 'actual'): void {
+  emitHookStop(tokensUsed: number, toolCallsCount: number, duration: number, tokensUsageStatus: 'actual' | 'unavailable' = 'actual', outcome?: HookStopNotificationParams['outcome']): void {
     if (this.notificationsSealed) return;
     const params = {
       tokensUsed,
       tokensUsageStatus,
       toolCallsCount,
       duration,
+      ...(outcome ? { outcome } : {}),
       timestamp: createTimestamp(),
     } satisfies HookStopNotificationParams;
     writeNotification(RPC_NOTIFICATIONS.HOOK_STOP, params);
@@ -3410,6 +3414,7 @@ export class RPCAdapter {
             ...(event.parentToolId === undefined ? {} : { parentToolId: event.parentToolId }),
             toolName: event.toolName,
             success: event.toolSuccess === true,
+            ...(event.toolInterrupted ? { interrupted: true } : {}),
             output: event.toolOutput,
             error: event.toolError,
             timestamp: createTimestamp(),

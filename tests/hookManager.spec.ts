@@ -148,6 +148,33 @@ describe('HookManager', () => {
       expect(env?.HOOK_SUBAGENT_ERROR).toHaveLength(4_000);
     });
 
+    it.each(['completed', 'failed', 'interrupted'] as const)('tells stop hooks the turn was %s', async (turnOutcome) => {
+      await manager.addHook({ event: 'stop', command: 'true' });
+      await manager.executeHooks('stop', { turnDuration: 1200, turnOutcome });
+      const call = vi.mocked(spawn).mock.calls.at(-1);
+      expect((call?.[2]?.env as NodeJS.ProcessEnv).HOOK_TURN_OUTCOME).toBe(turnOutcome);
+      const child = vi.mocked(spawn).mock.results.at(-1)?.value as { stdin: { write: ReturnType<typeof vi.fn> } };
+      expect(JSON.parse(String(child.stdin.write.mock.calls[0]?.[0]))).toMatchObject({ hook_event_name: 'stop', turn_outcome: turnOutcome });
+    });
+
+    it('tells post-tool hooks when the tool was interrupted rather than failed', async () => {
+      await manager.addHook({ event: 'post-tool', command: 'true' });
+      await manager.executeHooks('post-tool', { tool: 'run_command', success: false, interrupted: true });
+      const call = vi.mocked(spawn).mock.calls.at(-1);
+      expect((call?.[2]?.env as NodeJS.ProcessEnv).HOOK_INTERRUPTED).toBe('true');
+      const child = vi.mocked(spawn).mock.results.at(-1)?.value as { stdin: { write: ReturnType<typeof vi.fn> } };
+      expect(JSON.parse(String(child.stdin.write.mock.calls[0]?.[0]))).toMatchObject({ tool_name: 'run_command', interrupted: true });
+
+      await manager.executeHooks('post-tool', { tool: 'run_command', success: false });
+      expect((vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as NodeJS.ProcessEnv).HOOK_INTERRUPTED).toBeUndefined();
+    });
+
+    it('leaves the turn outcome out of events that are not the end of a turn', async () => {
+      await manager.addHook({ event: 'session-start', command: 'true' });
+      await manager.executeHooks('session-start', {});
+      expect((vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as NodeJS.ProcessEnv).HOOK_TURN_OUTCOME).toBeUndefined();
+    });
+
     it('applies the shell.env policy to hook commands while keeping hook variables', async () => {
       const { configureChildProcessEnvPolicy } = await import('../src/utils/childProcessEnv.js');
       process.env.ZZ_HOOK_SECRET = 'leak';

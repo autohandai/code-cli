@@ -21,7 +21,7 @@ import {
   type DirectoryPermissionOptions,
 } from '../../permissions/directoryPermissionPrompt.js';
 import type { PermissionManager } from '../../permissions/PermissionManager.js';
-import type { AgentOutputEvent, AgentRuntime, TurnUsage, McpServerConfigEntry } from '../../types.js';
+import type { AgentOutputEvent, AgentRuntime, TurnOutcome, TurnUsage, McpServerConfigEntry } from '../../types.js';
 import type { Intent, IntentResult } from '../IntentDetector.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { GoalManager } from '../../goals/GoalManager.js';
@@ -112,6 +112,8 @@ export interface AgentInstructionHost {
   peerCommunicationRuntime?: PeerCommunicationRuntime;
   recordPeerReferences?: (instruction: string, references: PeerReference[]) => Promise<void>;
   isInstructionActive: boolean;
+  /** How the most recent turn ended; read by protocol hosts and the stop hook. */
+  lastTurnOutcome?: TurnOutcome;
   filesModifiedThisSession: boolean;
   lastAssistantResponseForNotification: string;
   taskStartedAt: number | null;
@@ -151,7 +153,7 @@ export interface AgentInstructionHost {
     suppressSpinner?: boolean
   ): Promise<void>;
   stopStatusUpdates(): void;
-  stopUI(failed?: boolean, message?: string): void;
+  stopUI(failed?: boolean, message?: string, options?: { interrupted?: boolean }): void;
   isUsingTerminalRegionsForActiveTurn(): boolean;
   installPersistentConsoleBridge(): () => void;
   formatStatusLine(): { left: string; right?: string };
@@ -326,6 +328,8 @@ export class InstructionRunner {
       turnSucceeded = result === true;
       return result;
     } finally {
+      // Escape targets this turn from its first phase to its last; only the end of the turn releases it.
+      if (host.currentInkAbortController === abortController) host.currentInkAbortController = null;
       abortController.signal.removeEventListener('abort', pausePeers);
       host.peerCommunicationRuntime?.endTurn(abortController.signal.aborted);
       options.signal?.removeEventListener('abort', forwardExternalAbort);
@@ -360,6 +364,11 @@ export class InstructionRunner {
       host.currentInkAbortController = abortController;
       host.currentInkOnCancel = null;
     }
+    /** A turn stopped before its UI started still ends as interrupted, never silently or as failed. */
+    const reportInterruptedBeforeStart = (): void => {
+      host.lastTurnOutcome = 'interrupted';
+      if (useInkInput) host.stopUI(false, undefined, { interrupted: true });
+    };
     const stopPromptInput = !host.runtime.isRpcMode && !useInkInput && process.stdin.isTTY
       && ((host.hookManager?.getHooksForEvent('pre-prompt').length ?? 0) > 0
         || matchesComputerControlIntent(instruction))
@@ -380,6 +389,7 @@ export class InstructionRunner {
       }, { signal: abortController.signal }) ?? [];
       if (abortController.signal.aborted) {
         if (!host.runtime.isRpcMode) console.log(chalk.yellow('Request canceled.'));
+        reportInterruptedBeforeStart();
         return false;
       }
       const blocked = hookResults.find(result => result.blockingError
@@ -417,14 +427,12 @@ export class InstructionRunner {
     } finally {
       abortController.signal.removeEventListener('abort', cleanupPromptInterrupts);
       cleanupPromptInterrupts();
-      if (useInkInput && host.currentInkAbortController === abortController) {
-        host.currentInkAbortController = null;
-      }
       host.isInstructionActive = false;
       host.activeAbortController = null;
     }
     if (abortController.signal.aborted) {
       if (!host.runtime.isRpcMode) console.log(chalk.yellow('Request canceled.'));
+      reportInterruptedBeforeStart();
       return false;
     }
     if (matchesComputerControlIntent(instruction)
@@ -448,10 +456,12 @@ export class InstructionRunner {
         autoApprove: host.runtime.options.unrestricted || host.runtime.options.yes || false,
       };
       await checkAndPromptForDirectoryPermissions(instruction, dirPermissionOptions);
-      if (abortController.signal.aborted) {
-        host.isInstructionActive = false;
-        return false;
-      }
+    }
+    // Escape can land anywhere after the pre-prompt phase; nothing below should start for a stopped turn.
+    if (abortController.signal.aborted) {
+      host.isInstructionActive = false;
+      reportInterruptedBeforeStart();
+      return false;
     }
 
     // Initialize task-level tracking
@@ -542,7 +552,7 @@ export class InstructionRunner {
       if (!canceledByUser) {
         canceledByUser = true;
         host.stopStatusUpdates();
-        host.stopUI(true);
+        host.stopUI(false, undefined, { interrupted: true });
         // Don't console.log here — terminal regions may still be active,
         // which routes output through writeAbove and corrupts the composer.
         // The cancel message is printed in the finally block after cleanup.
@@ -585,7 +595,7 @@ export class InstructionRunner {
       if (!canceledByUser) {
         canceledByUser = true;
         host.stopStatusUpdates();
-        host.stopUI(true);
+        host.stopUI(false, undefined, { interrupted: true });
         // Don't console.log here — terminal regions may still be active,
         // which routes output through writeAbove and corrupts the composer.
         // The cancel message is printed in the finally block after cleanup.
@@ -852,7 +862,7 @@ export class InstructionRunner {
         `[DEBUG] runInstruction finally: useInkRenderer=${host.useInkRenderer}, inkRenderer exists=${!!host.inkRenderer}`,
         host.writeDebugLine?.bind(host)
       );
-      if (abortController.signal.aborted) host.stopUI(true);
+      if (abortController.signal.aborted) host.stopUI(false, undefined, { interrupted: true });
       await host.cleanupUI(host.useInkRenderer);
 
       if (host.persistentInputActiveTurn && !keepPersistentInputForNextTurn) {
@@ -947,6 +957,7 @@ export class InstructionRunner {
         host.scheduleTurnMemoryReflection(outcome);
       }
 
+      host.lastTurnOutcome = canceledByUser || abortController.signal.aborted ? 'interrupted' : success ? 'completed' : 'failed';
       host.taskStartedAt = null;
       host.isInstructionActive = false;
       host.activeAbortController = null;

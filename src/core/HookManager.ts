@@ -9,7 +9,7 @@ import { matchesImportedHook, importedHookInput, importedHookEnvironment, import
 import { HOOK_EVENTS, canonicalHookEvent, hookIdentifier } from './hookEvents.js';
 import { legacyHookMatches, normalizeHooksSettings, renderHookCommandTemplate, resolveHookEvents } from './legacyHookEvents.js';
 import { minimatch } from 'minimatch';
-import type { HooksSettings, HookDefinition, HookEvent, HookFilter, HookResponse, HookEventName } from '../types.js';
+import type { HooksSettings, HookDefinition, HookEvent, HookFilter, HookResponse, HookEventName, TurnOutcome } from '../types.js';
 import type { ExtensionRuntimeHook } from '../extensions/ExtensionRuntimeHost.js';
 
 /** Context passed to hooks via environment variables and JSON stdin */
@@ -36,6 +36,8 @@ export interface HookContext {
   args?: Record<string, unknown>;
   /** Tool success status (for post-tool) */
   success?: boolean;
+  /** The tool was stopped by the user or host (for post-tool); `success` is false but nothing failed. */
+  interrupted?: boolean;
   /** Tool output (for post-tool) */
   output?: string;
   /** Duration in ms (for post-tool, stop, session-end) */
@@ -80,6 +82,8 @@ export interface HookContext {
   toolCallsInTurn?: number;
   /** Turn duration ms (for stop) */
   turnDuration?: number;
+  /** How the turn ended (for stop). An interrupted turn is not a failed one. */
+  turnOutcome?: TurnOutcome;
 
   // Subagent hooks
   /** Subagent task ID (for subagent-stop) */
@@ -730,6 +734,7 @@ export class HookManager {
     if (context.computerUseStatus) env.HOOK_COMPUTER_USE_STATUS = context.computerUseStatus;
     if (context.args) env.HOOK_ARGS = JSON.stringify(context.args);
     if (context.success !== undefined) env.HOOK_SUCCESS = String(context.success);
+    if (context.interrupted) env.HOOK_INTERRUPTED = 'true';
     if (context.output) env.HOOK_OUTPUT = context.output;
     if (context.duration !== undefined) env.HOOK_DURATION = String(context.duration);
 
@@ -747,6 +752,7 @@ export class HookManager {
     if (context.toolCallsCount !== undefined) env.HOOK_TOOL_CALLS_COUNT = String(context.toolCallsCount);
     if (context.toolCallsInTurn !== undefined) env.HOOK_TURN_TOOL_CALLS = String(context.toolCallsInTurn);
     if (context.turnDuration !== undefined) env.HOOK_TURN_DURATION = String(context.turnDuration);
+    if (context.turnOutcome !== undefined) env.HOOK_TURN_OUTCOME = context.turnOutcome;
 
     // Error hooks
     if (context.error) env.HOOK_ERROR = context.error;
@@ -882,6 +888,7 @@ export class HookManager {
       computer_use_status: context.computerUseStatus,
       tool_response: context.output,
       tool_success: context.success,
+      interrupted: context.interrupted,
       // File context
       file_path: context.path,
       change_type: context.changeType,
@@ -894,6 +901,7 @@ export class HookManager {
       tool_calls_count: context.toolCallsCount,
       turn_tool_calls: context.toolCallsInTurn,
       turn_duration: context.turnDuration,
+      turn_outcome: context.turnOutcome,
       duration: context.duration,
       // Error context
       error: context.error,

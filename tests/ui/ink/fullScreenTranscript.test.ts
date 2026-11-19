@@ -153,6 +153,22 @@ describe('full-screen transcript viewport', () => {
   });
 });
 
+describe('full-screen transcript tool results', () => {
+  it('marks a tool the user interrupted differently from one that failed', () => {
+    const model = new FullScreenTranscript();
+    model.update([
+      { role: 'tool', tool: 'read_file', success: true, content: 'ok' },
+      { role: 'tool', tool: 'write_file', success: false, content: 'permission denied' },
+      { role: 'tool', tool: 'run_command', success: false, interrupted: true, content: 'Interrupted' },
+    ], 60);
+    const lines = model.view(20).lines.map(line => line.replace(/\u001B\[[0-9;]*m/g, ''));
+    expect(lines).toContain('✓ read_file');
+    expect(lines).toContain('× write_file');
+    expect(lines).toContain('⊘ run_command');
+    expect(lines).not.toContain('× run_command');
+  });
+});
+
 describe('full-screen transcript tail when transient rows are removed', () => {
   const history: ChatLogMessage[] = Array.from({ length: 30 }, (_, i) => ({ role: 'notification', content: `History ${i}` }));
   const narration: ChatLogMessage = { role: 'notification', content: 'I need to understand the build.\nLet me read the script.\nThen the workflow.' };

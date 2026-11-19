@@ -50,7 +50,7 @@ import { ProviderFactory } from '../../providers/ProviderFactory.js';
 import { loadConfig } from '../../config.js';
 import { prepareBareModeConfig } from '../../runtime/bareMode.js';
 import { resolveRunToolScope } from '../../permissions/runToolScope.js';
-import type { AgentOutputEvent, AgentRuntime, CLIOptions, LoadedConfig, LLMToolCall } from '../../types.js';
+import type { AgentOutputEvent, AgentRuntime, CLIOptions, LoadedConfig, LLMToolCall, TurnOutcome } from '../../types.js';
 import type { McpServerConfig } from '../../mcp/types.js';
 import { cleanupSessionWorktree, isSessionWorktreeEnabled, prepareSessionWorktree, type SessionWorktreeInfo } from '../../utils/sessionWorktree.js';
 import { ApiError, classifyApiError, type ApiErrorCode } from '../../providers/errors.js';
@@ -1006,15 +1006,23 @@ export class AutohandAcpAdapter implements Agent {
             })()
           : await runInstruction();
       const turnDuration = Date.now() - turnStart;
+      // A turn that was stopped is not a failed turn: the client gets `cancelled`, and hooks get
+      // an outcome instead of `success: false`, whichever path interrupted it.
+      const interrupted = !success && (
+        session.abortController.signal.aborted
+        || this.cancelledSessions.has(params.sessionId)
+        || agent.getLastTurnOutcome?.() === 'interrupted'
+      );
+      const turnOutcome: TurnOutcome = interrupted ? 'interrupted' : success ? 'completed' : 'failed';
       try {
         await agent.getHookManager?.()?.executeHooks('stop', {
-          sessionId: params.sessionId, turnDuration, success,
+          sessionId: params.sessionId, turnDuration, turnOutcome, ...(interrupted ? {} : { success }),
         }, { signal: session.abortController.signal });
       } catch (error) {
         process.stderr.write(`[ACP] Stop hook failed: ${error instanceof Error ? error.message : String(error)}\n`);
       }
-      this.emitHookStop(params.sessionId, 0, 0, turnDuration);
-      if (!success && this.cancelledSessions.has(params.sessionId)) {
+      this.emitHookStop(params.sessionId, 0, 0, turnDuration, turnOutcome);
+      if (interrupted) {
         return { stopReason: 'cancelled' };
       }
       if (!success) {
@@ -1503,9 +1511,9 @@ export class AutohandAcpAdapter implements Agent {
     });
   }
 
-  emitHookStop(sessionId: string, tokensUsed: number, toolCallsCount: number, duration: number): void {
+  emitHookStop(sessionId: string, tokensUsed: number, toolCallsCount: number, duration: number, outcome?: TurnOutcome): void {
     void this.emitHookSafe(ACP_HOOK_NOTIFICATIONS.HOOK_STOP, {
-      sessionId, tokensUsed, toolCallsCount, duration, timestamp: new Date().toISOString(),
+      sessionId, tokensUsed, toolCallsCount, duration, ...(outcome ? { outcome } : {}), timestamp: new Date().toISOString(),
     });
   }
 

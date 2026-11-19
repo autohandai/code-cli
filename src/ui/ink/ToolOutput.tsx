@@ -60,6 +60,8 @@ export interface ToolOutputEntry {
   type?: 'single';
   tool: string;
   success: boolean;
+  /** The user stopped the tool mid-run; shown as interrupted rather than failed. */
+  interrupted?: boolean;
   output: string;
   timestamp: number;
   /** Internal model reasoning captured with the tool call; not rendered in completed history. */
@@ -494,7 +496,9 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
-        <Text color={success ? colors.success : colors.error}>{success ? '✔' : '✖'}</Text>
+        {entry.interrupted
+          ? <Text color={colors.muted}>⊘</Text>
+          : <Text color={success ? colors.success : colors.error}>{success ? '✔' : '✖'}</Text>}
         <Text bold> {tool}</Text>
       </Box>
       {output && (

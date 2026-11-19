@@ -2054,6 +2054,7 @@ export function initializeAgentDependencies(
             ...parentToolCall,
             args: action as Record<string, unknown>,
             success: false,
+            ...(toolAborted ? { interrupted: true } : {}),
             output: errorMessage,
             duration: Date.now() - startTime,
           };
@@ -2076,6 +2077,7 @@ export function initializeAgentDependencies(
             ...parentToolEvent,
             toolName: action.type,
             toolSuccess,
+            ...(toolAborted ? { toolInterrupted: true } : {}),
             toolOutput,
             toolError,
           });

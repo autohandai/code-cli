@@ -1285,6 +1285,67 @@ describe("AutohandAcpAdapter", () => {
       })).rejects.toMatchObject({ code: -32603 });
     });
 
+    describe("turn outcome", () => {
+      const stopContext = (executeHooks: ReturnType<typeof vi.fn>) =>
+        executeHooks.mock.calls.find(([event]) => event === "stop")?.[1] as Record<string, unknown>;
+      const stopNotification = () => vi.mocked(connection.extNotification).mock.calls
+        .find(([method]) => method === "autohand.hook.stop")?.[1] as Record<string, unknown>;
+      let executeHooks: ReturnType<typeof vi.fn>;
+      beforeEach(() => {
+        executeHooks = vi.fn().mockResolvedValue([]);
+        mockAgent.getHookManager.mockReturnValue({ executeHooks });
+        vi.mocked(connection.extNotification).mockClear();
+      });
+      afterEach(() => {
+        mockAgent.getHookManager.mockReset();
+        delete (mockAgent as { getLastTurnOutcome?: unknown }).getLastTurnOutcome;
+      });
+
+      it("ends an interrupted turn as cancelled, not as an internal error, and tells stop hooks so", async () => {
+        // The agent can be interrupted without a session/cancel notification (a peer, a
+        // shutdown, its own cancel path). That used to reject the prompt with -32603.
+        mockAgent.runInstruction.mockResolvedValue(false);
+        Object.assign(mockAgent, { getLastTurnOutcome: vi.fn(() => "interrupted") });
+
+        await expect(adapter.prompt({ sessionId, prompt: [{ type: "text", text: "Update README.md" }] }))
+          .resolves.toEqual({ stopReason: "cancelled" });
+
+        expect(stopContext(executeHooks)).toMatchObject({ turnOutcome: "interrupted" });
+        expect(stopContext(executeHooks)).not.toHaveProperty("success");
+        expect(stopNotification()).toMatchObject({ outcome: "interrupted" });
+      });
+
+      it("reports a client cancellation as interrupted", async () => {
+        mockAgent.runInstruction.mockImplementation(async () => {
+          await adapter.cancel({ sessionId });
+          return false;
+        });
+
+        await expect(adapter.prompt({ sessionId, prompt: [{ type: "text", text: "Update README.md" }] }))
+          .resolves.toEqual({ stopReason: "cancelled" });
+        expect(stopNotification()).toMatchObject({ outcome: "interrupted" });
+      });
+
+      it("still rejects a turn that failed and reports it as failed", async () => {
+        mockAgent.runInstruction.mockResolvedValue(false);
+        Object.assign(mockAgent, { getLastTurnOutcome: vi.fn(() => "failed") });
+
+        await expect(adapter.prompt({ sessionId, prompt: [{ type: "text", text: "Update README.md" }] }))
+          .rejects.toMatchObject({ code: -32603 });
+        expect(stopContext(executeHooks)).toMatchObject({ turnOutcome: "failed", success: false });
+        expect(stopNotification()).toMatchObject({ outcome: "failed" });
+      });
+
+      it("reports a finished turn as completed", async () => {
+        mockAgent.runInstruction.mockResolvedValue(true);
+
+        await expect(adapter.prompt({ sessionId, prompt: [{ type: "text", text: "Update README.md" }] }))
+          .resolves.toEqual({ stopReason: "end_turn" });
+        expect(stopContext(executeHooks)).toMatchObject({ turnOutcome: "completed", success: true });
+        expect(stopNotification()).toMatchObject({ outcome: "completed" });
+      });
+    });
+
     it("keeps adjacent ACP text blocks separated", async () => {
       await adapter.prompt({
         sessionId,
