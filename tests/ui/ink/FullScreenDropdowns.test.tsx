@@ -6,7 +6,7 @@ import { Box, Text } from 'ink';
 import os from 'node:os';
 import stripAnsi from 'strip-ansi';
 import stringWidth from 'string-width';
-import { FULL_SCREEN_GUTTER, FullScreenFrame } from '../../../src/ui/ink/FullScreenFrame.js';
+import { FullScreenFrame } from '../../../src/ui/ink/FullScreenFrame.js';
 import { FullScreenTranscript } from '../../../src/ui/ink/fullScreenTranscript.js';
 import { SlashCommandDropdown } from '../../../src/ui/ink/SlashCommandDropdown.js';
 import { FileMentionDropdown } from '../../../src/ui/ink/FileMentionDropdown.js';
@@ -17,7 +17,6 @@ import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 const flush = () => new Promise(resolve => setTimeout(resolve, 30));
 afterEach(cleanup);
 
-const gutter = ' '.repeat(FULL_SCREEN_GUTTER);
 const long = 'an entry description that keeps going well past any width this test renders at '.repeat(3).trim();
 const names = ['alpha', 'beta', 'gamma', 'delta', 'omega'];
 
@@ -43,13 +42,14 @@ describe.each(dropdowns)('%s dropdown', (_name, dropdown, unused) => {
     const rows = stripAnsi(view.lastFrame() ?? '').split('\n');
     const entries = rows.filter(row => row.includes('ENTRY-'));
     expect(entries).toHaveLength(names.length);
-    expect(entries.every(row => row.startsWith(gutter) && row.trimEnd().endsWith('…'))).toBe(true);
-    // The budget is the frame's content width, which ends one column short of the terminal.
+    expect(entries.every(row => row.trimEnd().endsWith('…'))).toBe(true);
+    // The footer starts on the window edge and its budget ends one column short of the terminal.
+    expect(entries.every(row => /^\S/u.test(row) || /^ {2}\S/u.test(row))).toBe(true);
     expect(entries.map(row => stringWidth(row.trimEnd()))).toEqual(names.map(() => columns - 1 - unused));
     expect(Math.max(...rows.map(row => stringWidth(row)))).toBeLessThanOrEqual(columns - 1);
     const first = rows.indexOf(entries[0]!);
     expect(rows.slice(first, first + names.length)).toEqual(entries);
-    expect(rows.at(-1)).toBe(`${gutter}❯ draft`);
+    expect(rows.at(-1)).toBe('❯ draft');
   });
 
   it('keeps the classic budget of the terminal width less one column outside the frame', async () => {

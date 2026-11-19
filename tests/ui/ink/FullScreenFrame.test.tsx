@@ -15,7 +15,7 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 30));
 afterEach(cleanup);
 
 describe('full-screen frame', () => {
-  it.each([100, 40])('insets the header, transcript, hint and footer by the left gutter and stays inside %i columns', async columns => {
+  it.each([100, 40])('insets the header, transcript and hint by the left gutter, leaves the footer on the window edge and stays inside %i columns', async columns => {
     const theme = new Theme('user-background-test', { ...loadTheme('dark').colors, userMessageBg: '#654321' }, 'truecolor');
     const model = new FullScreenTranscript();
     const gutter = ' '.repeat(FULL_SCREEN_GUTTER);
@@ -33,11 +33,11 @@ describe('full-screen frame', () => {
     const check = (expectedHint: RegExp) => {
       const raw = (view.lastFrame() ?? '').split('\n');
       const rows = raw.map(row => stripAnsi(row));
-      expect(rows.filter(row => row.trim()).every(row => row.startsWith(gutter))).toBe(true);
+      expect(rows.slice(0, -2).filter(row => row.trim()).every(row => row.startsWith(gutter))).toBe(true);
       expect(Math.max(...rows.map(row => stringWidth(row)))).toBeLessThanOrEqual(columns - 1);
       expect(rows[0]).toMatch(new RegExp(`^${gutter}>_ Autohand Code`));
-      expect(rows.at(-2)).toBe(`${gutter}❯ draft`);
-      expect(rows.at(-1)).toBe(`${gutter}STATUS_ROW`);
+      expect(rows.at(-2)).toBe('❯ draft');
+      expect(rows.at(-1)).toBe('STATUS_ROW');
       expect(rows.at(-3)).toMatch(expectedHint);
       return { raw, rows };
     };
@@ -116,19 +116,19 @@ describe('full-screen frame', () => {
     expect(lines()[0]).toMatch(/Autohand Code \(v\d+\.\d+\.\d+/);
     expect(lines()[1]).toContain('~/Documents/autohand/cli-3');
     expect([...lines().slice(0, 2), ...lines().slice(-2)].map(line => line.replace(/\(v[^)]+\)/u, '(vVERSION)'))).toEqual([
-      '>_ Autohand Code (vVERSION)',
-      '   ~/Documents/autohand/cli-3',
+      `${' '.repeat(FULL_SCREEN_GUTTER)}>_ Autohand Code (vVERSION)`,
+      `${' '.repeat(FULL_SCREEN_GUTTER)}   ~/Documents/autohand/cli-3`,
       '❯ draft',
       'STATUS_ROW',
-    ].map(line => `${' '.repeat(FULL_SCREEN_GUTTER)}${line}`));
-    expect(lines().at(-1)?.trimStart()).toBe('STATUS_ROW');
+    ]);
+    expect(lines().at(-1)).toBe('STATUS_ROW');
     expect(lines().join('\n')).not.toContain('Full screen');
     const composerRow = lines().findIndex(line => line.includes('❯ draft'));
     model.searchQuery = 'needle';
     view.rerender(frame()); await flush();
     expect(lines().join('\n')).toContain('Find: needle');
     expect(lines().findIndex(line => line.includes('Find: needle'))).toBeLessThan(composerRow);
-    expect(lines().at(-1)?.trimStart()).toBe('STATUS_ROW');
+    expect(lines().at(-1)).toBe('STATUS_ROW');
     expect(lines().findIndex(line => line.includes('❯ draft'))).toBe(composerRow);
   });
   it('shows unread activity above an anchored composer', async () => {

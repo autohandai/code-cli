@@ -27,7 +27,6 @@ import {
   launchBuiltAutohand,
   waitForExit,
 } from './helpers/autohandTuistory.js';
-import { FULL_SCREEN_GUTTER } from '../../src/ui/ink/FullScreenFrame.js';
 import {
   cachedAnnouncements,
   composerLineIncludes,
@@ -188,8 +187,8 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     { cols: 80, fullScreenMode: false },
     { cols: 180, fullScreenMode: true },
   ])('keeps rotating tips below working status and completion summaries at $cols columns (full screen: $fullScreenMode)', async ({ cols, fullScreenMode }) => {
-    // Full-screen rows start after the frame's left gutter.
-    const inset = fullScreenMode ? ' '.repeat(FULL_SCREEN_GUTTER) : '';
+    // The footer starts on the window edge in every layout; only the chat history is inset.
+    const inset = '';
     const summaryAboveTip = new RegExp(`Completed in [^\\n]*\\n${inset}Tip: `, 'u');
     const openRouterServer = await createMockOpenRouterServer('Tip check completed.', 4_000);
     mockServers.push(openRouterServer);

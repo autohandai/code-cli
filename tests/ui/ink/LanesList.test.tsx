@@ -12,7 +12,6 @@ import { formatLaneElapsed, formatLaneTokens } from '../../../src/core/lanes/lan
 import { LanesList, lanesRowBudget, layoutLaneRow, selectVisibleLanes } from '../../../src/ui/ink/LanesList.js';
 import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
 import { FullScreenTranscript } from '../../../src/ui/ink/fullScreenTranscript.js';
-import { FULL_SCREEN_GUTTER } from '../../../src/ui/ink/FullScreenFrame.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 
@@ -221,9 +220,8 @@ describe('lanes underneath the composer', () => {
     await vi.waitFor(() => expect(stripAnsi(view.lastFrame() ?? '')).toContain('● main'));
     const rows = stripAnsi(view.lastFrame() ?? '').split('\n');
     const composer = rows.findIndex(row => row.includes('❯'));
-    // Full-screen rows start after the frame's left gutter.
-    const gutter = ' '.repeat(FULL_SCREEN_GUTTER);
-    const main = rows.findIndex(row => row.trimEnd() === `${gutter}● main`);
+    // The footer, lanes included, starts on the window edge; only the chat history is inset.
+    const main = rows.findIndex(row => row.trimEnd() === '● main');
     // The test terminal reports no row count, so the list gets its default budget.
     const budget = lanesRowBudget(undefined);
 
@@ -231,7 +229,7 @@ describe('lanes underneath the composer', () => {
     expect(composer).toBeGreaterThan(-1);
     expect(main).toBeGreaterThan(composer);
     expect(rows.slice(main)).toHaveLength(budget);
-    expect(rows.at(-1)?.trimEnd()).toBe(`${gutter}  +${lanes.length - (budget - 2)} more`);
-    expect(rows.filter(row => row.startsWith(`${gutter}○ lane-`))).toHaveLength(budget - 2);
+    expect(rows.at(-1)?.trimEnd()).toBe(`  +${lanes.length - (budget - 2)} more`);
+    expect(rows.filter(row => row.startsWith('○ lane-'))).toHaveLength(budget - 2);
   });
 });

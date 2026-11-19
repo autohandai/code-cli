@@ -17,25 +17,31 @@ export const ComposerOriginContext = createContext({ left: 0, top: 0 });
 export const FULL_SCREEN_HEADER_ROWS = 3;
 
 /**
- * Blank columns between the window edge and everything the frame draws. Transcript columns start
- * after it: wrap widths and mouse columns are mapped against it.
+ * Blank columns between the window edge and the header, transcript and hint. Transcript columns
+ * start after it: wrap widths and mouse columns are mapped against it. The footer (composer,
+ * menus, status) starts on the window edge.
  */
 export const FULL_SCREEN_GUTTER = 2;
 
-/** Columns the frame can draw in: the terminal less the gutter and the last column, which stays free. */
+/** Columns the transcript can draw in: the terminal less the gutter and the last column, which stays free. */
 export function fullScreenContentWidth(columns: number): number {
   return Math.max(1, columns - FULL_SCREEN_GUTTER - 1);
 }
 
-/** The frame's content width for whatever it renders in its footer; null outside the frame. */
-const FullScreenContentWidthContext = createContext<number | null>(null);
+/** Columns the footer can draw in: the terminal less the last column, which stays free. */
+export function fullScreenFooterWidth(columns: number): number {
+  return Math.max(1, columns - 1);
+}
+
+/** The frame's footer width for whatever it renders in its footer; null outside the frame. */
+const FullScreenFooterWidthContext = createContext<number | null>(null);
 
 /**
- * Columns one footer row may fill: the frame's content width inside the full-screen frame, the
+ * Columns one footer row may fill: the frame's footer width inside the full-screen frame, the
  * classic prompt block otherwise. Both follow a resize, the frame through its `columns` prop.
  */
 export function useFooterRowWidth(): number {
-  const frameWidth = useContext(FullScreenContentWidthContext);
+  const frameWidth = useContext(FullScreenFooterWidthContext);
   const promptWidth = getPromptBlockWidth(useTerminalWindowSize().columns);
   return frameWidth ?? promptWidth;
 }
@@ -105,13 +111,13 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
     : model.searchQuery !== null
     ? `Find: ${model.searchQuery} · Enter next · Shift+Enter previous · Esc close${model.searchMatched ? '' : ' · No match'}`
     : view.following ? ' ' : `${view.newActivity ? 'New activity · ' : ''}↓ Back to bottom · Ctrl+End${detailsId ? '' : ' / Esc'}`;
-  return <Box flexDirection="column" width="100%" paddingLeft={FULL_SCREEN_GUTTER} paddingRight={1} height={height} overflow="hidden">
-    <Box flexDirection="column" height={FULL_SCREEN_HEADER_ROWS} flexShrink={0} overflow="hidden">
+  return <Box flexDirection="column" width="100%" paddingRight={1} height={height} overflow="hidden">
+    <Box flexDirection="column" height={FULL_SCREEN_HEADER_ROWS} flexShrink={0} paddingLeft={FULL_SCREEN_GUTTER} overflow="hidden">
       <Text wrap="truncate"><Text color={colors.accent}>{'>_ '}</Text><Text bold>Autohand Code</Text><Text color={colors.muted}>{` (v${runtimeVersion})`}</Text></Text>
       <Text color={colors.muted} wrap="truncate">{`   ${displayDirectory}`}</Text>
       <Text> </Text>
     </Box>
-    <Box flexDirection="column" flexGrow={1} flexShrink={1} flexBasis={0} minHeight={0} overflow="hidden">
+    <Box flexDirection="column" flexGrow={1} flexShrink={1} flexBasis={0} minHeight={0} paddingLeft={FULL_SCREEN_GUTTER} overflow="hidden">
       {transcriptRows.map((row, index) => {
         const selected = model.selectionColumns(index);
         if (selected) return <SelectableRow key={index} text={row.text} selected={selected} />;
@@ -120,10 +126,10 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
           : row.text || ' '}</Text>;
       })}
     </Box>
-    <Text color={model.searchQuery !== null ? colors.muted : colors.accent} wrap="truncate">{hint}</Text>
+    <Box flexShrink={0} paddingLeft={FULL_SCREEN_GUTTER}><Text color={model.searchQuery !== null ? colors.muted : colors.accent} wrap="truncate">{hint}</Text></Box>
     <Box ref={footerRef} flexDirection="column" flexShrink={0} maxHeight={footerLimit} overflow="hidden" justifyContent="flex-end">
       <ComposerOriginContext.Provider value={{ left: metrics.left, top: metrics.top }}>
-        <FullScreenContentWidthContext.Provider value={width}>{footer}</FullScreenContentWidthContext.Provider>
+        <FullScreenFooterWidthContext.Provider value={fullScreenFooterWidth(columns)}>{footer}</FullScreenFooterWidthContext.Provider>
       </ComposerOriginContext.Provider>
     </Box>
   </Box>;

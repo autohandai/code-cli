@@ -7,13 +7,13 @@ import type { PtyDriver } from '../drivers/pty-driver.js';
 import { outputViewport } from './compactOutputScenario.js';
 import { FULL_SCREEN_GUTTER } from '../../ui/ink/FullScreenFrame.js';
 
-/** Blank columns the full-screen frame keeps between the window edge and every row it draws. */
+/** Blank columns the full-screen frame keeps between the window edge and its header and chat history. */
 const GUTTER = ' '.repeat(FULL_SCREEN_GUTTER);
 
 export async function cycleFullScreenStartupModes(session: TerminalSession): Promise<string[]> {
   await session.waitForText('❯', { timeout: 15_000 });
   await session.waitIdle();
-  const status = () => outputViewport(session).split('\n').find(line => line.includes('context left'))?.split(' · ')[0]?.slice(GUTTER.length) ?? '';
+  const status = () => outputViewport(session).split('\n').find(line => line.includes('context left'))?.split(' · ')[0] ?? '';
   const modes = [status()];
   for (const label of ['● YOLO', null, '● PLAN', '● AUTO']) {
     await session.press(['shift', 'tab']);
@@ -132,7 +132,7 @@ export async function trackTranscriptRowDuringTurn(
   while (Date.now() < deadline) {
     const lines = outputViewport(session).split('\n');
     const row = lines.findIndex(line => line.includes(anchor));
-    if (row >= 0 && lines.some(line => line.startsWith(`${GUTTER}❯ Plan, search`))) rows.push(row);
+    if (row >= 0 && lines.some(line => line.startsWith('❯ Plan, search'))) rows.push(row);
     if (lines.some(line => line.includes(finishedMarker)) && !lines.some(line => line.includes('esc to cancel'))) return rows;
     await new Promise(resolve => setTimeout(resolve, 10));
   }

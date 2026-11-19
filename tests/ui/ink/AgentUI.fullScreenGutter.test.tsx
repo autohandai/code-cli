@@ -26,7 +26,7 @@ afterEach(() => {
   setCursorPosition.mockReset();
 });
 
-describe('full-screen left gutter with the real composer footer', () => {
+describe('full-screen history gutter with the real composer footer', () => {
   const setup = (currentInput: string, extra: Record<string, unknown> = {}) => {
     const state = {
       ...createInitialUIState(),
@@ -46,22 +46,24 @@ describe('full-screen left gutter with the real composer footer', () => {
     return { view, rows, caret };
   };
 
-  it('starts every row one gutter in from the window edge and keeps the last column free', async () => {
+  it('insets the header and chat history only: the composer and footer start on the window edge', async () => {
     const { view, rows } = setup('draft');
     await flush(); await flush();
     const columns = view.stdout.columns;
     const drawn = rows().filter(row => row.trim());
-    expect(drawn.every(row => row.startsWith(gutter))).toBe(true);
     expect(Math.max(...rows().map(row => stringWidth(row)))).toBeLessThanOrEqual(columns - 1);
-    for (const text of ['>_ Autohand Code', 'Summary', 'Recap: two changes shipped.', 'Completed in 0m 4s', 'Tip: Type /review', '❯ draft', '90% context left']) {
+    for (const text of ['>_ Autohand Code', 'Summary', 'Recap: two changes shipped.']) {
       expect(drawn.find(row => row.includes(text))?.indexOf(text)).toBe(FULL_SCREEN_GUTTER);
     }
+    for (const text of ['Tip: Type /review', '❯ draft', '90% context left']) {
+      expect(drawn.find(row => row.includes(text))?.indexOf(text)).toBe(0);
+    }
     for (const rule of ['▔', '▁']) {
-      expect(drawn.find(row => row.includes(rule))).toBe(`${gutter}${rule.repeat(columns - 1 - FULL_SCREEN_GUTTER)}`);
+      expect(drawn.find(row => row.includes(rule))).toBe(rule.repeat(columns - 1));
     }
   });
 
-  it('cuts footer lines that outgrow the inset width on their own row instead of spilling a cell onto the next', async () => {
+  it('cuts footer lines that outgrow the footer width on their own row instead of spilling a cell onto the next', async () => {
     const long = 'word '.repeat(60).trim();
     const { view, rows } = setup('draft', {
       tip: { kind: 'tip' as const, text: long },
@@ -73,7 +75,7 @@ describe('full-screen left gutter with the real composer footer', () => {
     const tipRow = rows().findIndex(row => row.includes('Tip: word'));
     expect(rows()[tipRow]).toMatch(/…$/u);
     expect(stringWidth(rows()[tipRow])).toBeLessThanOrEqual(limit);
-    expect(rows()[tipRow + 1]).toBe(`${gutter}${'▔'.repeat(limit - FULL_SCREEN_GUTTER)}`);
+    expect(rows()[tipRow + 1]).toBe('▔'.repeat(limit));
     for (const text of ['ANNOUNCE word', 'THANKS word']) {
       const index = rows().findIndex(row => row.includes(text));
       expect(index).toBeGreaterThan(0);
@@ -83,12 +85,12 @@ describe('full-screen left gutter with the real composer footer', () => {
     expect(Math.max(...rows().map(row => stringWidth(row)))).toBeLessThanOrEqual(limit);
   });
 
-  it('parks the hardware caret on the cell after the draft, gutter included', async () => {
+  it('parks the hardware caret on the cell after the draft, on the window edge', async () => {
     const { rows, caret } = setup('abc');
     await flush(); await flush();
     const row = rows().findIndex(line => line.includes('❯ abc'));
     expect(caret()).toEqual({ x: rows()[row].indexOf('abc') + 3, y: row });
-    expect(caret()?.x).toBe(FULL_SCREEN_GUTTER + '❯ abc'.length);
+    expect(caret()?.x).toBe('❯ abc'.length);
   });
 
   it('moves the caret to the composer cell that was clicked', async () => {
@@ -102,7 +104,7 @@ describe('full-screen left gutter with the real composer footer', () => {
     view.stdin.write(`\x1b[${before!.y + 1};${before!.x + 1}R`); await flush();
     expect(caret()).toEqual({ x: clicked, y: row });
     view.stdin.write('X'); await flush();
-    expect(rows()[row]?.trimEnd()).toBe(`${gutter}❯ abXcdef`);
+    expect(rows()[row]?.trimEnd()).toBe('❯ abXcdef');
   });
 });
 

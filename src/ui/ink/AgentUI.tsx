@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { FULL_SCREEN_GUTTER, FULL_SCREEN_HEADER_ROWS, FullScreenFrame, FullScreenInset, fullScreenContentWidth } from './FullScreenFrame.js';
+import { FULL_SCREEN_GUTTER, FULL_SCREEN_HEADER_ROWS, FullScreenFrame, FullScreenInset, fullScreenFooterWidth } from './FullScreenFrame.js';
 import { copyToClipboard } from '../clipboard.js';
 import type { FullScreenMessage, FullScreenTranscript } from './fullScreenTranscript.js';
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
@@ -2703,7 +2703,7 @@ export function AgentUI({
   // are batched atomically, so the old 100ms debounce is no longer needed
   // and was actually causing a layout lag during drag-resize.
   const windowSize = useTerminalWindowSize();
-  const inputWidth = fullScreenTranscript ? fullScreenContentWidth(windowSize.columns ?? 80) : getPromptBlockWidth(windowSize.columns);
+  const inputWidth = fullScreenTranscript ? fullScreenFooterWidth(windowSize.columns ?? 80) : getPromptBlockWidth(windowSize.columns);
   const composerNextPromptSuggestion = useMemo(() => {
     if (
       state.isWorking ||
@@ -2874,7 +2874,7 @@ export function AgentUI({
         announcement={state.announcement}
         feedbackSurvey={state.feedbackSurvey}
         tip={state.tip}
-        terminalColumns={(windowSize.columns ?? process.stdout.columns ?? 80) - (fullScreenTranscript ? FULL_SCREEN_GUTTER : 0)}
+        terminalColumns={windowSize.columns ?? process.stdout.columns ?? 80}
         terminalRows={windowSize.rows}
         isWorking={state.isWorking}
         status={state.status}
