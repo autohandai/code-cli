@@ -113,6 +113,7 @@ const INTERACTIVE_SLASH_COMMANDS = new Set([
 /** Operational command results that belong with the fixed composer controls. */
 const FIXED_COMPOSER_RESULT_COMMANDS = new Set(['/tasks', '/team', '/teams', '/squad']);
 const MARKDOWN_REPORT_COMMANDS = new Set(['/pr-review', '/deslop', '/tester']);
+const DISCOVERY_SCAN_NOTICE = 'Scanning this workspace for workflows… Esc to cancel.';
 
 export function shouldRenderSlashCommandResultInComposer(command: string): boolean {
   return FIXED_COMPOSER_RESULT_COMMANDS.has(command);
@@ -242,6 +243,11 @@ export async function runAgentSlashCommandWithInput(host: AgentCommandRuntimeHos
     }
 
     try {
+      // The collector is a silent child process that takes seconds on a real
+      // repository; without this line the session looks as if nothing happened.
+      if (command === '/discovery' && args.length === 0 && host.inkRenderer?.isRunning?.()) {
+        host.inkRenderer.addNotification?.(DISCOVERY_SCAN_NOTICE, { placement: 'transcript' });
+      }
       if (command === '/clear' || command === '/discovery') {
         return await runCancellableAgentCommand(host as CancellableCommandHost, () => host.handleSlashCommand(command, args));
       }

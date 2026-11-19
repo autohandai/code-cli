@@ -37,6 +37,47 @@ describe('cancellable command runtime', () => {
     expect(host.currentInkOnCancel).toBeNull();
   });
 
+  function createDiscoveryHost(result: string) {
+    const events: string[] = [];
+    const host = {
+      ...createHost(),
+      events,
+      runtime: { options: {}, config: {} },
+      inkRenderer: {
+        isRunning: () => true,
+        addNotification: vi.fn((message: string) => { events.push(`notice:${message}`); }),
+      },
+      handleSlashCommand: vi.fn(async () => { events.push('scan'); return result; }),
+    };
+    return host;
+  }
+
+  it('tells the user a discovery scan has started before the silent collector runs', async () => {
+    const host = createDiscoveryHost('DISCOVERY  fixture');
+
+    expect(await runAgentSlashCommandWithInput(host, '/discovery', [])).toBe('DISCOVERY  fixture');
+
+    expect(host.events).toEqual(['notice:Scanning this workspace for workflows… Esc to cancel.', 'scan']);
+    expect(host.inkRenderer.addNotification).toHaveBeenCalledWith(
+      'Scanning this workspace for workflows… Esc to cancel.',
+      { placement: 'transcript' },
+    );
+  });
+
+  it('announces no scan when discovery only answers with its usage', async () => {
+    const host = createDiscoveryHost('Usage: /discovery');
+
+    await runAgentSlashCommandWithInput(host, '/discovery', ['push']);
+
+    expect(host.inkRenderer.addNotification).not.toHaveBeenCalled();
+  });
+
+  it('runs discovery without a notice when no Ink renderer is mounted', async () => {
+    const host = { ...createDiscoveryHost('DISCOVERY  fixture'), inkRenderer: null };
+
+    expect(await runAgentSlashCommandWithInput(host, '/discovery', [])).toBe('DISCOVERY  fixture');
+  });
+
   it('routes Ink cancellation to the operation and restores prior controllers', async () => {
     const host = createHost();
     const previous = new AbortController();

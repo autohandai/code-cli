@@ -660,6 +660,9 @@ export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHos
       return;
     }
 
+    // The renderer drops an identical submission from the same input burst.
+    // Echoing it would show a command that never runs.
+    if (host.inkRenderer?.isDuplicateQueuedInstruction?.(text)) return;
     echoInkSubmittedInstructionImmediately(host, text);
     if (metadata?.peerReferences.length) host.inkRenderer?.addQueuedInstruction(text, metadata);
     else host.inkRenderer?.addQueuedInstruction(text);

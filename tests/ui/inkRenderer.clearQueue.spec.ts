@@ -84,6 +84,19 @@ describe('InkRenderer clearQueue', () => {
     expect(renderer.dequeueInstruction()).toBeUndefined();
   });
 
+  it('reports a submission that would be dropped as a duplicate, and only that one', () => {
+    let now = 1000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+
+    expect(renderer.isDuplicateQueuedInstruction('/discovery')).toBe(false);
+    renderer.addQueuedInstruction('/discovery');
+    expect(renderer.isDuplicateQueuedInstruction('/discovery')).toBe(true);
+    expect(renderer.isDuplicateQueuedInstruction('/help')).toBe(false);
+
+    now += 1000;
+    expect(renderer.isDuplicateQueuedInstruction('/discovery')).toBe(false);
+  });
+
   it('does not enqueue a late duplicate while the first submit is being processed', () => {
     vi.spyOn(Date, 'now').mockReturnValue(1000);
 

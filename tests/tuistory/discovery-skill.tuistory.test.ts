@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { exitInteractive } from './helpers/autohandTuistory.js';
+import type { Session } from 'tuistory';
+import { outputViewport } from '../../src/testing/scenarios/compactOutputScenario.js';
+import { COLLECTOR_FAILURE_DETAIL, DISCOVERY_SCAN_NOTICE, composerIsEmpty, failingCollectorNodeOptions, occurrences, runDiscoveryCommand,
+  seedOversizedSkills } from '../../src/testing/scenarios/discoveryScenario.js';
+import { clearComposerInput, createTempAutohandHome, exitInteractive, launchBuiltAutohand, type TuistoryTempState } from './helpers/autohandTuistory.js';
 import { launchAdaptiveSkillsFixture, type AdaptiveSkillsFixture } from './helpers/adaptiveSkillsFixture.js';
 
 const fixtures: AdaptiveSkillsFixture[] = [];
@@ -74,5 +78,116 @@ if (process.env.AUTOHAND_DISCOVERY_CHILD === '1') {
     expect(fixture.session.readAll()).not.toContain('ask_followup_question');
     await expect(access(path.join(fixture.state.workspaceRoot, '.autohand/discovery.json'))).rejects.toThrow();
     await exitInteractive(fixture.session);
+  });
+});
+
+describe('/discovery on the interactive screen', () => {
+  let state: TuistoryTempState | undefined;
+  let session: Session | undefined;
+  afterEach(async () => {
+    session?.close();
+    await state?.cleanup();
+    session = undefined;
+    state = undefined;
+  });
+
+  async function launch(fullScreen: boolean, env: Record<string, string> = {}): Promise<Session> {
+    state = await createTempAutohandHome({ config: { features: { fullScreenMode: fullScreen }, ui: { promptSuggestions: false } } });
+    const home = await mkdtemp(path.join(tmpdir(), 'discovery-screen-home-'));
+    homes.push(home);
+    await seedOversizedSkills(state.workspaceRoot, 12);
+    session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000, cols: 120, rows: 40,
+      env: { AUTOHAND_DISCOVERY_HOME: home, ...env },
+    });
+    await session.waitForText('❯', { timeout: 20_000 });
+    return session;
+  }
+
+  it('announces the scan, then keeps the heading, summary and a bounded note list on one full screen', async () => {
+    const terminal = await launch(true);
+    expect(terminal.getRawOutput()).toContain('\x1b[?1049h');
+
+    await runDiscoveryCommand(terminal);
+    await terminal.waitForText(DISCOVERY_SCAN_NOTICE, { timeout: 15_000 });
+    await terminal.waitForText('Upload:', { timeout: 30_000 });
+    await terminal.type('report stays');
+    await terminal.waitForText('❯ report stays');
+    const viewport = outputViewport(terminal);
+
+    expect(viewport).toContain('❯ /discovery');
+    expect(viewport).toMatch(/DISCOVERY\s+tuistory-workspace/);
+    expect(viewport).toContain('1 repositories');
+    expect(viewport).toContain('Suggested workflows');
+    expect(viewport).toContain('unreadable or invalid skills, including:');
+    expect(viewport).toContain('.agents/skills/broken-01/SKILL.md');
+    expect(occurrences(viewport, 'SKILL.md')).toBe(2);
+    expect(viewport).not.toContain('Skipped unreadable or invalid skill:');
+    expect(viewport).toContain('more notes are not shown. Run "autohand discovery" to save every note');
+    expect(viewport).not.toContain('additional notes in .autohand/discovery.json');
+    expect(viewport).toContain('Dry run: no local files written.');
+    await expect(access(path.join(state!.workspaceRoot, '.autohand/discovery.json'))).rejects.toThrow();
+    await exitInteractive(terminal);
+  });
+
+  it('runs two different commands submitted back to back and never shows a command that did not run', async () => {
+    const terminal = await launch(true);
+
+    await runDiscoveryCommand(terminal, 'scan');
+    await runDiscoveryCommand(terminal, 'push');
+    await terminal.text({ timeout: 20_000, waitFor: () => occurrences(outputViewport(terminal), 'Usage: /discovery') >= 2 });
+    const viewport = outputViewport(terminal);
+    expect(occurrences(viewport, '❯ /discovery scan')).toBe(1);
+    expect(occurrences(viewport, '❯ /discovery push')).toBe(1);
+    expect(occurrences(viewport, 'Usage: /discovery')).toBe(2);
+    expect(composerIsEmpty(terminal)).toBe(true);
+    await exitInteractive(terminal);
+  });
+
+  it('echoes and runs a command submitted twice in one burst exactly once, and clears the composer both times', async () => {
+    const terminal = await launch(true);
+
+    const first = await runDiscoveryCommand(terminal, 'list');
+    const second = await runDiscoveryCommand(terminal, 'list');
+    await terminal.text({ timeout: 20_000, waitFor: () => composerIsEmpty(terminal) && outputViewport(terminal).includes('Usage: /discovery') });
+    // Give a wrongly accepted duplicate time to surface before counting.
+    await terminal.type('settled');
+    await terminal.waitForText('❯ settled');
+    await terminal.text({ timeout: 20_000,
+      waitFor: () => occurrences(outputViewport(terminal), '❯ /discovery list') === occurrences(outputViewport(terminal), 'Usage: /discovery') });
+    const viewport = outputViewport(terminal);
+    const echoes = occurrences(viewport, '❯ /discovery list');
+
+    expect(occurrences(viewport, 'Usage: /discovery')).toBe(echoes);
+    // The duplicate window is one second; a slower second Enter is a genuine repeat and runs.
+    if (second - first < 700) expect(echoes).toBe(1);
+    else expect(echoes).toBeLessThanOrEqual(2);
+    await clearComposerInput(terminal);
+    await exitInteractive(terminal);
+  });
+
+  it.each([['full-screen', true], ['classic', false]])('shows why a scan failed and keeps the %s session alive through repeated failures', async (_layout, fullScreen) => {
+    const failureHome = await mkdtemp(path.join(tmpdir(), 'discovery-failure-'));
+    homes.push(failureHome);
+    const terminal = await launch(fullScreen, { NODE_OPTIONS: await failingCollectorNodeOptions(failureHome) });
+
+    for (const attempt of [1, 2, 3]) {
+      await runDiscoveryCommand(terminal);
+      await terminal.text({ timeout: 45_000,
+        waitFor: () => occurrences(outputViewport(terminal), 'Local discovery preview failed (exit code 3).') >= attempt });
+      // Identical text within a second is treated as one input burst by design; the scenario below covers that.
+      await new Promise(resolve => setTimeout(resolve, 1_100));
+    }
+    await terminal.type('still here');
+    await terminal.waitForText('❯ still here');
+    const viewport = outputViewport(terminal);
+
+    expect(viewport).toContain('Local discovery preview failed (exit code 3).');
+    expect(viewport).toContain(COLLECTOR_FAILURE_DETAIL);
+    expect(occurrences(viewport, COLLECTOR_FAILURE_DETAIL)).toBe(3);
+    expect(terminal.getRawOutput()).not.toContain('An error occurred');
+    expect(terminal.getRawOutput()).not.toContain('Fatal:');
+    await clearComposerInput(terminal);
+    await exitInteractive(terminal);
   });
 });

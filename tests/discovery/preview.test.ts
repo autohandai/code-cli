@@ -52,6 +52,46 @@ describe('workflow discovery front door', () => {
     await expect(runDiscoveryPreview(oversized)).rejects.toThrow('preview failed');
   });
 
+  it('says the scan timed out, how long it waited, where it had got to and what to try', async () => {
+    const options = await fixture(`console.error('  Finding repositories');console.error('  Finding installed and project skills');setInterval(()=>{},1000)`);
+    const failure = await runDiscoveryPreview({ ...options, timeoutMs: 1_500 }).catch((error: Error) => error.message);
+    expect(failure).toContain('timed out after 1.5 seconds');
+    expect(failure).toContain('Try /discovery again');
+    expect(failure).toContain('autohand discovery --dry-run');
+    expect(failure).toMatch(/Last output:\n\s*Finding repositories\n\s*Finding installed and project skills$/);
+  });
+
+  it('says the scan could not be started when the executable is missing', async () => {
+    const options = await fixture('process.exit(0)');
+    const failure = await runDiscoveryPreview({ ...options, executable: path.join(options.workspaceRoot, 'missing-autohand') }).catch((error: Error) => error.message);
+    expect(failure).toContain('could not be started (ENOENT)');
+    expect(failure).toContain('Check that Autohand is installed correctly');
+  });
+
+  it('reports the exit code with only the last lines the collector wrote', async () => {
+    const options = await fixture(`for (let line = 1; line <= 30; line++) console.error('progress ' + line);console.error('boom ahc_private_fixture');process.exit(7);`);
+    const failure = await runDiscoveryPreview(options).catch((error: Error) => error.message);
+    expect(failure).toContain('Local discovery preview failed (exit code 7).');
+    expect(failure).toContain('boom [redacted]');
+    expect(failure).toContain('progress 30');
+    expect(failure).not.toContain('progress 20\n');
+    expect(failure).toContain('autohand discovery --dry-run');
+  });
+
+  it('says which signal stopped a collector that was killed', async () => {
+    const options = await fixture(`process.kill(process.pid, 'SIGKILL')`);
+    const failure = await runDiscoveryPreview(options).catch((error: Error) => error.message);
+    expect(failure).toContain('stopped by SIGKILL before it finished');
+  });
+
+  it('explains an empty report and an oversized one differently', async () => {
+    const empty = await fixture('process.exit(0)');
+    expect(await runDiscoveryPreview(empty).catch((error: Error) => error.message))
+      .toBe('Local discovery preview returned no report. Run "autohand discovery --dry-run" in a terminal to see what the scan finds.');
+    const oversized = await fixture(`process.stdout.write('x'.repeat(600000));`);
+    expect(await runDiscoveryPreview(oversized).catch((error: Error) => error.message)).toContain('more output than a preview can show');
+  });
+
   it('terminates a stalled collector at the deadline and supports cancellation before and after launch', async () => {
     const options = await fixture('setInterval(()=>{},1000)');
     await expect(runDiscoveryPreview({ ...options, timeoutMs: 50 })).rejects.toThrow('timed out');

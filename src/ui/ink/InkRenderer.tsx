@@ -1755,18 +1755,23 @@ export class InkRenderer {
   }
 
   /**
+   * True when this text repeats the previous submission inside the duplicate
+   * window, so queueing it would be a no-op and it must not be shown as accepted.
+   */
+  isDuplicateQueuedInstruction(instruction: string): boolean {
+    return this.lastQueuedInstruction?.text === instruction &&
+      Date.now() - this.lastQueuedInstruction.at < InkRenderer.DUPLICATE_INSTRUCTION_SUPPRESSION_MS;
+  }
+
+  /**
    * Add a queued instruction
    */
   addQueuedInstruction(instruction: string, metadata?: PeerInstructionMetadata): void {
-    const now = Date.now();
-    if (
-      this.lastQueuedInstruction?.text === instruction &&
-      now - this.lastQueuedInstruction.at < InkRenderer.DUPLICATE_INSTRUCTION_SUPPRESSION_MS
-    ) {
+    if (this.isDuplicateQueuedInstruction(instruction)) {
       return;
     }
 
-    this.lastQueuedInstruction = { text: instruction, at: now };
+    this.lastQueuedInstruction = { text: instruction, at: Date.now() };
     this.queuedInstructionEntries.push({ ...createSequencedQueuedWork(instruction), ...(metadata?.peerReferences.length ? structuredClone(metadata) : {}) });
     this.updateState({
       queuedInstructions: [...this.state.queuedInstructions, instruction],
