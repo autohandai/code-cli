@@ -59,6 +59,7 @@ vi.stubGlobal("fetch", mockFetch);
 import { AutoReportClient } from "../../src/reporting/AutoReportClient.js";
 import { AutoReportManager } from "../../src/reporting/AutoReportManager.js";
 import { ApiError } from "../../src/providers/errors.js";
+import { RunBudget, RunBudgetExceededError } from "../../src/core/agent/RunBudget.js";
 import type { AutohandConfig } from "../../src/types.js";
 
 // Helpers
@@ -653,6 +654,20 @@ describe("AutoReportManager", () => {
     it("does not treat a safety rejection as a CLI crash", async () => {
       const mgr = new AutoReportManager(makeConfig(), "0.8.2");
       await mgr.reportError(new ApiError("Safety check blocked this request", "content_blocked", 400, false));
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("does not file a run that reached the user's own budget as a bug (#767, #768)", async () => {
+      mockFetch.mockResolvedValue(okResponse({ success: true }));
+      const mgr = new AutoReportManager(makeConfig(), "0.9.11");
+      let now = 0;
+      const budget = new RunBudget({ maxDurationMs: 600_000 }, () => now);
+      now = 603_000;
+      let stopped: unknown;
+      try { budget.assertRequestAllowed(); } catch (error) { stopped = error; }
+      expect(stopped).toBeInstanceOf(RunBudgetExceededError);
+      expect(mgr.isOperationalError(stopped as Error)).toBe(true);
+      await mgr.reportError(stopped as Error);
       expect(mockFetch).not.toHaveBeenCalled();
     });
 

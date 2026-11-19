@@ -12,6 +12,7 @@ import type { ErrorReport } from './types.js';
 import { AutoReportClient } from './AutoReportClient.js';
 import { ApiError, classifyApiError, readStorageCapacityError } from '../providers/errors.js';
 import type { ApiErrorCode } from '../providers/errors.js';
+import { RunBudgetExceededError } from '../core/agent/RunBudget.js';
 import { isAutohandDebugEnabled } from '../utils/debugLog.js';
 
 const isDebug = () => isAutohandDebugEnabled();
@@ -61,8 +62,10 @@ export class AutoReportManager {
     return this.getOperationalErrorCode(error) !== null;
   }
 
-  private getOperationalErrorCode(error: Error): ApiErrorCode | null {
+  private getOperationalErrorCode(error: Error): ApiErrorCode | 'run_budget' | null {
     if (readStorageCapacityError(error)) return 'storage_full';
+    // The run stopped at a limit the user set (--max-requests, --max-tokens, --max-duration, agent.budget).
+    if (error instanceof RunBudgetExceededError) return 'run_budget';
     if (error instanceof ApiError) {
       return AutoReportManager.OPERATIONAL_API_ERROR_CODES.has(error.code)
         ? error.code
