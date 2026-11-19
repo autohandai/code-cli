@@ -134,6 +134,8 @@ export interface ToolDefinition {
 export interface ToolManagerOptions {
   onToolRequested?: (toolName: string) => boolean;
   getActiveProvider?: () => string;
+  /** Asked on every listing and call: a withheld tool is neither advertised nor runnable. */
+  isToolWithheld?: (toolName: string) => boolean;
   executor: (action: AgentAction, context?: ToolExecutionContext) => Promise<ToolActionOutcome>;
   confirmApproval: (message: string, context?: { tool?: string; path?: string; command?: string }) => Promise<PermissionPromptResponse>;
   definitions?: ToolDefinition[];
@@ -2551,6 +2553,7 @@ export class ToolManager {
   resetUnattendedDenials(): void { this.unattendedApprovals.reset(); }
 
   private readonly getActiveProvider?: () => string;
+  private readonly isToolWithheld?: (toolName: string) => boolean;
   private readonly definitions = new Map<AgentAction['type'], ToolDefinition>();
   private readonly runtimeMetaToolNames = new Set<AgentAction['type']>();
   private readonly executor: ToolManagerOptions['executor'];
@@ -2567,6 +2570,7 @@ export class ToolManager {
     this.onToolRequested = options.onToolRequested;
     this.unattendedApprovals = options.authorization?.unattendedApprovals ?? new UnattendedApprovalTracker();
     this.getActiveProvider = options.getActiveProvider;
+    this.isToolWithheld = options.isToolWithheld;
     this.executor = options.executor;
     this.confirmApproval = options.confirmApproval;
     this.toolFilter = new ToolFilter(options.clientContext ?? 'cli', options.customPolicy);
@@ -2668,7 +2672,7 @@ export class ToolManager {
    */
   listDefinitions(): ToolDefinition[] {
     return this.toolFilter.filterDefinitions(
-      Array.from(this.definitions.values()).filter((definition) => definition.modelVisible !== false && this.isProviderAllowed(definition.name)),
+      Array.from(this.definitions.values()).filter((definition) => definition.modelVisible !== false && this.isAvailable(definition.name)),
     );
   }
 
@@ -2683,11 +2687,15 @@ export class ToolManager {
    * Check if a specific tool is allowed in the current context
    */
   isToolAllowed(toolName: string): boolean {
-    return this.isProviderAllowed(toolName) && this.toolFilter.isAllowed(toolName);
+    return this.isAvailable(toolName) && this.toolFilter.isAllowed(toolName);
   }
 
   private isProviderAllowed(toolName: string): boolean {
     return !HOOK_TOOL_NAMES.has(toolName) || this.getActiveProvider?.() === 'autohandai';
+  }
+
+  private isAvailable(toolName: string): boolean {
+    return !this.isToolWithheld?.(toolName) && this.isProviderAllowed(toolName);
   }
 
   /**

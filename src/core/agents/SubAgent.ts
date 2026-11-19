@@ -14,6 +14,7 @@ import type { RunBudgetGate } from '../agent/RunBudget.js';
 import { AgentRegistry, type AgentDefinition } from './AgentRegistry.js';
 import { formatAgentRoster } from './agentRoster.js';
 import { buildWorkerProjectMemoryContext } from './workerProjectMemory.js';
+import { areMemoriesUsed, isMemoryReadToolWithheld } from '../../memory/memoryUse.js';
 import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { ConversationManager } from '../conversationManager.js';
 import { ToolImageStore } from '../ToolImageStore.js';
@@ -268,6 +269,7 @@ export class SubAgent {
         }
 
         this.toolManager = new ToolManager({
+            isToolWithheld: toolName => isMemoryReadToolWithheld(toolName, options.featureConfig),
             executor: async (action, context) => {
                 if (action.type === CODE_MODE_TOOL_NAME) {
                     return runCodeModeScript(this.toolManager, {
@@ -450,6 +452,7 @@ export class SubAgent {
             enabled: this.options.projectMemoryEnabled,
             canSaveMemory: this.toolManager.listDefinitions().some(tool => tool.name === 'save_memory'),
             autoMemory: this.options.featureConfig?.agent?.autoMemory,
+            useMemories: areMemoriesUsed(this.options.featureConfig),
         });
         options.signal?.throwIfAborted();
         if (projectMemory) this.conversation.addMessage({ role: 'system', content: projectMemory });

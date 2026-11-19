@@ -763,6 +763,7 @@ Or use the slash command:
 | `/agents definitions` | List configured sub-agents |
 | `/resume` | Resume previous session |
 | `/memory` | Manage saved preferences |
+| `/memories` | Turn memory use and generation on or off, or reset local memories |
 | `/quit` | Exit Autohand |
 | `/exit` | Exit Autohand |
 

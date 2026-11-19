@@ -19,6 +19,7 @@ import { getShellExecutionProfile } from '../../utils/shellExecution.js';
 import { isCodeModeEnabled } from '../codemode/feature.js';
 import { lanesPromptSection } from '../lanes/laneTool.js';
 import { isAdaptiveSkillsEnabled, SKILL_DISCOVERY_CONTRACT } from '../../skills/feature.js';
+import { areMemoriesUsed } from '../../memory/memoryUse.js';
 
 interface PromptSkillSummary {
   name: string;
@@ -159,10 +160,11 @@ export class SystemPromptBuilder {
         'Honor structured output and JSON schemas: never append Markdown outside the required JSON document. Do not add another model request or tool call merely to produce the recap.',
       ];
 
+    const useMemories = areMemoriesUsed(runtime.config);
     const [memories, instructions] = runtime.options.bare
       ? ['', [] as string[]]
       : await Promise.all([
-          this.options.getContextMemories(),
+          useMemories ? this.options.getContextMemories() : '',
           this.options.loadInstructionFiles(),
         ]);
 
@@ -250,8 +252,10 @@ export class SystemPromptBuilder {
       '',
       ...planPromptSection,
       '## Memory & Reusable Tools',
-      'Save explicit user preferences and project conventions with save_memory at the appropriate user or project scope. Use recall_memory for ranked retrieval.',
-      'Use inspect_memory to outline or zoom large memory; derived summaries can be forgotten or rebuilt from canonical memory event history. Use delete_memory only for explicitly obsolete memory.',
+      `Save explicit user preferences and project conventions with save_memory at the appropriate user or project scope.${useMemories ? ' Use recall_memory for ranked retrieval.' : ''}`,
+      useMemories
+        ? 'Use inspect_memory to outline or zoom large memory; derived summaries can be forgotten or rebuilt from canonical memory event history. Use delete_memory only for explicitly obsolete memory.'
+        : 'Stored memories are not provided in this session. Use delete_memory only for explicitly obsolete memory.',
       'Use existing tools first. Before create_meta_tool or custom_command, discover whether a suitable tool exists; never override or duplicate one. Discover its schema before creating or invoking it.',
       '',
       '## Safety',
@@ -429,9 +433,11 @@ export class SystemPromptBuilder {
       '- `user`: Global preferences (applies to all projects)',
       '- `project`: Project-specific conventions (applies only to current workspace)',
       '',
-      'Use `recall_memory` for ranked retrieval by content, tags, and recency.',
-      'Use `inspect_memory(operation="outline")` when memory is too large for a flat list, then zoom into returned summary node IDs without changing the snapshot.',
-      'The derived summaries are disposable caches: `inspect_memory(operation="forget")` invalidates them, while `operation="rebuild"` restores JSON projections from canonical memory event history.',
+      ...(useMemories ? [
+        'Use `recall_memory` for ranked retrieval by content, tags, and recency.',
+        'Use `inspect_memory(operation="outline")` when memory is too large for a flat list, then zoom into returned summary node IDs without changing the snapshot.',
+        'The derived summaries are disposable caches: `inspect_memory(operation="forget")` invalidates them, while `operation="rebuild"` restores JSON projections from canonical memory event history.',
+      ] : []),
       'Use `delete_memory` only for an explicitly obsolete memory; deletion remains recorded in canonical memory event history.',
       '',
       'Example: User says "I prefer functional components over class components"',

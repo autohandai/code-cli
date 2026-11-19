@@ -461,6 +461,54 @@ describe("configParser – error handling (Issue #3)", () => {
     await expect(loadConfig(configPath)).rejects.toThrow(/agent\.toolSelectionCache must be boolean/);
   });
 
+  it.each([true, false])("accepts agent.useMemories=%s and keeps it distinct from agent.autoMemory", async (useMemories) => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "openrouter",
+        openrouter: { apiKey: "sk-test-key", baseUrl: "https://openrouter.ai/api/v1", model: "your-modelcard-id-here" },
+        agent: { useMemories, autoMemory: true },
+      }),
+    );
+    const loadConfig = await importLoadConfig();
+
+    const result = await loadConfig(configPath);
+
+    expect(result.agent?.useMemories).toBe(useMemories);
+    expect(result.agent?.autoMemory).toBe(true);
+  });
+
+  it("leaves agent.useMemories unset when the config does not mention it", async () => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "openrouter",
+        openrouter: { apiKey: "sk-test-key", baseUrl: "https://openrouter.ai/api/v1", model: "your-modelcard-id-here" },
+        agent: {},
+      }),
+    );
+    const loadConfig = await importLoadConfig();
+
+    expect((await loadConfig(configPath)).agent?.useMemories).toBeUndefined();
+  });
+
+  it.each(["yes", 0, null])("rejects a non-boolean agent.useMemories (%j)", async (useMemories) => {
+    const configPath = await writeTempConfig(
+      testDir,
+      "config.json",
+      JSON.stringify({
+        provider: "openrouter",
+        openrouter: { apiKey: "sk-test-key", baseUrl: "https://openrouter.ai/api/v1", model: "your-modelcard-id-here" },
+        agent: { useMemories },
+      }),
+    );
+    const loadConfig = await importLoadConfig();
+
+    await expect(loadConfig(configPath)).rejects.toThrow(/agent\.useMemories must be boolean/);
+  });
+
   it("loads DeepSeek config and applies the default DeepSeek base URL", async () => {
     const configPath = await writeTempConfig(
       testDir,

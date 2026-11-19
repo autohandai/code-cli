@@ -69,6 +69,13 @@ interface ProjectMemoryOperation {
   shared: boolean;
 }
 
+/** A memory directory on this machine: never a team's shared cache, never remote state. */
+export interface LocalMemoryStore {
+  level: MemoryLevel;
+  directory: string;
+  entries: number;
+}
+
 export interface MemoryManagerOptions {
   userMemoryDir?: string;
   getSessionId?: () => string | undefined;
@@ -297,6 +304,55 @@ export class MemoryManager {
     }
 
     return { project, user };
+  }
+
+  /**
+   * The stores a local reset can clear, with how many memories each holds. The project store is
+   * always the workspace's own directory, even while a team's shared project memory is active.
+   */
+  async describeLocalStores(): Promise<LocalMemoryStore[]> {
+    const directories: Array<[MemoryLevel, string]> = [
+      ...(this.projectMemoryDir ? [['project', this.projectMemoryDir] as [MemoryLevel, string]] : []),
+      ['user', this.userMemoryDir],
+    ];
+    return Promise.all(directories.map(async ([level, directory]) => ({
+      level,
+      directory,
+      entries: (await this.localEntryFiles(directory)).length,
+    })));
+  }
+
+  /**
+   * Deletes one level's memories from this machine: entry files, the index, the event history and
+   * derived summaries. Returns how many memories were removed.
+   *
+   * Deliberately not a canonical deletion. Nothing is appended to an event log, published to a
+   * shared project or scheduled for sync, so the reset cannot reach a team or an account library.
+   * Files in the directory that are not memory artifacts are left alone.
+   */
+  async resetLocalStore(level: MemoryLevel): Promise<number> {
+    const directory = level === 'project' ? this.projectMemoryDir : this.userMemoryDir;
+    if (!directory || !(await fs.pathExists(directory))) return 0;
+
+    const removed = await withFileLock(path.join(directory, 'events', '.view.lock'), async () => {
+      const entryFiles = await this.localEntryFiles(directory);
+      await Promise.all([
+        ...entryFiles.map((file) => fs.remove(path.join(directory, file))),
+        fs.remove(path.join(directory, 'index.json')),
+        fs.remove(path.join(directory, 'events', 'LOG.jsonl')),
+        fs.remove(path.join(directory, 'derived')),
+      ]);
+      return entryFiles.length;
+    }, MEMORY_INDEX_LOCK_OPTIONS);
+
+    if (this.eventLogs.get(level)?.directory === directory) this.eventLogs.delete(level);
+    if (this.summaryTrees.get(level)?.directory === directory) this.summaryTrees.delete(level);
+    return removed;
+  }
+
+  private async localEntryFiles(directory: string): Promise<string[]> {
+    if (!(await fs.pathExists(directory))) return [];
+    return (await fs.readdir(directory)).filter((file) => file.endsWith('.json') && file !== 'index.json');
   }
 
   async recordCapabilityUse(usage: CapabilityUsageInput): Promise<void> {

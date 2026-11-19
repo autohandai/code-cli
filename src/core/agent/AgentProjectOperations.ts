@@ -86,14 +86,18 @@ If lint or tests fail, report the issues but do NOT commit.`;
   }
 }
 
+/**
+ * Stores a `#` memory and returns what to tell the user, or null when they backed out.
+ *
+ * The outcome is returned rather than printed: the pickers below run while the Ink frame is
+ * unmounted, and a full-screen frame repaints over anything written to the console around them.
+ */
 export async function handleAgentMemoryStore(
   host: AgentProjectOperationsHost,
   content: string
-): Promise<void> {
+): Promise<string | null> {
   if (!content) {
-    console.log(chalk.gray('Usage: # <text to remember>'));
-    console.log(chalk.gray('Example: # Always use TypeScript strict mode'));
-    return;
+    return chalk.gray('Usage: # <text to remember>\nExample: # Always use TypeScript strict mode');
   }
 
   try {
@@ -108,36 +112,48 @@ export async function handleAgentMemoryStore(
     });
 
     if (!levelResult) {
-      return;
+      return null;
     }
 
     const level = levelResult.value as 'project' | 'user';
 
     const similar = await host.memoryManager.findSimilar(content, level);
     if (similar && similar.score >= 0.6) {
-      console.log();
-      console.log(chalk.yellow('Found similar existing memory:'));
-      console.log(chalk.gray(`  "${similar.entry.content}"`));
-
       const shouldUpdate = await showConfirm({
-        title: 'Update the existing memory instead of creating a new one?',
+        title: `Found similar existing memory:\n  "${similar.entry.content}"\n\nUpdate the existing memory instead of creating a new one?`,
       });
 
       if (shouldUpdate) {
         await host.memoryManager.updateMemory(similar.entry.id, content, level);
-        console.log(chalk.green('Memory updated.'));
-        return;
+        return chalk.green('Memory updated.');
       }
     }
 
     await host.memoryManager.store(content, level);
-    console.log(chalk.green(`Memory saved to ${level} level.`));
+    return chalk.green(`Memory saved to ${level} level.`);
   } catch (error) {
     if ((error as { isCanceled?: boolean }).isCanceled) {
-      return;
+      return null;
     }
-    console.error(chalk.red('Failed to store memory:'), (error as Error).message);
+    return chalk.red(`Failed to store memory: ${(error as Error).message}`);
   }
+}
+
+/**
+ * Shows the outcome of a `#` memory where the user can read it: in the transcript when an Ink
+ * renderer owns the screen (it keeps the message while paused and paints it on resume), on the
+ * console otherwise.
+ */
+export function reportAgentMemoryStore(
+  inkRenderer: { addAssistantMessage(message: string, renderMarkdown?: boolean): void } | null | undefined,
+  message: string | null,
+): void {
+  if (!message) return;
+  if (inkRenderer) {
+    inkRenderer.addAssistantMessage(message, false);
+    return;
+  }
+  console.log(message);
 }
 
 export function printAgentGitDiff(host: AgentProjectOperationsHost): void {

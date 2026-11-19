@@ -477,6 +477,11 @@ export interface AgentSettings {
   toolSelectionCache?: boolean;
   /** Extract and save durable memories after completed interactive turns (default: true) */
   autoMemory?: boolean;
+  /**
+   * Give stored memories to the model: prompt and context injection, sub-agent lessons and the
+   * memory-reading tools (default: true). Saving memories is governed separately by `autoMemory`.
+   */
+  useMemories?: boolean;
 }
 
 export interface SessionsSettings {

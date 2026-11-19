@@ -69,6 +69,7 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/clear` | Clear conversation with automatic memory extraction |
 | `/undo` | Revert the last recorded agent file mutation and conversation turn |
 | `/memory` | View stored memories |
+| `/memories` | Turn memory use and generation on or off, or reset local memories |
 | `/init` | Create `AGENTS.md` file |
 | `/agents` | Watch active Autohand sessions |
 | `/agents definitions` | List installed sub-agent definitions |
@@ -272,6 +273,14 @@ report back to the main conversation when they finish. Enable it with
   - Auto-saves without manual intervention
   - `pre-clear` hook event fires before extraction begins
   - View and manage extracted memories with `/memory`
+- [x] **Memory settings** with `/memories`
+  - **Use memories** is `agent.useMemories`: when off, stored memories are not given to the model, starting with the next turn and without a restart. They are left out of the system prompt, the session bootstrap, the per-turn shared team project snapshot and the lesson context handed to sub-agents; a memory saved in the background is not fed back into the conversation; and the `recall_memory` and `inspect_memory` tools are withheld (not advertised, and refused if called). In a running conversation the system prompt and bootstrap note are regenerated on the next turn, so memories injected earlier are dropped; turning it back on restores them the same way. Memories stay on disk and `/memory` still lists them.
+  - What the switch cannot undo: memory text that already appears in the conversation itself (an earlier answer that quoted a memory, an earlier `recall_memory` result, a compaction summary) stays in that thread. Start a new conversation with `/new` for a clean one. `--bare` keeps skipping memory injection regardless of the setting.
+  - The two switches are independent: with **Use memories** off and **Generate memories** on, Autohand keeps saving memories and simply does not read them back.
+  - **Generate memories** is `agent.autoMemory`: when off, Autohand stops saving memories on its own after completed interactive turns, starting with the next turn. Memories you add with `#`, and ones the agent saves because you asked it to, are still stored. Space toggles, Enter saves to your config file, Esc cancels.
+  - **Reset all memories** deletes memory files from this machine after a confirmation that lists each directory: the entry files, `index.json`, `events/LOG.jsonl` and `derived/` under `<workspace>/.autohand/memory/` and `~/.autohand/memory/`. Other files in those directories, conversation sessions and existing threads are not changed.
+  - The reset is local only. Nothing is deleted from your Autohand account or the Console, and a team's shared project memories are never touched. While sync is enabled the user library also lives in your account, so the reset leaves `~/.autohand/memory/` alone; delete single entries with `/memory delete user <id>` or in the Console instead. If sync is off now but the library was synced earlier, turning sync back on restores the account copy.
+  - Without a terminal (RPC, piped output) `/memories` prints the current values instead of opening the screen.
 
 ## Feedback System
 - [x] Smart triggers (after tasks, on session end, gratitude detection)

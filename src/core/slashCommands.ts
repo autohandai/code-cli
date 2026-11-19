@@ -23,6 +23,7 @@ import * as settingsCmd from '../commands/settings.js';
 import * as statusbarCmd from '../commands/statusbar.js';
 import * as statuslineCmd from '../commands/statusline.js';
 import * as memory from '../commands/memory.js';
+import * as memories from '../commands/memories.js';
 import * as formatters from '../commands/formatters.js';
 import * as lint from '../commands/lint.js';
 import * as completion from '../commands/completion.js';
@@ -110,6 +111,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   statusbarCmd.metadata,
   statuslineCmd.metadata,
   memory.metadata,
+  memories.metadata,
   formatters.metadata,
   lint.metadata,
   completion.metadata,

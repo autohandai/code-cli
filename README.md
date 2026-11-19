@@ -379,6 +379,7 @@ Node installs use `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` for requests, inclu
 | `/sessions`        | List past sessions                                                               |
 | `/resume`          | Resume a previous session                                                        |
 | `/memory`          | View/manage stored memories                                                      |
+| `/memories`        | Turn memory use and generation on or off, or reset local memories                |
 | `/init`            | Create `AGENTS.md` file                                                          |
 | `/agents`          | Show active Autohand CLI instances                                               |
 | `/agents definitions` | List configured sub-agents                                                    |

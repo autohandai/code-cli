@@ -95,6 +95,7 @@ import {
 import type { ToolDefinition } from './toolManager.js';
 import { ErrorLogger } from './errorLogger.js';
 import { MemoryManager, wrapSharedProjectMemory } from '../memory/MemoryManager.js';
+import { areMemoriesUsed } from '../memory/memoryUse.js';
 import { FeedbackManager } from '../feedback/FeedbackManager.js';
 import type { FeedbackSurveyController } from './agent/FeedbackSurveyController.js';
 import { TelemetryManager } from '../telemetry/TelemetryManager.js';
@@ -300,6 +301,7 @@ import {
   createAgentInstructionsFile,
   displayAgentIntentMode,
   handleAgentMemoryStore,
+  reportAgentMemoryStore,
   performAgentAutoCommit,
   printAgentGitDiff,
   runAgentEnvironmentBootstrap,
@@ -916,7 +918,7 @@ export class AutohandAgent {
   }
 
   private async handleMemoryStore(content: string): Promise<void> {
-    return handleAgentMemoryStore(this.createProjectOperationsHost(), content);
+    reportAgentMemoryStore(this.inkRenderer, await handleAgentMemoryStore(this.createProjectOperationsHost(), content));
   }
 
   private scheduleTurnMemoryReflection(outcome: TurnMemoryReflectionOutcome): void {
@@ -1016,10 +1018,12 @@ export class AutohandAgent {
       await request.session?.append?.({ role: 'system', content: receipt, timestamp: new Date().toISOString(), _meta: { kind: 'memory_receipt' } });
       if (abortController.signal.aborted || this.runtimeResourceShutdownPromise) return;
       if (request.sessionId === this.sessionManager?.getCurrentSession?.()?.metadata?.sessionId) {
-        this.conversation.addSystemNote(
-          formatTurnMemoryUpdate(currentSaved, request.sharedProjectMemory),
-          '[Auto Memory Update]',
-        );
+        if (areMemoriesUsed(this.runtime.config)) {
+          this.conversation.addSystemNote(
+            formatTurnMemoryUpdate(currentSaved, request.sharedProjectMemory),
+            '[Auto Memory Update]',
+          );
+        }
         this.inkRenderer?.setCommandResult('/memory', receipt);
       }
       this.writeTurnMemoryDebugLine(

@@ -1748,6 +1748,9 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
     ) {
       throw new Error(`agent.toolSelectionCache must be boolean in ${configPath}`);
     }
+    if (config.agent.useMemories !== undefined && typeof config.agent.useMemories !== "boolean") {
+      throw new Error(`agent.useMemories must be boolean in ${configPath}`);
+    }
   }
 
   // Validate MCP config

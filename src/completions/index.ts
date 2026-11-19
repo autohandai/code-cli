@@ -51,6 +51,7 @@ const DEFAULT_CONFIG: CompletionConfig = {
     '/clear',
     '/undo',
     '/memory',
+    '/memories',
     '/init',
     '/browser',
     '/agents',

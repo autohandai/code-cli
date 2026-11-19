@@ -108,6 +108,7 @@ import { NO_DAEMON_MESSAGE } from '../runtime/noDaemon.js';
 import { ToolsRegistry, createToolsRegistry, type MetaToolDefinition } from './toolsRegistry.js';
 import { MetaToolService } from './metaTools/MetaToolService.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
+import { areMemoriesUsed, MEMORY_USE_OFF_MESSAGE } from '../memory/memoryUse.js';
 import { SecurityScanner } from './SecurityScanner.js';
 import { execSync } from 'node:child_process';
 import { PlanFileStorage } from '../modes/planMode/PlanFileStorage.js';
@@ -3004,6 +3005,9 @@ export class ActionExecutor {
         return `Saved to ${level} memory: ${action.fact}`;
       }
       case 'recall_memory': {
+        if (!areMemoriesUsed(this.runtime.config)) {
+          return MEMORY_USE_OFF_MESSAGE;
+        }
         if (!this.memoryManager) {
           return 'Memory manager not available';
         }
@@ -3019,6 +3023,9 @@ export class ActionExecutor {
         return formatted;
       }
       case 'inspect_memory': {
+        if (!areMemoriesUsed(this.runtime.config)) {
+          return MEMORY_USE_OFF_MESSAGE;
+        }
         if (!this.memoryManager) {
           return 'Memory manager not available';
         }

@@ -1178,6 +1178,7 @@ Control agent behavior and iteration limits.
     "enableRequestQueue": true,
     "toolSelectionCache": true,
     "autoMemory": true,
+    "useMemories": true,
     "goalAutoMode": true,
     "idleLogoutEnabled": true,
     "idleTimeoutMs": 14400000,
@@ -1193,6 +1194,7 @@ Control agent behavior and iteration limits.
 | `enableRequestQueue` | boolean | `true`  | Allow users to type and queue requests while agent is working                  |
 | `toolSelectionCache` | boolean | `true`  | Cache local per-turn tool schema selection for equivalent tool-selection input |
 | `autoMemory`         | boolean | `true`  | Extract and save durable user/project memories after completed interactive turns, including evidence-backed lessons from failures and cancellations |
+| `useMemories`        | boolean | `true`  | Give stored memories to the model. When `false`, memories are left out of the system prompt, the session bootstrap, the per-turn shared team project snapshot and sub-agent lesson context, newly saved memories are not fed back into the conversation, and the `recall_memory` and `inspect_memory` tools are neither advertised nor runnable. Saving is unaffected: `autoMemory`, `#` and `save_memory` still store. Applies from the next turn without a restart; toggle it with `/memories`. Must be a boolean |
 | `goalAutoMode`       | boolean | `true`  | Put the session in auto mode while a goal is active (autonomous turns, no tool approval prompts) |
 | `idleLogoutEnabled`  | boolean | `true`  | End authenticated interactive sessions after the idle timeout                  |
 | `idleTimeoutMs`      | number  | `14400000` | Milliseconds of inactivity before ending an authenticated session (4 hours)   |
@@ -3426,6 +3428,7 @@ Node builds install an environment proxy dispatcher at startup when `HTTPS_PROXY
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
 | `/memory`     | List memory; `outline`, `zoom`, `forget`, `rebuild`, or `delete` |
+| `/memories`   | Toggle `agent.useMemories` ("Use memories") and `agent.autoMemory` ("Generate memories"), or reset local memory files |
 | `/settings`   | Configure Autohand settings                           |
 | `/statusline` | Configure composer status-line fields                 |
 | `/statusbar` | Configure status-bar sections and classic or two-line layout |

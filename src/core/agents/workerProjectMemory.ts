@@ -11,6 +11,8 @@ interface WorkerProjectMemoryOptions {
   enabled?: boolean;
   canSaveMemory: boolean;
   autoMemory?: boolean;
+  /** `agent.useMemories`: when false the saving rules stay but no stored lesson is read. */
+  useMemories?: boolean;
 }
 
 export async function buildWorkerProjectMemoryContext(options: WorkerProjectMemoryOptions): Promise<string> {
@@ -29,6 +31,11 @@ export async function buildWorkerProjectMemoryContext(options: WorkerProjectMemo
       ? 'Automatic lesson saving is disabled. Save only when explicitly requested and authorized; otherwise report lesson candidates to the lead.'
       : '',
   ];
+
+  if (options.useMemories === false) {
+    parts.push('Memory use is turned off: saved project lessons are not provided for this task.');
+    return parts.filter(Boolean).join('\n');
+  }
 
   try {
     const entries = await new MemoryManager(options.workspaceRoot).list('project');

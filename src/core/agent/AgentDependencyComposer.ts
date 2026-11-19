@@ -61,6 +61,7 @@ import { attachTeamActivityBridge, enableAutomaticCoordinationMode } from './Tea
 import { buildTeamTaskPayload, taskToolTruncatesDescriptions } from '../teams/taskPayload.js';
 import { ErrorLogger } from '../errorLogger.js';
 import { MemoryManager } from '../../memory/MemoryManager.js';
+import { isMemoryReadToolWithheld } from '../../memory/memoryUse.js';
 import { ProjectMemorySync } from '../../sync/ProjectMemorySync.js';
 import type { CapabilityUsageInput } from '../../memory/types.js';
 import { FeedbackManager } from '../../feedback/FeedbackManager.js';
@@ -1498,6 +1499,7 @@ export function initializeAgentDependencies(
         return server && isComputerUseMcpServer(server) ? host.activateComputerUseAutoMode?.() === true : false;
       },
       getActiveProvider: () => host.activeProvider ?? runtime.config.provider ?? 'openrouter',
+      isToolWithheld: toolName => isMemoryReadToolWithheld(toolName, runtime.config),
       maxConcurrency: runtime.config.agent?.parallelToolConcurrency ?? 5,
       executor: async (action, context) => {
         const startTime = Date.now();
