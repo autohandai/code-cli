@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+## 0.9.12 - 2026-11-20
+
+### Added
+
+- `/agents` is a session command center with project grouping, filters, a details pane and session switching by keyboard or mouse. The previous live view is `/agents --live`.
+- Experimental lanes: named background agents listed under the composer, behind the `cli_lanes` experiment.
+- `/memories` settings screen, and `agent.useMemories` to keep stored memories out of the model context.
+- `/usage` charts are selectable with the mouse and list the skills that were used.
+- Stop hooks, RPC and ACP report `interrupted` and `needs_review` turn outcomes separately from `failed`.
+- Pair the session with the native mobile app using `/mobile`, `/mobile(ios)`, `/mobile(android)`, `/ios` or `/android`.
+
+### Fixed
+
+- Replay a resumed session once, as it was shown live, instead of repeating tool narration.
+- Keep the full-screen transcript still while a turn runs and when a message is sent.
+- Select and copy transcript text with a visible highlight, and expand or collapse a tool result by clicking it.
+- Inset the chat history two columns from the window edge while keeping the composer and footer on the edge.
+- Report a turn stopped with Esc as interrupted, including its tool row.
+- Report a delivered answer with an unresolved Moa review as needing review, not as a failed turn.
+- Review a turn that changed no files even when earlier uncommitted work exceeds the review diff limit.
+- Show `/permissions`, `/memory` and `/discovery` output in the full-screen transcript, with a reason when `/discovery` fails.
+- Tell a tool script which tools exist and how to run a program when it calls an unknown tool.
+- Update the status line after `/model` and show the same account plan as `/status`.
+- Send LLM Gateway a source tag it accepts; requests were rejected with "Invalid x-source header" (#757, #763).
+- Stop filing runs that reached their own `agent.budget` or `--max-*` limit as bugs (#767, #768).
+- Keep replies in the configured `ui.locale`, English included, and never save a reply-language preference as a memory.
+
+See [the 0.9.12 release notes](docs/changelog/whats-new-0.9.12.md) for details.
+
 ## 0.9.11 - 2026-11-12
 
 ### Added
