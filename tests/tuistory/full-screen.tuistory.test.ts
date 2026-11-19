@@ -1,12 +1,12 @@
 /** @license Apache-2.0 */
 import { renderAutohandLogo } from '../../src/utils/asciiArt.js';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import { isTerminalMouseTrackingEnabled } from '../../src/testing/scenarios/mouseScrollbackScenario.js';
 import { composerCaretLine } from '../../src/testing/assertions/composerCaret.js';
-import { clickFullScreenComposer, cycleFullScreenStartupModes, findHistoryDuringWork, inspectFullScreenStatusBar, requestFullScreenStartupWrite, seedFullScreenHistory, startFullScreenHeaderProbe, typeMultilineDraft, runFullScreenLiveOutputScenario } from '../../src/testing/scenarios/fullScreenScenario.js';
+import { clickFullScreenComposer, clickFullScreenTranscript, trackTranscriptRowDuringTurn, cycleFullScreenStartupModes, dragFullScreenTranscript, lastClipboardWrite, findHistoryDuringWork, inspectFullScreenStatusBar, requestFullScreenStartupWrite, seedFullScreenHistory, startFullScreenHeaderProbe, typeMultilineDraft, runFullScreenLiveOutputScenario } from '../../src/testing/scenarios/fullScreenScenario.js';
 import { launchTuistorySession } from '../../src/testing/drivers/tuistory-driver.js';
 import { outputViewport, LONG_OUTPUT_COMMAND, runLongOutputTurn } from '../../src/testing/scenarios/compactOutputScenario.js';
 import { createMockAuthServer, type MockAuthServer, createMockAutohandAINativeSequenceServer, type MockNativeToolServer, createTempAutohandHome, launchBuiltAutohand, exitInteractive, type TuistoryTempState } from './helpers/autohandTuistory.js';
@@ -331,6 +331,113 @@ describe('full-screen terminal', () => {
     await session.waitForText('liXne-8');
     await exitInteractive(session);
   });
+
+  it('copies dragged transcript text and leaves plain clicks inert', async () => {
+    state = await createTempAutohandHome({ config: { features: { fullScreenMode: true }, ui: { promptSuggestions: false } } });
+    await seedFullScreenHistory(state.autohandHome, state.workspaceRoot);
+    session = await launchBuiltAutohand(['resume', 'full-screen-history', '--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000, cols: 100, rows: 30,
+      // SSH keeps the copy on OSC 52 so the test never touches the developer's macOS clipboard.
+      env: { TERM_PROGRAM: 'ghostty', SSH_CONNECTION: 'tuistory 0 localhost 22' },
+    });
+    await session.waitForText('History item 79'); await session.waitIdle();
+    expect(isTerminalMouseTrackingEnabled(session)).toBe(true);
+    const lines = outputViewport(session).split('\n');
+    const row = lines.findIndex(line => line.includes('History item 78'));
+    const column = lines[row]!.indexOf('History item 78');
+
+    await dragFullScreenTranscript(session, { column, row }, { column: column + 14, row });
+    await session.waitForText('Copied selection');
+    expect(lastClipboardWrite(session)).toBe('History item 78');
+
+    const before = outputViewport(session);
+    await clickFullScreenComposer(session, column + 1, row);
+    expect(lastClipboardWrite(session)).toBe('History item 78');
+    expect(outputViewport(session)).not.toContain('Ctrl+O collapse');
+    expect(outputViewport(session).split('\n').slice(0, row + 1)).toEqual(before.split('\n').slice(0, row + 1));
+    await session.type('still editable');
+    await session.waitForText('❯ still editable');
+    await exitInteractive(session);
+  });
+
+  it('holds history still through a tool turn, opens the clicked result and replays the turn once on resume', async () => {
+    const narration = 'Reading the build pipeline before implementing.';
+    const history = Array.from({ length: 40 }, (_, index) => `History line ${index}`).join('\n\n');
+    server = await createMockAutohandAINativeSequenceServer([
+      { content: history },
+      { content: narration, toolCallDelayMs: 400, toolCall: { id: 'tail-first', name: 'run_command', args: LONG_OUTPUT_COMMAND } },
+      { content: narration, toolCallDelayMs: 400, toolCall: { id: 'tail-second', name: 'run_command', args: { command: 'seq', args: ['-f', 'other-%g', '1', '40'] } } },
+      { content: 'STABLE_TAIL_DONE' },
+    ]);
+    state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-test-key', model: 'moa', baseUrl: server.baseUrl },
+      features: { fullScreenMode: true, autohand_inference: true },
+      agent: { autoMemory: false, maxIterations: 6, sessionRetryLimit: 0 },
+      network: { maxRetries: 0, retryDelay: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    const launch = (args: string[]) => launchBuiltAutohand(args, {
+      autohandHome: state!.autohandHome, cwd: state!.workspaceRoot, waitForDataTimeout: 15_000, cols: 100, rows: 40,
+      // SSH keeps the copy on OSC 52 so the test never touches the developer's macOS clipboard.
+      env: { TERM_PROGRAM: 'ghostty', SSH_CONNECTION: 'tuistory 0 localhost 22' },
+    });
+    session = await launch(['--yes', '--path', state.workspaceRoot, '--config', state.configPath]);
+    await session.waitForText('❯', { timeout: 20_000 });
+    await session.type('first request'); await session.press('enter');
+    await session.waitForText('History line 39', { timeout: 30_000 });
+    await session.text({ timeout: 10_000, waitFor: () => !outputViewport(session!).includes('esc to cancel') });
+
+    const anchorRows = await trackTranscriptRowDuringTurn(session, 'second request', 'History line 39', 'STABLE_TAIL_DONE');
+    expect(anchorRows.length).toBeGreaterThan(3);
+    expect(anchorRows).toEqual([...anchorRows].sort((above, below) => below - above));
+    // The spacer line printed after each turn used to paint the whole frame one row lower.
+    expect(session.getRawOutput()).not.toMatch(/\x1b\[1E(?:\x1b\[[0-9;]*m)*>_ /u);
+    await session.waitIdle();
+    expect(outputViewport(session)).not.toContain(narration);
+
+    const rowOf = (text: string) => outputViewport(session!).split('\n').findIndex(line => line.includes(text));
+    await clickFullScreenTranscript(session, 2, rowOf('$ seq -f row-%g 1 40'));
+    await session.waitForText('Ctrl+O collapse');
+    expect(outputViewport(session)).toContain('row-10');
+    expect(outputViewport(session)).not.toContain('other-10');
+    await clickFullScreenTranscript(session, 2, rowOf('Ctrl+O collapse'));
+    await session.text({ timeout: 5_000, waitFor: () => !outputViewport(session!).includes('Ctrl+O collapse') });
+    await clickFullScreenTranscript(session, 2, rowOf('$ seq -f other-%g 1 40'));
+    await session.waitForText('other-10');
+    await session.press(['ctrl', 'o']);
+    await session.text({ timeout: 5_000, waitFor: () => !outputViewport(session!).includes('Ctrl+O collapse') });
+
+    const row = rowOf('STABLE_TAIL_DONE');
+    const column = outputViewport(session).split('\n')[row]!.indexOf('STABLE_TAIL_DONE');
+    await dragFullScreenTranscript(session, { column, row }, { column: column + 15, row });
+    await session.waitForText('Copied selection');
+    expect(lastClipboardWrite(session)).toBe('STABLE_TAIL_DONE');
+    await exitInteractive(session);
+
+    const [sessionId] = (await readdir(path.join(state.autohandHome, 'sessions'))).filter(name => !name.endsWith('.json'));
+    // Replaying a stored session needs no model: the same home, offline, signed in as the fixture user
+    // (the cloud run drops the fixture token it could not verify).
+    const offlineConfig = path.join(state.autohandHome, 'resume-config.json');
+    await writeFile(offlineConfig, JSON.stringify({
+      provider: 'openrouter',
+      openrouter: { apiKey: 'tuistory-test-api-key', model: 'openai/gpt-4o-mini' },
+      auth: { token: 'tuistory-test-token', expiresAt: '2099-01-01T00:00:00.000Z', user: { id: 'tuistory-test-user', email: 'tuistory@example.com', name: 'Tuistory Test' } },
+      features: { fullScreenMode: true },
+      autoReport: { enabled: false },
+      sync: { enabled: false },
+      traces: { consentVersion: 1 },
+      ui: { checkForUpdates: false, showTips: false, repositoryReadiness: false, promptSuggestions: false },
+    }));
+    session = await launch(['resume', sessionId!, '--config', offlineConfig, '--offline']);
+    await session.waitForText('STABLE_TAIL_DONE', { timeout: 20_000 });
+    await session.waitIdle();
+    const resumed = outputViewport(session);
+    expect(resumed).toContain('❯ second request');
+    expect(resumed).not.toContain(narration);
+    expect(resumed.split('STABLE_TAIL_DONE')).toHaveLength(2);
+    await exitInteractive(session);
+  }, 120_000);
 
   it('returns from status when Ghostty sends protocol-encoded Escape', async () => {
     state = await createTempAutohandHome({ config: { features: { fullScreenMode: true }, ui: { promptSuggestions: false } } });

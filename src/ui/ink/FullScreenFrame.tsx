@@ -54,6 +54,8 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
   useMemo(() => model.update(messages, width), [model, messages, width]);
   model.focusDetails(detailsId);
   const view = model.view(Math.max(1, bodyHeight));
+  // Until the footer is measured the body height is a guess, not rows the footer gave back.
+  if (!metrics.hasMeasured) model.settleTail();
   const transcriptRows = view.rows.slice(0, bodyHeight);
   while (transcriptRows.length < bodyHeight) transcriptRows.push({ text: ' ' });
   const hint = model.copiedSelection && model.searchQuery === null

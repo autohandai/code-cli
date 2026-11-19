@@ -92,6 +92,56 @@ export async function clickFullScreenComposer(session: TerminalSession, column: 
   await session.waitIdle();
 }
 
+/** Left-button drag between two 0-based viewport cells, as a terminal reports it with SGR 1002 tracking. */
+export async function dragFullScreenTranscript(
+  session: TerminalSession,
+  from: { column: number; row: number },
+  to: { column: number; row: number },
+): Promise<void> {
+  session.writeRaw(`\x1b[<0;${from.column + 1};${from.row + 1}M`);
+  session.writeRaw(`\x1b[<32;${to.column + 1};${to.row + 1}M`);
+  session.writeRaw(`\x1b[<0;${to.column + 1};${to.row + 1}m`);
+  await session.waitIdle();
+}
+
+/** A left-button press and release on one 0-based viewport cell. */
+export async function clickFullScreenTranscript(session: TerminalSession, column: number, row: number): Promise<void> {
+  session.writeRaw(`\x1b[<0;${column + 1};${row + 1}M`);
+  session.writeRaw(`\x1b[<0;${column + 1};${row + 1}m`);
+  await session.waitIdle();
+}
+
+/**
+ * Submits a prompt and samples the screen until `finishedMarker` shows. Returns the viewport row of
+ * `anchor` in every complete frame (one that still has the composer), in the order they were seen.
+ */
+export async function trackTranscriptRowDuringTurn(
+  session: TerminalSession,
+  prompt: string,
+  anchor: string,
+  finishedMarker: string,
+): Promise<number[]> {
+  await session.type(prompt);
+  await session.press('enter');
+  const rows: number[] = [];
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const lines = outputViewport(session).split('\n');
+    const row = lines.findIndex(line => line.includes(anchor));
+    if (row >= 0 && lines.some(line => line.startsWith('❯ Plan, search'))) rows.push(row);
+    if (lines.some(line => line.includes(finishedMarker)) && !lines.some(line => line.includes('esc to cancel'))) return rows;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  throw new Error(`Turn did not finish with ${finishedMarker}`);
+}
+
+/** Text from the most recent OSC 52 clipboard write the CLI emitted. */
+export function lastClipboardWrite(session: TerminalSession): string | null {
+  const writes = [...session.getRawOutput().matchAll(/\x1b\]52;c;([A-Za-z0-9+/=]*)\x07/g)];
+  const encoded = writes.at(-1)?.[1];
+  return encoded === undefined ? null : Buffer.from(encoded, 'base64').toString('utf8');
+}
+
 export async function typeMultilineDraft(session: TerminalSession, lines: readonly string[]): Promise<void> {
   for (let index = 0; index < lines.length; index++) {
     await session.type(lines[index]!);

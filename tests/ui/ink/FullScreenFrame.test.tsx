@@ -91,6 +91,45 @@ describe('full-screen frame', () => {
     expect(composerRow()).toBe(row);
   });
 
+  it('keeps history on its rows when a streamed preview is dropped before its tool call arrives', async () => {
+    const model = new FullScreenTranscript();
+    const history = Array.from({ length: 50 }, (_, i) => ({ role: 'notification' as const, content: `Message ${i}` }));
+    const preview = { role: 'assistant' as const, content: 'Reading the build script.\n\nThen the release workflow.' };
+    let messages: Array<{ role: 'notification' | 'assistant' | 'tool_call'; content: string; tool?: string }> = [...history, preview];
+    const frame = () => <ThemeProvider><FullScreenFrame model={model} messages={messages} rows={24} columns={100} footer={<Text>❯ draft</Text>} /></ThemeProvider>;
+    const view = render(frame()); await flush();
+    view.rerender(frame()); await flush();
+    const rowOf = (text: string) => stripAnsi(view.lastFrame() ?? '').split('\n').findIndex(line => line.trimEnd().endsWith(text));
+    const anchored = rowOf('Message 49');
+    expect(anchored).toBeGreaterThan(0);
+
+    messages = history;
+    view.rerender(frame()); await flush();
+    expect(rowOf('Message 49')).toBe(anchored);
+
+    messages = [...history, { role: 'tool_call', tool: 'run_tool_script', content: 'Read build script' }];
+    view.rerender(frame()); await flush();
+    expect(rowOf('Message 49')).toBe(anchored);
+    expect(stripAnsi(view.lastFrame() ?? '')).toContain('… run_tool_script Read build script');
+
+    model.follow();
+    messages = history;
+    view.rerender(frame()); await flush();
+    expect(rowOf('Message 49')).toBeGreaterThan(anchored);
+  });
+
+  it('fills the transcript down to the footer once the footer has been measured', async () => {
+    // The first render assumes a tall footer; the rows it hands back must not stay blank.
+    const model = new FullScreenTranscript();
+    const messages = Array.from({ length: 50 }, (_, i) => ({ role: 'notification' as const, content: `Message ${i}` }));
+    const frame = () => <ThemeProvider><FullScreenFrame model={model} messages={messages} rows={24} columns={100} footer={<Box flexDirection="column"><Text>status</Text><Text>ruler</Text><Text>❯ draft</Text><Text>ruler</Text><Text>model</Text><Text>hints</Text></Box>} /></ThemeProvider>;
+    const view = render(frame()); await flush();
+    view.rerender(frame()); await flush();
+    const lines = stripAnsi(view.lastFrame() ?? '').split('\n');
+    const footerRow = lines.findIndex(line => line.includes('status'));
+    expect(footerRow - lines.findIndex(line => line.trimEnd().endsWith('Message 49'))).toBe(3);
+  });
+
   it('does not advertise Escape as a history action while inspecting tool details', async () => {
     const model = new FullScreenTranscript();
     const messages = [{ role: 'tool' as const, content: Array.from({ length: 50 }, (_, i) => `Detail ${i}`).join('\n') }];

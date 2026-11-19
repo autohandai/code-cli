@@ -153,6 +153,154 @@ describe('full-screen transcript viewport', () => {
   });
 });
 
+describe('full-screen transcript tail when transient rows are removed', () => {
+  const history: ChatLogMessage[] = Array.from({ length: 30 }, (_, i) => ({ role: 'notification', content: `History ${i}` }));
+  const narration: ChatLogMessage = { role: 'notification', content: 'I need to understand the build.\nLet me read the script.\nThen the workflow.' };
+  const call: ChatLogMessage = { role: 'tool_call', tool: 'run_tool_script', content: 'Read build script' };
+  const result: ChatLogMessage = { role: 'tool', tool: 'run_tool_script', success: true, content: '1 tool call\ndone' };
+  const liveBlock: ChatLogMessage = { role: 'tool_call', tool: 'Running seq', content: 'Ctrl+O expand\nrow-1\nrow-2\nrow-3\nrow-4' };
+
+  it('does not slide history back down when a streamed preview is replaced by its tool call', () => {
+    // Recorded on session 446965e5…: the narration preview vanished one frame before the tool
+    // rows arrived, so everything above dropped by its height and then jumped back up.
+    const model = new FullScreenTranscript();
+    const starts: number[] = [];
+    for (const frame of [
+      [...history, narration],
+      history,
+      [...history, call],
+      [...history, call, liveBlock],
+      [...history, call],
+      [...history, call, result],
+      [...history, call, result, narration],
+      [...history, call, result],
+    ]) {
+      model.update(frame, 60);
+      starts.push(model.view(16).start);
+    }
+
+    expect(starts).toEqual([...starts].sort((left, right) => left - right));
+    expect(model.view(16).following).toBe(true);
+  });
+
+  it('leaves the vacated rows blank at the bottom instead of pulling older rows into view', () => {
+    const model = new FullScreenTranscript();
+    model.update([...history, narration], 60);
+    const before = model.view(16);
+    model.update(history, 60);
+    const after = model.view(16);
+
+    expect(after.start).toBe(before.start);
+    expect(after.lines).toEqual(before.lines.slice(0, after.lines.length));
+    expect(after.lines.length).toBeLessThan(16);
+    expect(after.lines.join('\n')).toContain('History 29');
+  });
+
+  it('fills the vacated rows with the next output before moving anything', () => {
+    const model = new FullScreenTranscript();
+    model.update([...history, narration], 60);
+    const before = model.view(16);
+    model.update(history, 60);
+    model.update([...history, call], 60);
+    const refilled = model.view(16);
+    expect(refilled.start).toBe(before.start);
+    expect(refilled.lines.join('\n')).toContain('… run_tool_script Read build script');
+
+    model.update([...history, call, result, narration], 60);
+    const grown = model.view(16);
+    expect(grown.lines).toHaveLength(16);
+    expect(grown.start).toBe(grown.total - 16);
+  });
+
+  it('lets a growing footer use the vacated rows before it moves the transcript', () => {
+    const model = new FullScreenTranscript();
+    model.update([...history, narration], 60);
+    const start = model.view(16).start;
+    model.update(history, 60);
+    expect(model.view(14).start).toBe(start);
+    expect(model.view(10).start).toBe(start + 2);
+  });
+
+  it('holds its rows when the footer loses a status row and follows the composer when a menu closes', () => {
+    const model = new FullScreenTranscript();
+    model.update(history, 60);
+    const start = model.view(16).start;
+    expect(model.view(17).start).toBe(start);
+    expect(model.view(16).start).toBe(start);
+
+    expect(model.view(10).start).toBe(start + 6);
+    expect(model.view(16).start).toBe(start);
+  });
+
+  it('does not let repeated one-row footer changes push the transcript away from the composer', () => {
+    const model = new FullScreenTranscript();
+    model.update(history, 60);
+    const start = model.view(16).start;
+    for (let cycle = 0; cycle < 6; cycle++) {
+      model.view(15);
+      model.view(16);
+    }
+    expect(model.view(16).start).toBeLessThanOrEqual(start + 1);
+    expect(model.view(16).start).toBeGreaterThanOrEqual(start);
+  });
+
+  it('always keeps transcript rows on screen, even when most of it is removed', () => {
+    const model = new FullScreenTranscript();
+    model.update(history, 60);
+    model.view(16);
+    model.update(history.slice(0, 3), 60);
+    const view = model.view(16);
+    expect(view.lines.join('\n')).toContain('History 2');
+    expect(view.start).toBeLessThan(view.total);
+  });
+
+  it('shows replaced history, a resized transcript and a collapsed details view from their own tail', () => {
+    const model = new FullScreenTranscript();
+    model.update([...history, narration], 60);
+    model.view(16);
+
+    model.update(history, 20);
+    expect(model.view(16).start).toBe(model.view(16).total - 16);
+
+    model.update([...history, { ...liveBlock, detailsId: 'live-1' }], 20);
+    model.focusDetails('live-1');
+    model.view(16);
+    model.update(history, 20);
+    model.focusDetails(undefined);
+    expect(model.view(16).start).toBe(model.view(16).total - 16);
+
+    model.update([{ role: 'user', content: 'New session' }], 20);
+    expect(model.view(16).lines.join('\n')).toContain('New session');
+    expect(model.view(16).start).toBe(0);
+  });
+
+  it('keeps wheel scrolling and returning to the tail predictable while rows are held', () => {
+    const model = new FullScreenTranscript();
+    model.update([...history, narration], 60);
+    const held = model.view(16).start;
+    model.update(history, 60);
+
+    model.scroll(-3, 16);
+    expect(model.view(16).start).toBeLessThan(held);
+    expect(model.view(16).lines).toHaveLength(16);
+    expect(model.view(16).following).toBe(false);
+    model.scroll(3, 16);
+    expect(model.view(16).following).toBe(true);
+    expect(model.view(16).lines).toHaveLength(16);
+  });
+
+  it('leaves a reader who scrolled up on the same rows', () => {
+    const model = new FullScreenTranscript();
+    model.update([...history, narration], 60);
+    model.scroll(-10, 16);
+    const before = model.view(16).lines;
+    model.update(history, 60);
+    expect(model.view(16).lines).toEqual(before);
+    model.follow();
+    expect(model.view(16).start).toBe(model.view(16).total - 16);
+  });
+});
+
 describe('full-screen transcript selection', () => {
   const plain = (lines: string[]) => lines.map(line => line.replace(/\u001B\[[0-9;]*m/g, ''));
   const setup = () => {

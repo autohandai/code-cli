@@ -32,6 +32,9 @@ interface SearchMatch {
   row: number;
 }
 
+/** The footer's status, tip and completion rows come and go one or two at a time. */
+const FOOTER_FLICKER_ROWS = 2;
+
 /** A transcript cell: absolute wrapped-line index and terminal column. */
 interface SelectionPoint {
   line: number;
@@ -91,6 +94,16 @@ export class FullScreenTranscript {
   private height = 1;
   private detailsId: string | undefined;
   private viewStart = 0;
+  /**
+   * Blank rows kept below the transcript while it follows the tail. A running turn swaps
+   * transient rows for final ones (a streamed preview for its tool call, a live command block for
+   * its result, the status row for the completion row) and removes them a frame before it adds
+   * the replacement. A tail that tracked the shorter transcript dragged history down and back up.
+   * Instead the vacated rows stay blank, and new output or a taller footer uses them up first.
+   */
+  private tailGap = 0;
+  private tailTotal = 0;
+  private tailHeight = Number.POSITIVE_INFINITY;
   private selection: { anchor: SelectionPoint; focus: SelectionPoint } | null = null;
   /** Set after a drag copied text; the frame shows it until the next selection. */
   copiedSelection = false;
@@ -168,6 +181,7 @@ export class FullScreenTranscript {
     if (width !== this.width) {
       this.cache = new WeakMap();
       this.width = width;
+      this.resetTail();
     }
     let end = 0;
     this.entries = messages.map(message => {
@@ -201,7 +215,13 @@ export class FullScreenTranscript {
   view(height: number): TranscriptView {
     this.height = Math.max(1, height);
     const total = this.entries.at(-1)?.end ?? 0;
-    const start = this.following ? Math.max(0, total - this.height) : Math.min(this.offset, Math.max(0, total - this.height));
+    const gap = this.following ? this.settleTailGap(total) : 0;
+    this.tailGap = gap;
+    this.tailTotal = total;
+    this.tailHeight = this.height;
+    const start = this.following
+      ? Math.max(0, total + gap - this.height)
+      : Math.min(this.offset, Math.max(0, total - this.height));
     this.offset = start;
     this.viewStart = start;
     const rows: TranscriptRow[] = [];
@@ -212,6 +232,28 @@ export class FullScreenTranscript {
       rows.push(...entry.lines.slice(from, from + this.height - rows.length).map(text => ({ text, role: entry.message.role })));
     }
     return { lines: rows.map(row => row.text), rows, following: this.following, newActivity: this.newActivity, start, total };
+  }
+
+  /** Rows removed since the last view stay blank; rows added, or taken by the footer, fill them. */
+  private settleTailGap(total: number): number {
+    const grown = this.height - this.tailHeight;
+    // A menu closing hands back many rows and the transcript follows the composer down; a status
+    // row flickering away hands back one or two, and following it would move everything twice.
+    const heightChange = grown > FOOTER_FLICKER_ROWS ? 0 : grown;
+    const gap = this.tailGap + (this.tailTotal - total) + heightChange;
+    // Transient rows are a few lines; a larger removal is a real change and moves the view.
+    return Math.max(0, Math.min(gap, Math.floor(this.height / 2)));
+  }
+
+  /** Drop any held rows: the next view starts from the true tail (a provisional layout, a resize). */
+  settleTail(): void {
+    this.resetTail();
+  }
+
+  private resetTail(): void {
+    this.tailGap = 0;
+    this.tailTotal = 0;
+    this.tailHeight = Number.POSITIVE_INFINITY;
   }
 
   isBodyRow(viewRow: number): boolean {
@@ -311,7 +353,8 @@ export class FullScreenTranscript {
     const view = this.view(height);
     const max = Math.max(0, view.total - height);
     this.offset = Math.max(0, Math.min(max, view.start + delta));
-    this.following = this.offset === max;
+    // A held tail starts below the true tail; scrolling up from it must leave follow mode.
+    this.following = this.offset === max && this.offset >= view.start;
     if (this.following) this.newActivity = false;
   }
 
@@ -321,6 +364,7 @@ export class FullScreenTranscript {
 
   follow(): void {
     this.following = true;
+    this.resetTail();
     this.newActivity = false;
     this.lastMatch = -1;
   }

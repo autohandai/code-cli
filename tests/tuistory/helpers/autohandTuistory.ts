@@ -66,6 +66,8 @@ export interface MockNativeToolServer extends MockOpenRouterServer {
 export interface MockNativeAssistantTurn {
   content: string;
   delayMs?: number;
+  /** Streamed replies only: send the content, wait this long, then send the tool call. */
+  toolCallDelayMs?: number;
   responseGate?: Promise<void>;
   toolCall?: {
     id: string;
@@ -400,6 +402,21 @@ export async function createMockAutohandAINativeSequenceServer(
     }
     if (body.stream === true) {
       response.writeHead(200, { 'content-type': 'text/event-stream' });
+      if (turn.toolCall && turn.toolCallDelayMs) {
+        response.write(`data: ${JSON.stringify({
+          id: `chatcmpl-autohand-native-${requests.length}`,
+          choices: [{ delta: { content: turn.content } }],
+        })}\n\n`);
+        await new Promise<void>(resolve => setTimeout(resolve, turn.toolCallDelayMs));
+        if (response.destroyed) return;
+        response.end(`data: ${JSON.stringify({
+          id: `chatcmpl-autohand-native-${requests.length}`,
+          choices: [{ delta: { tool_calls: [{ index: 0, id: turn.toolCall.id, type: 'function',
+            function: { name: turn.toolCall.name, arguments: JSON.stringify(turn.toolCall.args ?? {}) } }] }, finish_reason: 'tool_calls' }],
+          usage: { prompt_tokens: 42, completion_tokens: 12, total_tokens: 54 },
+        })}\n\ndata: [DONE]\n\n`);
+        return;
+      }
       response.end(`data: ${JSON.stringify({
         id: `chatcmpl-autohand-native-${requests.length}`,
         choices: [{ delta: {

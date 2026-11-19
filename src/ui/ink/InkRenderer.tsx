@@ -12,6 +12,7 @@
  */
 import { disableKittyProtocol, enableKittyProtocol, KITTY_DISAMBIGUATE_FLAG } from '../kittyProtocol.js';
 import { acquireAlternateScreen, shouldUseFullScreen } from '../terminal/alternateScreen.js';
+import { holdConsoleOutput } from '../terminal/fullScreenConsole.js';
 import { FullScreenTranscript } from './fullScreenTranscript.js';
 import React, { useState, useImperativeHandle, forwardRef, useCallback, useRef } from 'react';
 import { render, type Instance } from 'ink';
@@ -501,6 +502,7 @@ export class InkRenderer {
 
   /** Cleanup function for stdout sync-output patch */
   private unpatchedStdout: (() => void) | null = null;
+  private releaseConsole: (() => void) | null = null;
 
   private lastQueuedInstruction: { text: string; at: number } | null = null;
   private queuedInstructionEntries: Array<SequencedQueuedWork & Partial<PeerInstructionMetadata>> = [];
@@ -596,6 +598,12 @@ export class InkRenderer {
    * Shared by the initial start() and by resume() after a modal.
    */
   private mountAgentUI(): Instance {
+    if (this.fullScreenTranscript) {
+      // Ink would print console output above the frame and repaint the frame below it.
+      this.releaseConsole ??= holdConsoleOutput(text => {
+        if (text.trim()) writeAutohandDebugLine(`[DEBUG] console output held in full screen: ${text}`);
+      });
+    }
     return render(
       <ThemeProvider>
         <I18nProvider>
@@ -653,9 +661,16 @@ export class InkRenderer {
         stdout: process.stdout,
         stderr: process.stderr,
         // Let AgentUI handle Ctrl+C (clear text / warn-then-exit) instead of Ink forcing exit
-        exitOnCtrlC: false
+        exitOnCtrlC: false,
+        patchConsole: !this.fullScreenTranscript,
       })
     );
+  }
+
+  /** The console belongs to the terminal again once no full-screen frame is mounted. */
+  private releaseHeldConsole(): void {
+    this.releaseConsole?.();
+    this.releaseConsole = null;
   }
 
   /**
@@ -686,6 +701,7 @@ export class InkRenderer {
         }
       }
     } finally {
+      this.releaseHeldConsole();
       this.stopTips();
       if (this.liveOutputFlushTimer) {
         clearTimeout(this.liveOutputFlushTimer);
@@ -1655,6 +1671,7 @@ export class InkRenderer {
         instance.clear();
       } finally {
         instance.unmount();
+        this.releaseHeldConsole();
       }
       this.instance = null;
 
