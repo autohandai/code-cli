@@ -104,7 +104,7 @@ describe('compact tool output in the transcript', () => {
 });
 
 describe('expanding compact output with the mouse', () => {
-  it('opens the latest expandable result on a click outside the composer', async () => {
+  it('leaves output collapsed on a click outside the composer so the click can select text', async () => {
     const { stdin, lastFrame, onToggleToolOutputExpanded } = renderUI({
       ...createInitialUIState(),
       toolOutputs: [previewEntry()],
@@ -114,7 +114,7 @@ describe('expanding compact output with the mouse', () => {
 
     await clickAboveComposer(stdin, composerRow);
 
-    expect(onToggleToolOutputExpanded).toHaveBeenCalledOnce();
+    expect(onToggleToolOutputExpanded).not.toHaveBeenCalled();
   });
 
   it('leaves a click alone when no result can be expanded', async () => {
@@ -130,18 +130,30 @@ describe('expanding compact output with the mouse', () => {
     expect(onToggleToolOutputExpanded).not.toHaveBeenCalled();
   });
 
-  it('prefers a running command over a finished result', async () => {
+  it('expands a running command only when its own block is clicked', async () => {
     const { stdin, lastFrame, onToggleToolOutputExpanded, onToggleLiveCommandExpanded } = renderUI({
       ...createInitialUIState(),
       toolOutputs: [previewEntry()],
       liveCommands: [{ id: 'live-1', command: 'bun test', stdout: 'running', stderr: '', isExpanded: false, startedAt: 1 }],
     } as AgentUIState);
     await flush();
-    const composerRow = stripAnsi(lastFrame() ?? '').split('\n').findIndex((line) => line.includes('❯')) + 1;
+    const rows = stripAnsi(lastFrame() ?? '').split('\n');
+    const composerRow = rows.findIndex((line) => line.includes('❯')) + 1;
+    const commandRow = rows.findIndex((line) => line.includes('Running bun test')) + 1;
+    const belowBlock = commandRow + 6;
+    expect(belowBlock).toBeLessThan(composerRow - 1);
 
-    await clickAboveComposer(stdin, composerRow);
+    stdin.write(`\x1b[<0;5;${belowBlock}M`);
+    stdin.write(`\x1b[${composerRow};3R`);
+    await flush();
+    expect(onToggleLiveCommandExpanded).not.toHaveBeenCalled();
+
+    stdin.write(`\x1b[<0;5;${commandRow}M`);
+    stdin.write(`\x1b[${composerRow};3R`);
+    await flush();
 
     expect(onToggleLiveCommandExpanded).toHaveBeenCalledOnce();
+    expect(onToggleLiveCommandExpanded).toHaveBeenCalledWith('live-1');
     expect(onToggleToolOutputExpanded).not.toHaveBeenCalled();
   });
 

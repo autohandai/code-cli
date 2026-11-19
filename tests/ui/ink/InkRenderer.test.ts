@@ -336,6 +336,30 @@ describe('InkRenderer live command blocks', () => {
     expect(renderer.getState().chatMessages).toHaveLength(1);
   });
 
+  it('expands the tool result it is asked for and ignores one with nothing more to show', () => {
+    const renderer = new InkRenderer({
+      onInstruction: () => {},
+      onEscape: () => {},
+      onCtrlC: () => {},
+    });
+    renderer.addToolOutput('run_tool_script', true, '1 tool call · older', undefined, 'Logs:\nolder detail');
+    renderer.addToolOutput('read_file', true, 'short result');
+    renderer.addToolOutput('run_tool_script', true, '1 tool call · newer', undefined, 'Logs:\nnewer detail');
+    const [older, plain, newer] = renderer.getState().toolOutputs.map(entry => entry.id);
+
+    renderer.toggleToolOutputExpanded(older);
+    expect(renderer.getState().expandedToolOutputId).toBe(older);
+    renderer.toggleToolOutputExpanded(newer);
+    expect(renderer.getState().expandedToolOutputId).toBe(newer);
+    renderer.toggleToolOutputExpanded(plain);
+    renderer.toggleToolOutputExpanded('tool-missing');
+    expect(renderer.getState().expandedToolOutputId).toBe(newer);
+    renderer.toggleToolOutputExpanded(newer);
+    expect(renderer.getState().expandedToolOutputId).toBeUndefined();
+    renderer.toggleToolOutputExpanded();
+    expect(renderer.getState().expandedToolOutputId).toBe(newer);
+  });
+
   it('collapses completed tool details when live command output starts', () => {
     const renderer = new InkRenderer({
       onInstruction: () => {},

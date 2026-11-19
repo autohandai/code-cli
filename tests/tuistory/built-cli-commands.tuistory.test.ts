@@ -17,6 +17,8 @@ import path from 'node:path';
 import stripAnsi from 'strip-ansi';
 import { hasTerminalProcessPid } from '../../src/testing/assertions/terminalOutput.js';
 import { createStalledGoalStatePreload } from '../../src/testing/scenarios/goalsCommandScenario.js';
+import { outputViewport } from '../../src/testing/scenarios/compactOutputScenario.js';
+import { DISABLE_SGR_MOUSE_TRACKING, ENABLE_SGR_MOUSE_TRACKING } from '../../src/ui/ink/mouseInput.js';
 import {
   clearComposerInput,
   createMockChangelogFetchPreload,
@@ -269,8 +271,8 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
     // finished turn's draft and hides the caret until the next keystroke.
     const startupOutput = session.getRawOutput();
     expect(stripAnsi(startupOutput)).not.toContain('esc to cancel');
-    expect(startupOutput).toContain('\x1b[?1000h\x1b[?1006h');
-    expect(startupOutput).not.toContain('\x1b[?1006l\x1b[?1000l');
+    expect(startupOutput).toContain(ENABLE_SGR_MOUSE_TRACKING);
+    expect(startupOutput).not.toContain(DISABLE_SGR_MOUSE_TRACKING);
     await waitForCursorAfterTypedText(session, 'hello');
 
     await session.click('llo');
@@ -356,7 +358,7 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
       trimEnd: true,
     });
 
-    expect(session.getRawOutput()).toContain('\x1b[?1000h\x1b[?1006h');
+    expect(session.getRawOutput()).toContain(ENABLE_SGR_MOUSE_TRACKING);
     expect(composerLineIncludes(cursorScreen, 'hello')).toBe(true);
 
     await session.click('llo');
@@ -377,7 +379,7 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
     expect(screen).not.toContain('helloX');
 
     await exitInteractive(session);
-    expect(session.getRawOutput()).toContain('\x1b[?1006l\x1b[?1000l');
+    expect(session.getRawOutput()).toContain(DISABLE_SGR_MOUSE_TRACKING);
   });
 
   it('does not let a stale composer click hijack the caret after the DSR reply is lost', async () => {
@@ -1193,7 +1195,12 @@ describe('interactive built CLI Tuistory tests: steering, caret, slash commands,
     await session.waitForText('Ctrl+O expand', { timeout: 10_000 });
     expect(session.readAll()).not.toContain('background-line-01');
 
-    await session.click('background-line-16');
+    // The classic layout resolves a click against the measured block through a cursor report.
+    // Mouse reports are viewport cells; `session.click(text)` counts rows from the top of the
+    // scrollback, which lands below the block once the transcript has scrolled.
+    const viewport = outputViewport(session).split('\n');
+    const outputRow = viewport.findIndex(line => line.includes('background-line-16'));
+    await session.clickAt(viewport[outputRow]!.indexOf('background-line-16'), outputRow);
     await waitForCursorPositionQuery(session);
     const [terminalCursorColumn, terminalCursorRow] = session.getTerminalData().cursor;
     session.writeRaw(`\x1b[${terminalCursorRow + 1};${terminalCursorColumn + 1}R`);

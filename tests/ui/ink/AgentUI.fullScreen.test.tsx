@@ -6,6 +6,8 @@ import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
 import { FullScreenTranscript } from '../../../src/ui/ink/fullScreenTranscript.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
+import { copyToClipboard } from '../../../src/ui/clipboard.js';
+vi.mock('../../../src/ui/clipboard.js', () => ({ copyToClipboard: vi.fn() }));
 const flush = () => new Promise(resolve => setTimeout(resolve, 40));
 afterEach(cleanup);
 
@@ -265,4 +267,124 @@ describe('full-screen composer integration', () => {
     view.unmount();
   });
 
+});
+
+describe('full-screen transcript mouse selection', () => {
+  const expandable = { id: 'fetch-1', tool: 'fetch_url', success: true, output: 'line 1', expandedOutput: 'line 1\nline 2', timestamp: 1 };
+  const setup = (extra: Record<string, unknown> = {}) => {
+    vi.mocked(copyToClipboard).mockClear();
+    const onToggleToolOutputExpanded = vi.fn();
+    const onToggleLiveCommandExpanded = vi.fn();
+    const state = { ...createInitialUIState(), chatMessages: [{ role: 'assistant' as const, content: 'Copy this sentence please', renderMarkdown: false }], toolOutputs: [expandable], ...extra };
+    const view = render(<I18nProvider><ThemeProvider><AgentUI fullScreenTranscript={new FullScreenTranscript()} mouseComposerCursor state={state as never} onInstruction={() => {}} onEscape={() => {}} onCtrlC={() => {}} onToggleToolOutputExpanded={onToggleToolOutputExpanded} onToggleLiveCommandExpanded={onToggleLiveCommandExpanded} /></ThemeProvider></I18nProvider>);
+    const rows = () => stripAnsi(view.lastFrame() ?? '').split('\n');
+    const locate = (text: string) => {
+      const row = rows().findIndex(line => line.includes(text));
+      return { row: row + 1, column: rows()[row].indexOf(text) + 1 };
+    };
+    return { view, rows, locate, onToggleToolOutputExpanded, onToggleLiveCommandExpanded };
+  };
+
+  it('copies dragged transcript text instead of expanding output', async () => {
+    const { view, rows, locate, onToggleToolOutputExpanded } = setup();
+    await flush();
+    const { row, column } = locate('this sentence');
+    view.stdin.write(`\x1b[<0;${column};${row}M`); await flush();
+    view.stdin.write(`\x1b[<32;${column + 6};${row}M`); await flush();
+    view.stdin.write(`\x1b[<32;${column + 12};${row}M`); await flush();
+    view.stdin.write(`\x1b[<0;${column + 12};${row}m`); await flush();
+    expect(copyToClipboard).toHaveBeenCalledOnce();
+    expect(vi.mocked(copyToClipboard).mock.calls[0][0]).toBe('this sentence');
+    expect(rows().join('\n')).toContain('Copied selection');
+    expect(onToggleToolOutputExpanded).not.toHaveBeenCalled();
+  });
+
+  it('does not expand anything for a plain click on transcript text', async () => {
+    const { view, locate, onToggleToolOutputExpanded, onToggleLiveCommandExpanded } = setup();
+    await flush();
+    const { row, column } = locate('this sentence');
+    view.stdin.write(`\x1b[<0;${column};${row}M`); await flush();
+    view.stdin.write(`\x1b[<0;${column};${row}m`); await flush();
+    expect(copyToClipboard).not.toHaveBeenCalled();
+    expect(onToggleToolOutputExpanded).not.toHaveBeenCalled();
+    expect(onToggleLiveCommandExpanded).not.toHaveBeenCalled();
+  });
+
+  it('expands a running command from a click on its own output', async () => {
+    const { view, locate, onToggleLiveCommandExpanded, onToggleToolOutputExpanded } = setup({
+      liveCommands: [{ id: 'live-1', command: 'bun test', stdout: 'running', stderr: '', isExpanded: false, startedAt: 1 }],
+    });
+    await flush();
+    const { row, column } = locate('running');
+    view.stdin.write(`\x1b[<0;${column};${row}M`); await flush();
+    view.stdin.write(`\x1b[<0;${column};${row}m`); await flush();
+    expect(onToggleLiveCommandExpanded).toHaveBeenCalledWith('live-1');
+    expect(onToggleToolOutputExpanded).not.toHaveBeenCalled();
+    expect(copyToClipboard).not.toHaveBeenCalled();
+  });
+
+  it('expands the finished tool result that was clicked, not the latest one', async () => {
+    const older = { id: 'script-1', tool: 'run_tool_script', success: true, output: '1 tool call · older', expandedOutput: 'Logs:\nolder detail', timestamp: 1 };
+    const newer = { id: 'script-2', tool: 'run_tool_script', success: true, output: '1 tool call · newer', expandedOutput: 'Logs:\nnewer detail', timestamp: 2 };
+    const { view, locate, onToggleToolOutputExpanded, onToggleLiveCommandExpanded } = setup({
+      toolOutputs: [older, newer],
+      chatMessages: [
+        { role: 'user', content: 'read the build script' },
+        { role: 'tool', tool: older.tool, success: true, content: older.output, expandedOutput: older.expandedOutput },
+        { role: 'tool', tool: newer.tool, success: true, content: newer.output, expandedOutput: newer.expandedOutput },
+        { role: 'tool', tool: 'read_file', success: true, content: 'short result with nothing more to show' },
+      ],
+    });
+    await flush();
+    const click = async (text: string) => {
+      const { row, column } = locate(text);
+      view.stdin.write(`\x1b[<0;${column};${row}M`); await flush();
+      view.stdin.write(`\x1b[<0;${column};${row}m`); await flush();
+    };
+
+    await click('1 tool call · older');
+    expect(onToggleToolOutputExpanded).toHaveBeenLastCalledWith('script-1');
+    await click('1 tool call · newer');
+    expect(onToggleToolOutputExpanded).toHaveBeenLastCalledWith('script-2');
+    await click('short result with nothing more to show');
+    await click('read the build script');
+    expect(onToggleToolOutputExpanded).toHaveBeenCalledTimes(2);
+    expect(onToggleLiveCommandExpanded).not.toHaveBeenCalled();
+    expect(copyToClipboard).not.toHaveBeenCalled();
+  });
+
+  it('expands a finished result that is only present in the live tool output list', async () => {
+    const { view, locate, onToggleToolOutputExpanded } = setup();
+    await flush();
+    const { row, column } = locate('line 1');
+    view.stdin.write(`\x1b[<0;${column};${row}M`); await flush();
+    view.stdin.write(`\x1b[<0;${column};${row}m`); await flush();
+    expect(onToggleToolOutputExpanded).toHaveBeenCalledExactlyOnceWith('fetch-1');
+  });
+
+  it('collapses expanded details from a click on them and still copies a drag across a result', async () => {
+    const { view, locate, onToggleToolOutputExpanded } = setup({ expandedToolOutputId: 'fetch-1' });
+    await flush();
+    const hint = locate('Ctrl+O collapse');
+    view.stdin.write(`\x1b[<0;${hint.column};${hint.row}M`); await flush();
+    view.stdin.write(`\x1b[<0;${hint.column};${hint.row}m`); await flush();
+    expect(onToggleToolOutputExpanded).toHaveBeenCalledExactlyOnceWith('fetch-1');
+
+    const { row, column } = locate('line 2');
+    view.stdin.write(`\x1b[<0;${column};${row}M`); await flush();
+    view.stdin.write(`\x1b[<32;${column + 5};${row}M`); await flush();
+    view.stdin.write(`\x1b[<0;${column + 5};${row}m`); await flush();
+    expect(vi.mocked(copyToClipboard).mock.calls.at(-1)?.[0]).toBe('line 2');
+    expect(onToggleToolOutputExpanded).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps mouse reports out of the Find query', async () => {
+    const { view, rows, locate } = setup();
+    await flush();
+    view.stdin.write('\x06'); await flush();
+    const { row, column } = locate('this sentence');
+    view.stdin.write(`\x1b[<0;${column};${row}M`); await flush();
+    view.stdin.write(`\x1b[<0;${column};${row}m`); await flush();
+    expect(rows().find(line => line.includes('Find:'))).toMatch(/Find: {2}·|Find: ·/);
+  });
 });

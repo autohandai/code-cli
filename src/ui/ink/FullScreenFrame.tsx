@@ -4,11 +4,30 @@ import os from 'node:os';
 import path from 'node:path';
 import { Box, Text, useBoxMetrics, type DOMElement } from 'ink';
 import stringWidth from 'string-width';
+import stripAnsi from 'strip-ansi';
 import { useTheme } from '../theme/ThemeContext.js';
 import type { FullScreenMessage, FullScreenTranscript } from './fullScreenTranscript.js';
 import { runtimeVersion } from '../../utils/runtimeVersion.js';
 
 export const ComposerOriginContext = createContext({ left: 0, top: 0 });
+
+/** Rows above the transcript body: title, workspace and a spacer. Mouse rows are mapped against it. */
+export const FULL_SCREEN_HEADER_ROWS = 3;
+
+function SelectableRow({ text, selected }: { text: string; selected: [number, number] | null }) {
+  if (!selected) return <Text wrap="truncate">{text || ' '}</Text>;
+  let column = 0;
+  let before = '';
+  let inside = '';
+  let after = '';
+  for (const character of stripAnsi(text)) {
+    if (column < selected[0]) before += character;
+    else if (column < selected[1]) inside += character;
+    else after += character;
+    column += stringWidth(character);
+  }
+  return <Text wrap="truncate">{before}<Text inverse>{inside || ' '}</Text>{after}</Text>;
+}
 
 interface FullScreenFrameProps {
   model: FullScreenTranscript;
@@ -37,19 +56,25 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
   const view = model.view(Math.max(1, bodyHeight));
   const transcriptRows = view.rows.slice(0, bodyHeight);
   while (transcriptRows.length < bodyHeight) transcriptRows.push({ text: ' ' });
-  const hint = model.searchQuery !== null
+  const hint = model.copiedSelection && model.searchQuery === null
+    ? 'Copied selection'
+    : model.searchQuery !== null
     ? `Find: ${model.searchQuery} · Enter next · Shift+Enter previous · Esc close${model.searchMatched ? '' : ' · No match'}`
     : view.following ? ' ' : `${view.newActivity ? 'New activity · ' : ''}↓ Back to bottom · Ctrl+End${detailsId ? '' : ' / Esc'}`;
   return <Box flexDirection="column" width="100%" paddingRight={1} height={height} overflow="hidden">
-    <Box flexDirection="column" height={3} flexShrink={0} overflow="hidden">
+    <Box flexDirection="column" height={FULL_SCREEN_HEADER_ROWS} flexShrink={0} overflow="hidden">
       <Text wrap="truncate"><Text color={colors.accent}>{'>_ '}</Text><Text bold>Autohand Code</Text><Text color={colors.muted}>{` (v${runtimeVersion})`}</Text></Text>
       <Text color={colors.muted} wrap="truncate">{`   ${displayDirectory}`}</Text>
       <Text> </Text>
     </Box>
     <Box flexDirection="column" flexGrow={1} flexShrink={1} flexBasis={0} minHeight={0} overflow="hidden">
-      {transcriptRows.map((row, index) => <Text key={index} wrap="truncate">{row.role === 'user'
-        ? theme.bold(theme.fgBg('userMessageText', 'userMessageBg', row.text + ' '.repeat(Math.max(0, width - stringWidth(row.text)))))
-        : row.text || ' '}</Text>)}
+      {transcriptRows.map((row, index) => {
+        const selected = model.selectionColumns(index);
+        if (selected) return <SelectableRow key={index} text={row.text} selected={selected} />;
+        return <Text key={index} wrap="truncate">{row.role === 'user'
+          ? theme.bold(theme.fgBg('userMessageText', 'userMessageBg', row.text + ' '.repeat(Math.max(0, width - stringWidth(row.text)))))
+          : row.text || ' '}</Text>;
+      })}
     </Box>
     <Text color={model.searchQuery !== null ? colors.muted : colors.accent} wrap="truncate">{hint}</Text>
     <Box ref={footerRef} flexDirection="column" flexShrink={0} maxHeight={footerLimit} overflow="hidden" justifyContent="flex-end">

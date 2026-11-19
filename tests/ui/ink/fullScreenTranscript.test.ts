@@ -152,3 +152,99 @@ describe('full-screen transcript viewport', () => {
     expect(model.view(6).following).toBe(true);
   });
 });
+
+describe('full-screen transcript selection', () => {
+  const plain = (lines: string[]) => lines.map(line => line.replace(/\u001B\[[0-9;]*m/g, ''));
+  const setup = () => {
+    const model = new FullScreenTranscript();
+    model.update([
+      { role: 'notification', content: 'alpha beta gamma\ndelta epsilon\nzeta eta theta' },
+    ], 40);
+    model.view(10);
+    return model;
+  };
+
+  it('copies a single-line drag from the press cell through the release cell', () => {
+    const model = setup();
+    model.beginSelection(0, 6);
+    model.extendSelection(0, 9);
+    expect(model.endSelection()).toBe('beta');
+  });
+
+  it('copies across lines in either drag direction and trims trailing padding', () => {
+    const model = setup();
+    model.beginSelection(2, 3);
+    model.extendSelection(0, 11);
+    expect(model.endSelection()).toBe('gamma\ndelta epsilon\nzeta');
+  });
+
+  it('treats a press and release on the same cell as a click, not a copy', () => {
+    const model = setup();
+    model.beginSelection(1, 2);
+    expect(model.endSelection()).toBeNull();
+    expect(model.selectionColumns(1)).toBeNull();
+  });
+
+  it('exposes the highlighted columns for each visible row', () => {
+    const model = setup();
+    model.beginSelection(0, 6);
+    model.extendSelection(1, 4);
+    expect(model.selectionColumns(0)).toEqual([6, Infinity]);
+    expect(model.selectionColumns(1)).toEqual([0, 5]);
+    expect(model.selectionColumns(2)).toBeNull();
+  });
+
+  it('keeps the selection on the same text after the viewport scrolls', () => {
+    const model = new FullScreenTranscript();
+    model.update(Array.from({ length: 30 }, (_, i) => ({ role: 'notification' as const, content: `row ${i}` })), 40);
+    model.view(4);
+    model.scroll(-10, 4);
+    const top = plain(model.view(4).lines)[0];
+    model.beginSelection(0, 0);
+    model.extendSelection(0, 5);
+    model.scroll(-2, 4);
+    model.view(4);
+    expect(model.endSelection()).toBe(top.trimEnd());
+  });
+
+  it('slices wide characters by terminal cell', () => {
+    const model = new FullScreenTranscript();
+    model.update([{ role: 'notification', content: '世界 hello' }], 40);
+    model.view(4);
+    model.beginSelection(0, 2);
+    model.extendSelection(0, 3);
+    expect(model.endSelection()).toBe('界');
+  });
+
+  it('clamps drags that leave the transcript body', () => {
+    const model = setup();
+    model.beginSelection(1, 0);
+    model.extendSelection(50, 200);
+    expect(model.endSelection()).toBe('delta epsilon\nzeta eta theta');
+  });
+
+  it('clears the highlight on demand', () => {
+    const model = setup();
+    model.beginSelection(0, 0);
+    model.extendSelection(0, 4);
+    model.endSelection();
+    model.clearSelection();
+    expect(model.selectionColumns(0)).toBeNull();
+  });
+
+  it('reports a details id only for rows of an expandable entry', () => {
+    const model = new FullScreenTranscript();
+    model.update([
+      { role: 'assistant', content: 'Plain answer text', renderMarkdown: false },
+      { role: 'tool_call', tool: 'Running bun test', detailsId: 'live-1', content: 'Ctrl+O expand\nrunning 12 tests' },
+    ], 60);
+    const rows = plain(model.view(10).lines);
+    const hintRow = rows.findIndex(row => row.includes('Ctrl+O expand'));
+    expect(hintRow).toBeGreaterThan(0);
+    expect(model.detailsAt(hintRow)).toBe('live-1');
+    expect(model.detailsAt(rows.findIndex(row => row.includes('running 12 tests')))).toBe('live-1');
+    expect(model.detailsAt(rows.findIndex(row => row.includes('running 12 tests')) + 1)).toBeUndefined();
+    expect(model.detailsAt(rows.findIndex(row => row.includes('Plain answer text')))).toBeUndefined();
+    expect(model.detailsAt(99)).toBeUndefined();
+  });
+});

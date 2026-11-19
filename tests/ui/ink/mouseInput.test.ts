@@ -92,3 +92,20 @@ describe('resolveComposerClickPosition', () => {
     })).toBe(true);
   });
 });
+
+describe('button-drag reporting', () => {
+  it('reports pointer motion with the left button held as a drag', async () => {
+    expect(parseSgrMouseInput('\u001B[<32;12;7M')).toMatchObject({ action: 'drag', button: 'left', column: 12, row: 7 });
+  });
+
+  it('still reports a plain press and release as press and release', () => {
+    expect(parseSgrMouseInput('\u001B[<0;12;7M')?.action).toBe('press');
+    expect(parseSgrMouseInput('\u001B[<0;12;7m')?.action).toBe('release');
+  });
+
+  it('asks the terminal for drag events and turns them off again', async () => {
+    const { ENABLE_SGR_MOUSE_TRACKING, DISABLE_SGR_MOUSE_TRACKING } = await import('../../../src/ui/ink/mouseInput.js');
+    expect(ENABLE_SGR_MOUSE_TRACKING).toContain('\u001B[?1002h');
+    expect(DISABLE_SGR_MOUSE_TRACKING).toContain('\u001B[?1002l');
+  });
+});

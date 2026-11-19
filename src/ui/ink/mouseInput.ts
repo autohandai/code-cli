@@ -5,7 +5,7 @@
  */
 
 export interface SgrMouseInput {
-  action: 'press' | 'release' | 'wheel';
+  action: 'press' | 'drag' | 'release' | 'wheel';
   button: 'left' | 'middle' | 'right' | 'none' | 'wheel-up' | 'wheel-down';
   column: number;
   row: number;
@@ -19,8 +19,9 @@ export interface SgrMouseInput {
 const SGR_MOUSE_PATTERN = /^(?:\u001B)?\[<(\d+);(\d+);(\d+)([Mm])$/;
 const CURSOR_POSITION_REPORT_PATTERN = /^(?:\u001B)?\[(\d+);(\d+)R$/;
 
-export const ENABLE_SGR_MOUSE_TRACKING = '\u001B[?1000h\u001B[?1006h';
-export const DISABLE_SGR_MOUSE_TRACKING = '\u001B[?1006l\u001B[?1000l';
+/** Press, release and held-button motion (1002) so full-screen transcripts can drag-select. */
+export const ENABLE_SGR_MOUSE_TRACKING = '\u001B[?1000h\u001B[?1002h\u001B[?1006h';
+export const DISABLE_SGR_MOUSE_TRACKING = '\u001B[?1006l\u001B[?1002l\u001B[?1000l';
 export const REQUEST_CURSOR_POSITION = '\u001B[6n';
 
 export interface TerminalCellPosition {
@@ -125,12 +126,13 @@ export function parseSgrMouseInput(input: string): SgrMouseInput | null {
 
   const buttonCode = Number(match[1]);
   const isWheel = (buttonCode & 0b100_0000) !== 0;
+  const isMotion = (buttonCode & 0b10_0000) !== 0;
   const button = isWheel
     ? (buttonCode & 0b1) === 0 ? 'wheel-up' : 'wheel-down'
     : (['left', 'middle', 'right', 'none'] as const)[buttonCode & 0b11] ?? 'none';
 
   return {
-    action: isWheel ? 'wheel' : match[4] === 'M' ? 'press' : 'release',
+    action: isWheel ? 'wheel' : match[4] === 'm' ? 'release' : isMotion ? 'drag' : 'press',
     button,
     column: Number(match[2]),
     row: Number(match[3]),

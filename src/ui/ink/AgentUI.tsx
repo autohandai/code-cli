@@ -3,7 +3,8 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { FullScreenFrame } from './FullScreenFrame.js';
+import { FULL_SCREEN_HEADER_ROWS, FullScreenFrame } from './FullScreenFrame.js';
+import { copyToClipboard } from '../clipboard.js';
 import type { FullScreenMessage, FullScreenTranscript } from './fullScreenTranscript.js';
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
 import { Box, Static, Text, useInput, usePaste, useStdout, type Key as InkKey } from 'ink';
@@ -288,7 +289,7 @@ export interface AgentUIProps {
   /** An option key pressed on an empty composer while the survey is showing. */
   onFeedbackSurveyAnswer?: (id: string, key: string) => void;
   onToggleLiveCommandExpanded?: (id?: string) => void;
-  onToggleToolOutputExpanded?: () => void;
+  onToggleToolOutputExpanded?: (id?: string) => void;
   /** Toggle the expanded live team view. */
   onToggleTeamPanel?: () => void;
   onCloseAgentRunsPanel?: () => void;
@@ -869,6 +870,7 @@ export function AgentUI({
   const { stdout } = useStdout();
   const [, redrawFullScreen] = useState(0);
   const fullScreenKeys = useRef(false);
+  const transcriptDragRef = useRef(false);
   const teamViewVisible = state.teamPanelVisible && Boolean(state.teamActivity?.team);
   fullScreenKeys.current = Boolean(fullScreenTranscript) && !state.agentRunsPanelVisible && !teamViewVisible;
   const { colors } = useTheme();
@@ -987,9 +989,6 @@ export function AgentUI({
   isWorkingRef.current = state.isWorking;
   const liveCommandsRef = useRef(state.liveCommands);
   liveCommandsRef.current = state.liveCommands;
-  const hasExpandableToolOutput = state.toolOutputs.some((item) => item.type !== 'batch' && Boolean(item.expandedOutput));
-  const hasExpandableToolOutputRef = useRef(hasExpandableToolOutput);
-  hasExpandableToolOutputRef.current = hasExpandableToolOutput;
   const enableQueueInputRef = useRef(enableQueueInput);
   enableQueueInputRef.current = enableQueueInput;
   const enterWhileWorkingRef = useRef(enterWhileWorking);
@@ -1677,18 +1676,51 @@ export function AgentUI({
   // Stable input handler that reads mutable values from refs.
   // Empty dependency array means useInput never re-registers, eliminating
   // a major source of flicker during rapid keystrokes.
+  /**
+   * Full-screen mouse reporting takes drag selection away from the terminal,
+   * so the transcript selects and copies itself. A click without a drag only
+   * acts on the rows of an entry that has details to show (a running command,
+   * a finished tool result, open details); any other transcript cell is inert.
+   */
+  const handleTranscriptPointer = useCallback((mouse: SgrMouseInput): boolean => {
+    if (!fullScreenTranscript || mouse.button !== 'left' || mouse.action === 'wheel') return false;
+    const viewRow = mouse.row - 1 - FULL_SCREEN_HEADER_ROWS;
+    const column = mouse.column - 1;
+    if (mouse.action === 'press') {
+      if (!fullScreenTranscript.isBodyRow(viewRow)) return false;
+      transcriptDragRef.current = true;
+      fullScreenTranscript.beginSelection(viewRow, column);
+      return true;
+    }
+    if (!transcriptDragRef.current) return false;
+    fullScreenTranscript.extendSelection(viewRow, column);
+    if (mouse.action === 'drag') return true;
+    transcriptDragRef.current = false;
+    const text = fullScreenTranscript.endSelection();
+    if (text) {
+      copyToClipboard(text, { write: data => stdout.write(data) });
+      return true;
+    }
+    const detailsId = fullScreenTranscript.detailsAt(viewRow);
+    if (!detailsId) return true;
+    if (liveCommandsRef.current.some(command => command.id === detailsId)) onToggleLiveCommandExpandedRef.current?.(detailsId);
+    else onToggleToolOutputExpandedRef.current?.(detailsId);
+    return true;
+  }, [fullScreenTranscript, stdout]);
+
   const handleInput = useCallback((char: string, rawKey: InkKey) => {
     // Ink leaves xterm modifyOtherKeys Enter as an unparsed escape fragment.
     const key = /^(?:\x1b)?\[27;5;13~$/.test(char)
       ? { ...rawKey, return: true, ctrl: true, shift: false, meta: false, escape: false }
       : rawKey;
-    if (fullScreenKeys.current && (!key.escape || fullScreenTranscript?.searchQuery != null) && fullScreenTranscript?.handleKey(char, key)) { redrawFullScreen(value => value + 1); return; }
+    const mouseInput = mouseComposerCursor ? parseSgrMouseInput(char) : null;
+    if (!mouseInput) fullScreenTranscript?.clearSelection();
+    if (!mouseInput && fullScreenKeys.current && (!key.escape || fullScreenTranscript?.searchQuery != null) && fullScreenTranscript?.handleKey(char, key)) { redrawFullScreen(value => value + 1); return; }
     syncBufferViewport();
     const keyEvent = toInkKeyEvent(char, key);
     const activeKeybindings = keybindingsRef.current;
 
     if (mouseComposerCursor) {
-      const mouseInput = parseSgrMouseInput(char);
       if (mouseInput) {
         if (mouseInput.action === 'wheel') {
           if (fullScreenTranscript) {
@@ -1702,6 +1734,10 @@ export function AgentUI({
           pendingMouseClickRef.current = null;
           readingHistoryRef.current = true;
           setIsReadingHistory(true);
+          return;
+        }
+        if (handleTranscriptPointer(mouseInput)) {
+          redrawFullScreen(value => value + 1);
           return;
         }
         if (
@@ -1754,21 +1790,9 @@ export function AgentUI({
           return;
         }
 
+        // Clicks outside a measured target stay inert: expanding output from
+        // anywhere made every click in the transcript unusable for selection.
         const clickedCell = resolveComposerClickPosition(pendingClick.input, terminalCursor, layout);
-        // Ink layout measurements can be stale across a scroll-region repaint.
-        // A click that is definitely outside the composer still belongs to the
-        // live command surface, so preserve the mouse affordance for the latest
-        // running subprocess rather than dropping that interaction.
-        if (!clickedCell && liveCommandsRef.current.length > 0) {
-          onToggleLiveCommandExpandedRef.current?.();
-          return;
-        }
-        // Finished output lives in scrollback and cannot be measured, so any
-        // click outside the composer opens the latest result that has more to show.
-        if (!clickedCell && hasExpandableToolOutputRef.current) {
-          onToggleToolOutputExpandedRef.current?.();
-          return;
-        }
         if (!clickedCell) {
           return;
         }
@@ -2621,6 +2645,7 @@ export function AgentUI({
     acceptActiveAutocompleteSuggestion,
     beginGoalEdit,
     dismissAutocompleteState,
+    handleTranscriptPointer,
     insertPastedText,
     inputHistory,
     mouseComposerCursor,
@@ -2773,13 +2798,31 @@ export function AgentUI({
   const effectiveConfiguredLineExtensions = state.configuredLineExtensions;
   const effectiveRuntimeLineExtensions = state.extensionLineExtensions;
 
+  // Chat-log entries carry no id. A result that has details is matched to its tool output
+  // entry so a click can open that one; the decorated message is reused to keep the
+  // transcript's per-message format cache warm.
+  const expandableChatMessages = useRef(new WeakMap<ChatLogMessage, FullScreenMessage>());
   const fullScreenMessages = useMemo(() => {
     if (!fullScreenTranscript) return [];
-    const messages: FullScreenMessage[] = chatHistoryItems.map(item => item.message);
+    const detailsIds = new Map<string, string>();
+    for (const item of toolOutputItems) {
+      if (item.type !== 'batch' && item.expandedOutput) detailsIds.set(`${item.tool}\u0000${item.expandedOutput}`, item.id);
+    }
+    const messages: FullScreenMessage[] = chatHistoryItems.map(({ message }) => {
+      const detailsId = message.role === 'tool' && message.expandedOutput
+        ? detailsIds.get(`${message.tool}\u0000${message.expandedOutput}`)
+        : undefined;
+      if (!detailsId) return message;
+      const known = expandableChatMessages.current.get(message);
+      if (known?.detailsId === detailsId) return known;
+      const expandable = { ...message, detailsId };
+      expandableChatMessages.current.set(message, expandable);
+      return expandable;
+    });
     if (!chatIncludesToolOutput) for (const item of toolOutputItems) {
       messages.push(item.type === 'batch'
         ? { role: 'tool_batch', content: '', groups: item.groups, success: item.allSuccess }
-        : { role: 'tool', tool: item.tool, content: item.output, success: item.success });
+        : { role: 'tool', tool: item.tool, content: item.output, success: item.success, ...(item.expandedOutput ? { detailsId: item.id } : {}) });
     }
     for (const item of liveCommandItems) {
       const { stdoutView, stderrView } = getLiveCommandViews(item);
@@ -2896,7 +2939,6 @@ export function AgentUI({
         isReadingHistory={isReadingHistory || fullScreenTranscript?.searchQuery != null}
         enableMouseTargetControls={mouseComposerCursor && (
           liveCommandItems.length > 0
-          || hasExpandableToolOutput
           || (state.goalPanelVisible && goalItemsRef.current.length > 0)
         )}
         onComposerLayoutChange={handleComposerLayoutChange}

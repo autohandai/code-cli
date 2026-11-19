@@ -30,6 +30,7 @@ vi.mock('ink', async () => {
 import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
+import { DISABLE_SGR_MOUSE_TRACKING, ENABLE_SGR_MOUSE_TRACKING } from '../../../src/ui/ink/mouseInput.js';
 
 afterEach(() => {
   cleanup();
@@ -106,20 +107,20 @@ describe('AgentUI working-turn scrollback stability', () => {
       );
       const instance = render(renderTree('0s'));
       await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(writeTerminal).toHaveBeenCalledWith('\x1b[?1000h\x1b[?1006h');
+      expect(writeTerminal).toHaveBeenCalledWith(ENABLE_SGR_MOUSE_TRACKING);
       writeTerminal.mockClear();
 
       instance.stdin.write(`\x1b[<${button};5;3M`);
       await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(writeTerminal).toHaveBeenCalledWith('\x1b[?1006l\x1b[?1000l');
-      expect(writeTerminal).not.toHaveBeenCalledWith('\x1b[?1000h\x1b[?1006h');
+      expect(writeTerminal).toHaveBeenCalledWith(DISABLE_SGR_MOUSE_TRACKING);
+      expect(writeTerminal).not.toHaveBeenCalledWith(ENABLE_SGR_MOUSE_TRACKING);
       expect(instance.lastFrame()).toContain('keep this draft');
       writeTerminal.mockClear();
       setCursorPosition.mockClear();
 
       instance.rerender(renderTree('1s'));
       await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(writeTerminal).not.toHaveBeenCalledWith('\x1b[?1000h\x1b[?1006h');
+      expect(writeTerminal).not.toHaveBeenCalledWith(ENABLE_SGR_MOUSE_TRACKING);
       expect(setCursorPosition.mock.calls.every(([position]) => position === undefined)).toBe(true);
 
       instance.stdin.write('\x1b[<64;5;3M\x1b[<65;5;3M');
@@ -127,13 +128,13 @@ describe('AgentUI working-turn scrollback stability', () => {
       instance.stdin.write('\x1b[3;8R');
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(writeTerminal).not.toHaveBeenCalledWith('\x1b[6n');
-      expect(writeTerminal).not.toHaveBeenCalledWith('\x1b[?1000h\x1b[?1006h');
+      expect(writeTerminal).not.toHaveBeenCalledWith(ENABLE_SGR_MOUSE_TRACKING);
       expect(instance.lastFrame()).toContain('keep this draft');
 
       instance.stdin.write(editInput);
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(instance.lastFrame()).toContain('keep this draft!');
-      expect(writeTerminal).toHaveBeenCalledWith('\x1b[?1000h\x1b[?1006h');
+      expect(writeTerminal).toHaveBeenCalledWith(ENABLE_SGR_MOUSE_TRACKING);
     },
   );
 

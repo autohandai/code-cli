@@ -237,7 +237,7 @@ interface AgentUIWrapperProps {
   onDismissAnnouncement?: (id: string) => void;
   onFeedbackSurveyAnswer?: (id: string, key: string) => void;
   onToggleLiveCommandExpanded: (id?: string) => void;
-  onToggleToolOutputExpanded: () => void;
+  onToggleToolOutputExpanded: (id?: string) => void;
   onToggleTeamPanel: () => void;
   onAxoCommand: (command: AxoCommand) => void;
   onAxoGone: () => void;
@@ -611,7 +611,7 @@ export class InkRenderer {
             onDismissAnnouncement={this.options.onDismissAnnouncement}
             onFeedbackSurveyAnswer={this.options.onFeedbackSurveyAnswer}
             onToggleLiveCommandExpanded={(id) => this.toggleActiveLiveCommandExpanded(id)}
-            onToggleToolOutputExpanded={() => this.toggleLatestToolOutputExpanded()}
+            onToggleToolOutputExpanded={(id) => this.toggleToolOutputExpanded(id)}
             onToggleTeamPanel={() => this.toggleTeamPanel()}
             onAxoCommand={(command) => this.handleAxoCommand(command)}
             onAxoGone={() => this.sendAxoHome()}
@@ -1320,17 +1320,23 @@ export class InkRenderer {
   }
 
   toggleLatestToolOutputExpanded(): void {
-    const expandable = [...this.state.toolOutputs]
-      .reverse()
-      .find((entry): entry is ToolOutputEntry => (
-        entry.type !== 'batch' && Boolean(entry.expandedOutput)
-      ));
-    if (!expandable) return;
+    this.toggleToolOutputExpanded();
+  }
+
+  /** Toggle the details of one finished tool result; without an id, the latest that has any. */
+  toggleToolOutputExpanded(id?: string): void {
+    const expandable = this.state.toolOutputs.filter((entry): entry is ToolOutputEntry => (
+      entry.type !== 'batch' && Boolean(entry.expandedOutput)
+    ));
+    const target = id === undefined
+      ? expandable.at(-1)
+      : expandable.find((entry) => entry.id === id);
+    if (!target) return;
 
     this.updateState({
-      expandedToolOutputId: this.state.expandedToolOutputId === expandable.id
+      expandedToolOutputId: this.state.expandedToolOutputId === target.id
         ? undefined
-        : expandable.id,
+        : target.id,
     });
   }
 

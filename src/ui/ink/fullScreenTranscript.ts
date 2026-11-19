@@ -2,6 +2,7 @@
 import type { Key } from 'ink';
 import { isComputerUseStep } from '../../computer/computerUseOutput.js';
 import stripAnsi from 'strip-ansi';
+import stringWidth from 'string-width';
 import wrapAnsi from 'wrap-ansi';
 import type { ChatLogMessage } from '../../session/chatLog.js';
 import { formatAssistantMarkdown } from '../terminalMarkdown.js';
@@ -29,6 +30,24 @@ interface Entry extends FormattedMessage {
 interface SearchMatch {
   index: number;
   row: number;
+}
+
+/** A transcript cell: absolute wrapped-line index and terminal column. */
+interface SelectionPoint {
+  line: number;
+  column: number;
+}
+
+/** Characters whose first terminal cell falls in [from, to). */
+function sliceCells(text: string, from: number, to: number): string {
+  let column = 0;
+  let result = '';
+  for (const character of text) {
+    if (column >= to) break;
+    if (column >= from) result += character;
+    column += stringWidth(character);
+  }
+  return result;
 }
 
 export interface TranscriptView {
@@ -71,6 +90,10 @@ export class FullScreenTranscript {
   private lastMatch = -1;
   private height = 1;
   private detailsId: string | undefined;
+  private viewStart = 0;
+  private selection: { anchor: SelectionPoint; focus: SelectionPoint } | null = null;
+  /** Set after a drag copied text; the frame shows it until the next selection. */
+  copiedSelection = false;
 
   focusDetails(id: string | undefined): void {
     if (id === this.detailsId) return;
@@ -80,7 +103,9 @@ export class FullScreenTranscript {
       return;
     }
     this.following = false;
-    const index = this.entries.findIndex(entry => entry.message.detailsId === id);
+    // A finished result and its open details share an id; the details are the later entry.
+    let index = this.entries.length - 1;
+    while (index >= 0 && this.entries[index].message.detailsId !== id) index--;
     this.offset = index >= 0
       ? (this.entries[index - 1]?.end ?? 0)
       : (this.entries.at(-2)?.end ?? 0);
@@ -178,21 +203,108 @@ export class FullScreenTranscript {
     const total = this.entries.at(-1)?.end ?? 0;
     const start = this.following ? Math.max(0, total - this.height) : Math.min(this.offset, Math.max(0, total - this.height));
     this.offset = start;
+    this.viewStart = start;
     const rows: TranscriptRow[] = [];
-    let low = 0;
-    let high = this.entries.length;
-    while (low < high) {
-      const mid = (low + high) >>> 1;
-      if (this.entries[mid].end <= start) low = mid + 1;
-      else high = mid;
-    }
-    for (let index = low; index < this.entries.length && rows.length < this.height; index++) {
+    for (let index = this.entryIndexAt(start); index < this.entries.length && rows.length < this.height; index++) {
       const entry = this.entries[index];
       const before = index > 0 ? this.entries[index - 1].end : 0;
       const from = Math.max(0, start - before);
       rows.push(...entry.lines.slice(from, from + this.height - rows.length).map(text => ({ text, role: entry.message.role })));
     }
     return { lines: rows.map(row => row.text), rows, following: this.following, newActivity: this.newActivity, start, total };
+  }
+
+  isBodyRow(viewRow: number): boolean {
+    return viewRow >= 0 && viewRow < this.height;
+  }
+
+  /** Start a drag at a body-relative row and column of the last rendered view. */
+  beginSelection(viewRow: number, column: number): void {
+    const point = this.pointAt(viewRow, column);
+    this.selection = { anchor: point, focus: point };
+    this.copiedSelection = false;
+  }
+
+  extendSelection(viewRow: number, column: number): void {
+    if (this.selection) this.selection.focus = this.pointAt(viewRow, column);
+  }
+
+  /** Finish the drag. Returns the selected plain text, or null when the pointer never moved (a click). */
+  endSelection(): string | null {
+    const range = this.selectionRange();
+    if (!range) {
+      this.selection = null;
+      return null;
+    }
+    const [start, end] = range;
+    const lines: string[] = [];
+    for (let line = start.line; line <= end.line; line++) {
+      const from = line === start.line ? start.column : 0;
+      const to = line === end.line ? end.column + 1 : Infinity;
+      lines.push(sliceCells(this.plainLine(line), from, to).trimEnd());
+    }
+    const text = lines.join('\n').replace(/\n+$/u, '');
+    this.copiedSelection = text.length > 0;
+    return text || null;
+  }
+
+  clearSelection(): void {
+    this.selection = null;
+    this.copiedSelection = false;
+  }
+
+  /** Highlighted [from, to) columns for a body row of the last rendered view. */
+  selectionColumns(viewRow: number): [number, number] | null {
+    const range = this.selectionRange();
+    const line = this.viewStart + viewRow;
+    if (!range || line < range[0].line || line > range[1].line) return null;
+    return [line === range[0].line ? range[0].column : 0, line === range[1].line ? range[1].column + 1 : Infinity];
+  }
+
+  /** The details id when a body row belongs to an expandable entry (a command block or open details). */
+  detailsAt(viewRow: number): string | undefined {
+    if (viewRow < 0 || viewRow >= this.height) return undefined;
+    const located = this.locate(this.viewStart + viewRow);
+    return located?.text ? located.entry.message.detailsId : undefined;
+  }
+
+  private pointAt(viewRow: number, column: number): SelectionPoint {
+    const total = this.entries.at(-1)?.end ?? 0;
+    const row = Math.max(0, Math.min(this.height - 1, viewRow));
+    return { line: Math.max(0, Math.min(total - 1, this.viewStart + row)), column: Math.max(0, column) };
+  }
+
+  private selectionRange(): [SelectionPoint, SelectionPoint] | null {
+    if (!this.selection) return null;
+    const { anchor, focus } = this.selection;
+    if (anchor.line === focus.line && anchor.column === focus.column) return null;
+    return anchor.line < focus.line || (anchor.line === focus.line && anchor.column < focus.column)
+      ? [anchor, focus]
+      : [focus, anchor];
+  }
+
+  /** Index of the entry containing an absolute wrapped line (entries.length when past the end). */
+  private entryIndexAt(line: number): number {
+    let low = 0;
+    let high = this.entries.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (this.entries[mid].end <= line) low = mid + 1;
+      else high = mid;
+    }
+    return low;
+  }
+
+  private locate(line: number): { entry: Entry; text: string } | undefined {
+    const index = this.entryIndexAt(line);
+    const entry = this.entries[index];
+    if (!entry || line < 0) return undefined;
+    const before = index > 0 ? this.entries[index - 1].end : 0;
+    return { entry, text: entry.lines[line - before] ?? '' };
+  }
+
+  private plainLine(line: number): string {
+    return stripAnsi(this.locate(line)?.text ?? '');
   }
 
   scroll(delta: number, height = this.height): void {
