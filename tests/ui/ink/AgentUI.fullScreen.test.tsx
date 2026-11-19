@@ -299,6 +299,36 @@ describe('full-screen transcript mouse selection', () => {
     expect(onToggleToolOutputExpanded).not.toHaveBeenCalled();
   });
 
+  it.each([['a typed character', 'x'], ['a key that changes nothing', '\x1b[C']])('inverts the dragged cells while dragging and after release, until %s', async (_label, keyPress) => {
+    const { view, locate } = setup();
+    await flush();
+    const { row, column } = locate('this sentence');
+    const transcriptRow = () => (view.lastFrame() ?? '').split('\n')[row - 1];
+    view.stdin.write(`\x1b[<0;${column};${row}M`); await flush();
+    expect(transcriptRow()).toBe(`${gutter}Copy this sentence please`);
+    view.stdin.write(`\x1b[<32;${column + 6};${row}M`); await flush();
+    expect(transcriptRow()).toBe(`${gutter}Copy \x1b[7mthis se\x1b[27mntence please`);
+    view.stdin.write(`\x1b[<32;${column + 12};${row}M`); await flush();
+    expect(transcriptRow()).toBe(`${gutter}Copy \x1b[7mthis sentence\x1b[27m please`);
+    view.stdin.write(`\x1b[<0;${column + 12};${row}m`); await flush();
+    expect(transcriptRow()).toBe(`${gutter}Copy \x1b[7mthis sentence\x1b[27m please`);
+    view.stdin.write(keyPress); await flush();
+    expect(view.lastFrame()).not.toContain('\x1b[7m');
+    expect(stripAnsi(view.lastFrame() ?? '')).not.toContain('Copied selection');
+  });
+
+  it.each(Array.from({ length: FULL_SCREEN_GUTTER }, (_, index) => index + 1))('treats a press on gutter column %i as the first cell of that row', async gutterColumn => {
+    const { view, locate } = setup();
+    await flush();
+    const { row, column } = locate('Copy this');
+    expect(column).toBe(FULL_SCREEN_GUTTER + 1);
+    view.stdin.write(`\x1b[<0;${gutterColumn};${row}M`); await flush();
+    view.stdin.write(`\x1b[<32;${column + 3};${row}M`); await flush();
+    expect((view.lastFrame() ?? '').split('\n')[row - 1]).toBe(`${gutter}\x1b[7mCopy\x1b[27m this sentence please`);
+    view.stdin.write(`\x1b[<0;${column + 3};${row}m`); await flush();
+    expect(vi.mocked(copyToClipboard).mock.calls.at(-1)?.[0]).toBe('Copy');
+  });
+
   it('does not expand anything for a plain click on transcript text', async () => {
     const { view, locate, onToggleToolOutputExpanded, onToggleLiveCommandExpanded } = setup();
     await flush();

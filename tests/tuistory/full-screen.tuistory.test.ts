@@ -349,6 +349,8 @@ describe('full-screen terminal', () => {
     await dragFullScreenTranscript(session, { column, row }, { column: column + 14, row });
     await session.waitForText('Copied selection');
     expect(lastClipboardWrite(session)).toBe('History item 78');
+    // The launcher disables colour (NO_COLOR, FORCE_COLOR=0); the selection must still be visible.
+    expect(session.getRawOutput()).toContain('\x1b[7mHistory item 78\x1b[27m');
 
     const before = outputViewport(session);
     await clickFullScreenComposer(session, column + 1, row);

@@ -14,8 +14,48 @@ export const ComposerOriginContext = createContext({ left: 0, top: 0 });
 /** Rows above the transcript body: title, workspace and a spacer. Mouse rows are mapped against it. */
 export const FULL_SCREEN_HEADER_ROWS = 3;
 
-function SelectableRow({ text, selected }: { text: string; selected: [number, number] | null }) {
-  if (!selected) return <Text wrap="truncate">{text || ' '}</Text>;
+/**
+ * Blank columns between the window edge and everything the frame draws. Transcript columns start
+ * after it: wrap widths and mouse columns are mapped against it.
+ */
+export const FULL_SCREEN_GUTTER = 2;
+
+/** Columns the frame can draw in: the terminal less the gutter and the last column, which stays free. */
+export function fullScreenContentWidth(columns: number): number {
+  return Math.max(1, columns - FULL_SCREEN_GUTTER - 1);
+}
+
+/** The frame's content width for whatever it renders in its footer; null outside the frame. */
+const FullScreenContentWidthContext = createContext<number | null>(null);
+
+/**
+ * Columns one footer row may fill: the frame's content width inside the full-screen frame, the
+ * classic prompt block otherwise. Both follow a resize, the frame through its `columns` prop.
+ */
+export function useFooterRowWidth(): number {
+  const frameWidth = useContext(FullScreenContentWidthContext);
+  const promptWidth = getPromptBlockWidth(useTerminalWindowSize().columns);
+  return frameWidth ?? promptWidth;
+}
+
+const INSET_ORIGIN = { left: FULL_SCREEN_GUTTER, top: 0 };
+
+/** A view that takes the frame's place on the alternate screen, on the frame's left edge. */
+export function FullScreenInset({ rows, children }: { rows: number; children: React.ReactNode }) {
+  return <Box height={Math.max(1, rows - 1)} paddingLeft={FULL_SCREEN_GUTTER} overflow="hidden">
+    <ComposerOriginContext.Provider value={INSET_ORIGIN}>{children}</ComposerOriginContext.Provider>
+  </Box>;
+}
+
+/**
+ * Reverse video written as its own SGR pair. Ink's `inverse` goes through chalk, which emits
+ * nothing when it detects no colour support (no TERM, as `bun run dev` starts under `env -i`),
+ * while the theme detects colour on its own and still paints: text was copied but never shown selected.
+ */
+const INVERSE_ON = '\x1b[7m';
+const INVERSE_OFF = '\x1b[27m';
+
+function SelectableRow({ text, selected }: { text: string; selected: [number, number] }) {
   let column = 0;
   let before = '';
   let inside = '';
@@ -26,7 +66,7 @@ function SelectableRow({ text, selected }: { text: string; selected: [number, nu
     else after += character;
     column += stringWidth(character);
   }
-  return <Text wrap="truncate">{before}<Text inverse>{inside || ' '}</Text>{after}</Text>;
+  return <Text wrap="truncate">{`${before}${INVERSE_ON}${inside || ' '}${INVERSE_OFF}${after}`}</Text>;
 }
 
 interface FullScreenFrameProps {

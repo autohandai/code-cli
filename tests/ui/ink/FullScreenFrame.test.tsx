@@ -46,6 +46,23 @@ describe('full-screen frame', () => {
     expect(rows.find(row => row.includes('You are welcome.'))).not.toContain('\x1b[48;2;101;67;33m');
   });
 
+  it('inverts every selected cell of a multi-row selection without relying on detected colour support', async () => {
+    const model = new FullScreenTranscript();
+    const frame = () => <ThemeProvider><FullScreenFrame model={model} messages={[
+      { role: 'assistant', content: 'first 界 row\n\nthird row', renderMarkdown: false },
+    ]} rows={24} columns={60} footer={<Text>❯ draft</Text>} /></ThemeProvider>;
+    const view = render(frame());
+    await flush();
+    model.beginSelection(0, 6);
+    model.extendSelection(2, 4);
+    view.rerender(frame());
+    await flush();
+    const rows = (view.lastFrame() ?? '').split('\n').slice(3, 6);
+    const gutter = ' '.repeat(FULL_SCREEN_GUTTER);
+    expect(rows).toEqual([`${gutter}first \x1b[7m界 row\x1b[27m`, `${gutter}\x1b[7m \x1b[27m`, `${gutter}\x1b[7mthird\x1b[27m row`]);
+    expect(rows.map(row => stringWidth(stripAnsi(row)) - FULL_SCREEN_GUTTER)).toEqual([12, 1, 9]);
+  });
+
   it('keeps the configured status at the bottom and Find above the anchored composer', async () => {
     const model = new FullScreenTranscript();
     const directory = path.join(os.homedir(), 'Documents', 'autohand', 'cli-3');
