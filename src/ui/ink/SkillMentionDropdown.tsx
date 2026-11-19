@@ -10,8 +10,7 @@
 import React, { memo, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
-import { getPromptBlockWidth } from '../inputPrompt.js';
-import { useTerminalWindowSize } from './useTerminalWindowSize.js';
+import { useFooterRowWidth } from './FullScreenFrame.js';
 import { buildSkillMentionSuggestions, type SkillMentionInfo } from '../mentionFilter.js';
 import { truncateVisible } from './dropdownText.js';
 
@@ -32,7 +31,7 @@ const MAX_SUGGESTIONS = 5;
 
 function SkillMentionDropdownComponent({ suggestions, activeIndex, visible }: SkillMentionDropdownProps) {
   const { theme } = useTheme();
-  const width = getPromptBlockWidth(useTerminalWindowSize().columns);
+  const width = useFooterRowWidth();
 
   const displaySuggestions = useMemo(
     () => suggestions.slice(0, MAX_SUGGESTIONS),

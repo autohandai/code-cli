@@ -309,18 +309,20 @@ export async function waitForComposer(session: Session): Promise<void> {
 }
 
 /** The nearest line above the composer prompt that is more than its border. */
-export function rowAboveComposer(screen: string): string {
+/** `inset` is the left gutter the full-screen frame draws before every row; it is removed, nothing else is. */
+export function rowAboveComposer(screen: string, inset = ''): string {
   const lines = stripAnsi(screen).split('\n');
   const composerIndex = lines.findLastIndex((line) => line.includes('❯'));
   if (composerIndex <= 0) return '';
-  return lines
+  const row = lines
     .slice(0, composerIndex)
     .reverse()
     .find((line) => line.replace(/[▔▁─\s]/gu, '').length > 0) ?? '';
+  return row.startsWith(inset) ? row.slice(inset.length) : row;
 }
 
-export function idleTipOf(screen: string): string | undefined {
-  return rowAboveComposer(screen).match(/^Tip: (.+?)\s*$/u)?.[1];
+export function idleTipOf(screen: string, inset = ''): string | undefined {
+  return rowAboveComposer(screen, inset).match(/^Tip: (.+?)\s*$/u)?.[1];
 }
 
 export const cachedAnnouncements = [

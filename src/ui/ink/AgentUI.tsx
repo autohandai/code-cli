@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { FULL_SCREEN_HEADER_ROWS, FullScreenFrame } from './FullScreenFrame.js';
+import { FULL_SCREEN_GUTTER, FULL_SCREEN_HEADER_ROWS, FullScreenFrame, FullScreenInset, fullScreenContentWidth } from './FullScreenFrame.js';
 import { copyToClipboard } from '../clipboard.js';
 import type { FullScreenMessage, FullScreenTranscript } from './fullScreenTranscript.js';
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
@@ -1690,7 +1690,7 @@ export function AgentUI({
   const handleTranscriptPointer = useCallback((mouse: SgrMouseInput): boolean => {
     if (!fullScreenTranscript || mouse.button !== 'left' || mouse.action === 'wheel') return false;
     const viewRow = mouse.row - 1 - FULL_SCREEN_HEADER_ROWS;
-    const column = mouse.column - 1;
+    const column = Math.max(0, mouse.column - 1 - FULL_SCREEN_GUTTER);
     if (mouse.action === 'press') {
       if (!fullScreenTranscript.isBodyRow(viewRow)) return false;
       transcriptDragRef.current = true;
@@ -2703,7 +2703,7 @@ export function AgentUI({
   // are batched atomically, so the old 100ms debounce is no longer needed
   // and was actually causing a layout lag during drag-resize.
   const windowSize = useTerminalWindowSize();
-  const inputWidth = fullScreenTranscript ? Math.max(1, (windowSize.columns ?? 80) - 1) : getPromptBlockWidth(windowSize.columns);
+  const inputWidth = fullScreenTranscript ? fullScreenContentWidth(windowSize.columns ?? 80) : getPromptBlockWidth(windowSize.columns);
   const composerNextPromptSuggestion = useMemo(() => {
     if (
       state.isWorking ||
@@ -2845,12 +2845,14 @@ export function AgentUI({
     return messages;
   }, [fullScreenTranscript, chatHistoryItems, chatIncludesToolOutput, toolOutputItems, liveCommandItems, state.thinking, state.isWorking, state.streamingResponse, chatIncludesFinalResponse, state.finalResponse, state.computerUseSteps, state.notifications, expandedToolOutput]);
 
+  // In full-screen mode these views sit behind the frame's left gutter and get that much less room.
+  const panelColumns = fullScreenTranscript && windowSize.columns !== undefined ? windowSize.columns - FULL_SCREEN_GUTTER : windowSize.columns;
   const bottom = state.agentRunsPanelVisible ? (
         <AgentRunsPanel
           snapshot={state.agentRuns ?? { runs: [], updatedAt: 0 }}
           source={state.agentRunsSource}
           terminalRows={windowSize.rows}
-          terminalColumns={windowSize.columns}
+          terminalColumns={panelColumns}
           onClose={() => onCloseAgentRunsPanel?.()}
           onCancel={onCancelAgentRun}
           onMessage={onMessageAgentRun}
@@ -2859,7 +2861,7 @@ export function AgentUI({
       ) : teamViewVisible && state.teamActivity?.team ? (
         <TeamPanel key={`${state.teamActivity.team.name}:${state.teamActivity.team.createdAt}`}
           team={state.teamActivity.team} tasks={state.teamActivity.tasks}
-          keybindings={keybindings} terminalRows={windowSize.rows} terminalColumns={windowSize.columns}
+          keybindings={keybindings} terminalRows={windowSize.rows} terminalColumns={panelColumns}
           onHide={() => onToggleTeamPanelRef.current?.()}
           onCommand={command => onInstructionRef.current(command)} onCtrlC={onCtrlC} />
       ) : <FixedBottom
@@ -2872,7 +2874,7 @@ export function AgentUI({
         announcement={state.announcement}
         feedbackSurvey={state.feedbackSurvey}
         tip={state.tip}
-        terminalColumns={windowSize.columns ?? process.stdout.columns ?? 80}
+        terminalColumns={(windowSize.columns ?? process.stdout.columns ?? 80) - (fullScreenTranscript ? FULL_SCREEN_GUTTER : 0)}
         terminalRows={windowSize.rows}
         isWorking={state.isWorking}
         status={state.status}
@@ -2954,7 +2956,7 @@ export function AgentUI({
         taskListPosition={taskListPosition}
       />;
 
-  if (fullScreenTranscript) return state.agentRunsPanelVisible || teamViewVisible ? <Box height={Math.max(1, (windowSize.rows ?? 24) - 1)} overflow="hidden">{bottom}</Box> : <FullScreenFrame
+  if (fullScreenTranscript) return state.agentRunsPanelVisible || teamViewVisible ? <FullScreenInset rows={windowSize.rows ?? 24}>{bottom}</FullScreenInset> : <FullScreenFrame
     model={fullScreenTranscript} messages={fullScreenMessages} detailsId={liveCommandItems.slice().reverse().find(entry => entry.isExpanded)?.id ?? expandedToolOutput?.id}
     rows={windowSize.rows ?? 24} columns={windowSize.columns ?? 80}
     footer={bottom}

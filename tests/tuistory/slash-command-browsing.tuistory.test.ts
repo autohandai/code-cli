@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
 import { waitForTerminalScreen } from '../../src/testing/drivers/tuistory-driver.js';
+import { FULL_SCREEN_GUTTER } from '../../src/ui/ink/FullScreenFrame.js';
 import { createTempAutohandHome, exitInteractive, launchBuiltAutohand, type TuistoryTempState } from './helpers/autohandTuistory.js';
 
 let session: Session | undefined;
@@ -9,7 +10,9 @@ let state: TuistoryTempState | undefined;
 afterEach(async () => { session?.close(); await state?.cleanup(); session = undefined; state = undefined; });
 
 const selected = (screen: string): string | undefined => /▸ (.+?)(?: {2,}|$)/mu.exec(screen)?.[1];
-const draftRow = (screen: string): string | undefined => screen.split('\n').find(line => line.startsWith('❯ '));
+/** Blank columns the full-screen frame keeps between the window edge and every row it draws. */
+const gutter = ' '.repeat(FULL_SCREEN_GUTTER);
+const draftRow = (screen: string): string | undefined => screen.split('\n').find(line => line.startsWith(`${gutter}❯ `));
 
 describe('slash command browsing', () => {
   it.each(['/', '/skills '])('browses every option for %j and wraps without changing the typed filter', async query => {
@@ -32,7 +35,7 @@ describe('slash command browsing', () => {
     await session.press('up');
     const chosen = selected(last);
     await session.press('tab');
-    await waitForTerminalScreen(session, { timeout: 5000, waitFor: screen => draftRow(screen)?.startsWith(`❯ ${chosen}`) === true });
+    await waitForTerminalScreen(session, { timeout: 5000, waitFor: screen => draftRow(screen)?.startsWith(`${gutter}❯ ${chosen}`) === true });
     await session.press('escape');
     await exitInteractive(session);
   });

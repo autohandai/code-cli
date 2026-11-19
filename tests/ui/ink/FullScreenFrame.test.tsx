@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import stripAnsi from 'strip-ansi';
 import stringWidth from 'string-width';
-import { FullScreenFrame } from '../../../src/ui/ink/FullScreenFrame.js';
+import { FULL_SCREEN_GUTTER, FullScreenFrame } from '../../../src/ui/ink/FullScreenFrame.js';
 import { FullScreenTranscript } from '../../../src/ui/ink/fullScreenTranscript.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { Theme } from '../../../src/ui/theme/Theme.js';
@@ -15,6 +15,49 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 30));
 afterEach(cleanup);
 
 describe('full-screen frame', () => {
+  it.each([100, 40])('insets the header, transcript, hint and footer by the left gutter and stays inside %i columns', async columns => {
+    const theme = new Theme('user-background-test', { ...loadTheme('dark').colors, userMessageBg: '#654321' }, 'truecolor');
+    const model = new FullScreenTranscript();
+    const gutter = ' '.repeat(FULL_SCREEN_GUTTER);
+    expect(FULL_SCREEN_GUTTER).toBe(2);
+    const messages = [
+      ...Array.from({ length: 30 }, (_, i) => ({ role: 'notification' as const, content: `Message ${i}` })),
+      { role: 'user' as const, content: 'please review the layout of this frame so that nothing touches the window edge 界🙂' },
+      { role: 'assistant' as const, content: '# Heading\n\nA paragraph that is long enough to wrap at every width this test renders, including the narrow one.\n\n1. First item\n2. Second item\n\n---\n\nRecap: done.' },
+    ];
+    // The test terminal is always 100 columns wide; the outer box stands in for a terminal of the width under test.
+    const frame = () => <ThemeProvider theme={theme}><Box width={columns}><FullScreenFrame model={model} messages={messages} rows={30} columns={columns} workspaceRoot={os.homedir()}
+      footer={<Box flexDirection="column"><Text>❯ draft</Text><Text>STATUS_ROW</Text></Box>} /></Box></ThemeProvider>;
+    const view = render(frame()); await flush();
+    view.rerender(frame()); await flush();
+    const check = (expectedHint: RegExp) => {
+      const raw = (view.lastFrame() ?? '').split('\n');
+      const rows = raw.map(row => stripAnsi(row));
+      expect(rows.filter(row => row.trim()).every(row => row.startsWith(gutter))).toBe(true);
+      expect(Math.max(...rows.map(row => stringWidth(row)))).toBeLessThanOrEqual(columns - 1);
+      expect(rows[0]).toMatch(new RegExp(`^${gutter}>_ Autohand Code`));
+      expect(rows.at(-2)).toBe(`${gutter}❯ draft`);
+      expect(rows.at(-1)).toBe(`${gutter}STATUS_ROW`);
+      expect(rows.at(-3)).toMatch(expectedHint);
+      return { raw, rows };
+    };
+    const tail = check(/^\s*$/);
+    expect(tail.rows.find(row => row.includes('Heading'))).toBe(`${gutter}Heading`);
+    expect(tail.rows.find(row => row.includes('First item'))).toMatch(new RegExp(`^${gutter}\\S`));
+    expect(tail.rows.find(row => row.includes('Recap'))).toBe(`${gutter}Recap: done.`);
+    model.scroll(-12);
+    view.rerender(frame()); await flush();
+    const history = check(new RegExp(`^${gutter}↓ Back to bottom · Ctrl\\+End`));
+    const highlighted = history.raw.filter(row => row.includes('\x1b[48;2;101;67;33m'));
+    expect(highlighted.length).toBeGreaterThan(0);
+    // The gutter is window margin: the user-message background starts after it and still reaches the right edge.
+    expect(highlighted.every(row => row.startsWith(`${gutter}\x1b[`) && stringWidth(stripAnsi(row)) === columns - 1)).toBe(true);
+    expect(history.rows.join('\n').replace(/\s+/gu, ' ')).toContain('nothing touches the window edge 界🙂');
+    model.searchQuery = 'needle';
+    view.rerender(frame()); await flush();
+    check(new RegExp(`^${gutter}Find: needle`));
+  });
+
   it('preserves the themed user-message background across the transcript row', async () => {
     const theme = new Theme('user-background-test', { ...loadTheme('dark').colors, userMessageBg: '#654321' }, 'truecolor');
     const model = new FullScreenTranscript();
@@ -72,22 +115,20 @@ describe('full-screen frame', () => {
     const lines = () => stripAnsi(view.lastFrame() ?? '').split('\n');
     expect(lines()[0]).toMatch(/Autohand Code \(v\d+\.\d+\.\d+/);
     expect(lines()[1]).toContain('~/Documents/autohand/cli-3');
-    expect([...lines().slice(0, 2), ...lines().slice(-2)].map(line => line.replace(/\(v[^)]+\)/u, '(vVERSION)'))).toMatchInlineSnapshot(`
-      [
-        ">_ Autohand Code (vVERSION)",
-        "   ~/Documents/autohand/cli-3",
-        "❯ draft",
-        "STATUS_ROW",
-      ]
-    `);
-    expect(lines().at(-1)).toBe('STATUS_ROW');
+    expect([...lines().slice(0, 2), ...lines().slice(-2)].map(line => line.replace(/\(v[^)]+\)/u, '(vVERSION)'))).toEqual([
+      '>_ Autohand Code (vVERSION)',
+      '   ~/Documents/autohand/cli-3',
+      '❯ draft',
+      'STATUS_ROW',
+    ].map(line => `${' '.repeat(FULL_SCREEN_GUTTER)}${line}`));
+    expect(lines().at(-1)?.trimStart()).toBe('STATUS_ROW');
     expect(lines().join('\n')).not.toContain('Full screen');
     const composerRow = lines().findIndex(line => line.includes('❯ draft'));
     model.searchQuery = 'needle';
     view.rerender(frame()); await flush();
     expect(lines().join('\n')).toContain('Find: needle');
     expect(lines().findIndex(line => line.includes('Find: needle'))).toBeLessThan(composerRow);
-    expect(lines().at(-1)).toBe('STATUS_ROW');
+    expect(lines().at(-1)?.trimStart()).toBe('STATUS_ROW');
     expect(lines().findIndex(line => line.includes('❯ draft'))).toBe(composerRow);
   });
   it('shows unread activity above an anchored composer', async () => {

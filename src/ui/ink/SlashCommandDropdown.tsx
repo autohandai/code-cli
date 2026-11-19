@@ -6,8 +6,8 @@
 import React, { memo, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
-import { getPromptBlockWidth, getRankedSlashCommandMatches } from '../inputPrompt.js';
-import { useTerminalWindowSize } from './useTerminalWindowSize.js';
+import { getRankedSlashCommandMatches } from '../inputPrompt.js';
+import { useFooterRowWidth } from './FullScreenFrame.js';
 import type { SlashCommand } from '../../core/slashCommandTypes.js';
 import { truncateVisible } from './dropdownText.js';
 
@@ -26,7 +26,7 @@ const MAX_SUGGESTIONS = 5;
 
 function SlashCommandDropdownComponent({ suggestions, activeIndex, visible }: SlashCommandDropdownProps) {
   const { theme } = useTheme();
-  const width = getPromptBlockWidth(useTerminalWindowSize().columns);
+  const width = useFooterRowWidth();
 
   const startIndex = Math.max(0, Math.min(activeIndex - Math.floor(MAX_SUGGESTIONS / 2), suggestions.length - MAX_SUGGESTIONS));
   const displaySuggestions = useMemo(() =>

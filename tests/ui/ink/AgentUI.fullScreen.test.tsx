@@ -4,12 +4,15 @@ import { render, cleanup } from 'ink-testing-library';
 import stripAnsi from 'strip-ansi';
 import { AgentUI, createInitialUIState } from '../../../src/ui/ink/AgentUI.js';
 import { FullScreenTranscript } from '../../../src/ui/ink/fullScreenTranscript.js';
+import { FULL_SCREEN_GUTTER } from '../../../src/ui/ink/FullScreenFrame.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
 import { I18nProvider } from '../../../src/ui/i18n/index.js';
 import { copyToClipboard } from '../../../src/ui/clipboard.js';
 vi.mock('../../../src/ui/clipboard.js', () => ({ copyToClipboard: vi.fn() }));
 const flush = () => new Promise(resolve => setTimeout(resolve, 40));
 afterEach(cleanup);
+/** Blank columns the full-screen frame keeps between the window edge and every row it draws. */
+const gutter = ' '.repeat(FULL_SCREEN_GUTTER);
 
 describe('full-screen composer integration', () => {
   it.each([false, true])('ends with the selected status items and honors shortcuts enabled=%s', async hintsEnabled => {
@@ -53,11 +56,11 @@ describe('full-screen composer integration', () => {
     view.stdin.write('/'); await flush(); await flush();
     const rows = stripAnsi(view.lastFrame() ?? '').split('\n');
     expect(rows.length).toBeLessThanOrEqual(24);
-    expect(rows.find(row => row.includes('Tab to accept'))?.trimEnd()).toBe('  Tab to accept · ↑↓ to navigate');
+    expect(rows.find(row => row.includes('Tab to accept'))?.trimEnd()).toBe(`${gutter}  Tab to accept · ↑↓ to navigate`);
     for (const [command, description] of [['/help', 'Show available commands'], ['/sessions', 'List saved sessions'], ['/quit', 'Exit Autohand']]) {
       expect(rows.find(row => row.includes(command))?.trimEnd()).toMatch(new RegExp(`${command} {2}${description}$`));
     }
-    const composerRow = rows.findIndex(row => row.startsWith('❯'));
+    const composerRow = rows.findIndex(row => row.startsWith(`${gutter}❯`));
     expect(rows.findIndex(row => row.includes('Tab to accept'))).toBeLessThan(composerRow);
     expect(rows.slice(-2).join(' ')).toContain('context left');
   });
@@ -131,7 +134,7 @@ describe('full-screen composer integration', () => {
     const collapsed = stripAnsi(view.lastFrame() ?? '');
     expect(collapsed).toContain('Ctrl+O expand');
     expect(collapsed).toContain('live-row-61');
-    expect(collapsed.match(/^live-row-\d+$/gmu)).toHaveLength(5);
+    expect(collapsed.match(new RegExp(`^${gutter}live-row-\\d+$`, 'gmu'))).toHaveLength(5);
     expect(collapsed).not.toContain('live-row-1\n');
     expect(model.view(8).following).toBe(true);
   });
@@ -147,7 +150,7 @@ describe('full-screen composer integration', () => {
     expect(rows()[1]).toContain('/work/project');
     expect(rows()[2]).not.toContain('READING_SOURCES');
     expect(screen().split('READING_SOURCES')).toHaveLength(2);
-    const tipRow = rows().findIndex(line => line.startsWith('Tip:'));
+    const tipRow = rows().findIndex(line => line.startsWith(`${gutter}Tip:`));
     expect(tipRow).toBeGreaterThan(2);
     expect(rows()[tipRow - 1]).toContain('READING_SOURCES');
     expect(rows()[tipRow - 1]).toContain('0m 11s · ↑0 ↓0');
@@ -158,7 +161,7 @@ describe('full-screen composer integration', () => {
     state = { ...state, isWorking: false, status: '' };
     view.rerender(frame()); await flush();
     expect(screen()).not.toContain('READING_SOURCES');
-    expect(rows().findIndex(line => line.startsWith('Tip:'))).toBe(tipRow);
+    expect(rows().findIndex(line => line.startsWith(`${gutter}Tip:`))).toBe(tipRow);
     expect(rows().findIndex(line => line.includes('❯ preserved draft'))).toBe(composerRow);
   });
   it.each([false, true])('renders a transcript reminder once in chronological order with fullScreen=%s', async fullScreen => {

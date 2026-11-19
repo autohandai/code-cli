@@ -5,11 +5,15 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { Session } from '../../session/SessionManager.js';
 import type { PtyDriver } from '../drivers/pty-driver.js';
 import { outputViewport } from './compactOutputScenario.js';
+import { FULL_SCREEN_GUTTER } from '../../ui/ink/FullScreenFrame.js';
+
+/** Blank columns the full-screen frame keeps between the window edge and every row it draws. */
+const GUTTER = ' '.repeat(FULL_SCREEN_GUTTER);
 
 export async function cycleFullScreenStartupModes(session: TerminalSession): Promise<string[]> {
   await session.waitForText('❯', { timeout: 15_000 });
   await session.waitIdle();
-  const status = () => outputViewport(session).split('\n').find(line => line.includes('context left'))?.split(' · ')[0] ?? '';
+  const status = () => outputViewport(session).split('\n').find(line => line.includes('context left'))?.split(' · ')[0]?.slice(GUTTER.length) ?? '';
   const modes = [status()];
   for (const label of ['● YOLO', null, '● PLAN', '● AUTO']) {
     await session.press(['shift', 'tab']);
@@ -65,7 +69,7 @@ export async function findHistoryDuringWork(session: TerminalSession): Promise<s
   await session.waitForText('❯ preserved draft');
   await session.press(['ctrl', 'f']);
   await session.type('History item 20');
-  await session.text({ timeout: 2_000, waitFor: screen => /^History item 20 /mu.test(screen) });
+  await session.text({ timeout: 2_000, waitFor: screen => screen.split('\n').some(line => line.startsWith(`${GUTTER}History item 20 `)) });
   const found = outputViewport(session);
   await session.press('enter');
   await session.press('esc');
@@ -128,7 +132,7 @@ export async function trackTranscriptRowDuringTurn(
   while (Date.now() < deadline) {
     const lines = outputViewport(session).split('\n');
     const row = lines.findIndex(line => line.includes(anchor));
-    if (row >= 0 && lines.some(line => line.startsWith('❯ Plan, search'))) rows.push(row);
+    if (row >= 0 && lines.some(line => line.startsWith(`${GUTTER}❯ Plan, search`))) rows.push(row);
     if (lines.some(line => line.includes(finishedMarker)) && !lines.some(line => line.includes('esc to cancel'))) return rows;
     await new Promise(resolve => setTimeout(resolve, 10));
   }
@@ -167,7 +171,7 @@ export async function runFullScreenLiveOutputScenario(session: TerminalSession) 
   const paged = outputViewport(session);
   const resizeOffset = session.getRawOutput().length;
   session.resize({ cols: 48, rows: 24 });
-  await session.text({ timeout: 5_000, waitFor: screen => /^>_ Autohand Code/mu.test(screen) && screen.includes('❯ preserved draft') });
+  await session.text({ timeout: 5_000, waitFor: screen => screen.split('\n').some(line => line.startsWith(`${GUTTER}>_ Autohand Code`)) && screen.includes('❯ preserved draft') });
   const resized = outputViewport(session);
   const resizeOutput = session.getRawOutput().slice(resizeOffset);
   await session.press(['ctrl', 'o']);

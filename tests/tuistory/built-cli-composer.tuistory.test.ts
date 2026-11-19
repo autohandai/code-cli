@@ -27,6 +27,7 @@ import {
   launchBuiltAutohand,
   waitForExit,
 } from './helpers/autohandTuistory.js';
+import { FULL_SCREEN_GUTTER } from '../../src/ui/ink/FullScreenFrame.js';
 import {
   cachedAnnouncements,
   composerLineIncludes,
@@ -187,6 +188,9 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     { cols: 80, fullScreenMode: false },
     { cols: 180, fullScreenMode: true },
   ])('keeps rotating tips below working status and completion summaries at $cols columns (full screen: $fullScreenMode)', async ({ cols, fullScreenMode }) => {
+    // Full-screen rows start after the frame's left gutter.
+    const inset = fullScreenMode ? ' '.repeat(FULL_SCREEN_GUTTER) : '';
+    const summaryAboveTip = new RegExp(`Completed in [^\\n]*\\n${inset}Tip: `, 'u');
     const openRouterServer = await createMockOpenRouterServer('Tip check completed.', 4_000);
     mockServers.push(openRouterServer);
     const session = await launchInteractive({
@@ -201,23 +205,23 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     });
     await waitForComposer(session);
 
-    const startup = await session.text({ timeout: 10_000, waitFor: (text) => idleTipOf(text) !== undefined });
-    const firstTip = idleTipOf(startup);
+    const startup = await session.text({ timeout: 10_000, waitFor: (text) => idleTipOf(text, inset) !== undefined });
+    const firstTip = idleTipOf(startup, inset);
     const rotated = await session.text({
       timeout: TIP_ROTATION_MS + 10_000,
-      waitFor: (text) => idleTipOf(text) !== undefined && idleTipOf(text) !== firstTip,
+      waitFor: (text) => idleTipOf(text, inset) !== undefined && idleTipOf(text, inset) !== firstTip,
     });
-    const currentTip = idleTipOf(rotated);
+    const currentTip = idleTipOf(rotated, inset);
     await session.type('Run a delayed response so I can read the tip.');
     await session.press('enter');
     const working = stripAnsi(await session.text({
       timeout: 10_000,
       waitFor: (text) => text.includes('esc to') && text.includes('cancel'),
     }));
-    expect(idleTipOf(working)).toBe(currentTip);
-    expect(rowAboveComposer(working)).toBe(`Tip: ${currentTip}`);
+    expect(idleTipOf(working, inset)).toBe(currentTip);
+    expect(rowAboveComposer(working, inset)).toBe(`Tip: ${currentTip}`);
     const workingLines = working.split('\n');
-    const workingTipIndex = workingLines.findIndex(line => line.startsWith('Tip:'));
+    const workingTipIndex = workingLines.findIndex(line => line.startsWith(`${inset}Tip:`));
     expect(workingLines[workingTipIndex - 1]).toContain('cancel');
     if (fullScreenMode) {
       expect(working.split('\n').slice(0, 3).join('\n')).not.toContain('esc to cancel');
@@ -226,20 +230,20 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
       timeout: 15_000,
       waitFor: (text) => text.includes('Tip check completed.')
         && !text.includes('esc to cancel')
-        && /Completed in [^\n]*\nTip: /u.test(stripAnsi(text)),
+        && summaryAboveTip.test(stripAnsi(text)),
     });
-    expect(rowAboveComposer(finished)).toMatch(/^Tip: /u);
-    expect(idleTipOf(finished)).toBe(currentTip);
-    expect(stripAnsi(finished)).toMatch(/Completed in [^\n]*\nTip: /u);
+    expect(rowAboveComposer(finished, inset)).toMatch(/^Tip: /u);
+    expect(idleTipOf(finished, inset)).toBe(currentTip);
+    expect(stripAnsi(finished)).toMatch(summaryAboveTip);
 
     // The first summary moves into the transcript when the next turn starts, and
     // the second turn keeps its own summary above the tip.
     await session.type('Run it once more so the second summary lands.');
     await session.press('enter');
     const secondWorking = await session.text({ timeout: 10_000, waitFor: (text) => text.includes('esc to') && text.includes('cancel') });
-    expect(idleTipOf(secondWorking)).toBe(idleTipOf(finished));
+    expect(idleTipOf(secondWorking, inset)).toBe(idleTipOf(finished, inset));
     const secondWorkingLines = stripAnsi(secondWorking).split('\n');
-    const secondWorkingTipIndex = secondWorkingLines.findIndex(line => line.startsWith('Tip:'));
+    const secondWorkingTipIndex = secondWorkingLines.findIndex(line => line.startsWith(`${inset}Tip:`));
     expect(secondWorkingLines[secondWorkingTipIndex - 1]).toContain('cancel');
     const secondFinish = await waitForTerminalScreen(session, {
       timeout: 20_000,
@@ -247,23 +251,23 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
         const screen = stripAnsi(text);
         return !screen.includes('esc to cancel')
           && (screen.match(/Completed in /gu)?.length ?? 0) >= 2
-          && /Completed in [^\n]*\nTip: /u.test(screen);
+          && summaryAboveTip.test(screen);
       },
     });
     // The first summary stays in the transcript, the second keeps the live row.
     const summaryLines = stripAnsi(secondFinish).split('\n').filter((line) => line.includes('Completed in '));
     expect(summaryLines.length).toBeGreaterThanOrEqual(2);
-    expect(rowAboveComposer(secondFinish)).toMatch(/^Tip: /u);
-    expect(stripAnsi(secondFinish)).toMatch(/Completed in [^\n]*\nTip: /u);
+    expect(rowAboveComposer(secondFinish, inset)).toMatch(/^Tip: /u);
+    expect(stripAnsi(secondFinish)).toMatch(summaryAboveTip);
 
     session.resize({ cols: 60, rows: 40 });
     const resized = await waitForTerminalScreen(session, {
       timeout: 10_000,
-      waitFor: (screen) => screen.includes('Completed in ') && idleTipOf(screen) !== undefined,
+      waitFor: (screen) => screen.includes('Completed in ') && idleTipOf(screen, inset) !== undefined,
     });
     const resizedLines = stripAnsi(resized).split('\n');
-    const tipIndex = resizedLines.findLastIndex((line) => line.startsWith('Tip:'));
-    const summaryIndex = resizedLines.findLastIndex((line) => line.startsWith('Completed in '));
+    const tipIndex = resizedLines.findLastIndex((line) => line.startsWith(`${inset}Tip:`));
+    const summaryIndex = resizedLines.findLastIndex((line) => line.startsWith(`${inset}Completed in `));
     expect(summaryIndex).toBeGreaterThanOrEqual(0);
     expect(tipIndex).toBeGreaterThan(summaryIndex);
     expect(resizedLines[tipIndex].length).toBeLessThanOrEqual(59);

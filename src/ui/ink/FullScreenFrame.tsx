@@ -1,5 +1,5 @@
 /** @license Apache-2.0 */
-import React, { createContext, useMemo, useRef } from 'react';
+import React, { createContext, useContext, useMemo, useRef } from 'react';
 import os from 'node:os';
 import path from 'node:path';
 import { Box, Text, useBoxMetrics, type DOMElement } from 'ink';
@@ -8,6 +8,8 @@ import stripAnsi from 'strip-ansi';
 import { useTheme } from '../theme/ThemeContext.js';
 import type { FullScreenMessage, FullScreenTranscript } from './fullScreenTranscript.js';
 import { runtimeVersion } from '../../utils/runtimeVersion.js';
+import { getPromptBlockWidth } from '../inputPrompt.js';
+import { useTerminalWindowSize } from './useTerminalWindowSize.js';
 
 export const ComposerOriginContext = createContext({ left: 0, top: 0 });
 
@@ -84,7 +86,7 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
   const footerRef = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(footerRef);
   const height = Math.max(1, rows - 1);
-  const width = Math.max(1, columns - 1);
+  const width = fullScreenContentWidth(columns);
   const footerLimit = Math.max(1, height - 6);
   const footerHeight = Math.min(footerLimit, metrics.hasMeasured ? metrics.height : 8);
   const bodyHeight = Math.max(0, height - footerHeight - 4);
@@ -103,7 +105,7 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
     : model.searchQuery !== null
     ? `Find: ${model.searchQuery} · Enter next · Shift+Enter previous · Esc close${model.searchMatched ? '' : ' · No match'}`
     : view.following ? ' ' : `${view.newActivity ? 'New activity · ' : ''}↓ Back to bottom · Ctrl+End${detailsId ? '' : ' / Esc'}`;
-  return <Box flexDirection="column" width="100%" paddingRight={1} height={height} overflow="hidden">
+  return <Box flexDirection="column" width="100%" paddingLeft={FULL_SCREEN_GUTTER} paddingRight={1} height={height} overflow="hidden">
     <Box flexDirection="column" height={FULL_SCREEN_HEADER_ROWS} flexShrink={0} overflow="hidden">
       <Text wrap="truncate"><Text color={colors.accent}>{'>_ '}</Text><Text bold>Autohand Code</Text><Text color={colors.muted}>{` (v${runtimeVersion})`}</Text></Text>
       <Text color={colors.muted} wrap="truncate">{`   ${displayDirectory}`}</Text>
@@ -121,7 +123,7 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
     <Text color={model.searchQuery !== null ? colors.muted : colors.accent} wrap="truncate">{hint}</Text>
     <Box ref={footerRef} flexDirection="column" flexShrink={0} maxHeight={footerLimit} overflow="hidden" justifyContent="flex-end">
       <ComposerOriginContext.Provider value={{ left: metrics.left, top: metrics.top }}>
-        {footer}
+        <FullScreenContentWidthContext.Provider value={width}>{footer}</FullScreenContentWidthContext.Provider>
       </ComposerOriginContext.Provider>
     </Box>
   </Box>;

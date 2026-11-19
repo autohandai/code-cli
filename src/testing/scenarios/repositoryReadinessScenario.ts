@@ -5,6 +5,7 @@
  */
 import type { Session } from 'tuistory';
 import { stripVTControlCharacters } from 'node:util';
+import { FULL_SCREEN_GUTTER } from '../../ui/ink/FullScreenFrame.js';
 
 export async function reviewRepositoryReadinessScenario(session: Session): Promise<string> {
   await session.type('/readiness');
@@ -17,7 +18,10 @@ export async function reviewRepositoryReadinessScenario(session: Session): Promi
   const evidence = 'Evidence: AGENTS.md';
   const end = screen.indexOf(evidence, start);
   if (start < 0 || end < 0) throw new Error('Repository readiness report was not visible');
-  const snapshot = screen.slice(start, end + evidence.length).split('\n').map(line => line.trimEnd()).join('\n');
+  // Captured from the start of the heading's row; the frame's left gutter, and nothing else, is taken off every row.
+  const gutter = ' '.repeat(FULL_SCREEN_GUTTER);
+  const snapshot = screen.slice(screen.lastIndexOf('\n', start) + 1, end + evidence.length).split('\n')
+    .map(line => (line.startsWith(gutter) ? line.slice(gutter.length) : line).trimEnd()).join('\n');
   await session.type('/readiness dismiss');
   await session.press('enter');
   await session.waitForText('Repository suggestions dismissed', { timeout: 10_000 });

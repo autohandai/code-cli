@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import { isTerminalMouseTrackingEnabled } from '../../src/testing/scenarios/mouseScrollbackScenario.js';
 import { composerCaretLine } from '../../src/testing/assertions/composerCaret.js';
+import { FULL_SCREEN_GUTTER } from '../../src/ui/ink/FullScreenFrame.js';
 import { clickFullScreenComposer, clickFullScreenTranscript, trackTranscriptRowDuringTurn, cycleFullScreenStartupModes, dragFullScreenTranscript, lastClipboardWrite, findHistoryDuringWork, inspectFullScreenStatusBar, requestFullScreenStartupWrite, seedFullScreenHistory, startFullScreenHeaderProbe, typeMultilineDraft, runFullScreenLiveOutputScenario } from '../../src/testing/scenarios/fullScreenScenario.js';
 import { launchTuistorySession } from '../../src/testing/drivers/tuistory-driver.js';
 import { outputViewport, LONG_OUTPUT_COMMAND, runLongOutputTurn } from '../../src/testing/scenarios/compactOutputScenario.js';
@@ -14,6 +15,8 @@ let server: MockNativeToolServer | undefined;
 let auth: MockAuthServer | undefined;
 let state: TuistoryTempState | undefined;
 let session: Session | undefined;
+/** Blank columns the full-screen frame keeps between the window edge and every row it draws. */
+const gutter = ' '.repeat(FULL_SCREEN_GUTTER);
 afterEach(async () => { session?.close(); await server?.close(); await auth?.close(); auth = undefined; server = undefined; await state?.cleanup(); session = undefined; state = undefined; });
 
 describe('full-screen terminal', () => {
@@ -185,7 +188,7 @@ describe('full-screen terminal', () => {
     await session.type('/');
     await session.waitForText('Tab to accept');
     await session.waitIdle();
-    const menuRows = (screen: string) => screen.split('\n').filter(row => /^[▸ ] \//u.test(row));
+    const menuRows = (screen: string) => screen.split('\n').filter(row => row.startsWith(`${gutter}▸ /`) || row.startsWith(`${gutter}  /`));
     const wide = outputViewport(session);
     expect(menuRows(wide).length).toBeGreaterThan(0);
     const resizeOffset = session.getRawOutput().length;
@@ -200,7 +203,7 @@ describe('full-screen terminal', () => {
     expect(narrowRows[0]).toContain('Autohand Code');
     expect(menuRows(narrow).map(row => row.split(/ {2}/u)[0])).toEqual(menuRows(wide).map(row => row.split(/ {2}/u)[0]));
     expect(narrowRows.filter(row => row.includes('Tab to accept'))).toHaveLength(1);
-    expect(narrowRows.find(row => row.includes('Tab to accept'))?.trimEnd()).toBe('  Tab to accept · ↑↓ to navigate');
+    expect(narrowRows.find(row => row.includes('Tab to accept'))?.trimEnd()).toBe(`${gutter}  Tab to accept · ↑↓ to navigate`);
     expect(narrowRows.findIndex(row => row.includes('Tab to accept'))).toBeLessThan(narrowRows.findIndex(row => row.includes('❯ /')));
     expect(narrowRows.every(row => row.length <= 60)).toBe(true);
     await session.press('esc');
@@ -248,11 +251,11 @@ describe('full-screen terminal', () => {
     });
     await session.waitForText('❯');
     await session.type('aka'); await session.waitForText('❯ aka');
-    expect(composerCaretLine(session)).toBe('❯ aka|');
+    expect(composerCaretLine(session)).toBe(`${gutter}❯ aka|`);
     await session.resize({ cols: 80, rows: 24 });
-    await expect.poll(() => composerCaretLine(session)).toBe('❯ aka|');
+    await expect.poll(() => composerCaretLine(session)).toBe(`${gutter}❯ aka|`);
     await session.press('left'); await session.type('X'); await session.waitForText('❯ akXa');
-    expect(composerCaretLine(session)).toBe('❯ akX|a');
+    expect(composerCaretLine(session)).toBe(`${gutter}❯ akX|a`);
     await exitInteractive(session);
   });
 
@@ -277,13 +280,13 @@ describe('full-screen terminal', () => {
         expect(screen.find(line => line.includes('Compose'))).toContain('Transcript');
         expect(screen.find(line => line.includes('/whatityped'))).toMatch(/\/whatityped\s+Typed history/);
       }
-      expect(composerCaretLine(session!)).toMatch(/^❯ \|/);
+      expect(composerCaretLine(session!).startsWith(`${gutter}❯ |`)).toBe(true);
     }, { timeout: 5_000, interval: 20 });
     await session.type('?');
     await session.type('still editable');
     await session.waitForText('❯ still editable');
     expect(composerRow()).toBe(baseline);
-    expect(composerCaretLine(session)).toBe('❯ still editable|');
+    expect(composerCaretLine(session)).toBe(`${gutter}❯ still editable|`);
     await exitInteractive(session);
   });
 
@@ -300,7 +303,7 @@ describe('full-screen terminal', () => {
     expect(lines().findIndex(line => line.includes('/about'))).toBeLessThan(baseline);
     await session.press('esc'); await session.press('backspace'); await session.type('menu closed');
     await session.waitForText('❯ menu closed');
-    await expect.poll(() => composerCaretLine(session)).toBe('❯ menu closed|');
+    await expect.poll(() => composerCaretLine(session)).toBe(`${gutter}❯ menu closed|`);
     await exitInteractive(session);
   });
 
@@ -315,7 +318,7 @@ describe('full-screen terminal', () => {
     expect(isTerminalMouseTrackingEnabled(session)).toBe(true);
     const lines = outputViewport(session).split('\n');
     const row = lines.findIndex(line => line.includes('❯ hello'));
-    await clickFullScreenComposer(session, 4, row);
+    await clickFullScreenComposer(session, FULL_SCREEN_GUTTER + 4, row);
     await session.type('X');
     await session.waitForText('❯ heXllo');
     await session.scrollUp(3, 5, 3); await session.waitIdle();
@@ -326,7 +329,7 @@ describe('full-screen terminal', () => {
     await typeMultilineDraft(session, Array.from({ length: 10 }, (_, index) => `line-${index}`));
     await session.waitForText('line-9'); await session.waitIdle();
     const targetRow = outputViewport(session).split('\n').findIndex(line => line.includes('line-8'));
-    await clickFullScreenComposer(session, 4, targetRow);
+    await clickFullScreenComposer(session, FULL_SCREEN_GUTTER + 4, targetRow);
     await session.type('X');
     await session.waitForText('liXne-8');
     await exitInteractive(session);
@@ -519,7 +522,7 @@ describe('full-screen terminal', () => {
     await session.waitIdle();
     await session.type('after enhanced escape');
     await session.waitForText('❯ after enhanced escape');
-    await expect.poll(() => composerCaretLine(session)).toBe('❯ after enhanced escape|');
+    await expect.poll(() => composerCaretLine(session)).toBe(`${gutter}❯ after enhanced escape|`);
     await exitInteractive(session);
   });
 
@@ -532,13 +535,14 @@ describe('full-screen terminal', () => {
     await session.type('/about'); await session.press('enter');
     await session.waitForText('docs.autohand.ai');
     const visibleRows = (text: string) => text.split('\n').map(line => line.trimEnd()).filter(line => line.trim()).join('\n');
-    expect(visibleRows(outputViewport(session))).toContain(visibleRows(renderAutohandLogo({ columns: 120 })));
+    const withoutGutter = (text: string) => text.split('\n').map(line => line.startsWith(gutter) ? line.slice(gutter.length) : line).join('\n');
+    expect(visibleRows(withoutGutter(outputViewport(session)))).toContain(visibleRows(renderAutohandLogo({ columns: 120 })));
     await session.type('/status'); await session.press('enter');
     await session.waitForText('(tab to cycle)', { timeout: 15_000 });
     await session.press('tab'); await session.waitForText('Autohand preferences');
     await session.press('esc'); await session.waitForText('? shortcuts');
     await session.type('after status'); await session.waitForText('❯ after status');
-    await expect.poll(() => composerCaretLine(session)).toBe('❯ after status|');
+    await expect.poll(() => composerCaretLine(session)).toBe(`${gutter}❯ after status|`);
     await exitInteractive(session);
   }, 40_000);
 
@@ -655,7 +659,7 @@ describe('full-screen terminal', () => {
     await session.waitForText('Command /missing-full-screen-command is not supported.');
     expect(outputViewport(session)).not.toContain('New activity');
     expect(outputViewport(session).split('\n').findIndex(line => line.includes('❯ preserved draft'))).toBe(beforeRow);
-    await expect.poll(() => composerCaretLine(session)).toBe('❯ preserved draft|');
+    await expect.poll(() => composerCaretLine(session)).toBe(`${gutter}❯ preserved draft|`);
     await exitInteractive(session);
   });
 

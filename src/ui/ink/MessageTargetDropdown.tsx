@@ -10,8 +10,7 @@
 import React, { memo, useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { useTheme } from '../theme/ThemeContext.js';
-import { getPromptBlockWidth } from '../inputPrompt.js';
-import { useTerminalWindowSize } from './useTerminalWindowSize.js';
+import { useFooterRowWidth } from './FullScreenFrame.js';
 import type { MessageTargetSuggestion } from '../messageTargets.js';
 
 interface MessageTargetDropdownProps {
@@ -30,7 +29,7 @@ function truncateVisible(text: string, maxWidth: number): string {
 
 function MessageTargetDropdownComponent({ suggestions, activeIndex, visible }: MessageTargetDropdownProps) {
   const { theme } = useTheme();
-  const width = getPromptBlockWidth(useTerminalWindowSize().columns);
+  const width = useFooterRowWidth();
   const displaySuggestions = useMemo(() => suggestions.slice(0, MAX_SUGGESTIONS), [suggestions]);
 
   if (!visible || displaySuggestions.length === 0) {
