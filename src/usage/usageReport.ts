@@ -3,6 +3,7 @@ import { open } from 'node:fs/promises';
 import path from 'node:path';
 import type { SlashCommandContext } from '../core/slashCommandTypes.js';
 import type { SessionMetadata } from '../session/types.js';
+import type { CapabilityUsageOrigin } from '../memory/types.js';
 
 export interface UsageQuery { scope: 'project' | 'all'; days: 7 | 30 }
 export interface CapabilityActivity {
@@ -11,6 +12,7 @@ export interface CapabilityActivity {
   kind: 'skill' | 'slash_command';
   name: string;
   source: string;
+  origin: CapabilityUsageOrigin;
   project: string;
   failed: boolean;
 }
@@ -24,7 +26,7 @@ export interface UsageReportData {
   warnings: string[];
 }
 export interface UsageDay { date: string; tokens: number; input: number; output: number; messages: number; sessions: number; skills: number; extensions: number }
-export interface CapabilityTotal { name: string; source: string; uses: number; failed: number }
+export interface CapabilityTotal { name: string; source: string; uses: number; failed: number; byUser: number; byAgent: number; lastUsed: string }
 
 const DAY_MS = 86_400_000;
 const SESSION_LIMIT = 1000;
@@ -33,6 +35,27 @@ const EVENT_BYTES = 256 * 1024;
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 export const isExtensionSource = (source: string): boolean => source === 'extension' || source.startsWith('extension:');
+
+/** One activity-map cell: the share of the busiest bucket in four steps, shared by the printed and the interactive report. */
+export function usageIntensityCell(tokens: number, maxTokens: number): string {
+  if (tokens <= 0 || maxTokens <= 0) return '·';
+  const ratio = tokens / maxTokens;
+  if (ratio >= 0.8) return '█';
+  if (ratio >= 0.55) return '▓';
+  if (ratio >= 0.3) return '▒';
+  return '░';
+}
+
+function tally(totals: Map<string, CapabilityTotal>, event: CapabilityActivity): void {
+  const key = JSON.stringify([event.name, event.source]);
+  const total = totals.get(key) ?? { name: event.name, source: event.source, uses: 0, failed: 0, byUser: 0, byAgent: 0, lastUsed: event.date };
+  total.uses++;
+  if (event.failed) total.failed++;
+  if (event.origin === 'agent') total.byAgent++;
+  else total.byUser++;
+  if (Date.parse(event.date) > Date.parse(total.lastUsed)) total.lastUsed = event.date;
+  totals.set(key, total);
+}
 
 export function aggregateUsageReport(sessions: SessionMetadata[], events: CapabilityActivity[], range: number, now: Date) {
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -65,28 +88,25 @@ export function aggregateUsageReport(sessions: SessionMetadata[], events: Capabi
   }
   const skills = new Map<string, CapabilityTotal>();
   const extensions = new Map<string, CapabilityTotal>();
+  const skillHistory = new Map<string, CapabilityTotal>();
   const seen = new Set<string>();
   for (const event of events) {
     const timestamp = Date.parse(event.date);
-    if (!(timestamp >= start && timestamp < end) || seen.has(event.id)) continue;
+    if (!Number.isFinite(timestamp) || seen.has(event.id)) continue;
     seen.add(event.id);
+    if (event.kind === 'skill') tally(skillHistory, event);
+    if (timestamp < start || timestamp >= end) continue;
     const day = byDate.get(new Date(timestamp).toISOString().slice(0, 10))!;
-    for (const [include, totals] of [[event.kind === 'skill', skills], [isExtensionSource(event.source), extensions]] as const) {
-      if (!include) continue;
-      const key = JSON.stringify([event.name, event.source]);
-      const total = totals.get(key) ?? { name: event.name, source: event.source, uses: 0, failed: 0 };
-      total.uses++;
-      if (event.failed) total.failed++;
-      totals.set(key, total);
-    }
-    if (event.kind === 'skill') day.skills++;
-    if (isExtensionSource(event.source)) day.extensions++;
+    if (event.kind === 'skill') { tally(skills, event); day.skills++; }
+    if (isExtensionSource(event.source)) { tally(extensions, event); day.extensions++; }
   }
   const sorted = (totals: Map<string, CapabilityTotal>) => [...totals.values()].sort((a, b) => b.uses - a.uses || a.name.localeCompare(b.name));
   return {
     days, sessions: selected, tokens: days.reduce((sum, day) => sum + day.tokens, 0),
     messages: days.reduce((sum, day) => sum + day.messages, 0), unknownSessions, longestTurnMs, cacheRead,
     skills: sorted(skills), extensions: sorted(extensions),
+    /** Every skill activation in the loaded ledger, including those before the period. */
+    skillHistory: sorted(skillHistory),
   };
 }
 
@@ -118,9 +138,10 @@ export async function readCapabilityActivity(project: string, signal: AbortSigna
         if (!isRecord(capability) || !['skill', 'slash_command'].includes(String(capability.kind))
           || typeof capability.name !== 'string' || typeof capability.source !== 'string'
           || typeof event.eventId !== 'string' || typeof event.occurredAt !== 'string'
+          || (event.origin !== 'user' && event.origin !== 'agent')
           || !['succeeded', 'failed'].includes(String(event.outcome))) { partial = true; continue; }
         events.push({ id: event.eventId, date: event.occurredAt, kind: capability.kind as CapabilityActivity['kind'], name: capability.name,
-          source: capability.source, project, failed: event.outcome === 'failed' });
+          source: capability.source, origin: event.origin, project, failed: event.outcome === 'failed' });
       } catch { partial = true; }
     }
     return { events, partial };

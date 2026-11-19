@@ -26,4 +26,15 @@ describe('interactive usage command', () => {
     expect(before).toHaveBeenCalledOnce();
     expect(after).toHaveBeenCalledOnce();
   });
+
+  it('turns on mouse selection for the report unless mouse reporting is disabled in the configuration', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    const ctx = { onBeforeModal: vi.fn(), onAfterModal: vi.fn(), isFeatureEnabled: () => true, workspaceRoot: '/work',
+      sessionManager: { listSessions: async () => [], getCurrentSession: () => undefined }, model: 'moa' } as unknown as SlashCommandContext;
+    await usage(ctx);
+    expect(show).toHaveBeenLastCalledWith(expect.objectContaining({ mouse: true }));
+    await usage({ ...ctx, config: { ui: { mouseComposerCursor: false } } } as unknown as SlashCommandContext);
+    expect(show).toHaveBeenLastCalledWith(expect.objectContaining({ mouse: false }));
+  });
 });

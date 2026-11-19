@@ -34,3 +34,14 @@ export async function openUsageReport(session: Session): Promise<void> {
   await session.press('enter');
   await session.waitForText('Activity overview', { timeout: 20_000 });
 }
+
+/** A left-button press and release on the first viewport cell showing `text`, as a terminal reports it with SGR tracking. */
+export async function clickUsageText(session: Session, text: string): Promise<void> {
+  const lines = usageViewport(session).split('\n');
+  const row = lines.findIndex(line => line.includes(text));
+  if (row < 0) throw new Error(`"${text}" is not on the usage screen`);
+  const column = lines[row]!.indexOf(text);
+  session.writeRaw(`\x1b[<0;${column + 1};${row + 1}M`);
+  session.writeRaw(`\x1b[<0;${column + 1};${row + 1}m`);
+  await session.waitIdle();
+}

@@ -16,6 +16,7 @@ import { createCommandTheme } from './commandTheme.js';
 import { formatAccount } from './accountDisplay.js';
 import type { AccountEntitlement } from '../auth/AuthClient.js';
 import { usesAutohandAICloud } from '../providers/AutohandAIProvider.js';
+import { usageIntensityCell } from '../usage/usageReport.js';
 
 export const USAGE_V2_FLAG = 'usage_v2';
 export const CLI_USAGE_V2_FLAG = 'cli_usage_v2';
@@ -595,15 +596,6 @@ export function formatUsageDashboard(
   return lines.join('\n');
 }
 
-function intensityCell(tokens: number, maxTokens: number): string {
-  if (tokens <= 0 || maxTokens <= 0) return '·';
-  const ratio = tokens / maxTokens;
-  if (ratio >= 0.8) return '█';
-  if (ratio >= 0.55) return '▓';
-  if (ratio >= 0.3) return '▒';
-  return '░';
-}
-
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '0m';
   const totalMinutes = Math.max(1, Math.round(ms / 60_000));
@@ -670,7 +662,7 @@ function renderDailyHeatmap(data: UsageActivityData): string[] {
     const cells = weekStarts.map((week) => {
       const date = addDays(week, weekday);
       if (date < rangeStart || date > today) return ' ';
-      return intensityCell(data.buckets.get(isoDay(date))?.tokens ?? 0, data.maxBucketTokens);
+      return usageIntensityCell(data.buckets.get(isoDay(date))?.tokens ?? 0, data.maxBucketTokens);
     });
     return `${label}  ${cells.join(' ')}`;
   });
@@ -689,7 +681,7 @@ function renderLinearHeatmap(data: UsageActivityData): string[] {
     }
     return [
       '    ' + keys.map((key, index) => index % 4 === 0 ? MONTH_LABELS[bucketDateForKey(key, 'weekly').getUTCMonth()].padEnd(3, ' ') : '   ').join(' '),
-      'Wk  ' + keys.map((key) => intensityCell(data.buckets.get(key)?.tokens ?? 0, data.maxBucketTokens)).join(' '),
+      'Wk  ' + keys.map((key) => usageIntensityCell(data.buckets.get(key)?.tokens ?? 0, data.maxBucketTokens)).join(' '),
     ];
   }
 
@@ -699,7 +691,7 @@ function renderLinearHeatmap(data: UsageActivityData): string[] {
   }
   return [
     '    ' + keys.map((key) => MONTH_LABELS[bucketDateForKey(key, 'monthly').getUTCMonth()].padEnd(3, ' ')).join(' '),
-    'Mo  ' + keys.map((key) => intensityCell(data.buckets.get(key)?.tokens ?? 0, data.maxBucketTokens)).join(' '),
+    'Mo  ' + keys.map((key) => usageIntensityCell(data.buckets.get(key)?.tokens ?? 0, data.maxBucketTokens)).join(' '),
   ];
 }
 
@@ -756,6 +748,7 @@ export async function usage(ctx: SlashCommandContext, args: string[] = []): Prom
           account: formatAccount(ctx.config, 'Local profile'),
           autohandCloud: usesAutohandAICloud(ctx.config ?? {}, resolveActiveProvider(ctx)),
           initialDays: period === 'monthly' ? 30 : 7,
+          mouse: ctx.config?.ui?.mouseComposerCursor !== false,
           loadReport: (query, signal) => loadUsageReport(ctx, query, signal),
           loadAccount: async (signal) => { signal.throwIfAborted(); return resolveProviderEntitlement(ctx); },
           loadTraces: async (query, signal) => {

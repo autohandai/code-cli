@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Session } from 'tuistory';
-import { seedUsageReport, usageViewport, openUsageReport } from '../../src/testing/scenarios/usageReportScenario.js';
+import { seedUsageReport, usageViewport, openUsageReport, clickUsageText } from '../../src/testing/scenarios/usageReportScenario.js';
 import { sendPaymentTransitionTurn } from '../../src/testing/scenarios/paymentAccessScenario.js';
 import { createTempAutohandHome, createMockAuthServer, createMockAutohandAINativeSequenceServer, launchBuiltAutohand, exitInteractive, type TuistoryTempState, type MockAuthServer, type MockNativeToolServer } from './helpers/autohandTuistory.js';
 let session: Session | undefined;
@@ -56,6 +56,39 @@ describe('interactive usage reports', () => {
     for (let index = 0; index < 'draft after usage'.length; index++) await session.press('backspace');
     await openUsageReport(session);
     await session.press(['ctrl', 'c']); await session.waitForText('❯');
+    await exitInteractive(session);
+  }, 90_000);
+
+  it('selects reports, chart days and sessions with the mouse and returns the pointer to the composer', async () => {
+    auth = await createMockAuthServer();
+    state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'account', model: 'fantail' },
+      features: { cliUsageV2: true },
+      auth: { token: 'tuistory-account-token', user: { id: 'tuistory-test-user', email: 'tuistory@example.com', name: 'Tuistory Test' } },
+      ui: { mouseComposerCursor: true, promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    await seedUsageReport(state.autohandHome, state.workspaceRoot);
+    session = await launchBuiltAutohand(['--config', state.configPath, '--path', state.workspaceRoot], {
+      cwd: state.workspaceRoot, autohandHome: state.autohandHome, cols: 100, rows: 30,
+      env: { AUTOHAND_AUTH_API_URL: `${auth.baseUrl}/api/auth` },
+    });
+    await openUsageReport(session);
+    expect(usageViewport(session)).toContain('Skills used: release-review ×1');
+    await clickUsageText(session, '5 Skills'); await session.waitForText('Recorded skill activations');
+    await session.waitForText('release-review · 1 use · 1 by you · 0 by agent');
+    await clickUsageText(session, '2 Usage'); await session.waitForText('Session tokens');
+    const today = new Date().toISOString().slice(0, 10);
+    await session.press('left'); await session.waitForText('0 tokens · 0 sessions');
+    // The running session counts beside the fixture, so only the date and token total are fixed.
+    await clickUsageText(session, today.slice(5)); await session.waitForText(`${today} · 120K tokens`);
+    await clickUsageText(session, 'Session tokens');
+    expect(usageViewport(session)).toContain(`${today} · 120K tokens`);
+    await clickUsageText(session, '6 Sessions'); await session.waitForText('Dashboard fixture');
+    await clickUsageText(session, 'Dashboard fixture'); await session.waitForText('Session: usage-fixture');
+    await session.press('esc'); await session.waitForText('sorted by recorded tokens');
+    await session.press('esc'); await session.waitForText('❯');
+    await session.type('draft after usage'); await session.waitForText('❯ draft after usage');
     await exitInteractive(session);
   }, 90_000);
 

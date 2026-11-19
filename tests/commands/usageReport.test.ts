@@ -24,11 +24,25 @@ describe('usage report aggregation', () => {
   });
 
   it('deduplicates sessions and capability events and excludes out-of-range or invalid dates', () => {
-    const event = { id: 'one', date: '2026-10-04T10:00:00Z', kind: 'skill' as const, name: 'review', source: 'extension', project: '/work', failed: false };
+    const event = { id: 'one', date: '2026-10-04T10:00:00Z', kind: 'skill' as const, name: 'review', source: 'extension', origin: 'user' as const, project: '/work', failed: false };
     const report = aggregateUsageReport([session('same'), session('same'), { ...session('old'), lastActiveAt: '2026-08-01' }], [event, event, { ...event, id: 'old', date: 'invalid' }], 7, now);
     expect(report.sessions).toHaveLength(1);
-    expect(report.skills).toEqual([{ name: 'review', source: 'extension', uses: 1, failed: 0 }]);
+    expect(report.skills).toEqual([{ name: 'review', source: 'extension', uses: 1, failed: 0, byUser: 1, byAgent: 0, lastUsed: '2026-10-04T10:00:00Z' }]);
     expect(report.days.find(day => day.date === '2026-10-04')?.skills).toBe(1);
+  });
+
+  it('attributes skill activations to the user or the agent and keeps activations recorded before the period', () => {
+    const event = { id: 'one', date: '2026-10-04T10:00:00Z', kind: 'skill' as const, name: 'review', source: 'project', origin: 'user' as const, project: '/work', failed: false };
+    const report = aggregateUsageReport([], [
+      event, { ...event, id: 'two', date: '2026-10-05T09:00:00Z', origin: 'agent', failed: true },
+      { ...event, id: 'old', date: '2026-08-01T10:00:00Z', name: 'release-notes' }, { ...event, id: 'old', date: '2026-08-01T10:00:00Z', name: 'release-notes' },
+      { ...event, id: 'command', date: '2026-08-02T10:00:00Z', kind: 'slash_command', name: '/help' }, { ...event, id: 'bad', date: 'invalid' },
+    ], 7, now);
+    expect(report.skills).toEqual([{ name: 'review', source: 'project', uses: 2, failed: 1, byUser: 1, byAgent: 1, lastUsed: '2026-10-05T09:00:00Z' }]);
+    expect(report.skillHistory).toEqual([
+      { name: 'review', source: 'project', uses: 2, failed: 1, byUser: 1, byAgent: 1, lastUsed: '2026-10-05T09:00:00Z' },
+      { name: 'release-notes', source: 'project', uses: 1, failed: 0, byUser: 1, byAgent: 0, lastUsed: '2026-08-01T10:00:00Z' },
+    ]);
   });
 });
 
@@ -42,12 +56,17 @@ describe('usage report sources', () => {
     try {
       const directory = join(root, '.autohand', 'memory', 'events');
       await mkdir(directory, { recursive: true });
-      const event = { operation: 'capability_used', eventId: 'skill-1', occurredAt: now.toISOString(), capability: { kind: 'skill', name: 'review', source: 'project' }, outcome: 'succeeded' };
+      const event = { operation: 'capability_used', eventId: 'skill-1', occurredAt: now.toISOString(), capability: { kind: 'skill', name: 'review', source: 'project' }, origin: 'agent', outcome: 'succeeded' };
       await writeFile(join(directory, 'LOG.jsonl'), `${' '.repeat(300000)}\ninvalid\n${JSON.stringify(event)}\n`);
       const result = await readCapabilityActivity(root, new AbortController().signal);
       expect(result.partial).toBe(true);
       expect(result.events).toHaveLength(1);
       expect(result.events[0].name).toBe('review');
+      expect(result.events[0].origin).toBe('agent');
+      await writeFile(join(directory, 'LOG.jsonl'), `${JSON.stringify(event)}\n${JSON.stringify({ ...event, eventId: 'skill-2', origin: 'someone' })}\n`);
+      const unattributed = await readCapabilityActivity(root, new AbortController().signal);
+      expect(unattributed.events.map(item => item.id)).toEqual(['skill-1']);
+      expect(unattributed.partial).toBe(true);
       const controller = new AbortController(); controller.abort();
       await expect(readCapabilityActivity(root, controller.signal)).rejects.toThrow();
     } finally { await rm(root, { recursive: true, force: true }); }
