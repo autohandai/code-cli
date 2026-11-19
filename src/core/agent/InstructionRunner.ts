@@ -153,7 +153,7 @@ export interface AgentInstructionHost {
     suppressSpinner?: boolean
   ): Promise<void>;
   stopStatusUpdates(): void;
-  stopUI(failed?: boolean, message?: string, options?: { interrupted?: boolean }): void;
+  stopUI(failed?: boolean, message?: string, options?: { interrupted?: boolean; needsReview?: boolean }): void;
   isUsingTerminalRegionsForActiveTurn(): boolean;
   installPersistentConsoleBridge(): () => void;
   formatStatusLine(): { left: string; right?: string };
@@ -513,6 +513,7 @@ export class InstructionRunner {
 
     host.activeAbortController = abortController;
     let canceledByUser = false;
+    let awaitingReview = false;
     let success = true;
     let reflectionSuperseded = false;
     let failureOutcome: Extract<TurnMemoryReflectionOutcome, { status: 'failed' }> | null = null;
@@ -530,7 +531,10 @@ export class InstructionRunner {
         console.error(summarizeUnattendedApprovals(denied));
       }
       recordReflectionFailure('incomplete', INCOMPLETE_LOOP_REASONS[result.reason]);
-      host.stopUI(true);
+      // The answer was delivered; only its review is open. That is not a failed turn.
+      awaitingReview = result.reason === 'advisor_review';
+      if (awaitingReview) host.stopUI(false, undefined, { needsReview: true });
+      else host.stopUI(true);
       host.clearActivityForCompletedTurn?.();
       return false;
     };
@@ -957,7 +961,8 @@ export class InstructionRunner {
         host.scheduleTurnMemoryReflection(outcome);
       }
 
-      host.lastTurnOutcome = canceledByUser || abortController.signal.aborted ? 'interrupted' : success ? 'completed' : 'failed';
+      host.lastTurnOutcome = canceledByUser || abortController.signal.aborted ? 'interrupted'
+        : success ? 'completed' : awaitingReview ? 'needs_review' : 'failed';
       host.taskStartedAt = null;
       host.isInstructionActive = false;
       host.activeAbortController = null;

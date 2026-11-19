@@ -32,6 +32,14 @@ describe('stopAgentUI', () => {
     expect(host.inkRenderer.setWorking).toHaveBeenCalledWith(false, '', { succeeded: false, interrupted: true });
   });
 
+  it('returns to idle when the turn only awaits its review, without reporting a failure', () => {
+    const host = createHost();
+    stopAgentUI(host, true, undefined, { needsReview: true });
+    expect(host.terminalTitle.setState).toHaveBeenCalledWith('idle');
+    expect(host.terminalTitle.setState).not.toHaveBeenCalledWith('failed');
+    expect(host.inkRenderer.setWorking).toHaveBeenCalledWith(false, '', { succeeded: false, needsReview: true });
+  });
+
   it('keeps a completed turn completed', () => {
     const host = createHost();
     stopAgentUI(host);
@@ -43,6 +51,14 @@ describe('stopAgentUI', () => {
     const spinner = { stop: vi.fn(), fail: vi.fn() };
     const host: AgentUIRuntimeHost = { terminalTitle: { setState: vi.fn() }, inkRenderer: null, runtime: { spinner } };
     stopAgentUI(host, false, undefined, { interrupted: true });
+    expect(spinner.stop).toHaveBeenCalledOnce();
+    expect(spinner.fail).not.toHaveBeenCalled();
+  });
+
+  it('stops a plain spinner quietly when the turn only awaits its review', () => {
+    const spinner = { stop: vi.fn(), fail: vi.fn() };
+    const host: AgentUIRuntimeHost = { terminalTitle: { setState: vi.fn() }, inkRenderer: null, runtime: { spinner } };
+    stopAgentUI(host, true, undefined, { needsReview: true });
     expect(spinner.stop).toHaveBeenCalledOnce();
     expect(spinner.fail).not.toHaveBeenCalled();
   });

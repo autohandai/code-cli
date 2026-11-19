@@ -471,11 +471,14 @@ export function setAgentComposerFinalResponse(host: AgentUIRuntimeHost, response
 export interface StopAgentUIOptions {
   /** The user stopped the turn. It is reported as interrupted, never as failed. */
   interrupted?: boolean;
+  /** The answer was delivered but its checkpoint review is unresolved. Reported as needing review, never as failed. */
+  needsReview?: boolean;
 }
 
 export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: string, options: StopAgentUIOptions = {}): void {
     const interrupted = options.interrupted === true;
-    failed = failed && !interrupted;
+    const needsReview = !interrupted && options.needsReview === true;
+    failed = failed && !interrupted && !needsReview;
     host.terminalTitle?.setState(failed ? 'failed' : 'idle');
     if (host.inkRenderer) {
       host.inkRenderer.setElapsed(formatElapsedTime(host.taskStartedAt ?? host.sessionStartedAt));
@@ -484,7 +487,8 @@ export function stopAgentUI(host: AgentUIRuntimeHost, failed = false, message?: 
         Boolean(host.sessionTokenUsageUnavailable || host.currentTurnHadUnavailableUsage)
       ) ?? formatTurnUsage(getDisplayTurnUsage(host));
       host.inkRenderer.setTokens(stopTokens);
-      host.inkRenderer.setWorking(false, message ?? '', interrupted ? { succeeded: false, interrupted: true } : { succeeded: !failed });
+      host.inkRenderer.setWorking(false, message ?? '', interrupted ? { succeeded: false, interrupted: true }
+        : needsReview ? { succeeded: false, needsReview: true } : { succeeded: !failed });
       if (message) {
         host.inkRenderer.setFinalResponse(message);
       }

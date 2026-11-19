@@ -154,8 +154,9 @@ export interface TipLineState {
 
 /** The "Completed in 0m 4s · ↑1.2k ↓40" line a finished turn leaves above the composer. */
 export function formatCompletionSummary(stats: { elapsed: string; tokens: string; status?: TurnCompletionStatus }): string {
-  const label = stats.status === 'failed' ? 'Failed' : stats.status === 'interrupted' ? 'Interrupted' : 'Completed';
-  return `${label} in ${stats.elapsed} · ${stats.tokens}`;
+  const label = stats.status === 'failed' ? 'Failed in' : stats.status === 'interrupted' ? 'Interrupted in'
+    : stats.status === 'needs_review' ? 'Needs review after' : 'Completed in';
+  return `${label} ${stats.elapsed} · ${stats.tokens}`;
 }
 
 /** A slash-command result held in the fixed composer area until the next turn. */

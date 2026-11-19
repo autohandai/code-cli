@@ -1477,11 +1477,22 @@ describe('InstructionRunner interrupt listener cleanup', () => {
 
 
 describe('incomplete turn status', () => {
-  it.each(['iteration_limit', 'pending_todos', 'advisor_review'] as const)('marks %s as unsuccessful in the terminal UI', async reason => {
+  it.each(['iteration_limit', 'pending_todos'] as const)('marks %s as unsuccessful in the terminal UI', async reason => {
     const host = createHost();
     host.runReactLoop = vi.fn(async () => ({ status: 'incomplete', reason }));
     await expect(new InstructionRunner(host).run('finish the active task')).resolves.toBe(false);
     expect(host.stopUI).toHaveBeenCalledWith(true);
+    expect(host.lastTurnOutcome).toBe('failed');
+  });
+
+  it('reports a turn whose Moa review is unresolved as needing review, not as failed', async () => {
+    const host = createHost();
+    host.runReactLoop = vi.fn(async () => ({ status: 'incomplete', reason: 'advisor_review' }));
+    // The work is still not approved: the run does not count as a success.
+    await expect(new InstructionRunner(host).run('finish the active task')).resolves.toBe(false);
+    expect(host.stopUI).toHaveBeenCalledWith(false, undefined, { needsReview: true });
+    expect(host.stopUI).not.toHaveBeenCalledWith(true);
+    expect(host.lastTurnOutcome).toBe('needs_review');
   });
 });
 

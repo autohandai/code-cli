@@ -1326,6 +1326,17 @@ describe("AutohandAcpAdapter", () => {
         expect(stopNotification()).toMatchObject({ outcome: "interrupted" });
       });
 
+      it("ends a turn that awaits its review normally and tells stop hooks it needs review", async () => {
+        mockAgent.runInstruction.mockResolvedValue(false);
+        Object.assign(mockAgent, { getLastTurnOutcome: vi.fn(() => "needs_review") });
+
+        await expect(adapter.prompt({ sessionId, prompt: [{ type: "text", text: "Update README.md" }] }))
+          .resolves.toEqual({ stopReason: "end_turn" });
+        expect(stopContext(executeHooks)).toMatchObject({ turnOutcome: "needs_review" });
+        expect(stopContext(executeHooks)).not.toHaveProperty("success");
+        expect(stopNotification()).toMatchObject({ outcome: "needs_review" });
+      });
+
       it("still rejects a turn that failed and reports it as failed", async () => {
         mockAgent.runInstruction.mockResolvedValue(false);
         Object.assign(mockAgent, { getLastTurnOutcome: vi.fn(() => "failed") });

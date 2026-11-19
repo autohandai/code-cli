@@ -1132,7 +1132,7 @@ export class RPCAdapter {
                 toolCallsCount: prompt.toolCallsCount,
                 turnOutcome: prompt.abortController.signal.aborted || this.agent?.getLastTurnOutcome?.() === 'interrupted'
                   ? 'interrupted'
-                  : success ? 'completed' : 'failed',
+                  : success ? 'completed' : this.agent?.getLastTurnOutcome?.() === 'needs_review' ? 'needs_review' : 'failed',
               },
               { signal: prompt.abortController.signal },
             );

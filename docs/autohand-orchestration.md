@@ -34,7 +34,11 @@ Each review receives the current session conversation, including any earlier
 context compaction, and the checkpoint evidence. Commit and completion reviews
 also receive the workspace diff against HEAD, including staged and untracked
 files, without changing the real Git index. Oversized or failed diff captures
-are reported as unavailable, not approved. A completion-only capture that
+are reported as unavailable, not approved. One exception: when the uncommitted
+diff is oversized but the workspace is exactly as it was before the turn ran its
+first tool, the completion review runs on session evidence with the missing diff
+disclosed, because none of that work belongs to the turn. Commit reviews keep
+the block. A completion-only capture that
 exceeds its time budget can instead be reviewed using session evidence, with
 the missing diff explicitly disclosed. Approval still requires the advisor's
 verdict; commit capture failures remain blocking. Non-Git workspaces are identified
@@ -45,7 +49,9 @@ The lead addresses requested changes before proceeding. An unavailable review
 or three rejected checkpoints ends the turn as incomplete with the reason
 visible. An approved answer is delivered after review. A rejected or unavailable
 candidate may be shown as an explicitly unreviewed or unapproved draft alongside
-the feedback. In that case the turn retains a failed footer and a prepared goal
+the feedback. In that case the footer reads "Needs review" instead of
+"Completed", stop hooks and protocol hosts receive the `needs_review` outcome
+(not `failed`), and a prepared goal
 stays active with its successor queued. Goal
 completion is persisted only after approval and final answer delivery succeed.
 Resolve the review feedback and ask to continue; a visible draft is not proof

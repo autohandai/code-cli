@@ -365,6 +365,7 @@ describe('InkRenderer live command blocks', () => {
     [{ succeeded: true }, 'completed', 'Completed in'],
     [{ succeeded: false }, 'failed', 'Failed in'],
     [{ succeeded: false, interrupted: true }, 'interrupted', 'Interrupted in'],
+    [{ succeeded: false, needsReview: true }, 'needs_review', 'Needs review after'],
   ] as const)('summarises a turn that ended with %o as %s', (options, outcome, label) => {
     const renderer = new InkRenderer({ onInstruction: () => {}, onEscape: () => {}, onCtrlC: () => {} });
     renderer.setWorking(true, 'Working');

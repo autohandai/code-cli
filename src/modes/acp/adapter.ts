@@ -1013,10 +1013,13 @@ export class AutohandAcpAdapter implements Agent {
         || this.cancelledSessions.has(params.sessionId)
         || agent.getLastTurnOutcome?.() === 'interrupted'
       );
-      const turnOutcome: TurnOutcome = interrupted ? 'interrupted' : success ? 'completed' : 'failed';
+      // The answer was delivered with its review still open. The client sees a normal end of
+      // turn carrying that notice; hooks get the outcome instead of `success: false`.
+      const needsReview = !success && !interrupted && agent.getLastTurnOutcome?.() === 'needs_review';
+      const turnOutcome: TurnOutcome = interrupted ? 'interrupted' : success ? 'completed' : needsReview ? 'needs_review' : 'failed';
       try {
         await agent.getHookManager?.()?.executeHooks('stop', {
-          sessionId: params.sessionId, turnDuration, turnOutcome, ...(interrupted ? {} : { success }),
+          sessionId: params.sessionId, turnDuration, turnOutcome, ...(interrupted || needsReview ? {} : { success }),
         }, { signal: session.abortController.signal });
       } catch (error) {
         process.stderr.write(`[ACP] Stop hook failed: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -1024,6 +1027,9 @@ export class AutohandAcpAdapter implements Agent {
       this.emitHookStop(params.sessionId, 0, 0, turnDuration, turnOutcome);
       if (interrupted) {
         return { stopReason: 'cancelled' };
+      }
+      if (needsReview) {
+        return { stopReason: 'end_turn' };
       }
       if (!success) {
         throw RequestError.internalError(undefined, 'Autohand Code could not complete this turn. Check the reported setup or tool error before retrying.');

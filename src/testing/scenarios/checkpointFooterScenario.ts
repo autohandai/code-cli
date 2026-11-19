@@ -7,7 +7,7 @@ export async function runCheckpointFooterScenario(session: Session): Promise<str
   await session.press('enter');
   return waitForTerminalScreen(session, { timeout: 20_000, waitFor: text =>
     (text.includes('Work remains pending Moa review') || text.includes('CHECKPOINT_FOOTER_ANSWER'))
-    && (text.includes('Failed in') || text.includes('Completed in')),
+    && (text.includes('Needs review after') || text.includes('Failed in') || text.includes('Completed in')),
   });
 }
 
@@ -17,6 +17,6 @@ export async function runGoalCompletionScenario(session: Session): Promise<strin
   await session.press('enter');
   return waitForTerminalScreen(session, { timeout: 25_000, waitFor: text =>
     (text.includes('Work remains pending Moa review') || text.includes('DELIVERED_CHANGELOG'))
-    && (text.includes('Failed in') || text.includes('Completed in')),
+    && (text.includes('Needs review after') || text.includes('Failed in') || text.includes('Completed in')),
   });
 }

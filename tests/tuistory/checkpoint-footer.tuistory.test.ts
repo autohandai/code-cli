@@ -72,7 +72,7 @@ describe('checkpoint completion footer', () => {
           '../../src/testing/scenarios/checkpointDeadlinePreload.mjs')).href}` } } : {}),
       });
       const screen = await runGoalCompletionScenario(session);
-      expect(screen).toContain(approved ? 'Completed in' : 'Failed in');
+      expect(screen).toContain(approved ? 'Completed in' : 'Needs review after');
       expect(screen).toContain('DELIVERED_CHANGELOG');
       if (delayMs && !approved) {
         expect(screen).toContain('Unreviewed draft');
@@ -93,7 +93,7 @@ describe('checkpoint completion footer', () => {
   });
 
   it.each([
-    { name: 'unavailable review', review: 'not json', retryReview: 'not json', footer: 'Failed in' },
+    { name: 'unavailable review', review: 'not json', retryReview: 'not json', footer: 'Needs review after' },
     { name: 'approved review', review: '{"verdict":"approved","feedback":"Source evidence checked."}', retryReview: '', footer: 'Completed in' },
     { name: 'recovered malformed review', review: 'not json', retryReview: '{"verdict":"approved","feedback":"Recovery evidence checked."}', footer: 'Completed in' },
   ])('shows an honest outcome after $name', async ({ review, retryReview, footer }) => {
@@ -118,8 +118,9 @@ describe('checkpoint completion footer', () => {
       });
       const screen = await runCheckpointFooterScenario(session);
       expect(screen).toContain(footer);
-      if (footer === 'Failed in') {
+      if (footer === 'Needs review after') {
         expect(screen).not.toContain('Completed in');
+        expect(screen).not.toContain('Failed in');
         expect(screen).toContain('Unreviewed draft');
         expect(screen).toContain('CHECKPOINT_FOOTER_ANSWER');
       }

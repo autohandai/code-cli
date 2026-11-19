@@ -2161,10 +2161,11 @@ export type ToolFailureKind =
   | 'operational';
 
 /**
- * How a turn ended. A turn the user stopped is not a failure: UIs, protocol hosts and
- * lifecycle hooks report it separately so nobody chases an error that never happened.
+ * How a turn ended. A turn the user stopped is not a failure, and neither is one whose answer
+ * was delivered but whose checkpoint review is unresolved: UIs, protocol hosts and lifecycle
+ * hooks report both separately so nobody chases an error that never happened.
  */
-export type TurnOutcome = 'completed' | 'failed' | 'interrupted';
+export type TurnOutcome = 'completed' | 'failed' | 'interrupted' | 'needs_review';
 
 export type ToolImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
 

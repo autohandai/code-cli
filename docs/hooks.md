@@ -675,7 +675,7 @@ When your hook command executes, these environment variables are available:
 | `HOOK_TOOL_CALLS_COUNT` | Number of tool calls | stop |
 | `HOOK_TURN_TOOL_CALLS` | Tool calls in current turn | stop |
 | `HOOK_TURN_DURATION` | Turn duration in ms | stop |
-| `HOOK_TURN_OUTCOME` | How the turn ended: `completed`, `failed` or `interrupted`. An interrupted turn was stopped by the user or the host; it did not fail | stop |
+| `HOOK_TURN_OUTCOME` | How the turn ended: `completed`, `failed`, `interrupted` or `needs_review`. An interrupted turn was stopped by the user or the host; it did not fail. `needs_review` means the answer was delivered but its Moa checkpoint review is unresolved; it is not approved and it did not fail | stop |
 | `HOOK_ERROR` | Error message | session-error, rate-limit |
 | `HOOK_ERROR_CODE` | Error code | session-error, rate-limit |
 | `HOOK_RETRY_AFTER_MS` | Provider-advertised retry delay in ms (only when sent) | rate-limit |
