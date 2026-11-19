@@ -45,7 +45,7 @@ export async function runCollaborationCommandsScenario(session: Session): Promis
   await session.press('enter');
   evidence.push(await session.text({
     timeout: 20_000,
-    waitFor: (text) => text.includes('Active Autohand Agents'),
+    waitFor: (text) => text.includes('Agent sessions') && text.includes('enter open'),
   }));
   await session.press('escape');
   await waitForComposer(session);

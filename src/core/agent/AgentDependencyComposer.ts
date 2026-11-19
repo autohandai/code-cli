@@ -2279,7 +2279,7 @@ export function initializeAgentDependencies(
       get peerMessaging() { return host.peerMessaging; },
       onPeerDraft: (draft: PeerComposerDraft) => host.inkRenderer?.setPeerDraft(draft),
       llm: host.llm,
-      workspaceRoot: runtime.workspaceRoot,
+      get workspaceRoot() { return host.runtime.workspaceRoot; },
       get model() {
         const provider = host.activeProvider ?? runtime.config.provider ?? 'openrouter';
         const providerSettings = getProviderConfig(runtime.config, provider);
@@ -2300,6 +2300,7 @@ export function initializeAgentDependencies(
       restoreLoadedSession: async (session: Session) => {
         await host.restoreSessionState(session);
       },
+      switchWorkspace: (workspaceRoot: string) => host.switchWorkspaceContext(workspaceRoot),
       getLastTurn: () => host.conversation.getLastTurn(),
       undoTurnMutations: (turn: FileMutationTurn) => host.files.undoTurn(turn),
       removeLastTurn: (turnId: string) => host.conversation.removeLastTurn(turnId),

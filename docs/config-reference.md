@@ -813,6 +813,7 @@ See [Workspace Safety](./workspace-safety.md) for full details.
 | `showThinking`               | boolean | `false` | Display LLM's reasoning/thought process                                                        |
 | `renderMarkdown`             | boolean | `true`  | Render assistant markdown with readable wrapping, aligned lists and tables, code rails, and clickable links and image labels in compatible terminals. Ink replies use up to 100 columns and reflow on resize. Image contents are not downloaded or displayed inline. Set `false` to show the markdown as written. Toggle it in `/settings` under UI & Display, or run `/settings render_markdown off` |
 | `mouseComposerCursor`        | boolean | on, except iTerm2 | Enable click-to-position editing in the Ink composer                                           |
+| `resumeDirectory`            | string  | `"ask"`           | Directory a session opened from `/agents` runs in when it was saved in a different one: `"ask"` each time, `"session"` (the session's own directory) or `"current"` (stay where you are). The "Always …" choices in the `/agents` working-directory step write this key |
 | `keybindingProfile`          | string | `"autohand"` | Shortcut profile for the composer: `autohand`, `claude-code`, `codex`, `cursor`, `antigravity`, `devin` or `factory`. See [Keyboard Shortcut Profiles](#keyboard-shortcut-profiles) |
 | `terminalBell`               | boolean | `true`  | Ring terminal bell when task completes (shows badge on terminal tab/dock)                      |
 | `checkForUpdates`            | boolean | `true`  | Check for CLI updates on startup                                                               |
@@ -2251,6 +2252,8 @@ Background processes belong to the teammate task that started them. Failed or ca
 
 Selecting maximum reasoning shows a usage warning when the configured limit is eight or more. At the default, it identifies nine concurrent threads including up to eight subagents and recommends setting `features.multi_agent_v2.max_concurrent_threads_per_session` below eight. Reducing the limit blocks new children once capacity is exhausted; it does not interrupt existing work.
 
+Bare `/agents` in an interactive terminal opens the session command center. It lists saved sessions from every project together with sessions that are open in a running Autohand process, grouped by directory, with status tabs: **Needs you** (a live session waiting for input), **Working** (a live session with a turn in flight), **Ready** (live and idle) and **Inactive** (saved, not open anywhere). Use `↑`/`↓` or click to select, `Tab`/`Shift+Tab` or click a tab to filter, and `Enter` or a second click to switch this CLI to the selected session, the same way `/resume <id>` does; `Esc` returns to the composer without switching. When the session was saved in a different directory, a working-directory step asks whether to move to the session's directory or stay in the current one; its "Always …" options save the answer to `ui.resumeDirectory`. A session that is open in another process is listed but cannot be opened here; switch to that terminal instead. `/agents --live` shows the heartbeat table instead, and `autohand agents` outside a session is unchanged.
+
 Use `/agents view` to inspect direct and team runs, their live activity, parentage, model/provider, usage, output, and errors. The list updates as workers wait for model responses, read files, search, or run commands. Worker summaries no longer appear on the main screen; `ui.taskListPosition` continues to control ordinary task lists.
 
 Arrow keys select a run, Enter opens details, `m` opens its message editor, and `c` requests cancellation with confirmation. Enter queues a message for that exact worker's next model step; it does not mean the worker has already read it. Escape closes the message editor or returns from details/confirmation to the list; unsent drafts are discarded, but submitted messages are not recalled. Escape from the list restores the main composer and its draft. Finished, stopping, and unavailable workers cannot receive new messages. `/squad view` displays the native daemon's recorded runs for this workspace; these are independent, read-only sessions with their own budgets, not children charged against this CLI session's limit.
@@ -3397,7 +3400,8 @@ Node builds install an environment proxy dispatcher at startup when `HTTPS_PROXY
 
 | Command       | Description                                           |
 | ------------- | ----------------------------------------------------- |
-| `/agents`     | Watch active Autohand sessions                         |
+| `/agents`     | Open the session command center: saved and live sessions grouped by directory; Enter switches to one |
+| `/agents --live` | Watch live Autohand session heartbeats               |
 | `/agents definitions` | List installed sub-agent definitions          |
 | `/agents view` | Inspect direct and team runs                          |
 | `/agents provider [agent]` | Choose and confirm the provider/model default for new teammates, or an override for one sub-agent definition |

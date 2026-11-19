@@ -433,6 +433,8 @@ export interface UISettings {
   defaultInteractionMode?: 'default' | 'plan' | 'automode' | 'yolo';
   /** Enable mouse click-to-position editing in the Ink composer (default: true). */
   mouseComposerCursor?: boolean;
+  /** Directory a session opened from `/agents` runs in when it was saved elsewhere: ask each time (default), its own, or the current one. */
+  resumeDirectory?: 'ask' | 'session' | 'current';
   /** Shortcut profile for the Ink composer: Autohand defaults or another agent's conventions (default: autohand). */
   keybindingProfile?: KeybindingProfileId;
   /** Legacy fixed composer status-line display preferences (migrated to statusBar). */

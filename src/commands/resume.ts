@@ -57,7 +57,7 @@ export async function resolveSessionTitle(
  * Reads the file rather than calling loadSession(), which would change the
  * currentSession as a side effect.
  */
-async function readFirstUserMessage(sessionMeta: SessionMetadata): Promise<string | undefined> {
+export async function readFirstUserMessage(sessionMeta: Pick<SessionMetadata, 'sessionId'>): Promise<string | undefined> {
     try {
         const conversationPath = path.join(AUTOHAND_PATHS.sessions, sessionMeta.sessionId, 'conversation.jsonl');
         if (!await fs.pathExists(conversationPath)) {

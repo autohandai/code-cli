@@ -23,6 +23,7 @@ export const metadata = {
     implemented: true,
     subcommands: [
         { name: 'help', description: 'show agent commands and keyboard controls' },
+        { name: '--live', description: 'watch live Autohand session heartbeats' },
         { name: 'view', description: 'inspect this session’s agent runs, results, and usage' },
         { name: 'provider [agent]', description: 'set the default provider/model or an agent-specific override' },
         { name: 'orchestration [on|off]', description: 'toggle Autohand AI research workers and Moa checkpoint reviews' },
@@ -55,7 +56,9 @@ export async function handler(args: string[] = [], deps: AgentsCommandDeps = {})
             '  /agents view              Inspect this session’s direct and team agent runs, results, and usage',
             '                            ↑/↓ select · Enter details · m message · c cancel (confirmation required) · Esc back',
             '                            Messages are queued for the selected worker’s next model step, not marked as read.',
-            '  /agents                   Watch global Autohand session heartbeats',
+            '  /agents                   Open the session command center: every saved and live session, grouped by directory',
+            '                            ↑/↓ or click select · Tab filter · Enter switch to the session · Esc back',
+            '  /agents --live            Watch global Autohand session heartbeats (↑/↓ select · Enter details · Esc back)',
             '  /agents --once            Print one global heartbeat snapshot',
             '  /agents definitions       List configured agent definitions',
             '  /agents provider [agent]  Set default or agent-specific provider/model',
@@ -227,7 +230,18 @@ export async function listAgentDefinitions(activeConfig?: LoadedConfig): Promise
     return output.trim();
 }
 
-export function formatActiveAgents(records: ActiveAgentRecord[], now = new Date()): string {
+export interface ActiveAgentsListView {
+    /** Session to mark as selected; presence switches the listing to its navigable live layout. */
+    selectedKey: string;
+    /** Terminal rows available, so the selected session stays on screen. */
+    maxRows?: number;
+}
+
+export function activeAgentKey(record: Pick<ActiveAgentRecord, 'sessionId' | 'pid'>): string {
+    return `${record.sessionId}:${record.pid}`;
+}
+
+export function formatActiveAgents(records: ActiveAgentRecord[], now = new Date(), view?: ActiveAgentsListView): string {
     if (records.length === 0) {
         return [
             chalk.gray('No active Autohand agents found.'),
@@ -236,44 +250,105 @@ export function formatActiveAgents(records: ActiveAgentRecord[], now = new Date(
         ].join('\n');
     }
 
-    const lines = [
+    const gutter = view ? '  ' : '';
+    const header = [
         chalk.bold('Active Autohand Agents'),
         '',
-        `${'Status'.padEnd(10)} ${'Project'.padEnd(20)} ${'Session'.padEnd(10)} ${'Model'.padEnd(24)} ${'Ctx'.padEnd(6)} ${'Tokens'.padEnd(8)} ${'Updated'.padEnd(9)} PID`,
-        chalk.gray('─'.repeat(100)),
+        `${gutter}${'Status'.padEnd(10)} ${'Project'.padEnd(20)} ${'Session'.padEnd(10)} ${'Model'.padEnd(24)} ${'Ctx'.padEnd(6)} ${'Tokens'.padEnd(8)} ${'Updated'.padEnd(9)} PID`,
+        chalk.gray('─'.repeat(100 + gutter.length)),
     ];
+    const selectedIndex = view ? Math.max(0, records.findIndex((record) => activeAgentKey(record) === view.selectedKey)) : -1;
+    const blocks = records.map((record, index) => formatActiveAgentBlock(record, now, view ? index === selectedIndex : undefined));
+    const footer = ['', chalk.gray(view
+        ? `${selectedIndex + 1}/${records.length} • ↑/↓ select • Enter details • Esc/Ctrl+C to exit`
+        : 'Esc/Ctrl+C to exit • `autohand agents --once` for a static snapshot')];
 
-    for (const record of records) {
-        const statusLabel = record.status === 'working' ? 'working' : 'idle';
-        const status = record.status === 'working' ? chalk.yellow(statusLabel.padEnd(10)) : chalk.green(statusLabel.padEnd(10));
-        const project = truncate(record.projectName, 20).padEnd(20);
-        const session = record.sessionId.slice(0, 8).padEnd(10);
-        const model = truncate(record.model, 24).padEnd(24);
-        const context = `${Math.round(record.contextPercent)}%`.padEnd(6);
-        const tokens = compactNumber(record.sessionTokensUsed ?? record.tokensUsed).padEnd(8);
-        const updated = formatAge(now.getTime() - Date.parse(record.updatedAt)).padEnd(9);
-        lines.push(`${status} ${project} ${chalk.cyan(session)} ${model} ${context} ${tokens} ${updated} ${record.pid}`);
-        if (record.activity) {
-            const phase = record.activity.phase.replace(/_/gu, ' ');
-            lines.push(`  ${chalk.blue('Phase:')} ${phase}`);
-            const instruction = sanitizePeerText(record.activity.instruction);
-            const command = sanitizePeerText(record.activity.command);
-            if (instruction) lines.push(`  ${chalk.blue('Instruction:')} ${instruction}`);
-            if (command) lines.push(`  ${chalk.blue('Command:')} ${command}`);
-            if (record.activity.pathsWritten.length > 0) {
-                const recentPaths = record.activity.pathsWritten
-                    .slice(0, 3)
-                    .map((filePath) => sanitizePeerText(filePath))
-                    .filter((filePath): filePath is string => Boolean(filePath));
-                if (recentPaths.length > 0) {
-                    lines.push(`  ${chalk.blue('Recent paths:')} ${recentPaths.join(', ')}`);
-                }
-            }
-        }
-    }
+    const body = blocks.flat();
+    const available = Math.max(1, Math.floor(view?.maxRows ?? Infinity) - header.length - footer.length - 1);
+    if (!view || body.length <= available) return [...header, ...body, ...footer].join('\n');
 
-    lines.push('', chalk.gray('Esc/Ctrl+C to exit • `autohand agents --once` for a static snapshot'));
-    return lines.join('\n');
+    const selectedStart = blocks.slice(0, selectedIndex).reduce((total, block) => total + block.length, 0);
+    const selectedEnd = selectedStart + (blocks[selectedIndex]?.length ?? 1);
+    const start = Math.min(selectedStart, Math.max(0, selectedEnd - available));
+    return [...header, ...body.slice(start, start + available), ...footer].join('\n');
+}
+
+function formatActiveAgentBlock(record: ActiveAgentRecord, now: Date, selected?: boolean): string[] {
+    const marker = selected === undefined ? '' : selected ? `${chalk.cyan('›')} ` : '  ';
+    const indent = selected === undefined ? '' : '  ';
+    const statusLabel = record.status === 'working' ? 'working' : 'idle';
+    const status = record.status === 'working' ? chalk.yellow(statusLabel.padEnd(10)) : chalk.green(statusLabel.padEnd(10));
+    const project = truncate(record.projectName, 20).padEnd(20);
+    const session = record.sessionId.slice(0, 8).padEnd(10);
+    const model = truncate(record.model, 24).padEnd(24);
+    const context = `${Math.round(record.contextPercent)}%`.padEnd(6);
+    const tokens = compactNumber(record.sessionTokensUsed ?? record.tokensUsed).padEnd(8);
+    const updated = formatAge(now.getTime() - Date.parse(record.updatedAt)).padEnd(9);
+    const lines = [`${marker}${status} ${project} ${chalk.cyan(session)} ${model} ${context} ${tokens} ${updated} ${record.pid}`];
+    if (!record.activity) return lines;
+
+    lines.push(`${indent}  ${chalk.blue('Phase:')} ${record.activity.phase.replace(/_/gu, ' ')}`);
+    const instruction = sanitizePeerText(record.activity.instruction);
+    const command = sanitizePeerText(record.activity.command);
+    if (instruction) lines.push(`${indent}  ${chalk.blue('Instruction:')} ${instruction}`);
+    if (command) lines.push(`${indent}  ${chalk.blue('Command:')} ${command}`);
+    const recentPaths = sanitizedPaths(record.activity.pathsWritten, 3);
+    if (recentPaths.length > 0) lines.push(`${indent}  ${chalk.blue('Recent paths:')} ${recentPaths.join(', ')}`);
+    return lines;
+}
+
+export function formatActiveAgentDetails(record: ActiveAgentRecord, now = new Date(), position?: { index: number; total: number }): string {
+    const field = (label: string, value: string | undefined) => value ? [`${chalk.blue(`${label}:`)} ${value}`] : [];
+    const activity = record.activity;
+    const recentPaths = sanitizedPaths(activity?.pathsWritten ?? [], 10);
+    return [
+        chalk.bold(`Autohand session · ${sanitizePeerText(record.projectName) ?? 'unknown project'} · ${record.status === 'working' ? 'working' : 'idle'}`),
+        '',
+        ...field('Session', sanitizePeerText(record.sessionId)),
+        ...field('Workspace', sanitizePeerText(record.workspaceRoot)),
+        ...field('Model', [sanitizePeerText(String(record.provider)), sanitizePeerText(record.model)].filter(Boolean).join(' · ')),
+        ...field('Mode', `${record.mode} · PID ${record.pid}`),
+        ...field('Started', `${formatAge(now.getTime() - Date.parse(record.startedAt))} ago · updated ${formatAge(now.getTime() - Date.parse(record.updatedAt))}`),
+        ...field('Usage', `${Math.round(record.contextPercent)}% context · ${compactNumber(record.sessionTokensUsed ?? record.tokensUsed)} tokens · ${record.messageCount} messages`),
+        ...field('Phase', activity?.phase.replace(/_/gu, ' ')),
+        ...field('Instruction', sanitizePeerText(activity?.instruction, 1_000)),
+        ...field('Command', sanitizePeerText(activity?.command, 1_000)),
+        ...field('Recent paths', recentPaths.join(', ')),
+        '',
+        chalk.gray(`${position ? `${position.index + 1}/${position.total} • ` : ''}↑/↓ other sessions • Esc back to list • Ctrl+C to exit`),
+    ].join('\n');
+}
+
+const ESCAPE = '\u001b';
+const CTRL_C = '\u0003';
+const LONE_ESCAPE_TIMEOUT_MS = 50;
+const LIVE_KEY_PATTERN = /^(?:\u001b\[[0-?]*[ -/]*[@-~]|\u001bO[@-~]|[^\u001b])/u;
+const INCOMPLETE_SEQUENCE_PATTERN = /^\u001b(?:\[[0-?]*[ -/]*|O)?$/u;
+const KITTY_KEY_PATTERN = /^\u001b\[(\d+)(?::\d*)*(?:;(\d+)(?::(\d+))?)?(?:;[\d:]*)?u$/u;
+const MODIFY_OTHER_KEYS_PATTERN = /^\u001b\[27;(\d+);(\d+)~$/u;
+const KEY_RELEASE_EVENT = '3';
+const CTRL_MODIFIER = 4;
+
+/**
+ * Terminals with the kitty keyboard protocol or xterm modifyOtherKeys enabled
+ * (the interactive session turns the former on) report Escape and Ctrl+C as CSI
+ * sequences instead of their legacy bytes. Reduce every encoding to the legacy one.
+ */
+function normalizeLiveKey(sequence: string): string | undefined {
+    const kitty = KITTY_KEY_PATTERN.exec(sequence);
+    const other = kitty ? null : MODIFY_OTHER_KEYS_PATTERN.exec(sequence);
+    if (!kitty && !other) return sequence;
+    if (kitty?.[3] === KEY_RELEASE_EVENT) return undefined;
+    const code = Number(kitty ? kitty[1] : other?.[2]);
+    const modifiers = Number((kitty ? kitty[2] : other?.[1]) ?? 1) - 1;
+    if (code === 27) return ESCAPE;
+    if (code === 13) return '\r';
+    if (code === 99 && (modifiers & CTRL_MODIFIER) !== 0) return CTRL_C;
+    return undefined;
+}
+
+function byStartOrder(a: ActiveAgentRecord, b: ActiveAgentRecord): number {
+    return Date.parse(a.startedAt) - Date.parse(b.startedAt) || activeAgentKey(a).localeCompare(activeAgentKey(b));
 }
 
 async function renderLiveActiveAgents(
@@ -291,6 +366,7 @@ async function renderLiveActiveAgents(
             if (completed) return;
             completed = true;
             if (interval) clearInterval(interval);
+            if (escapeTimer) clearTimeout(escapeTimer);
             input.off('data', onData);
             if (!wasRaw && typeof input.setRawMode === 'function') {
                 try { input.setRawMode(false); } catch {}
@@ -298,21 +374,83 @@ async function renderLiveActiveAgents(
             if (wasPaused && typeof input.pause === 'function') {
                 input.pause();
             }
-            output.write('\x1B[2J\x1B[H');
+            output.write('\x1B[2J\x1B[H\x1B[?25h');
             resolve();
         };
 
+        // Rows keep their start order and the selection follows a session, not a
+        // row: the registry returns most-recently-updated first, so every
+        // heartbeat would otherwise reshuffle the list under the cursor.
+        let records: ActiveAgentRecord[] = [];
+        let selectedKey: string | undefined;
+        let selectedIndex = 0;
+        let detailsOpen = false;
+        let lastFrame: string | undefined;
+        let refreshing = false;
+        let pending = '';
+        let escapeTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const paint = () => {
+            if (completed) return;
+            const found = records.findIndex((record) => activeAgentKey(record) === selectedKey);
+            if (found === -1) detailsOpen = false;
+            selectedIndex = Math.max(0, Math.min(records.length - 1, found === -1 ? selectedIndex : found));
+            const selected = records[selectedIndex];
+            selectedKey = selected ? activeAgentKey(selected) : undefined;
+            const now = new Date();
+            const frame = detailsOpen && selected
+                ? formatActiveAgentDetails(selected, now, { index: selectedIndex, total: records.length })
+                : formatActiveAgents(records, now, { selectedKey: selectedKey ?? '', maxRows: output.rows });
+            if (frame === lastFrame) return;
+            const clear = lastFrame === undefined ? '\x1B[?25l\x1B[2J' : '';
+            lastFrame = frame;
+            output.write(`${clear}\x1B[H${frame.split('\n').map((line) => `${line}\x1B[K`).join('\n')}\n\x1B[J`);
+        };
+
+        const select = (offset: number) => {
+            selectedIndex = Math.max(0, Math.min(records.length - 1, selectedIndex + offset));
+            const next = records[selectedIndex];
+            if (next) selectedKey = activeAgentKey(next);
+        };
+
+        const handleKey = (key: string | undefined) => {
+            if (key === CTRL_C || (key === ESCAPE && !detailsOpen)) cleanup();
+            else if (key === ESCAPE) detailsOpen = false;
+            else if (key === '\u001b[A' || key === '\u001bOA') select(-1);
+            else if (key === '\u001b[B' || key === '\u001bOB') select(1);
+            else if (key === '\r' || key === '\n') detailsOpen = records.length > 0;
+        };
+
         const onData = (chunk: Buffer | string) => {
-            const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-            if (text.includes('\u001b') || text.includes('\u0003')) {
-                cleanup();
+            if (escapeTimer) clearTimeout(escapeTimer);
+            escapeTimer = null;
+            pending += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+            while (!completed && pending && !INCOMPLETE_SEQUENCE_PATTERN.test(pending)) {
+                const key = LIVE_KEY_PATTERN.exec(pending)?.[0] ?? pending[0]!;
+                pending = pending.slice(key.length);
+                handleKey(normalizeLiveKey(key));
             }
+            paint();
+            if (completed || !pending) return;
+            // A lone ESC is the Escape key only if the rest of a sequence does not follow.
+            escapeTimer = setTimeout(() => {
+                escapeTimer = null;
+                const key = pending === ESCAPE ? ESCAPE : undefined;
+                pending = '';
+                handleKey(key);
+                paint();
+            }, LONE_ESCAPE_TIMEOUT_MS);
         };
 
         const render = async () => {
-            const records = await registry.listActive();
-            output.write('\x1B[2J\x1B[H');
-            output.write(`${formatActiveAgents(records)}\n`);
+            if (refreshing) return;
+            refreshing = true;
+            try {
+                records = [...await registry.listActive()].sort(byStartOrder);
+                paint();
+            } finally {
+                refreshing = false;
+            }
         };
 
         if (wasPaused && typeof input.resume === 'function') {
@@ -358,11 +496,17 @@ function formatAge(ageMs: number): string {
     return `${Math.floor(minutes / 60)}h`;
 }
 
-function sanitizePeerText(value: string | undefined): string | undefined {
+function sanitizePeerText(value: string | undefined, maxCharacters = 200): string | undefined {
     if (!value) return undefined;
     const sanitized = sanitizeAnnouncementText(value, {
-        maxCharacters: 200,
+        maxCharacters,
         preserveParagraphs: false,
     });
     return sanitized || undefined;
+}
+
+function sanitizedPaths(paths: string[], limit: number): string[] {
+    return paths.slice(0, limit)
+        .map((filePath) => sanitizePeerText(filePath))
+        .filter((filePath): filePath is string => Boolean(filePath));
 }

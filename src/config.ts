@@ -1665,6 +1665,12 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       throw new Error(`ui.mouseComposerCursor must be boolean in ${configPath}`);
     }
     if (
+      config.ui.resumeDirectory !== undefined &&
+      !["ask", "session", "current"].includes(config.ui.resumeDirectory)
+    ) {
+      throw new Error(`ui.resumeDirectory must be "ask", "session" or "current" in ${configPath}`);
+    }
+    if (
       config.ui.renderMarkdown !== undefined &&
       typeof config.ui.renderMarkdown !== "boolean"
     ) {

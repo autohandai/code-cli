@@ -758,7 +758,8 @@ Or use the slash command:
 | `/new` | Start fresh conversation |
 | `/init` | Create AGENTS.md template |
 | `/sessions` | List saved sessions |
-| `/agents` | Show active Autohand CLI instances |
+| `/agents` | Open the session command center and switch between sessions |
+| `/agents --live` | Show active Autohand CLI instances |
 | `/agents definitions` | List configured sub-agents |
 | `/resume` | Resume previous session |
 | `/memory` | Manage saved preferences |

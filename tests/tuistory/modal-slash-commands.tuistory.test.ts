@@ -107,13 +107,13 @@ describe('raw-stdin modal slash commands Tuistory', () => {
     await exitInteractive(session);
   }, 90_000);
 
-  it.each([false, true])('keeps the CLI alive while the /agents live view is open (full screen: %s)', async fullScreen => {
+  it.each([false, true])('keeps the CLI alive while the /agents --live heartbeat view is open (full screen: %s)', async fullScreen => {
     const session = await launchInteractive(fullScreen);
     const baseline = composerRow(await session.text());
 
-    await session.type('/agents');
+    await session.type('/agents --live');
     await session.press('enter');
-    await expectStillRunning(session, '/agents');
+    await expectStillRunning(session, '/agents --live');
 
     // An interactive session registers itself, so the live view lists it rather
     // than showing the empty state the one-shot `agents` subcommand renders.
@@ -123,8 +123,37 @@ describe('raw-stdin modal slash commands Tuistory', () => {
     await session.press('escape');
     await waitForComposer(session);
     if (fullScreen) expect(composerRow(await session.text())).toBe(baseline);
-    expect(session.exitInfo, 'Escape closed the /agents view and killed the CLI').toBeNull();
+    expect(session.exitInfo, 'Escape closed the /agents --live view and killed the CLI').toBeNull();
 
+    await exitInteractive(session);
+  }, 90_000);
+
+  it.each([false, true])('keeps the CLI alive while the /agents session command center is open (full screen: %s)', async fullScreen => {
+    const session = await launchInteractive(fullScreen);
+    const baseline = composerRow(await session.text());
+
+    await session.type('/agents');
+    await session.press('enter');
+    await expectStillRunning(session, '/agents');
+
+    // The session that opened the command center is listed as the one it is in.
+    await session.waitForText('Agent sessions', { timeout: 10_000 });
+    await session.waitForText('(this session)', { timeout: 10_000 });
+    await session.waitForText('enter open', { timeout: 10_000 });
+
+    // Moving around and refreshing must not end the process either.
+    await session.press('tab');
+    await session.press('down');
+    await expectStillRunning(session, '/agents after navigation');
+    await session.waitForText('Agent sessions', { timeout: 10_000 });
+
+    await session.press('escape');
+    await waitForComposer(session);
+    if (fullScreen) expect(composerRow(await session.text())).toBe(baseline);
+    expect(session.exitInfo, 'Escape closed the /agents command center and killed the CLI').toBeNull();
+
+    await session.type('still here');
+    await session.waitForText('still here', { timeout: 10_000 });
     await exitInteractive(session);
   }, 90_000);
 });

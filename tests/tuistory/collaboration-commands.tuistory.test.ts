@@ -56,7 +56,7 @@ describe('collaboration slash commands Tuistory', () => {
     expect(output).toContain('Usage:');
     expect(output).toContain('Team "docs-demo" has been shut down.');
     expect(output).toContain('Sub-Agent Definitions');
-    expect(output).toContain('Active Autohand Agents');
+    expect(output).toContain('Agent sessions');
     expect(output).toContain('No active peers');
   }, 90_000);
 });

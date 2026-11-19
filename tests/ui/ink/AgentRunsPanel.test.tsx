@@ -500,4 +500,27 @@ describe('AgentRunsPanel', () => {
     view.stdin.write('\u001b');
     await vi.waitFor(() => expect(view.lastFrame()).toContain('Enter details'));
   });
+
+  it('keeps the selection and the opened run on the same run when a refresh reorders and extends the list', async () => {
+    const element = (runs: AgentRun[], updatedAt: number) => <ThemeProvider><AgentRunsPanel snapshot={{ updatedAt, runs }}
+      terminalRows={24} onClose={() => {}} onCtrlC={() => {}} /></ThemeProvider>;
+    const view = render(element([run('first'), run('second', { output: 'SECOND_OUTPUT' }), run('third')], 200));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    view.stdin.write('\u001b[B');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('› second'));
+
+    view.rerender(element([run('newcomer', { updatedAt: 900 }), run('third', { updatedAt: 800 }),
+      run('second', { updatedAt: 700, output: 'SECOND_OUTPUT' }), run('first', { updatedAt: 600 })], 900));
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('newcomer'));
+    expect(view.lastFrame()).toContain('› second');
+    expect(view.lastFrame()).toContain('3/4');
+
+    view.stdin.write('\r');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('SECOND_OUTPUT'));
+    view.rerender(element([run('second', { updatedAt: 1200, output: 'SECOND_OUTPUT' }), run('newcomer', { updatedAt: 1100 }),
+      run('first', { updatedAt: 1000 })], 1200));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(view.lastFrame()).toContain('second · running');
+    expect(view.lastFrame()).toContain('SECOND_OUTPUT');
+  });
 });

@@ -173,6 +173,10 @@ export class SlashCommandHandler {
           return changelog();
         }
         case '/agents': {
+          if (args.length === 0 && !this.ctx.isNonInteractive && this.ctx.onBeforeModal && process.stdin.isTTY && process.stdout.isTTY) {
+            const { agentSessions } = await import('../commands/agentSessions.js');
+            return agentSessions(this.ctx);
+          }
           const { handler } = await import('../commands/agents.js');
           const isLiveView = args[0]?.toLowerCase() === 'view';
           if (!isLiveView) await this.ctx.onBeforeModal?.();

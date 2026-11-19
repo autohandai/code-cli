@@ -202,6 +202,8 @@ export interface SlashCommandContext {
     restoreSession?: (sessionId: string) => Promise<void>;
     /** Restore an already loaded session without a duplicate disk read. */
     restoreLoadedSession?: (session: Session) => Promise<void>;
+    /** Move the active CLI session to another working directory (used when opening a session saved elsewhere). */
+    switchWorkspace?: (workspaceRoot: string) => Promise<void>;
 }
 
 export interface SlashCommandSubcommand {

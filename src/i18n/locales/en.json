@@ -574,7 +574,7 @@
       "failed": "Export failed: {{error}}"
     },
     "agents": {
-      "description": "show active Autohand CLI agents",
+      "description": "browse and switch between Autohand sessions",
       "title": "Active Autohand Agents",
       "definitionsTitle": "Sub-Agent Definitions",
       "noAgents": "No sub-agents configured."
