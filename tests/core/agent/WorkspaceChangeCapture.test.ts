@@ -191,6 +191,67 @@ describe('WorkspaceChangeCapture', () => {
   });
 });
 
+describe('whether a turn changed the workspace', () => {
+  it('reports an already-dirty workspace as unchanged until something is written after the checkpoint', async () => {
+    const workspaceRoot = await createGitWorkspace();
+    await fs.outputFile(path.join(workspaceRoot, 'src/existing.ts'), 'const value = "preexisting";\n');
+    await fs.outputFile(path.join(workspaceRoot, 'untracked.md'), 'left by an earlier session\n');
+    const capture = await WorkspaceChangeCapture.create(workspaceRoot);
+    try {
+      const checkpoint = await capture.begin();
+      expect(await capture.isUnchangedSince(checkpoint)).toBe(true);
+      // Asking does not consume the checkpoint: a completion review can run more than once per turn.
+      expect(await capture.isUnchangedSince(checkpoint)).toBe(true);
+
+      await fs.outputFile(path.join(workspaceRoot, 'src/existing.ts'), 'const value = "tool-change";\n');
+      expect(await capture.isUnchangedSince(checkpoint)).toBe(false);
+      await fs.outputFile(path.join(workspaceRoot, 'src/existing.ts'), 'const value = "preexisting";\n');
+      expect(await capture.isUnchangedSince(checkpoint)).toBe(true);
+      await fs.outputFile(path.join(workspaceRoot, 'added.ts'), 'export {};\n');
+      expect(await capture.isUnchangedSince(checkpoint)).toBe(false);
+    } finally {
+      await capture.dispose();
+    }
+  });
+
+  it('detects a change outside a Git repository', async () => {
+    const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-workspace-capture-'));
+    tempRoots.push(workspaceRoot);
+    await fs.outputFile(path.join(workspaceRoot, 'notes.txt'), 'before\n');
+    const capture = await WorkspaceChangeCapture.create(workspaceRoot);
+    try {
+      const checkpoint = await capture.begin();
+      expect(await capture.isUnchangedSince(checkpoint)).toBe(true);
+      await fs.outputFile(path.join(workspaceRoot, 'notes.txt'), 'after\n');
+      expect(await capture.isUnchangedSince(checkpoint)).toBe(false);
+    } finally {
+      await capture.dispose();
+    }
+  });
+
+  it('never claims the workspace is unchanged without both snapshots', async () => {
+    const { WorkspaceChangeCapture: Capture, WorkspaceChangeCaptureBudgetError } = await import('../../../src/core/agent/WorkspaceChangeCapture.js');
+    let fail = false;
+    const backend = {
+      snapshot: async () => {
+        if (fail) throw new WorkspaceChangeCaptureBudgetError('git add -A', 1);
+        return { kind: 'git' as const, tree: 'same' };
+      },
+      diff: async () => ({ files: [], omittedFiles: 0 }),
+      dispose: async () => {},
+    };
+    const capture = Capture.withBackend(backend as never);
+    expect(await capture.isUnchangedSince({ token: 'never-issued' })).toBe(false);
+    const checkpoint = await capture.begin();
+    expect(await capture.isUnchangedSince(checkpoint)).toBe(true);
+    fail = true;
+    expect(await capture.isUnchangedSince(checkpoint)).toBe(false);
+    expect(capture.hasExceededBudget()).toBe(true);
+    const late = await capture.begin();
+    expect(await capture.isUnchangedSince(late)).toBe(false);
+  });
+});
+
 describe('workspace change capture budget', () => {
   it('turns a process that outlives its budget into a budget error', async () => {
     const { runProcess, WorkspaceChangeCaptureBudgetError } = await import('../../../src/core/agent/WorkspaceChangeCapture.js');

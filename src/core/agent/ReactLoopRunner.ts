@@ -79,6 +79,7 @@ import {
   WorkspaceChangeCapture,
   WorkspaceChangeCaptureBudgetError,
   WORKSPACE_CHANGE_CAPTURE_BUDGET_MS,
+  type WorkspaceChangeCheckpoint,
   type WorkspaceChangeSet,
 } from './WorkspaceChangeCapture.js';
 import { stripAnsiCodes } from '../../ui/displayUtils.js';
@@ -617,6 +618,24 @@ export async function runAgentReactLoop(
           return null;
         })
       : null;
+    // What the workspace looked like before this turn's first tool ran, so a completion review
+    // can tell uncommitted work that was already there from work this turn did.
+    let turnChangeCapture: WorkspaceChangeCapture | null = null;
+    let turnBaseline: WorkspaceChangeCheckpoint | undefined;
+    const recordTurnBaseline = async (): Promise<void> => {
+      if (host.workspaceChangeCaptureDisabled) return;
+      try {
+        turnChangeCapture = workspaceChangeCapture ?? await WorkspaceChangeCapture.create(host.runtime.workspaceRoot);
+        turnBaseline = await turnChangeCapture.begin();
+      } catch (error) {
+        abortController.signal.throwIfAborted();
+        if (debugMode) host.writeDebugLine(`[DEBUG] Turn baseline unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    };
+    const turnLeftWorkspaceUnchanged = async (): Promise<boolean> => {
+      if (!turnChangeCapture || !turnBaseline) return false;
+      return turnChangeCapture.isUnchangedSince(turnBaseline).catch(() => false);
+    };
 
     try {
     const advisor = !areProviderBackgroundCallsEnabled(host.runtime.config, host.activeProvider) ? undefined
@@ -667,9 +686,12 @@ export async function runAgentReactLoop(
             else {
               const changes = await WorkspaceChangeCapture.pending(host.runtime.workspaceRoot);
               if (changes?.omittedFiles || changes?.files.some(file => file.patch.includes('[diff truncated]'))) {
-                return { verdict: 'unavailable', feedback: 'The workspace diff exceeds the review limit. Review a smaller change before completing.' };
-              }
-              context += `\nWorkspace diff against HEAD (includes staged and untracked files): ${JSON.stringify(changes ?? { unavailable: 'This workspace is not a Git repository; use the session evidence and disclose this limit.' })}`;
+                // Uncommitted work that predates the turn is not this turn's to answer for.
+                if (checkpoint !== 'completion' || !await turnLeftWorkspaceUnchanged()) {
+                  return { verdict: 'unavailable', feedback: 'The workspace diff exceeds the review limit. Review a smaller change before completing.' };
+                }
+                unavailableDiffReason = 'The uncommitted workspace diff exceeds the review limit, and all of it predates this turn: the workspace is exactly as it was before this turn ran its first tool';
+              } else context += `\nWorkspace diff against HEAD (includes staged and untracked files): ${JSON.stringify(changes ?? { unavailable: 'This workspace is not a Git repository; use the session evidence and disclose this limit.' })}`;
             }
           } catch (error) {
             abortController.signal.throwIfAborted();
@@ -1346,6 +1368,7 @@ export async function runAgentReactLoop(
       }
 
       if (payload.toolCalls && payload.toolCalls.length > 0) {
+        if (advisor && !hadToolWork) await recordTurnBaseline();
         hadToolWork = true;
         const checkpoint = checkpointForCalls(payload.toolCalls);
         if (advisor && checkpoint) {
@@ -2047,5 +2070,7 @@ export async function runAgentReactLoop(
       await workspaceChangeCapture?.dispose().catch((error: unknown) => {
         if (debugMode) host.writeDebugLine(`[DEBUG] Workspace change capture cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
       });
+      const ownTurnCapture = turnChangeCapture as WorkspaceChangeCapture | null;
+      if (ownTurnCapture && ownTurnCapture !== workspaceChangeCapture) await ownTurnCapture.dispose().catch(() => {});
     }
   }

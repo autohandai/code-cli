@@ -532,6 +532,30 @@ export class WorkspaceChangeCapture {
     return emptyChangeSet();
   }
 
+  /**
+   * True only when the workspace is known to be exactly as it was at the checkpoint. A missing
+   * baseline or a snapshot that blew its budget answers false: unknown is never "unchanged".
+   * The checkpoint stays valid, so the question can be asked again later in the same turn.
+   */
+  async isUnchangedSince(checkpoint: WorkspaceChangeCheckpoint): Promise<boolean> {
+    const before = this.checkpoints.get(checkpoint.token);
+    if (!before || this.budgetExceeded) return false;
+    let after: BackendSnapshot;
+    try {
+      after = await this.backend.snapshot() as BackendSnapshot;
+    } catch (error) {
+      if (!(error instanceof WorkspaceChangeCaptureBudgetError)) throw error;
+      this.budgetExceeded = true;
+      return false;
+    }
+    if (before.kind === 'git' && after.kind === 'git') return before.tree === after.tree;
+    if (before.kind === 'filesystem' && after.kind === 'filesystem') {
+      const changes = await (this.backend as CaptureBackend<FileSnapshot>).diff(before, after);
+      return changes.files.length === 0 && changes.omittedFiles === 0;
+    }
+    return false;
+  }
+
   async dispose(): Promise<void> {
     this.checkpoints.clear();
     await this.backend.dispose();

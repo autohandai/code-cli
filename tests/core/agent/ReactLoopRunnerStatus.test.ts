@@ -19,6 +19,7 @@ vi.mock('../../../src/core/agent/WorkspaceChangeCapture.js', async (importOrigin
         hasExceededBudget: () => false,
         begin: async () => ({ token: 'stub-checkpoint' }),
         finish: async () => ({ files: [], omittedFiles: 0 }),
+        isUnchangedSince: async () => false,
         dispose: async () => {},
       })),
     },
@@ -138,6 +139,81 @@ describe('ReactLoopRunner composer status', () => {
     expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'advisor_review' });
     expect(review).not.toHaveBeenCalled();
     expect(host.workspaceChangeCaptureDisabled).not.toBe(true);
+  });
+
+  it('reviews a turn that changed no files even though earlier uncommitted work exceeds the diff limit', async () => {
+    vi.mocked(WorkspaceChangeCapture.pending).mockResolvedValueOnce({ omittedFiles: 113, files: [{
+      path: 'large.ts', kind: 'modified', additions: 1, deletions: 1, binary: false, patch: '[diff truncated]',
+    }] });
+    const dispose = vi.fn(async () => {});
+    const isUnchangedSince = vi.fn(async () => true);
+    vi.mocked(WorkspaceChangeCapture.create).mockResolvedValueOnce({
+      hasExceededBudget: () => false, begin: async () => ({ token: 'turn-start' }),
+      finish: async () => ({ files: [], omittedFiles: 0 }), isUnchangedSince, dispose,
+    } as never);
+    const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [
+      { tool: 'read_file', args: { path: 'package.json' } },
+    ] }) }).mockResolvedValue({ content: 'Here is what you have been working on.' });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    host.toolManager.execute = vi.fn().mockResolvedValue([{ tool: 'read_file', success: true, output: 'Verified package' }]);
+    const review = vi.fn(async () => ({ verdict: 'approved' as const, feedback: 'Read-only answer; nothing to review in the workspace.' }));
+    host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review });
+
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'completed' });
+    expect(isUnchangedSince).toHaveBeenCalledWith({ token: 'turn-start' });
+    expect(review).toHaveBeenCalledOnce();
+    expect(review).toHaveBeenCalledWith('completion', expect.objectContaining({
+      context: expect.stringContaining('all of it predates this turn'),
+    }));
+    expect(review).toHaveBeenCalledWith('completion', expect.objectContaining({
+      context: expect.not.stringContaining('Workspace diff against HEAD'),
+    }));
+    expect(host.workspaceChangeCaptureDisabled).not.toBe(true);
+    expect(host.emitOutput).toHaveBeenCalledWith(expect.objectContaining({ type: 'message', content: 'Here is what you have been working on.' }));
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it('names the capture step that ran out of time even when the turn baseline already did', async () => {
+    vi.mocked(WorkspaceChangeCapture.pending).mockClear();
+    vi.mocked(WorkspaceChangeCapture.pending).mockRejectedValueOnce(new WorkspaceChangeCaptureBudgetError('git add -A', 3000));
+    vi.mocked(WorkspaceChangeCapture.create).mockResolvedValueOnce({
+      hasExceededBudget: () => true, begin: async () => ({ token: 'no-baseline' }),
+      finish: async () => ({ files: [], omittedFiles: 0 }), isUnchangedSince: async () => false, dispose: async () => {},
+    } as never);
+    const complete = vi.fn().mockResolvedValueOnce({ content: JSON.stringify({ toolCalls: [
+      { tool: 'read_file', args: { path: 'package.json' } },
+    ] }) }).mockResolvedValue({ content: 'Repository facts verified.' });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    host.toolManager.execute = vi.fn().mockResolvedValue([{ tool: 'read_file', success: true, output: 'Verified package' }]);
+    const review = vi.fn(async () => ({ verdict: 'approved' as const, feedback: 'Session evidence reviewed; workspace diff unavailable.' }));
+    host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review });
+
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'completed' });
+    expect(review).toHaveBeenCalledWith('completion', expect.objectContaining({
+      context: expect.stringContaining('git add -A exceeded the 3000 ms workspace change capture budget'),
+    }));
+    expect(host.workspaceChangeCaptureDisabled).toBe(true);
+  });
+
+  it('still blocks an oversized commit diff when the turn changed no files', async () => {
+    vi.mocked(WorkspaceChangeCapture.pending).mockResolvedValueOnce({ omittedFiles: 113, files: [] });
+    vi.mocked(WorkspaceChangeCapture.create).mockResolvedValueOnce({
+      hasExceededBudget: () => false, begin: async () => ({ token: 'turn-start' }),
+      finish: async () => ({ files: [], omittedFiles: 0 }), isUnchangedSince: async () => true, dispose: async () => {},
+    } as never);
+    const complete = vi.fn().mockResolvedValue({ content: JSON.stringify({ toolCalls: [
+      { tool: 'git_commit', args: { message: 'Must not commit an unreviewed oversized diff' } },
+    ] }) });
+    const host = createReactLoopTestHost(complete, new ReactionParser());
+    host.runtime.commandOutputCaptured = true;
+    const review = vi.fn(async () => ({ verdict: 'approved' as const, feedback: 'Unexpected approval' }));
+    host.createCheckpointAdvisor = () => ({ observeFailure: () => false, review });
+
+    expect(await runAgentReactLoop(host, new AbortController())).toEqual({ status: 'incomplete', reason: 'advisor_review' });
+    expect(review).not.toHaveBeenCalled();
+    expect(host.toolManager.execute).not.toHaveBeenCalled();
   });
 
   it('keeps commit execution blocked when its workspace capture exceeds the budget', async () => {
