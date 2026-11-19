@@ -66,6 +66,12 @@ const DEFAULT_TIMEOUT = 30000;
  */
 const COMPLETION_TIMEOUT = 300_000;
 
+/**
+ * Attribution sent to gateways other than Autohand AI. LLM Gateway rejects the whole request
+ * unless x-source holds only letters, digits, hyphens, dots and slashes.
+ */
+export const EXTERNAL_SOURCE_TAG = "autohand.ai";
+
 export interface LLMGatewayCompatibleErrorLabels {
   serviceName: string;
   credentialName: string;
@@ -352,7 +358,7 @@ export class LLMGatewayClient {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "x-source": "Autohand Code CLI",
+      "x-source": this.inferenceProvider === 'autohandai' ? "Autohand Code CLI" : EXTERNAL_SOURCE_TAG,
     };
     if (this.apiKey) {
       headers.Authorization = `Bearer ${this.apiKey}`;

@@ -387,10 +387,21 @@ describe('LLMGatewayClient', () => {
           headers: expect.objectContaining({
             'Authorization': 'Bearer my-secret-key',
             'Content-Type': 'application/json',
-            'x-source': 'Autohand Code CLI'
+            'x-source': 'autohand.ai'
           })
         })
       );
+    });
+
+    it('sends external gateways a source tag they accept (#757, #763)', async () => {
+      // LLM Gateway rejects the request unless x-source holds only letters, digits, hyphens, dots and slashes.
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({
+        id: 'test-id', created: 1, model: 'gpt-4o', choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+      }) });
+      global.fetch = fetchMock;
+      await new LLMGatewayClient({ apiKey: 'key', model: 'gpt-4o' }).complete({ messages: [{ role: 'user', content: 'Hello' }] });
+      const source = (fetchMock.mock.calls[0]?.[1] as { headers: Record<string, string> }).headers['x-source'];
+      expect(source).toMatch(/^[A-Za-z0-9./-]+$/u);
     });
 
     it('repairs turn shapes that upstream Claude models reject', async () => {

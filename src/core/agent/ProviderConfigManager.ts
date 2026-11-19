@@ -46,6 +46,7 @@ import {
 } from "../../providers/autohandAILocalSetup.js";
 import { VERTEX_AI_CODING_MODELS } from "../../providers/VertexAIProvider.js";
 import { sanitizeModelId } from "../../providers/errors.js";
+import { EXTERNAL_SOURCE_TAG } from "../../providers/LLMGatewayClient.js";
 import { getOpenRouterModelContextWindow } from "../../providers/modelCapabilities.js";
 import { OPENROUTER_ATTRIBUTION_HEADERS } from "../../providers/OpenRouterClient.js";
 import { saveConfig, getProviderConfig } from "../../config.js";
@@ -3926,7 +3927,7 @@ export class ProviderConfigManager {
             : { Authorization: `Bearer ${apiKey}` }),
           "Content-Type": "application/json",
           ...(provider === "llmgateway" && {
-            "x-source": "Autohand Code CLI",
+            "x-source": EXTERNAL_SOURCE_TAG,
           }),
           ...(provider === "openrouter" && OPENROUTER_ATTRIBUTION_HEADERS),
         },
