@@ -250,6 +250,16 @@ checks, lifecycle hooks and RPC/ACP events. Enable it with
 `/experiments enable code_mode` or `features.codeMode: true`. See
 [codemode.md](./codemode.md).
 
+### Lanes (experimental)
+
+The `cli_lanes` switch (default off) lets you say "open a new lane and …" to
+start a named background agent while the main conversation continues. Lanes are
+listed underneath the composer with their state, elapsed time and tokens, and
+report back to the main conversation when they finish. Enable it with
+`/experiments enable cli_lanes` or `features.cliLanes: true`; disable it with
+`/experiments disable cli_lanes`. No restart required. See
+[cli-lanes.md](./cli-lanes.md).
+
 ## Memory System
 - [x] Project memory in `.autohand/memory/`
 - [x] User memory in `~/.autohand/memory/`

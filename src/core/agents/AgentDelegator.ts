@@ -27,6 +27,8 @@ export type SubagentAssignmentResolver = (definition: AgentDefinition) => TeamMo
 export type SubagentProviderFactory = (assignment: TeamModelAssignment) => LLMProvider;
 
 export interface DelegationExecutionOptions {
+    /** Run id chosen by a caller that tracks the run itself, such as a lane. */
+    subagentId?: string;
     signal?: AbortSignal;
     maxIterations?: number;
     researchOnly?: boolean;
@@ -225,7 +227,7 @@ export class AgentDelegator {
             onSubagentProgress: this.options.onSubagentProgress,
         };
 
-        const subagentId = this.generateSubagentId();
+        const subagentId = options.subagentId ?? this.generateSubagentId();
         const controller = new AbortController();
         const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
         const pendingInstructions: string[] = [];
@@ -338,7 +340,7 @@ export class AgentDelegator {
 
     public async delegateParallelForTool(
         tasks: ParallelDelegationTask[],
-        options: DelegationExecutionOptions = {},
+        options: Omit<DelegationExecutionOptions, 'subagentId'> = {},
     ): Promise<ToolActionOutcome> {
         if ([options.maxIterations, ...tasks.map(task => task.maxIterations)].some(limit => limit !== undefined && !isValidSubagentIterationLimit(limit))) {
             return { success: false, kind: 'validation', error: `maxIterations must be an integer between 1 and ${MAX_SUBAGENT_ITERATIONS}.` };

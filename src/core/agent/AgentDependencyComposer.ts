@@ -66,6 +66,7 @@ import type { CapabilityUsageInput } from '../../memory/types.js';
 import { FeedbackManager } from '../../feedback/FeedbackManager.js';
 import { FeedbackSurveyController } from './FeedbackSurveyController.js';
 import { CODE_MODE_TOOL_NAME, codeModeToolDefinitions, runCodeModeScript, syncCodeModeTool } from './CodeModeRunner.js';
+import { createLaneRuntime, type LaneRuntimeHost } from '../lanes/laneRuntime.js';
 import { TelemetryManager } from '../../telemetry/TelemetryManager.js';
 import { SkillsRegistry } from '../../skills/SkillsRegistry.js';
 import { isAdaptiveSkillsEnabled } from '../../skills/feature.js';
@@ -1538,6 +1539,8 @@ export function initializeAgentDependencies(
                 )),
               }),
             }, context?.signal);
+          } else if (action.type === 'delegate_task' && host.laneRuntime?.accepts(action)) {
+            outcome = host.laneRuntime.open(action);
           } else if (action.type === 'delegate_task') {
             const cached = host.specialistOrchestrator.turnResultForAgent(action.agent_name);
             outcome = cached === undefined
@@ -2097,6 +2100,7 @@ export function initializeAgentDependencies(
       customPolicy,
       authorization: toolAuthorization,
     });
+    host.laneRuntime = createLaneRuntime(host as LaneRuntimeHost, runtime);
 
     // --ephemeral keeps the session in memory; nothing about the run reaches disk.
     host.sessionManager = new SessionManager(undefined, { persist: !runtime.options.ephemeral });
@@ -2353,6 +2357,7 @@ export function initializeAgentDependencies(
           }
         }
         syncCodeModeTool(host.toolManager, runtime.config);
+        host.laneRuntime?.sync();
         void mobileRelayController?.refreshDeliveryStatus();
       },
       refreshStatusLine: () => {

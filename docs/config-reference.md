@@ -3308,6 +3308,8 @@ Account plan and quotas come from the existing authenticated Autohand API. Local
 
 Use `/usage --text`, `/usage weekly --text`, or `/usage monthly --text` for the existing printable report. Non-interactive/RPC/ACP callers continue receiving text.
 
+`cli_lanes` is an experimental feature switch (config path `features.cliLanes`, boolean, default off, no restart required) for lanes: named background agents opened by asking "open a new lane and …", listed underneath the composer with state, elapsed time and tokens, and reported back to the main conversation when they finish. Enable it with `autohand experiments enable cli_lanes` and disable it with `autohand experiments disable cli_lanes`. Interactive sessions only. See [cli-lanes.md](./cli-lanes.md).
+
 `usage_v2` is the legacy model, provider, context, and usage-limits dashboard plus the enhanced `/status` Usage tab. Enable it with `autohand experiments enable usage_v2`.
 
 `token_usage_status` is an experimental feature switch (config path `features.tokenUsageStatus`, default off) that shows real-time token usage in the working status line — cumulative tokens up (`↑`) and down (`↓`) plus context-window occupancy, e.g. `↑15.7k ↓3.2k · context: 6.0% (15.7k/262.1k)`. The context window is resolved per model across all providers. Enable it with `autohand experiments enable token_usage_status`.

@@ -17,6 +17,7 @@ import type { AgentDefinition } from '../agents/AgentRegistry.js';
 import { formatAgentRoster } from '../agents/agentRoster.js';
 import { getShellExecutionProfile } from '../../utils/shellExecution.js';
 import { isCodeModeEnabled } from '../codemode/feature.js';
+import { lanesPromptSection } from '../lanes/laneTool.js';
 import { isAdaptiveSkillsEnabled, SKILL_DISCOVERY_CONTRACT } from '../../skills/feature.js';
 
 interface PromptSkillSummary {
@@ -243,6 +244,7 @@ export class SystemPromptBuilder {
       '',
       ...goalPromptSection,
       ...peerPromptSection,
+      ...lanesPromptSection(toolDefs),
       '### Response Format',
       ...this.buildToolResponseFormatSection(supportsNativeToolCalling),
       '',
@@ -374,6 +376,7 @@ export class SystemPromptBuilder {
       '',
       ...goalPromptSection,
       ...peerPromptSection,
+      ...lanesPromptSection(toolDefs),
       '### Response Format',
       ...this.buildToolResponseFormatSection(supportsNativeToolCalling),
       '### Tool Failure Handling',

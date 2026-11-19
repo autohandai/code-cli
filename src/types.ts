@@ -555,6 +555,8 @@ export interface FeatureFlagSettings {
   experimentalClone?: boolean;
   /** Enable the experimental /handoff session surface. */
   experimentalHandoff?: boolean;
+  /** Enable lanes: named background agents listed under the composer. */
+  cliLanes?: boolean;
   /** Enable negotiated browser automation protocol v2 tools. */
   experimentalBrowserToolsV2?: boolean;
   /** Record model-visible file coverage in the active session. */
@@ -1959,7 +1961,7 @@ export type AgentAction =
   }
   | { type: 'delete_memory'; id: string; level?: 'user' | 'project' }
   | { type: 'create_meta_tool'; name: string; description: string; parameters: Record<string, unknown>; handler: string; scope?: 'user' | 'project' }
-  | { type: 'delegate_task'; agent_name: string; task: string; maxIterations?: number; research_only?: boolean }
+  | { type: 'delegate_task'; agent_name: string; task: string; maxIterations?: number; research_only?: boolean; lane_name?: string; lane_description?: string }
   | { type: 'delegate_parallel'; maxIterations?: number; research_only?: boolean; tasks: Array<{ agent_name: string; task: string; maxIterations?: number; research_only?: boolean }> }
   | { type: 'orchestrate_specialists'; objective: string; requested_roles: string[] }
   | { type: 'install_specialist_roster'; plan_id: string; agent_names: string[] }

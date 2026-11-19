@@ -233,6 +233,14 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false,
   },
   {
+    id: 'cli_lanes',
+    label: 'Lanes',
+    description: 'Open named background agents ("open a new lane and ...") and list them under the composer with elapsed time and tokens.',
+    stage: 'experimental',
+    configPath: 'features.cliLanes',
+    defaultEnabled: false,
+  },
+  {
     id: 'experimental_browser_tools_v2',
     label: 'Browser tools v2',
     description: 'Enable negotiated snapshot refs, deterministic waits, and dedicated form automation in Chrome.',

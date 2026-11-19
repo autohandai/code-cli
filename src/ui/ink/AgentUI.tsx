@@ -40,6 +40,8 @@ import { TaskActivityPanel, type ActivityItem } from './TaskActivityPanel.js';
 import { TeamPanel } from './TeamPanel.js';
 import { AgentRunsPanel } from './AgentRunsPanel.js';
 import type { AgentRunsSnapshot, AgentRunSource } from '../../core/agents/AgentRunStore.js';
+import type { Lane } from '../../core/lanes/LaneManager.js';
+import { LanesList, lanesRowBudget } from './LanesList.js';
 import type { TeamActivitySnapshot } from '../../core/teams/types.js';
 import { GoalPanel, getEditableGoalItems, goalTargetKey, type GoalEditRequest } from './GoalPanel.js';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
@@ -243,6 +245,8 @@ export interface AgentUIState {
   agentRuns?: AgentRunsSnapshot;
   agentRunsPanelVisible: boolean;
   agentRunsSource?: AgentRunSource;
+  /** Background lanes of the `cli_lanes` experiment, listed underneath the composer. */
+  lanes?: Lane[];
   /** Live persistent goal state for the current session. */
   goalActivity?: GoalSessionSnapshot;
   /** Whether the expanded persistent goals view is visible. */
@@ -2883,6 +2887,7 @@ export function AgentUI({
           state.completionStats
         }
         activityItems={state.activityItems ?? []}
+        lanes={state.lanes}
         teamActivity={state.teamActivity}
         teamPanelVisible={state.teamPanelVisible}
         goalActivity={state.goalActivity}
@@ -3785,6 +3790,7 @@ interface FixedBottomProps {
   selectedQueueIndex: number | null;
   completionStats: { elapsed: string; tokens: string; status?: TurnCompletionStatus } | null;
   activityItems?: ActivityItem[];
+  lanes?: Lane[];
   teamActivity?: TeamActivitySnapshot;
   teamPanelVisible: boolean;
   goalActivity?: GoalSessionSnapshot;
@@ -3904,6 +3910,7 @@ const FixedBottom = memo(function FixedBottom({
   selectedQueueIndex,
   completionStats,
   activityItems = [],
+  lanes,
   teamActivity,
   teamPanelVisible,
   goalActivity,
@@ -4051,6 +4058,7 @@ const FixedBottom = memo(function FixedBottom({
           runtimeLineExtensions?.help,
         )}
       />
+      {lanes?.length ? <LanesList lanes={lanes} width={inputWidth} maxRows={lanesRowBudget(terminalRows)} /> : null}
       {!fullScreen && menus}
       <CtrlCWarning ctrlCCount={ctrlCCount} />
       {!fullScreen && <FooterClearance />}

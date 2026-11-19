@@ -1562,6 +1562,10 @@ function validateConfig(config: AutohandConfig, configPath: string): void {
       }
     }
   }
+  const cliLanes: unknown = config.features?.cliLanes;
+  if (cliLanes !== undefined && typeof cliLanes !== 'boolean') {
+    throw new Error(`features.cliLanes must be a boolean in ${configPath}`);
+  }
   const multiAgentConfig: unknown = config.features?.multi_agent_v2;
   if (multiAgentConfig !== undefined) {
     if (!isPlainObject(multiAgentConfig)) {

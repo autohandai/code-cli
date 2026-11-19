@@ -56,6 +56,7 @@ import {
 import type { InteractionMode } from '../../core/agent/InteractionModeController.js';
 import type { TeamActivitySnapshot } from '../../core/teams/types.js';
 import type { AgentRunsSnapshot, AgentRunSource } from '../../core/agents/AgentRunStore.js';
+import type { Lane } from '../../core/lanes/LaneManager.js';
 import type { GoalSessionSnapshot } from '../../goals/types.js';
 import type { TaskListPosition } from '../../types.js';
 import type { PeerDescriptor, PeerReceipt, PeerScope } from '../../session/peers/PeerProtocol.js';
@@ -1475,6 +1476,11 @@ export class InkRenderer {
 
   setAgentRuns(agentRuns: AgentRunsSnapshot): void {
     this.updateState({ agentRuns });
+  }
+
+  /** Lanes listed underneath the composer; an empty list removes the section. */
+  setLanes(lanes: Lane[]): void {
+    this.updateState({ lanes: lanes.length > 0 ? lanes : undefined });
   }
 
   setAgentRunsPanelVisible(visible: boolean, source?: AgentRunSource): void {
