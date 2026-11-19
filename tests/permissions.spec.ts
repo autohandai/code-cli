@@ -17,6 +17,18 @@ vi.mock('chalk', () => ({
 }));
 
 const { permissions, metadata } = await import('../src/commands/permissions.js');
+const { SlashCommandHandler } = await import('../src/core/slashCommandHandler.js');
+const { SLASH_COMMANDS } = await import('../src/core/slashCommands.js');
+const { renderAgentSlashCommandResult } = await import('../src/core/agent/AgentCommandRuntime.js');
+
+const EMPTY_SNAPSHOT = {
+  mode: 'interactive',
+  rememberSession: true,
+  session: { path: '/workspace/.autohand/session-permissions.json', allowList: [], denyList: [] },
+  project: { path: '/workspace/.autohand/settings.local.json', allowList: [], denyList: [] },
+  user: { path: '/Users/test/.autohand/config.yaml', allowList: [], denyList: [] },
+  effective: { path: 'merged', allowList: [], denyList: [] },
+};
 
 describe('/permissions command', () => {
   let consoleOutput: string[];
@@ -43,7 +55,7 @@ describe('/permissions command', () => {
 
   describe('display', () => {
     it('shows session, project, user, and effective sections with paths', async () => {
-      await permissions({
+      const output = await permissions({
         permissionManager: {
           getPermissionSnapshot: () => ({
             mode: 'interactive',
@@ -73,7 +85,7 @@ describe('/permissions command', () => {
         configPath: '/Users/test/.autohand/config.json',
       });
 
-      const output = consoleOutput.join('\n');
+      expect(consoleOutput).toEqual([]);
       expect(output).toContain('Permission Settings');
       expect(output).toContain('Mode: interactive');
       expect(output).toContain('Session');
@@ -88,7 +100,7 @@ describe('/permissions command', () => {
     });
 
     it('shows empty-state messaging per section', async () => {
-      await permissions({
+      const output = await permissions({
         permissionManager: {
           getPermissionSnapshot: () => ({
             mode: 'interactive',
@@ -118,9 +130,57 @@ describe('/permissions command', () => {
         configPath: '/Users/test/.autohand/config.yaml',
       });
 
-      const output = consoleOutput.join('\n');
+      expect(consoleOutput).toEqual([]);
       expect(output).toContain('No AllowList entries');
       expect(output).toContain('No DenyList entries');
+    });
+  });
+
+  describe('interactive session', () => {
+    function createHandler(overrides: Record<string, unknown> = {}) {
+      const onBeforeModal = vi.fn();
+      const onAfterModal = vi.fn();
+      const context = {
+        permissionManager: { getPermissionSnapshot: () => EMPTY_SNAPSHOT },
+        config: { configPath: '/Users/test/.autohand/config.yaml' },
+        onBeforeModal,
+        onAfterModal,
+        ...overrides,
+      };
+      return { handler: new SlashCommandHandler(context as never, SLASH_COMMANDS), onBeforeModal, onAfterModal };
+    }
+
+    // Regression: the command printed with console.log while the Ink frame was unmounted for a
+    // "modal". A full-screen frame repaints every row on resume, so nothing was left to read.
+    it('returns the report as the command result instead of printing around the Ink frame', async () => {
+      const { handler, onBeforeModal, onAfterModal } = createHandler();
+
+      const result = await handler.handle('/permissions');
+
+      expect(result).toContain('Permission Settings');
+      expect(result).toContain('Effective');
+      expect(result).toContain('No AllowList entries');
+      expect(consoleOutput).toEqual([]);
+      expect(onBeforeModal).not.toHaveBeenCalled();
+      expect(onAfterModal).not.toHaveBeenCalled();
+    });
+
+    it('lands in the transcript of a running Ink renderer with its layout intact', async () => {
+      const { handler } = createHandler();
+      const addAssistantMessage = vi.fn();
+      const setCommandResult = vi.fn();
+      const host = { inkRenderer: { isRunning: () => true, addAssistantMessage, setCommandResult } };
+
+      const result = await handler.handle('/permissions');
+      const rendered = renderAgentSlashCommandResult(host as never, '/permissions', result ?? '');
+
+      expect(rendered).toBe(true);
+      expect(setCommandResult).not.toHaveBeenCalled();
+      expect(addAssistantMessage).toHaveBeenCalledTimes(1);
+      const [message, renderMarkdown] = addAssistantMessage.mock.calls[0];
+      expect(renderMarkdown).toBe(false);
+      expect(message).toContain('Permission Settings');
+      expect(message).toContain('  No DenyList entries');
     });
   });
 });

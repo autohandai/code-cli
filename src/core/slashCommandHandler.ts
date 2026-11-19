@@ -546,15 +546,10 @@ export class SlashCommandHandler {
         }
         case '/permissions': {
           const { permissions } = await import('../commands/permissions.js');
-          await this.ctx.onBeforeModal?.();
-          try {
-            return await permissions({
-              permissionManager: this.ctx.permissionManager,
-              configPath: this.ctx.config?.configPath,
-            });
-          } finally {
-            await this.ctx.onAfterModal?.();
-          }
+          return permissions({
+            permissionManager: this.ctx.permissionManager,
+            configPath: this.ctx.config?.configPath,
+          });
         }
         case '/hooks': {
           const { hooks } = await import('../commands/hooks.js');

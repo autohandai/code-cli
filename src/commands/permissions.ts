@@ -17,50 +17,46 @@ function renderBold(text: string): string {
   return typeof chalk.bold === 'function' ? chalk.bold(text) : text;
 }
 
-function renderSection(title: string, section: PermissionScopeSnapshot): void {
-  console.log(renderBold(title));
-  console.log(chalk.gray(section.path));
+function renderSection(title: string, section: PermissionScopeSnapshot): string[] {
+  const allowList = section.allowList.length === 0
+    ? [chalk.gray('  No AllowList entries')]
+    : [
+        chalk.green('  AllowList'),
+        ...section.allowList.map((pattern, index) => chalk.green(`    ${index + 1}. ${pattern}`)),
+      ];
+  const denyList = section.denyList.length === 0
+    ? [chalk.gray('  No DenyList entries')]
+    : [
+        chalk.red('  DenyList'),
+        ...section.denyList.map((pattern, index) => chalk.red(`    ${index + 1}. ${pattern}`)),
+      ];
 
-  if (section.allowList.length === 0) {
-    console.log(chalk.gray('  No AllowList entries'));
-  } else {
-    console.log(chalk.green('  AllowList'));
-    section.allowList.forEach((pattern, index) => {
-      console.log(chalk.green(`    ${index + 1}. ${pattern}`));
-    });
-  }
-
-  if (section.denyList.length === 0) {
-    console.log(chalk.gray('  No DenyList entries'));
-  } else {
-    console.log(chalk.red('  DenyList'));
-    section.denyList.forEach((pattern, index) => {
-      console.log(chalk.red(`    ${index + 1}. ${pattern}`));
-    });
-  }
-
-  console.log();
+  return [renderBold(title), chalk.gray(section.path), ...allowList, ...denyList];
 }
 
 /**
- * Permissions command - displays saved permission state by scope.
+ * Permissions command - reports saved permission state by scope.
+ *
+ * The report is returned rather than printed: the caller owns the screen, and a full-screen frame
+ * repaints over anything written to the console around it.
  */
-export async function permissions(ctx: PermissionsCommandContext): Promise<string | null> {
+export async function permissions(ctx: PermissionsCommandContext): Promise<string> {
   const snapshot = ctx.permissionManager.getPermissionSnapshot(ctx.configPath ?? '(user config unknown)');
 
-  console.log();
-  console.log(chalk.bold.cyan(t('commands.permissions.title')));
-  console.log(chalk.gray('─'.repeat(50)));
-  console.log(chalk.gray(t('commands.permissions.mode', { mode: snapshot.mode || 'interactive' })));
-  console.log(chalk.gray(`Remember session decisions: ${snapshot.rememberSession ? 'Yes' : 'No'}`));
-  console.log();
+  const header = [
+    chalk.bold.cyan(t('commands.permissions.title')),
+    chalk.gray('─'.repeat(50)),
+    chalk.gray(t('commands.permissions.mode', { mode: snapshot.mode || 'interactive' })),
+    chalk.gray(`Remember session decisions: ${snapshot.rememberSession ? 'Yes' : 'No'}`),
+  ];
+  const sections = [
+    renderSection('Session', snapshot.session),
+    renderSection('Project', snapshot.project),
+    renderSection('User', snapshot.user),
+    renderSection('Effective', snapshot.effective),
+  ];
 
-  renderSection('Session', snapshot.session);
-  renderSection('Project', snapshot.project);
-  renderSection('User', snapshot.user);
-  renderSection('Effective', snapshot.effective);
-
-  return null;
+  return [header, ...sections].map(lines => lines.join('\n')).join('\n\n');
 }
 
 export const metadata = {

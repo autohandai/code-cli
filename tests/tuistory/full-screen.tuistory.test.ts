@@ -620,6 +620,23 @@ describe('full-screen terminal', () => {
     await exitInteractive(session);
   });
 
+  it('shows the permissions report in the transcript and keeps it after a redraw', async () => {
+    state = await createTempAutohandHome({ config: { features: { fullScreenMode: true }, ui: { promptSuggestions: false } } });
+    session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000, cols: 120, rows: 40,
+    });
+    await session.waitForText('❯');
+    await session.type('/permissions'); await session.press('enter');
+    await session.waitForText('Permission Settings');
+    await session.type('permissions stay visible');
+    await session.waitForText('❯ permissions stay visible');
+    const viewport = outputViewport(session);
+    expect(viewport).toContain('Permission Settings');
+    expect(viewport).toContain('Effective');
+    expect(viewport).toContain('No AllowList entries');
+    await exitInteractive(session);
+  });
+
   it('marks command activity while reading history and returns to it without moving the draft', async () => {
     state = await createTempAutohandHome({ config: { features: { fullScreenMode: true }, ui: { promptSuggestions: false } } });
     await seedFullScreenHistory(state.autohandHome, state.workspaceRoot);
