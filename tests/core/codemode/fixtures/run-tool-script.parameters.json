@@ -3,7 +3,7 @@
   "properties": {
     "script": {
       "type": "string",
-      "description": "Body of an async JavaScript function (plain JavaScript, not TypeScript). Top-level `await` and `return` are allowed. Example: \"const files = await tools.find({ pattern: '*.ts' }); return files.ok ? files.output.split('\\n').length : files.error;\""
+      "description": "Body of an async JavaScript function (plain JavaScript, not TypeScript). Top-level `await` and `return` are allowed. Example: \"const files = await tools.fff_find({ query: 'package.json' }); return files.ok ? files.output.split('\\n').length : files.error;\""
     },
     "description": {
       "type": "string",

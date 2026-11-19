@@ -35,6 +35,18 @@ describe('run_tool_script definition', () => {
     }
   });
 
+  it('only shows the model example calls that exist with the arguments they accept', () => {
+    const script = CODE_MODE_TOOL_DEFINITION.parameters?.properties?.script as { description: string };
+    const calls = [...script.description.matchAll(/tools\.(\w+)\(\{\s*(\w+):/g)];
+
+    expect(calls.length).toBeGreaterThan(0);
+    for (const [, tool, argument] of calls) {
+      const target = DEFAULT_TOOL_DEFINITIONS.find(candidate => candidate.name === tool);
+      expect(target, `example calls tools.${tool}, which is not a built-in tool`).toBeDefined();
+      expect(Object.keys(target?.parameters?.properties ?? {})).toContain(argument);
+    }
+  });
+
   it('describes a script tool with a required script and an optional timeout', () => {
     expect(CODE_MODE_TOOL_DEFINITION.name).toBe(CODE_MODE_TOOL_NAME);
     expect(CODE_MODE_TOOL_DEFINITION.parameters?.required).toEqual(['script']);

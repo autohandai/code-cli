@@ -87,6 +87,12 @@ const WASM_MAX_BYTES = 2048 * MIB;
 const MAX_ERROR_CHARS = 2_000;
 const MAX_STACK_TRACE_CHARS = 600;
 const ABORT_MESSAGE = 'The script was aborted.';
+const BOOTSTRAP_FILE = 'sandbox-bootstrap.js';
+const HOST_ONLY_GLOBALS: ReadonlySet<string> = new Set([
+  'require', 'module', 'exports', '__dirname', '__filename', 'process', 'global', 'Buffer',
+  'fs', 'path', 'child_process', 'execSync', 'fetch', 'XMLHttpRequest', 'WebSocket',
+  'setTimeout', 'setInterval', 'setImmediate', 'window', 'document', 'Deno', 'Bun',
+]);
 
 // Bound at load so the execution budget keeps running when a caller installs fake timers.
 const monotonicNow = performance.now.bind(performance);
@@ -144,12 +150,23 @@ const GUEST_BOOTSTRAP = String.raw`(function (hostCall, hostLog, toolNamesJson) 
       return reject(error);
     }
   };
-  const unknownTool = (name) => () => reject(new Error(
-    'Unknown tool "' + name + '". Object.keys(tools) lists the tools available to this script.'
-  ));
+  const toolNames = parse(toolNamesJson);
+  const words = (name) => name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const resembling = (name) => {
+    const wanted = words(name);
+    return toolNames.filter((candidate) => words(candidate).some((word) => wanted.includes(word))).slice(0, 5);
+  };
+  const unknownTool = (name) => () => {
+    const close = resembling(name);
+    return reject(new Error(
+      'Unknown tool "' + name + '". '
+      + (close.length > 0 ? 'Did you mean: ' + close.join(', ') + '? ' : '')
+      + 'Use tool_search for exact names and argument schemas; Object.keys(tools) lists every tool.'
+    ));
+  };
 
   const exposed = Object.create(null);
-  for (const name of parse(toolNamesJson)) exposed[name] = toolFunction(name);
+  for (const name of toolNames) exposed[name] = toolFunction(name);
   const tools = new Proxy(Object.freeze(exposed), {
     get(target, key) {
       if (typeof key !== 'string' || key === 'then' || key === 'toJSON') return undefined;
@@ -300,8 +317,9 @@ function describeGuestError(detail: unknown, limits: SandboxLimits, memoryExhaus
   if (name === 'InternalError' && detail.message === 'out of memory') {
     return outOfMemory;
   }
-  const headline = `${name}: ${detail.message}`;
-  const stack = typeof detail.stack === 'string' ? detail.stack.trimEnd() : '';
+  const hint = name === 'ReferenceError' ? describeMissingHostGlobal(detail.message) : undefined;
+  const headline = `${name}: ${detail.message}${hint ? `\n${hint}` : ''}`;
+  const stack = typeof detail.stack === 'string' ? scriptFrames(detail.stack) : '';
   return fail('script', stack && stack.length <= MAX_STACK_TRACE_CHARS ? `${headline}\n${stack}` : headline);
 }
 
@@ -310,6 +328,23 @@ function settleOrAbort<T>(work: () => Promise<T>, signal: AbortSignal | undefine
   return new Promise<T>((resolve, reject) => {
     const release = (): void => signal?.removeEventListener('abort', onAbort);
     const onAbort = (): void => {
+/** Frames inside the bridge say nothing about the script; the `<input>` frames carry its line numbers. */
+function scriptFrames(stack: string): string {
+  return stack.split('\n').filter((frame) => !frame.includes(BOOTSTRAP_FILE)).join('\n').trimEnd();
+}
+
+/**
+ * Models reach for Node.js out of habit. A bare "is not defined" invites another guess, so the
+ * failure says what this environment is and how work is done in it.
+ */
+function describeMissingHostGlobal(message: string): string | undefined {
+  const identifier = /^'?([A-Za-z_$][\w$]*)'? is not defined$/u.exec(message)?.[1];
+  if (!identifier || !HOST_ONLY_GLOBALS.has(identifier)) return undefined;
+  return `This sandbox is not Node.js or a browser: ${identifier} does not exist here, and neither do modules, `
+    + 'the process, timers, the file system or the network. Call await tools.<name>(args) instead; '
+    + 'tool_search returns the exact tool names and argument schemas.';
+}
+
       release();
       reject(new SandboxAbortedError());
     };
@@ -421,7 +456,7 @@ class GuestSession {
 
   private start(): { script: QuickJSHandle; failure?: undefined } | { failure: Failure } {
     const { context } = this;
-    const bootstrap = this.own(context.unwrapResult(context.evalCode(GUEST_BOOTSTRAP, 'sandbox-bootstrap.js')));
+    const bootstrap = this.own(context.unwrapResult(context.evalCode(GUEST_BOOTSTRAP, BOOTSTRAP_FILE)));
     const hostCall = this.own(context.newFunction('callTool', (name, argsJson) =>
       this.acceptToolCall(context.getString(name), context.getString(argsJson))));
     const hostLog = this.own(context.newFunction('log', (level, text) => {

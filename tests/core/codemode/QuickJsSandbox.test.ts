@@ -341,6 +341,56 @@ describe('runSandboxedScript', () => {
     });
 
     it('reports a thrown non-error value', async () => {
+    it('keeps the script location and drops the bridge frames from a reported stack', async () => {
+      const result = await run('const first = 1;\nmissing();');
+
+      expect(result.error).toContain('ReferenceError');
+      expect(result.error).toContain('<input>');
+      expect(result.error).not.toContain('sandbox-bootstrap.js');
+    });
+
+    it.each([
+      ["const { execSync } = require('child_process');", 'require'],
+      ['return process.cwd();', 'process'],
+      ["const data = await fetch('https://example.com');", 'fetch'],
+      ['setTimeout(() => {}, 10);', 'setTimeout'],
+    ])('explains that %s is unavailable because the sandbox is not Node.js', async (script, name) => {
+      const result = await run(script);
+
+      expect(result).toMatchObject({ ok: false, errorKind: 'script' });
+      expect(result.error).toContain(name);
+      expect(result.error).toContain('not Node.js');
+      expect(result.error).toContain('await tools.<name>(args)');
+      expect(result.error).toContain('tool_search');
+    });
+
+    it('does not attach the Node.js hint to an ordinary undefined identifier', async () => {
+      const result = await run('return nope + 1;');
+
+      expect(result.error).toContain('ReferenceError');
+      expect(result.error).not.toContain('not Node.js');
+    });
+
+    it('names the closest available tools when a script calls one that does not exist', async () => {
+      const result = await run("return await tools.find({ pattern: '*.ts' });", {
+        toolNames: ['read_file', 'fff_find', 'find_grep', 'write_file', 'git_status'],
+      });
+
+      expect(result).toMatchObject({ ok: false, errorKind: 'script', toolCalls: 0 });
+      expect(result.error).toContain('Unknown tool "find"');
+      expect(result.error).toContain('Did you mean: fff_find, find_grep?');
+      expect(result.error).not.toContain('read_file');
+      expect(result.error).toContain('tool_search');
+    });
+
+    it('falls back to tool discovery when no available tool resembles the unknown one', async () => {
+      const result = await run('return await tools.teleport({});', { toolNames: ['read_file'] });
+
+      expect(result.error).toContain('Unknown tool "teleport"');
+      expect(result.error).not.toContain('Did you mean');
+      expect(result.error).toContain('tool_search');
+    });
+
       const result = await run('throw "plain string";');
 
       expect(result).toMatchObject({ ok: false, errorKind: 'script' });
