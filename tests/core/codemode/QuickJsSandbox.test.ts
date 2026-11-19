@@ -333,14 +333,6 @@ describe('runSandboxedScript', () => {
       expect(result.error).toContain('at parse');
     });
 
-    it('reports a syntax error without running anything', async () => {
-      const result = await run('console.log("ran"); return ((;');
-
-      expect(result).toMatchObject({ ok: false, errorKind: 'script', logs: '' });
-      expect(result.error).toContain('SyntaxError');
-    });
-
-    it('reports a thrown non-error value', async () => {
     it('keeps the script location and drops the bridge frames from a reported stack', async () => {
       const result = await run('const first = 1;\nmissing();');
 
@@ -383,6 +375,30 @@ describe('runSandboxedScript', () => {
       expect(result.error).toContain('tool_search');
     });
 
+    it('says how to run a program the script called as if it were a tool', async () => {
+      // Reported: `tools.git({ args: ['tag', '--sort=-v:refname'] })`. There are dozens of git_*
+      // tools and none for tags, so five arbitrary look-alikes do not get the model unstuck.
+      const gitTools = ['git_diff', 'git_checkout', 'git_status', 'git_list_untracked', 'git_diff_range', 'git_stash', 'git_log'];
+      const result = await run("return await tools.git({ args: ['tag', '--sort=-v:refname'] });", {
+        toolNames: ['read_file', 'run_command', ...gitTools],
+      });
+
+      expect(result).toMatchObject({ ok: false, errorKind: 'script', toolCalls: 0 });
+      expect(result.error).toContain('Unknown tool "git"');
+      expect(result.error).toContain('tools.run_command({ command: "git", args: [...] })');
+      expect(result.error).toContain('Did you mean: git_diff, git_checkout, git_status, git_list_untracked, git_diff_range');
+      expect(result.error).toContain('(7 tools match "git"');
+    });
+
+    it('does not suggest running a program when scripts cannot run commands or the name is not a program name', async () => {
+      const noShell = await run('return await tools.git({});', { toolNames: ['read_file', 'git_status'] });
+      expect(noShell.error).not.toContain('run_command');
+
+      const notAProgram = await run('return await tools.read_the_file({});', { toolNames: ['read_file', 'run_command'] });
+      expect(notAProgram.error).toContain('Did you mean: read_file?');
+      expect(notAProgram.error).not.toContain('tools.run_command(');
+    });
+
     it('falls back to tool discovery when no available tool resembles the unknown one', async () => {
       const result = await run('return await tools.teleport({});', { toolNames: ['read_file'] });
 
@@ -391,6 +407,14 @@ describe('runSandboxedScript', () => {
       expect(result.error).toContain('tool_search');
     });
 
+    it('reports a syntax error without running anything', async () => {
+      const result = await run('console.log("ran"); return ((;');
+
+      expect(result).toMatchObject({ ok: false, errorKind: 'script', logs: '' });
+      expect(result.error).toContain('SyntaxError');
+    });
+
+    it('reports a thrown non-error value', async () => {
       const result = await run('throw "plain string";');
 
       expect(result).toMatchObject({ ok: false, errorKind: 'script' });

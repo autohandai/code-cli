@@ -154,13 +154,20 @@ const GUEST_BOOTSTRAP = String.raw`(function (hostCall, hostLog, toolNamesJson) 
   const words = (name) => name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   const resembling = (name) => {
     const wanted = words(name);
-    return toolNames.filter((candidate) => words(candidate).some((word) => wanted.includes(word))).slice(0, 5);
+    return toolNames.filter((candidate) => words(candidate).some((word) => wanted.includes(word)));
   };
+  // A bare lowercase word (git, npm, ls) is a program the model expects to exist as a tool.
+  const looksLikeProgram = (name) => /^[a-z][a-z0-9-]*$/.test(name);
   const unknownTool = (name) => () => {
     const close = resembling(name);
+    const shown = close.slice(0, 5);
     return reject(new Error(
       'Unknown tool "' + name + '". '
-      + (close.length > 0 ? 'Did you mean: ' + close.join(', ') + '? ' : '')
+      + (looksLikeProgram(name) && toolNames.includes('run_command')
+        ? 'To run the ' + name + ' program call tools.run_command({ command: "' + name + '", args: [...] }). '
+        : '')
+      + (shown.length > 0 ? 'Did you mean: ' + shown.join(', ') + '? ' : '')
+      + (close.length > shown.length ? '(' + close.length + ' tools match "' + name + '"; tool_search lists them.) ' : '')
       + 'Use tool_search for exact names and argument schemas; Object.keys(tools) lists every tool.'
     ));
   };
@@ -323,11 +330,6 @@ function describeGuestError(detail: unknown, limits: SandboxLimits, memoryExhaus
   return fail('script', stack && stack.length <= MAX_STACK_TRACE_CHARS ? `${headline}\n${stack}` : headline);
 }
 
-/** Runs `work`, or rejects as soon as the signal aborts; the listener never outlives the call. */
-function settleOrAbort<T>(work: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const release = (): void => signal?.removeEventListener('abort', onAbort);
-    const onAbort = (): void => {
 /** Frames inside the bridge say nothing about the script; the `<input>` frames carry its line numbers. */
 function scriptFrames(stack: string): string {
   return stack.split('\n').filter((frame) => !frame.includes(BOOTSTRAP_FILE)).join('\n').trimEnd();
@@ -345,6 +347,11 @@ function describeMissingHostGlobal(message: string): string | undefined {
     + 'tool_search returns the exact tool names and argument schemas.';
 }
 
+/** Runs `work`, or rejects as soon as the signal aborts; the listener never outlives the call. */
+function settleOrAbort<T>(work: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const release = (): void => signal?.removeEventListener('abort', onAbort);
+    const onAbort = (): void => {
       release();
       reject(new SandboxAbortedError());
     };
