@@ -51,14 +51,17 @@ function composerLine(session: Session): string {
   return outputViewport(session).split('\n').reverse().find(line => line.trimStart().startsWith('❯'))?.trim() ?? '';
 }
 
-/** Submits once the composer shows the whole command, so Enter is never coalesced into the typed burst. Returns when Enter was sent. */
-export async function runDiscoveryCommand(session: Session, argument = ''): Promise<number> {
-  const command = `/discovery ${argument}`;
-  await session.type(command);
-  await session.text({ timeout: 15_000, waitFor: () => composerLine(session) === `❯ ${command.trim()}` });
+/** Submits once the composer shows the whole line, so Enter is never coalesced into the typed burst. Returns when Enter was sent. */
+export async function submitComposerLine(session: Session, text: string): Promise<number> {
+  await session.type(text);
+  await session.text({ timeout: 15_000, waitFor: () => composerLine(session) === `❯ ${text.trim()}` });
   const submittedAt = Date.now();
   await session.press('enter');
   return submittedAt;
+}
+
+export function runDiscoveryCommand(session: Session, argument = ''): Promise<number> {
+  return submitComposerLine(session, `/discovery ${argument}`);
 }
 
 /** True once the composer holds no draft: it shows its placeholder, not a typed command. */

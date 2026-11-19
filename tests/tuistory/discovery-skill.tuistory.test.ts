@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
 import { outputViewport } from '../../src/testing/scenarios/compactOutputScenario.js';
 import { COLLECTOR_FAILURE_DETAIL, DISCOVERY_SCAN_NOTICE, composerIsEmpty, failingCollectorNodeOptions, occurrences, runDiscoveryCommand,
-  seedOversizedSkills } from '../../src/testing/scenarios/discoveryScenario.js';
+  seedOversizedSkills, submitComposerLine } from '../../src/testing/scenarios/discoveryScenario.js';
 import { clearComposerInput, createTempAutohandHome, exitInteractive, launchBuiltAutohand, type TuistoryTempState } from './helpers/autohandTuistory.js';
 import { launchAdaptiveSkillsFixture, type AdaptiveSkillsFixture } from './helpers/adaptiveSkillsFixture.js';
 
@@ -36,8 +36,7 @@ if (process.env.AUTOHAND_DISCOVERY_CHILD === '1') {
     let childPid: number | undefined;
     try {
       await fixture.session.waitForText('❯', { timeout: 15_000 });
-      await fixture.session.type('/discovery ');
-      await fixture.session.press('enter');
+      await runDiscoveryCommand(fixture.session);
       await vi.waitFor(async () => {
         childPid = Number(await readFile(marker, 'utf8'));
         expect(childPid).toBeGreaterThan(0);
@@ -68,8 +67,7 @@ if (process.env.AUTOHAND_DISCOVERY_CHILD === '1') {
     const manifest = JSON.stringify({ name: 'interactive-discovery-fixture', scripts: { test: 'DO_NOT_EXECUTE_DISCOVERY_SCRIPT' } });
     await writeFile(packageFile, manifest);
     await fixture.session.waitForText('❯', { timeout: 15_000 });
-    await fixture.session.type(`${invocation} `);
-    await fixture.session.press('enter');
+    await submitComposerLine(fixture.session, `${invocation} `);
     const screen = await fixture.session.text({ timeout: 15_000,
       waitFor: text => text.includes('Suggested workflows') || text.includes('DISCOVERY_INTERNAL_RANKER_REPRO') });
     expect(fixture.server.requests, 'Local discovery must gather evidence instead of invoking the structured ranker without its input').toHaveLength(0);
