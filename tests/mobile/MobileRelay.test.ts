@@ -3278,6 +3278,52 @@ describe('MobileRelay event bridge', () => {
     ]));
   });
 
+  it('passes the phone reasoning effort with set_model', async () => {
+    const published: PublishMobileEventPayload[] = [];
+    const modelChangeHandler = vi.fn().mockResolvedValue({
+      provider: 'autohandai',
+      model: 'moa',
+      status: 'applied' as const,
+    });
+    const actions: MobileAction[] = [{
+      id: 'set-model-1',
+      sequence: 1,
+      actionType: 'set_model',
+      requestId: 'request-set-model-1',
+      payload: { provider: 'autohandai', model: 'moa', reasoningEffort: 'xhigh' },
+      createdAt: new Date().toISOString(),
+    }];
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue(undefined),
+      claimWork: vi.fn().mockResolvedValue(null),
+      publishMobileEvent: vi.fn().mockImplementation(async (_token, payload) => published.push(payload)),
+      pollMobileActions: vi.fn().mockResolvedValue({ actions, nextCursor: 1 }),
+    };
+
+    const relay = startMobileRelay({
+      client,
+      token: 'token',
+      deviceId: 'device-1',
+      sessionId: 'session-1',
+      pairingId: 'pairing-1',
+      mode: 'steer',
+      pollIntervalMs: 1_000,
+      enqueueInstruction: vi.fn(),
+    });
+    relay.setModelChangeHandler(modelChangeHandler);
+
+    await vi.waitFor(() => expect(modelChangeHandler).toHaveBeenCalledWith('autohandai', 'moa', { reasoningEffort: 'xhigh' }));
+    expect(published).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'model_status',
+        payload: { provider: 'autohandai', model: 'moa', status: 'applied' },
+      }),
+    ]));
+  });
+
   it('rejects permission-mode actions until the mobile pairing is claimed', async () => {
     const published: PublishMobileEventPayload[] = [];
     const applyPermissionMode = vi.fn().mockReturnValue(createPermissionModeChange('unrestricted'));
