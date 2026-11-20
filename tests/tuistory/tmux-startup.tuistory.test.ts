@@ -8,6 +8,7 @@ import { TmuxTestServer } from '../../src/testing/drivers/tmux-driver.js';
 import { resolveZitBin } from '../../src/utils/sessionZit.js';
 import { launchTuistorySession, exitInteractive } from '../../src/testing/drivers/tuistory-driver.js';
 import { outputViewport } from '../../src/testing/scenarios/compactOutputScenario.js';
+import { FULL_SCREEN_GUTTER } from '../../src/ui/ink/FullScreenFrame.js';
 import { createTempAutohandHome, type TuistoryTempState } from './helpers/autohandTuistory.js';
 
 let compiledDirectory: string | undefined;
@@ -56,16 +57,18 @@ describe.skipIf(process.platform === 'win32')('standalone tmux startup', () => {
     await session.waitForText('Plan, search, build anything', { timeout: 20_000 });
     await session.type('preserved tmux draft');
     const historySize = server.snapshot().historySize;
+    // The full-screen header is inset from the window edge by the frame's left gutter.
+    const banner = new RegExp(`^ {${FULL_SCREEN_GUTTER}}>_ Autohand Code`, 'gm');
     for (const [cols, rows] of [[100, 30], [70, 24], [120, 36]]) {
       session.resize({ cols, rows });
       await session.waitForText('preserved tmux draft');
       await vi.waitFor(() => {
         const pane = server!.snapshot();
         expect(pane.historySize).toBe(historySize);
-        expect(pane.text.match(/^>_ Autohand Code/gm), pane.text).toHaveLength(1);
+        expect(pane.text.match(banner), pane.text).toHaveLength(1);
         expect(pane.text.match(/❯ preserved tmux draft/g), pane.text).toHaveLength(1);
         const screen = outputViewport(session!);
-        expect(screen.match(/^>_ Autohand Code/gm), screen).toHaveLength(1);
+        expect(screen.match(banner), screen).toHaveLength(1);
         expect(screen.match(/❯ preserved tmux draft/g), screen).toHaveLength(1);
       }, { timeout: 5_000, interval: 50 });
     }
