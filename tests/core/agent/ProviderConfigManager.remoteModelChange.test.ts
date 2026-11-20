@@ -147,6 +147,28 @@ describe('ProviderConfigManager.applyModelChangeRemote', () => {
     expect(setActiveProvider).toHaveBeenCalledWith('openrouter');
   });
 
+  it('applies the phone\'s Moa reasoning effort and drops it for Fantail', async () => {
+    runtime.config.provider = 'autohandai';
+    runtime.config.autohandai = { plan: 'cloud', authMode: 'account', accountToken: 'tok', model: 'fantail' };
+    runtime.options.model = 'fantail';
+
+    expect((await manager.applyModelChangeRemote('autohandai', 'moa', { reasoningEffort: 'xhigh' })).status).toBe('applied');
+    expect(runtime.config.autohandai.model).toBe('moa');
+    expect(runtime.config.autohandai.reasoningEffort).toBe('xhigh');
+
+    // Effort only, same model.
+    await manager.applyModelChangeRemote('autohandai', 'moa', { reasoningEffort: 'medium' });
+    expect(runtime.config.autohandai.reasoningEffort).toBe('medium');
+
+    // An effort Moa does not offer is ignored.
+    await manager.applyModelChangeRemote('autohandai', 'moa', { reasoningEffort: 'none' });
+    expect(runtime.config.autohandai.reasoningEffort).toBe('medium');
+
+    await manager.applyModelChangeRemote('autohandai', 'fantail', { reasoningEffort: 'high' });
+    expect(runtime.config.autohandai.model).toBe('fantail');
+    expect(runtime.config.autohandai.reasoningEffort).toBeUndefined();
+  });
+
   it.each([4096, 262144])('refreshes the llama.cpp server limit to %s without waiting before switching', async (limit) => {
     const metadata = Promise.withResolvers<number | undefined>();
     const nextProvider: LLMProvider = {

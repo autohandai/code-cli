@@ -255,8 +255,9 @@ export function configureMobileRelayController(
       host.cancelCurrentInstruction?.();
     }
   });
-  relay.setModelChangeHandler((provider, model) =>
-    host.providerConfigManager.applyModelChangeRemote(provider, model));
+  relay.setModelChangeHandler((provider, model, options) => options
+    ? host.providerConfigManager.applyModelChangeRemote(provider, model, options)
+    : host.providerConfigManager.applyModelChangeRemote(provider, model));
 }
 
 const MOBILE_PERMISSION_SAFETY_RANK: Record<MobilePermissionMode, number> = {

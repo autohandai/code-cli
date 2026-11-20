@@ -4020,6 +4020,7 @@ export class ProviderConfigManager {
   async applyModelChangeRemote(
     provider: string,
     model: string,
+    options: { reasoningEffort?: string } = {},
   ): Promise<{ provider: string; model: string; status: "applied" | "failed"; error?: string }> {
     if (!ProviderFactory.isValidProvider(provider, this.runtime.config)) {
       return { provider, model, status: "failed", error: `Unknown provider: ${provider}` };
@@ -4031,6 +4032,7 @@ export class ProviderConfigManager {
     try {
       const currentModel = this.runtime.options.model ?? "";
       await this.applyModelChange(provider, sanitized, currentModel);
+      if (provider === "autohandai") await this.applyAutohandAIReasoningEffortRemote(sanitized, options.reasoningEffort);
       return { provider, model: this.runtime.options.model ?? sanitized, status: "applied" };
     } catch (error) {
       return {
@@ -4040,6 +4042,28 @@ export class ProviderConfigManager {
         error: error instanceof Error ? error.message : "Failed to switch model.",
       };
     }
+  }
+
+  /**
+   * The phone's effort for an Autohand AI model (Moa: medium, high, xhigh), applied the way the
+   * interactive picker stores it. A model without effort levels drops any stored effort; an effort
+   * the model does not offer is ignored. Effort-only changes apply even when the model is unchanged.
+   */
+  private async applyAutohandAIReasoningEffortRemote(model: string, effort: string | undefined): Promise<void> {
+    const settings = this.runtime.config.autohandai;
+    if (!settings) return;
+    const levels = getProviderModelOptions("autohandai").find((entry) => entry.id === model)?.reasoningEfforts ?? [];
+    const next = effort && (levels as readonly string[]).includes(effort) ? (effort as ReasoningEffort) : undefined;
+    if (!levels.length) {
+      if (settings.reasoningEffort === undefined) return;
+      delete settings.reasoningEffort;
+    } else if (!next || next === settings.reasoningEffort) {
+      return;
+    } else {
+      settings.reasoningEffort = next;
+    }
+    await saveConfig(this.runtime.config);
+    this.resetLlmClient("autohandai", model);
   }
 
   /**
