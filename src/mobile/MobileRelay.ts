@@ -167,7 +167,8 @@ export interface MobileRelayController {
 
 export type MobileModelChangeHandler = (
   provider: string,
-  model: string
+  model: string,
+  options?: { reasoningEffort?: string }
 ) => Promise<MobileModelStatus>;
 
 const MAX_MOBILE_IMAGE_BASE64_LENGTH = 5_000_000;
@@ -1607,7 +1608,10 @@ async function resolveAction(
 
       let result: MobileModelStatus;
       try {
-        result = await relay.modelChangeHandler(provider, model);
+        const reasoningEffort = action.payload.reasoningEffort;
+        result = typeof reasoningEffort === 'string'
+          ? await relay.modelChangeHandler(provider, model, { reasoningEffort })
+          : await relay.modelChangeHandler(provider, model);
       } catch (error) {
         result = {
           provider,
