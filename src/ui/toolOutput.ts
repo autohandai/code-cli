@@ -188,9 +188,9 @@ function scriptReportDisplay(report: ScriptReport, totalChars: number, compact: 
   const answer = typeof report.result === 'string' ? report.result : JSON.stringify(report.result, null, 2) ?? 'null';
   const everything = [header, answer, ...(report.logs ? ['', 'Logs:', report.logs] : [])].join('\n');
 
-  if (!compact) {
-    return { output: everything, truncated: false, totalChars };
-  }
+  // A script's return value is data, not prose. Printing it verbatim dumps a
+  // JSON blob into the transcript, so both modes lead with the header and a
+  // short preview and keep the full payload behind the expand affordance.
   const preview = previewLines(answer, 'head');
   const complete = preview.complete && !report.logs;
   return {

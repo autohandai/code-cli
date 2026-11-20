@@ -2824,6 +2824,9 @@ export class AutohandAgent {
 
   setVersionCheckResult(result: VersionCheckResult): void {
     this.versionCheckResult = result;
+    // The status line renders the update notice from this field, so repaint it
+    // now instead of waiting for an unrelated render to pick the change up.
+    this.emitStatus();
   }
 
   private formatStatusLine(): { left: string; right: string } {

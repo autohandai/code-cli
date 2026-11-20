@@ -1616,6 +1616,9 @@ const ZIT_SIGNAL_GRACE_MS = 6_000;
 
 async function runCLI(options: InternalCLIOptions): Promise<void> {
   const agentHolder: { current: AutohandAgent | null } = { current: null };
+  // The background version check can settle before the agent exists; hold the
+  // result here so construction can adopt it instead of losing the notice.
+  let pendingVersionCheckResult: VersionCheckResult | null = null;
   const commandLifecycleController = new AbortController();
   let agent: AutohandAgent | null = null;
   let herdrIntegration: HerdrIntegration | null = null;
@@ -2060,7 +2063,14 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
           return { authUser: authUser ?? null, versionResult };
         },
         onVersionResult: (versionResult) => {
-          agentHolder.current?.setVersionCheckResult(versionResult);
+          // The version check is network-bound and usually resolves from a warm
+          // cache before the agent is constructed. Hold the result so the agent
+          // can adopt it on construction instead of dropping it here.
+          if (agentHolder.current) {
+            agentHolder.current.setVersionCheckResult(versionResult);
+          } else {
+            pendingVersionCheckResult = versionResult;
+          }
         },
         shouldCreateSync: () => Boolean(config.auth?.token),
         shouldStartSync: () => Boolean(config.auth?.token && (options.syncSettings ?? config.sync?.enabled ?? false)),
@@ -2219,6 +2229,10 @@ async function runCLI(options: InternalCLIOptions): Promise<void> {
     }
     agent = new AutohandAgent(llmProvider, files, runtime);
     agentHolder.current = agent;
+    if (pendingVersionCheckResult) {
+      agent.setVersionCheckResult(pendingVersionCheckResult);
+      pendingVersionCheckResult = null;
+    }
     herdrIntegration = attachHerdrIntegration({ hookManager: agent.getHookManager() });
     startupTimeline.mark('agent constructed');
     if (commandLifecycleController.signal.aborted) {

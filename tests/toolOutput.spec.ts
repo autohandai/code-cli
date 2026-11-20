@@ -487,12 +487,15 @@ describe('run_tool_script result', () => {
     expect(result.output).toBe('no tool calls · 3ms\nall good');
   });
 
-  it('prints everything, logs included, in full mode', () => {
+  it('keeps the JSON payload behind the expand affordance in full mode too', () => {
     const result = formatToolOutputForDisplay({ tool: 'run_tool_script', content: report(), charLimit: 300, mode: 'full' });
+    const [header, ...rest] = result.output.split('\n');
 
-    expect(result.output).toContain('"src/b.ts"');
-    expect(result.output).toContain('Logs:\nscanned 200 files');
-    expect(result.expandedOutput).toBeUndefined();
+    expect(header).toBe('201 tool calls (read_file ×200, find ×1), 1 failed · 1.8s');
+    expect(rest).toHaveLength(COMPACT_PREVIEW_LINES);
+    expect(result.output).not.toContain('"src/b.ts"');
+    expect(result.expandedOutput).toContain('"src/b.ts"');
+    expect(result.expandedOutput).toContain('Logs:\nscanned 200 files');
   });
 
   it('falls back to the raw text when the result is not the expected report', () => {
