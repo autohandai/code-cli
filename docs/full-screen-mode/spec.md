@@ -20,8 +20,11 @@ Long conversations and tool output currently share the terminal's scrollback wit
 5. Ctrl+F searches rendered transcript text as you type without overwriting the composer draft, including phrases split across wrapped rows. Search works during active turns and refreshes as new output arrives while preserving the selected occurrence. Enter advances through matches; Shift+Enter searches backward with wraparound; Escape leaves search without cancelling work.
 6. Support Markdown, links and clickable image labels through the existing terminal formatter. Preserve compact tool previews and explicit expansion.
 7. Keep slash-command menus, usage reports, permission prompts, feedback, queues and Ctrl+C behavior working. Restore the original terminal screen on shutdown, failed startup and process exit.
-8. Honor the existing mouse setting and terminal defaults. When enabled, support click-to-position in the composer and wheel scrolling in the transcript. Keep keyboard navigation available when mouse capture is disabled. Show grouped shortcut help and suggestion menus above the anchored composer.
+8. Honor the mouse setting. Mouse reporting is on by default in every terminal, iTerm2 included, and stays on for the life of the full-screen view, also while a turn runs: with reporting off the terminal sends the wheel as arrow keys, which walk the prompt history. When enabled, support click-to-position in the composer and wheel scrolling in the transcript. Keep keyboard navigation available when mouse capture is disabled. Show grouped shortcut help and suggestion menus above the anchored composer.
 9. Do not change provider requests, token accounting, permissions, session storage or noninteractive output.
+10. A result with details carries a hint row saying how to open or close it. Details open in the place of their result: the result's header keeps its row, the view moves only as far as the details need, and closing them restores the view that was there before. Ctrl+O closes the open result before it opens the latest one.
+11. Text the model streams ahead of a tool call stays on screen until the next streamed reply, a draft, the final answer or the end of the turn replaces it.
+12. A connected phone is shown on the header row under the working directory for as long as it is connected, not as a transcript note.
 
 ## Acceptance evidence
 

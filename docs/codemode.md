@@ -6,6 +6,8 @@ JavaScript script that calls its tools, does the looping, filtering and
 aggregation inside the script, and returns only the answer. Fewer round trips,
 and the intermediate output never enters the model's context.
 
+In the transcript a script run is shown as “Running script · <description>” while it runs and “Ran script · <call summary>” when it finishes, translated into the display language. The full result is behind the result's expand hint (click it, or Ctrl+O for the latest one). Hooks, permissions, RPC and ACP still see the tool as `run_tool_script`.
+
 It is experimental and off by default.
 
 ## Enabling it

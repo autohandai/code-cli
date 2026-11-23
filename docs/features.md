@@ -70,6 +70,9 @@ The `/settings` command opens an interactive settings editor directly in the ter
 | `/undo` | Revert the last recorded agent file mutation and conversation turn |
 | `/memory` | View stored memories |
 | `/memories` | Turn memory use and generation on or off, or reset local memories |
+| `/mobile` | Pair this session with the Autohand mobile app (`/mobile ios`, `/mobile android`; `/go` is the earlier name) |
+| `/devices` | Show the phone paired with this session; `/devices unpair` disconnects it |
+| `/changelog` | Show what changed in recent releases |
 | `/init` | Create `AGENTS.md` file |
 | `/agents` | Watch active Autohand sessions |
 | `/agents definitions` | List installed sub-agent definitions |
@@ -125,6 +128,8 @@ Goals are enabled by default from 0.9.9. Existing explicit settings are preserve
 Turn goals off with `/experiments disable slash_goal`; turn them back on with
 `/experiments enable slash_goal`. Open the panel with
 `/goals`, `/goals view`, or `/goal view`. Opening the view does not start queued work.
+
+`/goal <objective>` confirms a new goal in one line, “Goal set · <objective>”, and the turn shows as working at once. Click the line, or press Ctrl+O, to see the full goal record (status, id, elapsed time, tokens).
 Without an interactive panel, the view command returns a read-only text snapshot.
 
 The panel groups the current goal, queued goals, and goals from other sessions.
