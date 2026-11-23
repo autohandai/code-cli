@@ -120,7 +120,7 @@ describe('code mode', () => {
     expect(advertisedTools(server)).toContain('run_tool_script');
     expect(advertisedTools(server)).not.toContain('read_file');
     expect(new Set(server.requests.map(request => JSON.stringify(request.tools))).size).toBe(1);
-    expect(session.readAll()).toContain(`run_tool_script ${SCRIPT_DESCRIPTION}`);
+    expect(session.readAll()).toContain(`Running script ${SCRIPT_DESCRIPTION}`);
     expect(screen).toContain('2 tool calls (read_file ×2), 1 failed');
     expect(screen).toContain('"hasName": true');
 
