@@ -60,7 +60,8 @@ describe('/changelog', () => {
     expect(head).toContain(`${gutter}Published Nov 20, 2026`);
     expect(rowsBetween(head, `${gutter}A calmer full-screen terminal`, `${gutter}${next}`))
       .toEqual(section.map(row => `${gutter}${row}`));
-    expect(tail).toContain(`${gutter}macOS alpha signing`);
+    expect(tail).toContain(`${gutter}No code changes were found in this comparison range.`);
+    expect([...head, ...tail].filter(row => /Get it|npm install|Hey there|Full comparison/.test(row))).toEqual([]);
     expect([...head, ...tail].filter(row => /###|\*\*|\]\(|```/.test(row))).toEqual([]);
     await exitInteractive(terminal);
   });
@@ -70,9 +71,8 @@ describe('/changelog', () => {
 
     const tail = (await showChangelog(terminal)).split('\n');
 
-    expect(tail).toContain('macOS alpha signing');
-    expect(tail).toContain('Platform │ Architecture  │ Binary');
-    expect(tail).toContain("See Apple's instructions");
+    expect(tail).toContain('No code changes were found in this comparison range.');
+    expect(tail.filter(row => /Get it|npm install|Platform │ Architecture|macOS alpha signing/.test(row))).toEqual([]);
     expect(tail.filter(row => /###|\*\*|\]\(|```/.test(row))).toEqual([]);
     await exitInteractive(terminal);
   });

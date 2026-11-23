@@ -12,6 +12,7 @@ import {
   changelog,
   formatChangelog,
   metadata,
+  releaseChanges,
   type ChangelogRelease,
 } from '../../src/commands/changelog.js';
 import { renderAgentSlashCommandResult } from '../../src/core/agent/AgentCommandRuntime.js';
@@ -109,6 +110,21 @@ describe('/changelog command', () => {
     expect(fullScreenRows(output, 80)).toContain('v1_0_* — Faster `init` <now> [really]');
   });
 
+  it.each([
+    ['a "Get it" section', '### Fixed\n\n- One fix.\n\n---\n\n### Get it\n\n```bash\nnpm install -g autohand-cli\n```\n\n### macOS alpha signing\n\nAd-hoc signed.'],
+    ['an "Installation" section without a rule', '### Fixed\n\n- One fix.\n\n## Installation\n\nRun the installer.'],
+    ['a greeting and a comparison link', "Hey there! We've been busy making Autohand better. Here's what's new since v0.8.2:\n\n### Fixed\n\n- One fix.\n\nFull comparison: https://github.com/autohandai/code-cli/compare/v0.8.2...v0.8.3"],
+    ['an alpha banner', '> **Alpha Release** - This is a pre-release build.\n\n### Fixed\n\n- One fix.\r\n'],
+  ])('keeps only the changes from notes with %s', (_label, body) => {
+    expect(releaseChanges(body)).toBe('### Fixed\n\n- One fix.');
+  });
+
+  it('keeps a section about installing something that is a change, and reports notes with nothing left', () => {
+    expect(releaseChanges('### Fixed\n\n- Install hooks with `autohand hooks install`.')).toBe('### Fixed\n\n- Install hooks with `autohand hooks install`.');
+    expect(releaseChanges('---\n\n### Get it\n\nRun the installer.')).toBe('');
+    expect(formatChangelog([{ ...releases[0], body: '### Get it\n\nRun the installer.' }])).toContain('No release notes provided.');
+  });
+
   it('reports an empty release history', () => {
     expect(formatChangelog([])).toBe('# Autohand Changelog\n\nNo published releases found.');
   });
@@ -163,8 +179,6 @@ describe('/changelog in the full-screen transcript', () => {
         'Honest turn outcomes',
         'Sessions, lanes and memory',
         'Updates',
-        'Get it',
-        'macOS alpha signing',
       ]) {
         expect(rows, heading).toContain(heading);
       }
@@ -173,11 +187,16 @@ describe('/changelog in the full-screen transcript', () => {
       expect(rows.filter((row) => /^#{1,6} /.test(row))).toEqual([]);
     });
 
-    it('shows the introduction as a paragraph, not as a list item', async () => {
+    it('shows only what changed: no greeting, comparison link or install instructions', async () => {
       const rows = fullScreenRows(await loadPublishedChangelog(), width);
+      const text = rows.join('\n');
 
-      expect(rows.some((row) => row.startsWith("Hey there! We've been busy"))).toBe(true);
-      expect(rows.some((row) => row.startsWith('• Hey there!'))).toBe(false);
+      for (const absent of ['Hey there!', 'Full comparison', 'Get it', 'npm install', 'install.sh', 'brew install', 'Alpha Release', 'macOS alpha signing', 'Architecture']) {
+        expect(text, absent).not.toContain(absent);
+      }
+      expect(rows.filter((row) => /^[-─]{3,}$/.test(row.trim()))).toEqual([]);
+      // A release whose notes are only boilerplate still says what its range contained.
+      expect(rows).toContain('No code changes were found in this comparison range.');
     });
 
     it('wraps a long list item under its own text with a single bullet', async () => {
@@ -208,24 +227,26 @@ describe('/changelog in the full-screen transcript', () => {
     });
 
     it('keeps inline code, bold text and links intact', async () => {
-      const rows = fullScreenRows(await loadPublishedChangelog(), width);
+      const linked = { ...releases[0], body: '### Fixed\n\n- **Signing:** see [the guide](https://docs.autohand.ai/signing).' };
+      const rows = [...fullScreenRows(await loadPublishedChangelog(), width), ...fullScreenRows(formatChangelog([linked]), width)];
       const text = rows.map((row) => row.trim()).join(' ');
 
       expect(text).toContain('HOOK_TURN_OUTCOME=interrupted');
       expect(text).toContain('needs_review');
-      expect(text).toContain('Quickest way:');
+      expect(text).toContain('Signing:');
       expect(text).not.toContain('**');
-      expect(text).toContain("Apple's instructions");
-      expect(text).toContain('https://support.apple.com/en-us/102445');
+      expect(text).toContain('the guide');
+      expect(text).toContain('https://docs.autohand.ai/signing');
       expect(text).not.toContain('](');
     });
 
-    it('shows install commands as code blocks and the binaries as a table', async () => {
-      const rows = fullScreenRows(await loadPublishedChangelog(), width);
+    it('shows a code block and a table that belong to the changes', () => {
+      const body = '### Config\n\n```bash\nautohand config set ui.locale kk\n```\n\n| Key | Default |\n|-----|---------|\n| `ui.locale` | `en` |';
+      const rows = fullScreenRows(formatChangelog([{ ...releases[0], body }]), width);
 
-      expect(rows).toContain('│ npm install -g autohand-cli');
+      expect(rows).toContain('│ autohand config set ui.locale kk');
       expect(rows.filter((row) => row.includes('```'))).toEqual([]);
-      expect(rows.some((row) => /^Platform\s+│ Architecture\s+│ Binary$/.test(row))).toBe(true);
+      expect(rows.some((row) => /^Key\s+│ Default$/.test(row))).toBe(true);
       expect(rows.filter((row) => row.includes('|---'))).toEqual([]);
     });
 

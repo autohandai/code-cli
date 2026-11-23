@@ -59,6 +59,32 @@ function formatPublishedAt(publishedAt: string | null): string | null {
   }).format(date);
 }
 
+/** The heading that opens a release's install and update instructions; everything after it is about getting the build. */
+const INSTALL_SECTION = /^#{1,6}\s+(?:get it|install(?:ation|ing)?|how to (?:install|update|upgrade)|updat(?:e|ing)|upgrad(?:e|ing)|downloads?)\s*$/i;
+const THEMATIC_BREAK = /^(?:-{3,}|\*{3,}|_{3,})$/;
+/** Rows the release workflow wraps around the changes: its greeting, the pre-release banner and the compare link. */
+const BOILERPLATE_ROWS = [
+  /^hey there!/i,
+  /what's new since v[\w.-]+:$/i,
+  /^>\s*\*\*alpha release\*\*/i,
+  /^full comparison:\s/i,
+];
+
+/**
+ * The part of a release's notes that says what changed. The published notes also greet the
+ * reader and explain how to install the build, which someone already running it does not need.
+ */
+export function releaseChanges(body: string): string {
+  const rows = body.replace(/\r\n?/g, '\n').split('\n');
+  const installAt = rows.findIndex((row) => INSTALL_SECTION.test(row.trim()));
+  const changes = (installAt >= 0 ? rows.slice(0, installAt) : rows)
+    .filter((row) => !BOILERPLATE_ROWS.some((pattern) => pattern.test(row.trim())));
+  while (changes.length > 0 && (changes.at(-1)!.trim() === '' || THEMATIC_BREAK.test(changes.at(-1)!.trim()))) {
+    changes.pop();
+  }
+  return changes.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function formatRelease(release: ChangelogRelease): string[] {
   const title = [
     release.tagName,
@@ -70,7 +96,7 @@ function formatRelease(release: ChangelogRelease): string[] {
     ...(publishedAt ? [`Published ${publishedAt}`] : []),
     ...(release.url ? [`<${release.url}>`] : []),
   ].join(MARKDOWN_LINE_BREAK);
-  const notes = release.body?.replace(/\r\n?/g, '\n').trim();
+  const notes = release.body ? releaseChanges(release.body) : '';
 
   return [
     `## ${escapeMarkdown(title)}`,
@@ -80,8 +106,8 @@ function formatRelease(release: ChangelogRelease): string[] {
 }
 
 /**
- * Recent releases as one markdown document. The release notes are passed through as GitHub
- * published them, so whichever surface shows the result lays them out at its own width.
+ * Recent releases as one markdown document holding each release's changes, still as markdown,
+ * so whichever surface shows the result lays them out at its own width.
  */
 export function formatChangelog(releases: ChangelogRelease[]): string {
   const blocks = releases.length === 0
