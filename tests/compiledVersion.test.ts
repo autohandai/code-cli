@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { signCompiledBinary } from '../src/testing/compiledBinary.js';
 
 describe('standalone binary version metadata', () => {
   it('embeds the alpha version and commit through one Bun environment prefix', () => {
@@ -31,6 +32,7 @@ describe('standalone binary version metadata', () => {
         },
         stdio: 'pipe',
       });
+      signCompiledBinary(binary);
 
       expect(execFileSync(binary, ['--version'], { encoding: 'utf8' }).trim())
         .toBe('0.9.9-alpha.1234abc (7654321)');

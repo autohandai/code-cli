@@ -6,6 +6,7 @@
 import React from 'react';
 import { cleanup, render } from 'ink-testing-library';
 import stringWidth from 'string-width';
+import stripAnsi from 'strip-ansi';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FeedbackSurveyLine } from '../../../src/ui/ink/FeedbackSurveyLine.js';
 import { ThemeProvider } from '../../../src/ui/theme/ThemeContext.js';
@@ -38,7 +39,8 @@ afterEach(() => {
 describe('FeedbackSurveyLine', () => {
   it('shows every numbered option on the row below the question', () => {
     const { lastFrame } = renderLine({ survey: SURVEY, columns: 120 });
-    const frame = lastFrame() ?? '';
+    // The theme colours the rows whenever the terminal running the tests supports colour; the layout is what is pinned here.
+    const frame = stripAnsi(lastFrame() ?? '');
 
     expect(frame).toMatchInlineSnapshot(`
       "● How is Autohand doing this session? (optional)

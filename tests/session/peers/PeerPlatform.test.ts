@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { signCompiledBinary } from '../../../src/testing/compiledBinary.js';
 
 let directory: string;
 beforeAll(async () => { directory = await mkdtemp(path.join(tmpdir(), 'ah-platform-probe-')); });
@@ -16,6 +17,7 @@ describe('real Node and compiled Bun IPC compatibility', () => {
     const entry = path.resolve('src/testing/scenarios/peerPlatformProbe.ts');
     const args = runtime === 'node' ? ['build', entry, '--target=node', '--outfile', output] : ['build', entry, '--compile', '--outfile', output];
     execFileSync('bun', args, { cwd: process.cwd(), timeout: 60_000, stdio: 'pipe' });
+    if (runtime === 'compiled-bun') signCompiledBinary(output);
     const home = path.join(directory, runtime, 'home');
     const result = execFileSync(runtime === 'node' ? process.execPath : output, runtime === 'node' ? [output, home, workspace] : [home, workspace], { encoding: 'utf8', timeout: 20_000 });
     const probe = JSON.parse(result.trim());

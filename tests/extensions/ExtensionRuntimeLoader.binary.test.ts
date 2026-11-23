@@ -9,6 +9,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ExtensionService } from '../../src/extensions/ExtensionService.js';
+import { signCompiledBinary } from '../../src/testing/compiledBinary.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => fs.remove(root))); });
@@ -47,6 +48,7 @@ describe('standalone extension runtime loader', () => {
       encoding: 'utf8', timeout: 60_000,
     });
     expect(compiled.status, `${compiled.stdout}\n${compiled.stderr}`).toBe(0);
+    signCompiledBinary(executable);
     const run = spawnSync(executable, [root], { cwd: root, encoding: 'utf8', timeout: 20_000,
       env: { ...process.env, ESBUILD_BINARY_PATH: path.join(root, 'missing-esbuild') } });
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0);

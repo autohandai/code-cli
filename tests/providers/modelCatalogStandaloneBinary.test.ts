@@ -9,6 +9,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { signCompiledBinary } from "../../src/testing/compiledBinary.js";
 
 const ROOT = resolve(import.meta.dirname, "../..");
 
@@ -43,6 +44,7 @@ describe("standalone model catalog binary", () => {
         binaryPath,
       ], { cwd: ROOT, stdio: "pipe", timeout: 60_000, killSignal: "SIGKILL" });
       chmodSync(binaryPath, 0o755);
+      signCompiledBinary(binaryPath);
 
       const output = execFileSync(binaryPath, [], {
         cwd: runDirectory,

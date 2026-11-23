@@ -10,6 +10,7 @@ import { launchTuistorySession, exitInteractive } from '../../src/testing/driver
 import { outputViewport } from '../../src/testing/scenarios/compactOutputScenario.js';
 import { FULL_SCREEN_GUTTER } from '../../src/ui/ink/FullScreenFrame.js';
 import { createTempAutohandHome, type TuistoryTempState } from './helpers/autohandTuistory.js';
+import { signCompiledBinary } from '../../src/testing/compiledBinary.js';
 
 let compiledDirectory: string | undefined;
 let executable: string;
@@ -27,6 +28,7 @@ describe.skipIf(process.platform === 'win32')('standalone tmux startup', () => {
     executable = path.join(compiledDirectory, 'autohand');
     execFileSync('bun', ['build', path.resolve('src/index.ts'), '--compile', '--external', 'node-llama-cpp', '--outfile', executable],
       { cwd: process.cwd(), timeout: 60_000, stdio: 'pipe' });
+    signCompiledBinary(executable);
   });
   afterAll(async () => { if (compiledDirectory) await rm(compiledDirectory, { recursive: true, force: true }); });
   afterEach(async () => { session?.close(); server?.stop(); await state?.cleanup(); session = undefined; state = undefined; server = undefined; });
