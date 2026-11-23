@@ -16,6 +16,7 @@ export interface MessageTargetHost {
   agentRunStore?: { getSnapshot(): AgentRunsSnapshot | { runs: AgentRun[] }; sendMessage(id: string, message: string): Promise<boolean> } | null;
   teamManager?: { getTeam(): { members: TeamMember[] } | null; sendMessageTo(to: string, from: string, content: string): void } | null;
   peerAwareness?: { getPeers(): ActiveAgentRecord[] } | null;
+  peerMessaging?: { policy: { enabled: boolean } } | null;
 }
 
 export interface TargetMessageDelivery {
@@ -29,6 +30,7 @@ export function listAgentMessageTargets(host: MessageTargetHost): MessageTarget[
     runs: host.agentRunStore?.getSnapshot().runs ?? [],
     teammates: host.teamManager?.getTeam()?.members ?? [],
     peers: host.peerAwareness?.getPeers() ?? [],
+    peerMessagingEnabled: host.peerMessaging?.policy.enabled === true,
   });
 }
 

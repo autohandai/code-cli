@@ -39,9 +39,12 @@ export interface MessageTargetSources {
   runs?: readonly AgentRun[];
   teammates?: readonly TeamMember[];
   peers?: readonly ActiveAgentRecord[];
+  /** Whether this session runs authenticated peer messaging (`sessions.communication.enabled`). */
+  peerMessagingEnabled?: boolean;
 }
 
-export const PEER_MESSAGING_UNAVAILABLE = 'Peer sessions cannot receive messages yet; use /peers to inspect them.';
+export const PEER_MESSAGING_DISABLED = 'Peer messaging is off. Set sessions.communication.enabled to true in both sessions and restart them.';
+export const PEER_MESSAGING_NOT_ADVERTISED = 'That session has peer messaging off. Set sessions.communication.enabled to true there and restart it.';
 export const MESSAGE_TARGET_SUGGESTION_LIMIT = 8;
 
 /**
@@ -130,15 +133,20 @@ export function buildMessageTargets(sources: MessageTargetSources): MessageTarge
       ...(reason ? { reason } : {}),
     };
   });
-  const peers = (sources.peers ?? []).map((peer) => ({
-    kind: 'peer' as const,
-    id: peer.sessionId,
-    base: `peer-${peer.sessionId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase()}`,
-    label: `Session ${peer.sessionId.slice(0, 8)}`,
-    detail: excerpt(`peer session · ${peer.projectName} · ${peer.model}`),
-    messageable: false,
-    reason: PEER_MESSAGING_UNAVAILABLE,
-  }));
+  // Presence rows only: a session that advertises messaging is addressed by
+  // its own alias through the authenticated peer picker, never from here.
+  const peerMessagingEnabled = sources.peerMessagingEnabled === true;
+  const peers = (sources.peers ?? [])
+    .filter((peer) => !(peerMessagingEnabled && peer.communication))
+    .map((peer) => ({
+      kind: 'peer' as const,
+      id: peer.sessionId,
+      base: `peer-${peer.sessionId.replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase()}`,
+      label: `Session ${peer.sessionId.slice(0, 8)}`,
+      detail: excerpt(`peer session · ${peer.projectName} · ${peer.model}`),
+      messageable: false,
+      reason: peerMessagingEnabled ? PEER_MESSAGING_NOT_ADVERTISED : PEER_MESSAGING_DISABLED,
+    }));
   return uniqueAliases([...runs, ...teammates, ...peers]);
 }
 

@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from 'tuistory';
-import { sendMessageWithColonTrigger } from '../../src/testing/scenarios/messageTargetScenario.js';
+import { messagePresenceOnlyPeer, sendMessageWithColonTrigger } from '../../src/testing/scenarios/messageTargetScenario.js';
 import { createTempAutohandHome, exitInteractive, launchBuiltAutohand, type TuistoryTempState } from './helpers/autohandTuistory.js';
 
 const sessions: Session[] = [];
@@ -94,5 +94,31 @@ describe(': recipient trigger in the built CLI', () => {
     expect(workerRequests[1]?.some((message) => message.role === 'user' && message.content === followup)).toBe(true);
     expect(leadRequests.flat().some((message) => message.role === 'user' && message.content?.includes('COLON_TARGET_FOLLOWUP'))).toBe(false);
     await exitInteractive(session);
+  }, 90_000);
+
+  it('explains how to turn peer messaging on when the other session on the project is presence-only', async () => {
+    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false }, sessions: { awareness: 'warn' } } });
+    states.push(state);
+    const otherConfigPath = path.join(state.autohandHome, 'other-session', 'config.json');
+    await fs.mkdir(path.dirname(otherConfigPath), { recursive: true });
+    await fs.copyFile(state.configPath, otherConfigPath);
+    const launch = (configPath: string) => launchBuiltAutohand(['--path', state.workspaceRoot, '--config', configPath, '--yes'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 160, waitForDataTimeout: 15_000,
+    });
+    const other = await launch(otherConfigPath);
+    sessions.push(other);
+    await other.text({ timeout: 20_000, waitFor: (text) => text.includes('❯') });
+    const session = await launch(state.configPath);
+    sessions.push(session);
+    await session.text({ timeout: 20_000, waitFor: (text) => text.includes('❯') });
+    await session.text({ timeout: 30_000, waitFor: (text) => text.includes('1 peer') });
+
+    const { picker, receipt } = await messagePresenceOnlyPeer(session, 'are you there?');
+    expect(picker).toContain('Peer messaging is off');
+    expect(picker).not.toContain('cannot receive messages yet');
+    expect(receipt).toMatch(/Session \w{8} cannot receive messages: Peer messaging is off\./);
+    expect(receipt.replace(/\s+/g, ' ')).toContain('sessions.communication.enabled');
+    await exitInteractive(session);
+    await exitInteractive(other);
   }, 90_000);
 });

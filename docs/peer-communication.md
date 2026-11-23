@@ -30,6 +30,10 @@ Merge this into your Autohand configuration, retaining your provider and other s
 }
 ```
 
+Until a session enables communication, `:` still lists the other sessions on the project
+as presence-only `:peer-<id>` rows marked `○`. They cannot receive messages, and the row
+names this setting. Once both sessions enable it, each appears under its own alias.
+
 Restart the participating sessions after editing configuration. Give the other session
 a different alias, such as `reviewer`. An alias starts with a letter and contains up to
 64 letters, digits, dashes, or underscores. When omitted, Autohand creates a readable

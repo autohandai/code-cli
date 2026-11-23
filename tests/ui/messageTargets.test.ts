@@ -9,7 +9,8 @@ import {
   buildTargetSuggestions,
   matchTargetMention,
   parseLeadingTargetMessage,
-  PEER_MESSAGING_UNAVAILABLE,
+  PEER_MESSAGING_DISABLED,
+  PEER_MESSAGING_NOT_ADVERTISED,
 } from '../../src/ui/messageTargets.js';
 import type { AgentRun } from '../../src/core/agents/AgentRunStore.js';
 import type { ActiveAgentRecord } from '../../src/session/ActiveAgentRegistry.js';
@@ -76,9 +77,27 @@ describe('buildMessageTargets', () => {
     expect(targets.find((target) => target.alias === 'builder')).toMatchObject({ kind: 'teammate', id: 'builder', messageable: true });
     expect(targets.find((target) => target.alias === 'reviewer')).toMatchObject({ kind: 'teammate', messageable: false, reason: 'shut down' });
     expect(targets.find((target) => target.kind === 'peer')).toMatchObject({
-      id: 'abcdef1234567890', messageable: false, reason: PEER_MESSAGING_UNAVAILABLE, detail: 'peer session · cli · moa',
+      id: 'abcdef1234567890', messageable: false, reason: PEER_MESSAGING_DISABLED, detail: 'peer session · cli · moa',
     });
     expect(targets.some((target) => target.label === 'external')).toBe(false);
+  });
+
+  it('tells the user how to enable peer messaging instead of implying it does not exist', () => {
+    const [target] = buildMessageTargets({ peers: [peer] });
+    expect(target?.reason).toMatch(/sessions\.communication\.enabled/);
+    expect(target?.reason).not.toMatch(/yet/);
+  });
+
+  it('blames the other session when only this one has peer messaging on', () => {
+    expect(buildMessageTargets({ peers: [peer], peerMessagingEnabled: true })).toMatchObject([
+      { kind: 'peer', alias: 'peer-abcdef12', messageable: false, reason: PEER_MESSAGING_NOT_ADVERTISED },
+    ]);
+  });
+
+  it('leaves a session that advertises peer messaging to the authenticated peer picker', () => {
+    const advertised = { ...peer, communication: { protocol: 1, alias: 'reviewer' } } as ActiveAgentRecord;
+    expect(buildMessageTargets({ peers: [advertised], peerMessagingEnabled: true })).toEqual([]);
+    expect(buildMessageTargets({ peers: [advertised] })).toMatchObject([{ reason: PEER_MESSAGING_DISABLED }]);
   });
 });
 

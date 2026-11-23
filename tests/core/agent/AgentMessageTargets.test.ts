@@ -45,6 +45,24 @@ describe('agent message targets', () => {
     expect(h.agentRunStore.sendMessage).not.toHaveBeenCalled();
   });
 
+  it('names the setting that turns peer messaging on when a peer session is addressed', async () => {
+    const delivery = await deliverAgentTargetMessage(host(), ':peer-peer1234 hi');
+    expect(delivery).toMatchObject({ ok: false });
+    expect(delivery?.receipt).toContain('Session peer1234 cannot receive messages');
+    expect(delivery?.receipt).toContain('sessions.communication.enabled');
+    expect(delivery?.receipt).not.toContain('yet');
+  });
+
+  it('hides sessions the authenticated peer picker already lists once peer messaging is on', () => {
+    const peers = [
+      { sessionId: 'peer12345678', projectName: 'cli', model: 'moa', communication: { protocol: 1, alias: 'reviewer-peer' } },
+      { sessionId: 'quiet1234567', projectName: 'cli', model: 'moa' },
+    ];
+    const targets = listAgentMessageTargets(host({ agentRunStore: null, teamManager: null, peerAwareness: { getPeers: () => peers }, peerMessaging: { policy: { enabled: true } } }));
+    expect(targets.map((target) => target.alias)).toEqual(['peer-quiet123']);
+    expect(targets[0]?.reason).toContain('That session');
+  });
+
   it('reports a run that refused the message and leaves ordinary prompts alone', async () => {
     const h = host();
     h.agentRunStore.sendMessage.mockResolvedValueOnce(false);
