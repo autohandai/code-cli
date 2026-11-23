@@ -221,6 +221,10 @@ describe('SuggestionEngine', () => {
     ['meta text', 'No suggestion'],
     ['silent meta text', 'stay silent'],
     ['API-looking error', 'TypeError: Cannot read properties of undefined'],
+    ['a provider safety verdict', '<ds_safety>[用户未成年]否 [分类]其他 [判定]内容为Git历史查询的技术说明，不涉及政治或色情元素。 [规则]无</ds_safety>Safe'],
+    ['a safety verdict wrapped around a real suggestion', '<ds_safety>[判定]安全</ds_safety>run the tests'],
+    ['an unclosed reasoning tag', '<think>the user probably wants tests'],
+    ['a stray closing tag', 'run the tests</answer>'],
   ])('rejects %s from next-prompt suggestions', async (_label, response) => {
     const filteredEngine = new SuggestionEngine(createMockProvider(response));
 

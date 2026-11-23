@@ -246,6 +246,7 @@ function sanitizeSuggestion(raw: string): string | null {
     looksLikeAssistantPlanning(cleaned) ||
     looksLikeQuestion(cleaned) ||
     looksLikeMarkdown(cleaned) ||
+    looksLikeMarkup(cleaned) ||
     looksLikeMultipleSentences(cleaned) ||
     looksLikeMetaSuggestion(cleaned) ||
     looksLikeApiOrErrorOutput(cleaned) ||
@@ -312,6 +313,15 @@ function looksLikeQuestion(raw: string): boolean {
 
 function looksLikeMarkdown(raw: string): boolean {
   return MARKDOWN_RE.test(raw);
+}
+
+/**
+ * A tag anywhere in the reply means it is not a plain instruction: providers wrap moderation
+ * verdicts and reasoning in tags (`<ds_safety>…</ds_safety>Safe`, `<think>`), and whatever
+ * is left around them is the provider's text, never something to offer the user to send.
+ */
+function looksLikeMarkup(raw: string): boolean {
+  return /<\/?[A-Za-z][\w:-]*(?:\s[^<>]*)?\/?>/.test(raw);
 }
 
 function looksLikeMultipleSentences(raw: string): boolean {

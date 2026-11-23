@@ -29,6 +29,7 @@
 - Switching to an Autohand AI model from the phone applies the reasoning effort chosen there.
 - The status line and `/status` report the plan of the account you just signed in with.
 
-- `/changelog` renders release notes as markdown.
+- `/changelog` renders release notes as markdown and shows only what changed, without the install instructions.
+- The composer no longer suggests text that a provider's safety filter or reasoning tags leaked into the reply.
 - The startup update notice is delivered when the version check finishes before the agent is ready.
 - A script result leads with what it did and a short preview; the full payload is behind the expand hint.

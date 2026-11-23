@@ -19,7 +19,8 @@
 - Show a turn as working as soon as it is accepted, before its hooks and environment setup run.
 - Place the feedback question directly above the completion summary.
 - Close the open result with Ctrl+O before opening the latest one.
-- Render `/changelog` release notes as markdown.
+- Render `/changelog` release notes as markdown, showing only what changed: the greeting, compare link and install instructions are left out.
+- Never offer a provider's safety verdict or reasoning tags as the next-prompt suggestion.
 - Apply the reasoning effort chosen on the phone when it switches to an Autohand AI model (#769).
 - Report the plan of the account that Autohand Cloud inference bills after a fresh sign-in.
 - Deliver the startup update notice when the version check finishes before the agent is ready.
