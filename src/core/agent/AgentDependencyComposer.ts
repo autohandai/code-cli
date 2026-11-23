@@ -128,7 +128,7 @@ import { MentionResolver } from './MentionResolver.js';
 import { AutoReportManager } from '../../reporting/AutoReportManager.js';
 import { RemoteFeatureFlagManager } from '../../features/RemoteFeatureFlagManager.js';
 import { getAnnouncementManager } from '../../announcements/AnnouncementManager.js';
-import { getAuthClient, selectedAccountId } from '../../auth/index.js';
+import { entitlementToken, getAuthClient, selectedAccountId } from '../../auth/index.js';
 import { syncAgentAnnouncementLine } from './AgentUIRuntime.js';
 import { activityItemsFromTodos, formatSubAgentActivityLabel } from '../../ui/ink/TaskActivityPanel.js';
 import { getFeatureState } from '../../features/featureRegistry.js';
@@ -1125,9 +1125,7 @@ export function initializeAgentDependencies(
       getActiveProvider: () => host.activeProvider ?? runtime.config.provider ?? 'openrouter',
       getLLM: () => host.llm,
       getEntitlement: () => {
-        const settings = runtime.config.autohandai;
-        const token = runtime.config.auth?.token ?? settings?.accountToken
-          ?? (settings?.authMode === 'api-key' ? settings.apiKey : undefined);
+        const token = entitlementToken(runtime.config, host.activeProvider ?? runtime.config.provider);
         return token ? getAuthClient().fetchEntitlement(token, selectedAccountId(runtime.config)) : Promise.resolve(null);
       },
     });
@@ -2327,13 +2325,7 @@ export function initializeAgentDependencies(
       getTokenUsageStatus: () => host.sessionTokenUsageUnavailable ? 'unavailable' as const : 'actual' as const,
       getContextWindow: () => host.contextWindow,
       getAccountEntitlement: () => {
-        const autohand = runtime.config.autohandai;
-        const isAutohandCloud = host.activeProvider === 'autohandai' && autohand?.plan === 'cloud';
-        const token = isAutohandCloud
-          ? (autohand?.authMode === 'account'
-              ? autohand?.accountToken ?? runtime.config.auth?.token
-              : autohand?.apiKey ?? runtime.config.auth?.token)
-          : runtime.config.auth?.token;
+        const token = entitlementToken(runtime.config, host.activeProvider);
         return token ? getAuthClient().fetchEntitlement(token, selectedAccountId(runtime.config)) : Promise.resolve(null);
       },
       applyAccountChange: async () => {

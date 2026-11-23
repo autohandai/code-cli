@@ -4,78 +4,87 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, expect, it } from 'vitest';
-import type { LoadedConfig } from '../../../src/types.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AutohandAgent } from '../../../src/core/agent.js';
+import { getAuthClient } from '../../../src/auth/index.js';
+import { entitlementToken } from '../../../src/auth/accountSelection.js';
+import type { AutohandConfig } from '../../../src/types.js';
 
-// Reproduce the FIXED token-resolution logic from getAccountEntitlement
-function getAccountEntitlementToken(config: LoadedConfig): string | undefined {
-  const autohand = config.autohandai;
-  const isAutohandCloud = config.provider === 'autohandai' && autohand?.plan === 'cloud';
-  return isAutohandCloud
-    ? (autohand?.authMode === 'account'
-        ? autohand?.accountToken ?? config.auth?.token
-        : autohand?.apiKey ?? config.auth?.token)
-    : config.auth?.token;
-}
+/**
+ * Regression: the status line showed "Autohand (Free)" for a Max subscriber. `/login` refreshed
+ * `auth.token` (Max account) but left a stale `autohandai.accountToken` from an older sign-in
+ * (a Free account). Inference already prefers `auth.token` (ProviderFactory), but the plan
+ * refresh preferred the stale `accountToken`, so the label described an account the CLI was not
+ * billing. The plan label must describe the same identity inference uses.
+ */
+const staleLoginConfig = (): AutohandConfig => ({
+  provider: 'autohandai',
+  auth: { token: 'max-login-token' },
+  autohandai: { plan: 'cloud', authMode: 'account', accountToken: 'stale-free-token', model: 'moa' },
+} as AutohandConfig);
 
-// Reproduce the token-resolution logic from readAccountPlan
-function readAccountPlanToken(config: LoadedConfig): string | undefined {
-  const autohand = config.autohandai;
-  const isAutohandCloud = config.provider === 'autohandai' && autohand?.plan === 'cloud';
-  return isAutohandCloud
-    ? (autohand?.authMode === 'account'
-        ? autohand?.accountToken ?? config.auth?.token
-        : autohand?.apiKey ?? config.auth?.token)
-    : config.auth?.token;
-}
-
-describe('Account entitlement token resolution consistency', () => {
-  it('readAccountPlan and getAccountEntitlement resolve the same token for cloud account mode', () => {
-    const config = {
-      provider: 'autohandai',
-      auth: { token: 'auth-token' },
-      autohandai: { plan: 'cloud', authMode: 'account', accountToken: 'account-token' },
-    } as unknown as LoadedConfig;
-
-    expect(getAccountEntitlementToken(config)).toBe('account-token');
-    expect(readAccountPlanToken(config)).toBe('account-token');
-    expect(getAccountEntitlementToken(config)).toBe(readAccountPlanToken(config));
+describe('entitlementToken', () => {
+  it('prefers the signed-in token over a stale cloud account token', () => {
+    expect(entitlementToken(staleLoginConfig(), 'autohandai')).toBe('max-login-token');
   });
 
-  it('readAccountPlan and getAccountEntitlement resolve the same token for cloud api-key mode', () => {
-    const config = {
-      provider: 'autohandai',
-      auth: { token: 'auth-token' },
-      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'api-key-token' },
-    } as unknown as LoadedConfig;
-
-    expect(getAccountEntitlementToken(config)).toBe('api-key-token');
-    expect(readAccountPlanToken(config)).toBe('api-key-token');
-    expect(getAccountEntitlementToken(config)).toBe(readAccountPlanToken(config));
+  it('falls back to the cloud account token when nobody is signed in', () => {
+    const config = staleLoginConfig();
+    delete config.auth;
+    expect(entitlementToken(config, 'autohandai')).toBe('stale-free-token');
   });
 
-  it('falls back to auth.token when no provider-specific token is set', () => {
+  it('uses the API key in api-key mode, matching the key inference sends', () => {
     const config = {
       provider: 'autohandai',
-      auth: { token: 'auth-token' },
-      autohandai: { plan: 'cloud', authMode: 'account' },
-    } as unknown as LoadedConfig;
-
-    expect(getAccountEntitlementToken(config)).toBe('auth-token');
-    expect(readAccountPlanToken(config)).toBe('auth-token');
-    expect(getAccountEntitlementToken(config)).toBe(readAccountPlanToken(config));
+      auth: { token: 'login-token' },
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'team-api-key' },
+    } as AutohandConfig;
+    expect(entitlementToken(config, 'autohandai')).toBe('team-api-key');
   });
 
-  it('uses auth.token for non-autohandai providers', () => {
-    const config = {
-      provider: 'openrouter',
-      auth: { token: 'auth-token' },
-      autohandai: { plan: 'cloud', authMode: 'account', accountToken: 'account-token' },
-    } as unknown as LoadedConfig;
+  it('treats a missing authMode as key mode, as the inference provider does', () => {
+    const config = { provider: 'autohandai', auth: { token: 'login-token' }, autohandai: { plan: 'cloud', apiKey: 'team-api-key' } } as AutohandConfig;
+    expect(entitlementToken(config, 'autohandai')).toBe('team-api-key');
+  });
 
-    expect(getAccountEntitlementToken(config)).toBe('auth-token');
-    expect(readAccountPlanToken(config)).toBe('auth-token');
-    expect(getAccountEntitlementToken(config)).toBe(readAccountPlanToken(config));
+  it('falls back to the signed-in token in api-key mode without a key', () => {
+    const config = { provider: 'autohandai', auth: { token: 'login-token' }, autohandai: { plan: 'cloud', authMode: 'api-key' } } as AutohandConfig;
+    expect(entitlementToken(config, 'autohandai')).toBe('login-token');
+  });
+
+  it('uses the signed-in token for other providers', () => {
+    expect(entitlementToken(staleLoginConfig(), 'openrouter')).toBe('max-login-token');
+  });
+
+  it('returns undefined when there are no credentials at all', () => {
+    expect(entitlementToken({ provider: 'autohandai', autohandai: { plan: 'cloud', authMode: 'account' } } as AutohandConfig, 'autohandai')).toBeUndefined();
+  });
+
+  it('ignores blank tokens', () => {
+    const config = staleLoginConfig();
+    config.auth = { token: '   ' };
+    expect(entitlementToken(config, 'autohandai')).toBe('stale-free-token');
   });
 });
 
+describe('status line plan refresh', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('reads the plan for the signed-in account, not a stale cloud account token', async () => {
+    const fetch = vi.spyOn(getAuthClient(), 'fetchEntitlement').mockImplementation(async token =>
+      token === 'max-login-token' ? { tier: 'max', freeRemaining: null, interval: 'month' } : { tier: 'free', freeRemaining: 20 });
+    const host = Object.assign(Object.create(AutohandAgent.prototype), {
+      activeProvider: 'autohandai', isInstructionActive: false, accountPlan: null,
+      runtime: { config: staleLoginConfig(), options: { model: 'moa' } },
+      syncProviderModelStatusLine: vi.fn(), emitOutput: vi.fn(), notifyUser: vi.fn(),
+      providerConfigManager: { applyModelChangeRemote: vi.fn() },
+    });
+
+    await host.refreshAccountPlan();
+
+    expect(fetch).toHaveBeenCalledWith('max-login-token', undefined);
+    expect(host.accountPlan.tier).toBe('max');
+    expect(host.providerConfigManager.applyModelChangeRemote).not.toHaveBeenCalled();
+  });
+});

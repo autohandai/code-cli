@@ -28,7 +28,7 @@ import { showModal, type ModalOption } from '../ui/ink/components/Modal.js';
 import { FileActionManager } from '../actions/filesystem.js';
 import { getProviderConfig, saveConfig } from '../config.js';
 import { resolveAutohandAIModelForTier } from './agent/AutohandAIModelTierPolicy.js';
-import { getAuthClient, selectedAccountId } from '../auth/index.js';
+import { entitlementToken, getAuthClient, selectedAccountId } from '../auth/index.js';
 import {
   formatComposerPlanLabel,
   formatUpgradeHint,
@@ -1721,11 +1721,7 @@ export class AutohandAgent {
   }
 
   private async readAccountPlan(): Promise<void> {
-    const currentToken = () => this.activeProvider === 'autohandai' && this.runtime.config.autohandai?.plan === 'cloud'
-      ? (this.runtime.config.autohandai.authMode === 'account'
-          ? this.runtime.config.autohandai.accountToken ?? this.runtime.config.auth?.token
-          : this.runtime.config.autohandai.apiKey ?? this.runtime.config.auth?.token)
-      : this.runtime.config.auth?.token;
+    const currentToken = () => entitlementToken(this.runtime.config, this.activeProvider);
     const token = currentToken();
     if (!token) {
       this.accountPlan = null;
