@@ -3280,6 +3280,7 @@ const CompletionHistoryMessage = memo(function CompletionHistoryMessage({
  * Memoized to prevent re-renders when only input changes
  */
 interface StatusSectionProps {
+  feedbackSurvey?: FeedbackSurveyState;
   fullScreen?: boolean;
   terminalRows?: number;
   onWorkingSpinnerFrame?: (frame: number) => void;
@@ -3419,6 +3420,7 @@ const StatusSection = memo(function StatusSection({
   lineExtension,
   tip,
   columns,
+  feedbackSurvey,
 }: StatusSectionProps) {
   const { colors } = useTheme();
 
@@ -3426,12 +3428,17 @@ const StatusSection = memo(function StatusSection({
   const showQueue = queuedInstructions.length > 0 && isWorking;
   const showCompletionStats = !isWorking && completionStats;
   const showActivity = activityItems.length > 0;
+  const survey = feedbackSurvey ? <FeedbackSurveyLine survey={feedbackSurvey} columns={columns} /> : null;
 
   return (
     <>
       {showActivity && taskListPosition === 'up' ? (
         <TaskActivityPanel items={activityItems} terminalRows={terminalRows} />
       ) : null}
+
+      {/* A running turn has its status row right under the survey; an idle one keeps that row and
+          the tip row blank, so there the survey goes below them, against the completion summary. */}
+      {isWorking && survey}
 
       {/* Status line with spinner - always renders for stability */}
       <StatusLine
@@ -3477,7 +3484,9 @@ const StatusSection = memo(function StatusSection({
           selectedQueueIndex={selectedQueueIndex}
         />
       )}
+      {!isWorking && survey ? <Box marginTop={showCompletionStats ? 1 : 0} flexDirection="column">{survey}</Box> : null}
       <IdleTipRow
+        attached={!isWorking && survey !== null}
         summary={showCompletionStats ? formatCompletionSummary(showCompletionStats) : undefined}
         tip={tip?.kind === 'tip' ? tip.text : undefined}
         columns={columns}
@@ -3487,6 +3496,7 @@ const StatusSection = memo(function StatusSection({
 }, (prev, next) => {
   // Only re-render if status-related props change
   return prev.fullScreen === next.fullScreen &&
+         prev.feedbackSurvey === next.feedbackSurvey &&
          prev.isWorking === next.isWorking &&
          prev.terminalRows === next.terminalRows &&
          prev.status === next.status &&
@@ -3989,10 +3999,8 @@ const FixedBottom = memo(function FixedBottom({
               columns={terminalColumns}
             />
           ) : null}
-          {feedbackSurvey ? (
-            <FeedbackSurveyLine survey={feedbackSurvey} columns={terminalColumns} />
-          ) : null}
           <StatusSection
+            feedbackSurvey={feedbackSurvey}
             fullScreen={fullScreen}
             terminalRows={terminalRows}
             onWorkingSpinnerFrame={onWorkingSpinnerFrame}

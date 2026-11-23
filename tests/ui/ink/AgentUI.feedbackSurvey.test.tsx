@@ -68,6 +68,22 @@ describe('AgentUI feedback survey', () => {
     expect(optionsRow).toBeLessThan(statusRow);
   });
 
+  it('sits directly above the completion summary once the turn has finished', () => {
+    const { lastFrame } = renderUI({
+      ...createInitialUIState(),
+      isWorking: false,
+      completionStats: { elapsed: '1m 06s', tokens: '185.1k tokens' },
+      feedbackSurvey: SURVEY,
+    });
+    const lines = (lastFrame() ?? '').split('\n');
+    const optionsRow = lines.findIndex((line) => line.includes('1: Bad'));
+    const completionRow = lines.findIndex((line) => line.includes('Completed in 1m 06s'));
+
+    expect(optionsRow).toBeGreaterThanOrEqual(0);
+    // The idle status and tip rows used to sit between them as two blank lines.
+    expect(completionRow).toBe(optionsRow + 1);
+  });
+
   it.each(['1', '2', '3', '0'])('answers with %s on an empty composer and types nothing', async (key) => {
     const { stdin, onFeedbackSurveyAnswer, onInputChange } = renderUI({
       ...createInitialUIState(),

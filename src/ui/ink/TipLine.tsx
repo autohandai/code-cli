@@ -48,9 +48,11 @@ export interface IdleTipRowProps {
   summary?: string;
   tip?: string;
   columns: number;
+  /** The row above belongs with the summary, so no blank row separates them. */
+  attached?: boolean;
 }
 
-function IdleTipRowComponent({ summary, tip, columns }: IdleTipRowProps): React.ReactNode {
+function IdleTipRowComponent({ summary, tip, columns, attached = false }: IdleTipRowProps): React.ReactNode {
   const { colors } = useTheme();
   const width = idleTipWidth(columns);
   const tipText = tip && width >= MIN_IDLE_TIP_WIDTH
@@ -61,7 +63,7 @@ function IdleTipRowComponent({ summary, tip, columns }: IdleTipRowProps): React.
 
   return (
     <Box
-      marginTop={summary ? 1 : 0}
+      marginTop={summary && !attached ? 1 : 0}
       width={width}
       flexDirection="column"
     >
