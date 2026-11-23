@@ -729,6 +729,11 @@
     "discarded": "Changements ignorés."
   },
   "ui": {
+    "scriptRunning": "Exécution du script",
+    "scriptRan": "Script exécuté",
+    "detailsExpand": "Cliquez ou appuyez sur Ctrl+O pour développer",
+    "detailsExpandClick": "Cliquez pour développer",
+    "detailsCollapse": "Cliquez ou appuyez sur Ctrl+O pour réduire",
     "escToCancel": "esc pour annuler",
     "commandHint": "? raccourcis · / commandes · @ mentionner fichiers · $ compétences · ! terminal",
     "ctrlCToExit": "Appuyez à nouveau sur Ctrl+C pour quitter",

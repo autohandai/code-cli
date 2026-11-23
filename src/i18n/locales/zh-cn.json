@@ -729,6 +729,11 @@
     "discarded": "更改已丢弃。"
   },
   "ui": {
+    "scriptRunning": "正在运行脚本",
+    "scriptRan": "已运行脚本",
+    "detailsExpand": "点击或按 Ctrl+O 展开",
+    "detailsExpandClick": "点击展开",
+    "detailsCollapse": "点击或按 Ctrl+O 收起",
     "escToCancel": "esc 取消",
     "commandHint": "? 快捷键 · / 命令 · @ 提及文件 · $ 技能 · ! 终端",
     "ctrlCToExit": "再次按 Ctrl+C 退出",

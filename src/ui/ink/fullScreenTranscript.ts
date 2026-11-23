@@ -6,9 +6,12 @@ import stringWidth from 'string-width';
 import wrapAnsi from 'wrap-ansi';
 import type { ChatLogMessage } from '../../session/chatLog.js';
 import { formatAssistantMarkdown } from '../terminalMarkdown.js';
+import { detailsHint, hasToolDisplayLabel, toolDisplayLabel, type DetailsHint } from '../toolLabels.js';
 
 export interface FullScreenMessage extends ChatLogMessage {
   detailsId?: string;
+  /** The content is the result's full details, shown in the place of its summary. */
+  expanded?: boolean;
 }
 
 export interface TranscriptRow {
@@ -20,6 +23,7 @@ interface FormattedMessage {
   lines: string[];
   searchText: string;
   rowEnds: number[];
+  hint?: DetailsHint;
 }
 
 interface Entry extends FormattedMessage {
@@ -62,7 +66,20 @@ export interface TranscriptView {
   total: number;
 }
 
-function formatMessage(message: ChatLogMessage, width: number): string[] {
+/** A finished result: its status and name, how to open or close its details, then what it returned. */
+function formatToolResult(message: FullScreenMessage, hint: DetailsHint | undefined): string {
+  const status = message.interrupted ? '⊘' : message.success === false ? '×' : '✓';
+  const label = toolDisplayLabel(message.tool, 'done');
+  // A translated label reads as the start of a sentence the result's own summary line completes.
+  const [summary, ...rest] = hasToolDisplayLabel(message.tool) ? message.content.split('\n') : ['', ...(message.content ? [message.content] : [])];
+  return [
+    summary ? `${status} ${label} · ${summary}` : `${status} ${label}`,
+    ...(hint ? [detailsHint(hint)] : []),
+    ...rest,
+  ].join('\n');
+}
+
+function formatMessage(message: FullScreenMessage, width: number, hint?: DetailsHint): string[] {
   let text = message.content;
   if (message.role === 'tool' && message.tool === 'computer_use') {
     try {
@@ -72,8 +89,10 @@ function formatMessage(message: ChatLogMessage, width: number): string[] {
   }
   if (message.role === 'assistant' && message.renderMarkdown !== false) text = formatAssistantMarkdown(text, { width });
   else if (message.role === 'user') text = `❯ ${text}`;
-  else if (message.role === 'tool') text = `${message.interrupted ? '⊘' : message.success === false ? '×' : '✓'} ${message.tool ?? 'Tool'}\n${text}`;
-  else if (message.role === 'tool_call') text = `… ${message.tool ?? 'Tool'} ${text}`;
+  else if (message.role === 'tool') text = formatToolResult({ ...message, content: text }, hint);
+  else if (message.role === 'tool_call') text = hasToolDisplayLabel(message.tool)
+    ? `… ${toolDisplayLabel(message.tool, 'running')} · ${text}`
+    : `… ${message.tool ?? 'Tool'} ${text}`;
   else if (message.role === 'tool_batch') text = (message.groups ?? []).flatMap(group => group.items.map(item => `${item.success ? '✓' : '×'} ${item.label}${item.detail ? ` · ${item.detail}` : ''}`)).join('\n');
   else if (message.role === 'thinking') text = `Thinking · ${text}`;
   const lines = [...wrapAnsi(text, width, { hard: true, trim: false }).split('\n'), ''];
@@ -93,6 +112,8 @@ export class FullScreenTranscript {
   private lastMatch = -1;
   private height = 1;
   private detailsId: string | undefined;
+  /** Where the reader was before details opened; closing them puts the view back. */
+  private beforeDetails: { offset: number; following: boolean; tailGap: number; tailTotal: number; tailHeight: number } | null = null;
   private viewStart = 0;
   /**
    * Blank rows kept below the transcript while it follows the tail. A running turn swaps
@@ -110,18 +131,48 @@ export class FullScreenTranscript {
 
   focusDetails(id: string | undefined): void {
     if (id === this.detailsId) return;
+    const closedId = this.detailsId;
     this.detailsId = id;
     if (!id) {
+      this.restoreViewBeforeDetails(closedId);
+      return;
+    }
+    if (closedId === undefined) this.beforeDetails = {
+      offset: this.viewStart, following: this.following,
+      tailGap: this.tailGap, tailTotal: this.tailTotal, tailHeight: this.tailHeight,
+    };
+    this.following = false;
+    let index = this.entries.map(entry => entry.message.detailsId).lastIndexOf(id);
+    if (index < 0) index = this.entries.length - 1;
+    const start = this.entries[index - 1]?.end ?? 0;
+    // Every entry ends in a blank separator row, which need not be on screen.
+    const end = (this.entries[index]?.end ?? 1) - 1;
+    // The header stays on its row; the view moves only as far as the details need to be seen, and
+    // never past their first row.
+    this.offset = Math.min(start, Math.max(this.viewStart, end - this.height));
+  }
+
+  /**
+   * Closing details puts the view back where it was when they opened, as long as the result is
+   * on screen there. Details opened from the keyboard for a result that was out of view, or a
+   * view measured at another width, return to the latest output.
+   */
+  private restoreViewBeforeDetails(closedId: string | undefined): void {
+    const before = this.beforeDetails;
+    this.beforeDetails = null;
+    const index = this.entries.map(entry => entry.message.detailsId).lastIndexOf(closedId);
+    const start = this.entries[index - 1]?.end ?? 0;
+    if (!before || index < 0 || (!before.following && (start < before.offset || start >= before.offset + this.height))) {
       this.follow();
       return;
     }
-    this.following = false;
-    // A finished result and its open details share an id; the details are the later entry.
-    let index = this.entries.length - 1;
-    while (index >= 0 && this.entries[index].message.detailsId !== id) index--;
-    this.offset = index >= 0
-      ? (this.entries[index - 1]?.end ?? 0)
-      : (this.entries.at(-2)?.end ?? 0);
+    this.following = before.following;
+    this.offset = before.offset;
+    if (!before.following) return;
+    this.newActivity = false;
+    this.tailGap = before.tailGap;
+    this.tailTotal = before.tailTotal;
+    this.tailHeight = before.tailHeight;
   }
 
   invalidate(): void {
@@ -181,16 +232,22 @@ export class FullScreenTranscript {
     if (width !== this.width) {
       this.cache = new WeakMap();
       this.width = width;
+      this.beforeDetails = null;
       this.resetTail();
     }
     let end = 0;
+    // Ctrl+O opens the latest result that has details; the others open with a click only.
+    const latestExpandable = messages.filter(message => message.role === 'tool' && message.detailsId !== undefined && !message.expanded).at(-1);
     this.entries = messages.map(message => {
+      const hint: DetailsHint | undefined = message.role !== 'tool' || message.detailsId === undefined
+        ? undefined
+        : message.expanded ? 'collapse' : message === latestExpandable ? 'expandLatest' : 'expand';
       let formatted = this.cache.get(message);
-      if (!formatted) {
-        const lines = formatMessage(message, width);
+      if (!formatted || formatted.hint !== hint) {
+        const lines = formatMessage(message, width, hint);
         const plainLines = lines.map(line => stripAnsi(line).toLocaleLowerCase());
         let rowEnd = 0;
-        formatted = { lines, searchText: plainLines.join('\n'), rowEnds: plainLines.map(line => rowEnd += line.length + 1) };
+        formatted = { lines, searchText: plainLines.join('\n'), rowEnds: plainLines.map(line => rowEnd += line.length + 1), hint };
         this.cache.set(message, formatted);
       }
       end += formatted.lines.length;

@@ -6,6 +6,7 @@
 import { FULL_SCREEN_GUTTER, FULL_SCREEN_HEADER_ROWS, FullScreenFrame, FullScreenInset, FullScreenMouseContext, fullScreenFooterWidth } from './FullScreenFrame.js';
 import { copyToClipboard } from '../clipboard.js';
 import type { FullScreenMessage, FullScreenTranscript } from './fullScreenTranscript.js';
+import { toolDisplayLabel } from '../toolLabels.js';
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
 import { Box, Static, Text, useInput, usePaste, useStdout, type Key as InkKey } from 'ink';
 import {
@@ -2818,6 +2819,15 @@ export function AgentUI({
   // entry so a click can open that one; the decorated message is reused to keep the
   // transcript's per-message format cache warm.
   const expandableChatMessages = useRef(new WeakMap<ChatLogMessage, FullScreenMessage>());
+  const expandedDetailsMessage = useMemo((): FullScreenMessage | undefined => expandedToolOutput?.expandedOutput ? {
+    role: 'tool',
+    tool: expandedToolOutput.tool,
+    success: expandedToolOutput.success,
+    ...(expandedToolOutput.interrupted ? { interrupted: true } : {}),
+    detailsId: expandedToolOutput.id,
+    expanded: true,
+    content: expandedToolOutput.expandedOutput,
+  } : undefined, [expandedToolOutput]);
   const fullScreenMessages = useMemo(() => {
     if (!fullScreenTranscript) return [];
     const detailsIds = new Map<string, string>();
@@ -2852,9 +2862,15 @@ export function AgentUI({
     if (!chatIncludesFinalResponse && !state.isWorking && state.finalResponse) messages.push({ role: 'assistant', content: state.finalResponse });
     if (state.computerUseSteps?.length) messages.push({ role: 'tool', tool: 'computer_use', content: JSON.stringify(state.computerUseSteps) });
     for (const notification of state.notifications) messages.push({ role: 'notification', content: notification });
-    if (expandedToolOutput) messages.push({ role: 'tool', tool: expandedToolOutput.tool, success: expandedToolOutput.success, detailsId: expandedToolOutput.id, content: `Ctrl+O collapse\n${expandedToolOutput.expandedOutput}` });
+    if (expandedDetailsMessage) {
+      // Details take the place of the result they belong to, so opening and closing them leaves
+      // the rest of the transcript where the reader had it.
+      const index = messages.map(message => message.detailsId).lastIndexOf(expandedDetailsMessage.detailsId);
+      if (index >= 0) messages[index] = expandedDetailsMessage;
+      else messages.push(expandedDetailsMessage);
+    }
     return messages;
-  }, [fullScreenTranscript, chatHistoryItems, chatIncludesToolOutput, toolOutputItems, liveCommandItems, state.thinking, state.isWorking, state.streamingResponse, chatIncludesFinalResponse, state.finalResponse, state.computerUseSteps, state.notifications, expandedToolOutput]);
+  }, [expandedDetailsMessage, fullScreenTranscript, chatHistoryItems, chatIncludesToolOutput, toolOutputItems, liveCommandItems, state.thinking, state.isWorking, state.streamingResponse, chatIncludesFinalResponse, state.finalResponse, state.computerUseSteps, state.notifications]);
 
   // In full-screen mode these views sit behind the frame's left gutter and get that much less room.
   const panelColumns = fullScreenTranscript && windowSize.columns !== undefined ? windowSize.columns - FULL_SCREEN_GUTTER : windowSize.columns;
@@ -3147,7 +3163,7 @@ const ChatHistoryMessage = memo(function ChatHistoryMessage({
   }
 
   if (message.role === 'tool_call') {
-    return <ToolCallHistoryMessage tool={message.tool ?? 'tool'} detail={message.content} />;
+    return <ToolCallHistoryMessage tool={toolDisplayLabel(message.tool ?? 'tool', 'running')} detail={message.content} />;
   }
 
   if (message.role === 'completion') {

@@ -479,6 +479,11 @@
     "discarded": "Изменения отклонены."
   },
   "ui": {
+    "scriptRunning": "Выполняется скрипт",
+    "scriptRan": "Скрипт выполнен",
+    "detailsExpand": "Нажмите или Ctrl+O, чтобы развернуть",
+    "detailsExpandClick": "Нажмите, чтобы развернуть",
+    "detailsCollapse": "Нажмите или Ctrl+O, чтобы свернуть",
     "escToCancel": "esc для отмены",
     "commandHint": "? горячие клавиши · / команды · @ упомянуть файлы · $ навыки · ! терминал",
     "ctrlCToExit": "Нажмите Ctrl+C ещё раз для выхода",

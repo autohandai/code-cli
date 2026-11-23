@@ -729,6 +729,11 @@
     "discarded": "Változtatások elvetve."
   },
   "ui": {
+    "scriptRunning": "Szkript futtatása",
+    "scriptRan": "Szkript lefutott",
+    "detailsExpand": "Kattintson vagy nyomja meg a Ctrl+O-t a kibontáshoz",
+    "detailsExpandClick": "Kattintson a kibontáshoz",
+    "detailsCollapse": "Kattintson vagy nyomja meg a Ctrl+O-t az összecsukáshoz",
     "escToCancel": "esc a megszakításhoz",
     "commandHint": "? gyorsbillentyűk · / parancsok · @ fájlok említése · $ készségek · ! terminál",
     "ctrlCToExit": "Nyomd meg újra a Ctrl+C-t a kilépéshez",

@@ -729,6 +729,11 @@
     "discarded": "Änderungen verworfen."
   },
   "ui": {
+    "scriptRunning": "Skript wird ausgeführt",
+    "scriptRan": "Skript ausgeführt",
+    "detailsExpand": "Klicken oder Ctrl+O zum Aufklappen",
+    "detailsExpandClick": "Zum Aufklappen klicken",
+    "detailsCollapse": "Klicken oder Ctrl+O zum Einklappen",
     "escToCancel": "Esc zum Abbrechen",
     "commandHint": "? Tastenkürzel · / Befehle · @ Dateien erwähnen · $ Skills · ! Terminal",
     "ctrlCToExit": "Drücken Sie erneut Strg+C zum Beenden",

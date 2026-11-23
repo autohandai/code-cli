@@ -19,6 +19,7 @@ import { TeamTaskListOutput } from './TeamTaskListOutput.js';
 import { ComputerUseProgress } from './ComputerUseProgress.js';
 import { isComputerUseStep } from '../../computer/computerUseOutput.js';
 import type { OutputLayout } from './mouseInput.js';
+import { toolDisplayLabel } from '../toolLabels.js';
 
 /** Tools whose JSON results are painted as panels instead of printed verbatim. */
 const TEAM_TASK_TOOLS = new Set([
@@ -499,7 +500,7 @@ function ToolOutputComponent({ entry }: ToolOutputProps) {
         {entry.interrupted
           ? <Text color={colors.muted}>⊘</Text>
           : <Text color={success ? colors.success : colors.error}>{success ? '✔' : '✖'}</Text>}
-        <Text bold> {tool}</Text>
+        <Text bold> {toolDisplayLabel(tool, 'done')}</Text>
       </Box>
       {output && (
         success ? (
@@ -548,7 +549,7 @@ export function ExpandedToolOutput({ entry, terminalRows = 24, terminalColumns =
   if (!entry.expandedOutput) return null;
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Text color={colors.muted} wrap="truncate">{entry.tool} details · Ctrl+O collapse</Text>
+      <Text color={colors.muted} wrap="truncate">{toolDisplayLabel(entry.tool, 'done')} details · Ctrl+O collapse</Text>
       <Text color={colors.toolOutput}>{lines.slice(start, start + pageSize).join('\n')}</Text>
       <Text color={colors.muted} wrap="truncate">{`Rows ${start + 1}–${Math.min(start + pageSize, lines.length)} of ${lines.length} · PgUp/PgDn`}</Text>
     </Box>

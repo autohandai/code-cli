@@ -729,6 +729,11 @@
     "discarded": "Zmiany odrzucono."
   },
   "ui": {
+    "scriptRunning": "Uruchamianie skryptu",
+    "scriptRan": "Skrypt wykonany",
+    "detailsExpand": "Kliknij lub naciśnij Ctrl+O, aby rozwinąć",
+    "detailsExpandClick": "Kliknij, aby rozwinąć",
+    "detailsCollapse": "Kliknij lub naciśnij Ctrl+O, aby zwinąć",
     "escToCancel": "esc aby anulować",
     "commandHint": "? skróty · / polecenia · @ wspomnij pliki · $ umiejętności · ! terminal",
     "ctrlCToExit": "Naciśnij Ctrl+C ponownie, aby wyjść",

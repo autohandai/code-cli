@@ -488,6 +488,11 @@
     "discarded": "परिवर्तन त्यागे गए।"
   },
   "ui": {
+    "scriptRunning": "स्क्रिप्ट चल रही है",
+    "scriptRan": "स्क्रिप्ट चलाई गई",
+    "detailsExpand": "विस्तार के लिए क्लिक करें या Ctrl+O दबाएँ",
+    "detailsExpandClick": "विस्तार के लिए क्लिक करें",
+    "detailsCollapse": "संक्षिप्त करने के लिए क्लिक करें या Ctrl+O दबाएँ",
     "escToCancel": "रद्द करने के लिए esc",
     "commandHint": "? शॉर्टकट · / कमांड · @ फ़ाइल उल्लेख · $ कौशल · ! टर्मिनल",
     "ctrlCToExit": "बाहर निकलने के लिए Ctrl+C फिर से दबाएँ",

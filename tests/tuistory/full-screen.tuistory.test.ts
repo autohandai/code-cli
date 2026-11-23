@@ -465,16 +465,26 @@ describe('full-screen terminal', () => {
     expect(outputViewport(session)).not.toContain(narration);
 
     const rowOf = (text: string) => outputViewport(session!).split('\n').findIndex(line => line.includes(text));
-    await clickFullScreenTranscript(session, 2, rowOf('$ seq -f row-%g 1 40'));
-    await session.waitForText('Ctrl+O collapse');
+    // Details open in the place of their result and closing them puts every row back where it was.
+    const resultRow = rowOf('$ seq -f row-%g 1 40');
+    const doneRow = rowOf('STABLE_TAIL_DONE');
+    expect(outputViewport(session)).toContain('Click to expand');
+    expect(outputViewport(session)).toContain('Click or Ctrl+O to expand');
+    await clickFullScreenTranscript(session, 2, resultRow);
+    await session.waitForText('Ctrl+O to collapse');
     expect(outputViewport(session)).toContain('row-10');
     expect(outputViewport(session)).not.toContain('other-10');
-    await clickFullScreenTranscript(session, 2, rowOf('Ctrl+O collapse'));
-    await session.text({ timeout: 5_000, waitFor: () => !outputViewport(session!).includes('Ctrl+O collapse') });
+    expect(rowOf('$ seq -f row-%g 1 40')).toBeLessThanOrEqual(resultRow);
+    expect(rowOf('Ctrl+O to collapse')).toBe(rowOf('$ seq -f row-%g 1 40') - 1);
+    await clickFullScreenTranscript(session, 2, rowOf('Ctrl+O to collapse'));
+    await session.text({ timeout: 5_000, waitFor: () => !outputViewport(session!).includes('Ctrl+O to collapse') });
+    expect(rowOf('$ seq -f row-%g 1 40')).toBe(resultRow);
+    expect(rowOf('STABLE_TAIL_DONE')).toBe(doneRow);
     await clickFullScreenTranscript(session, 2, rowOf('$ seq -f other-%g 1 40'));
     await session.waitForText('other-10');
     await session.press(['ctrl', 'o']);
-    await session.text({ timeout: 5_000, waitFor: () => !outputViewport(session!).includes('Ctrl+O collapse') });
+    await session.text({ timeout: 5_000, waitFor: () => !outputViewport(session!).includes('Ctrl+O to collapse') });
+    expect(rowOf('STABLE_TAIL_DONE')).toBe(doneRow);
 
     const row = rowOf('STABLE_TAIL_DONE');
     const column = outputViewport(session).split('\n')[row]!.indexOf('STABLE_TAIL_DONE');
@@ -658,11 +668,11 @@ describe('full-screen terminal', () => {
     await runLongOutputTurn(session, 'FULL_SCREEN_DONE');
     expect(outputViewport(session)).toContain('❯');
     expect(outputViewport(session)).not.toContain('row-40');
-    await session.press(['ctrl', 'o']); await session.waitForText('Ctrl+O collapse');
+    await session.press(['ctrl', 'o']); await session.waitForText('Ctrl+O to collapse');
     expect(outputViewport(session)).toContain('row-1');
     await session.type('draft remains editable'); await session.waitForText('❯ draft remains editable');
     await session.press('pagedown'); await session.text();
-    expect(outputViewport(session)).not.toContain('Ctrl+O collapse');
+    expect(outputViewport(session)).not.toContain('Ctrl+O to collapse');
     expect(outputViewport(session)).toContain('draft remains editable');
     await session.write('\x1b[1;5F'); await session.waitForText('row-40');
     await session.press(['ctrl', 'o']); await session.waitForText('FULL_SCREEN_DONE');

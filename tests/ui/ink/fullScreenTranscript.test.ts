@@ -220,7 +220,7 @@ describe('full-screen transcript tail when transient rows are removed', () => {
     model.update([...history, call], 60);
     const refilled = model.view(16);
     expect(refilled.start).toBe(before.start);
-    expect(refilled.lines.join('\n')).toContain('… run_tool_script Read build script');
+    expect(refilled.lines.join('\n')).toContain('… Running script · Read build script');
 
     model.update([...history, call, result, narration], 60);
     const grown = model.view(16);
@@ -394,6 +394,97 @@ describe('full-screen transcript selection', () => {
     model.endSelection();
     model.clearSelection();
     expect(model.selectionColumns(0)).toBeNull();
+  });
+
+  describe('details opened in place', () => {
+    const before = Array.from({ length: 30 }, (_, i): ChatLogMessage => ({ role: 'assistant', content: `Before ${i}`, renderMarkdown: false }));
+    const after = Array.from({ length: 30 }, (_, i): ChatLogMessage => ({ role: 'assistant', content: `After ${i}`, renderMarkdown: false }));
+    const collapsed = { role: 'tool' as const, tool: 'read_file', detailsId: 'tool-7', content: 'summary line' };
+    const expanded = { ...collapsed, expanded: true, content: Array.from({ length: 12 }, (_, i) => `detail ${i}`).join('\n') };
+    const headerRow = (model: FullScreenTranscript, height: number) => plain(model.view(height).lines).findIndex(row => row.includes('read_file'));
+
+    it('keeps the result header on its row when details open and restores the view when they close', () => {
+      const model = new FullScreenTranscript();
+      model.update([...before, collapsed, ...after], 60);
+      model.view(20);
+      model.scroll(-50);
+      const row = headerRow(model, 20);
+      expect(row).toBeGreaterThanOrEqual(0);
+      expect(row).toBeLessThan(8);
+      const reading = model.view(20).lines;
+
+      model.update([...before, expanded, ...after], 60);
+      model.focusDetails('tool-7');
+      expect(headerRow(model, 20)).toBe(row);
+      expect(plain(model.view(20).lines).join('\n')).toContain('detail 11');
+
+      model.update([...before, collapsed, ...after], 60);
+      model.focusDetails(undefined);
+      expect(model.view(20).lines).toEqual(reading);
+      expect(model.view(20).following).toBe(false);
+    });
+
+    it('scrolls only as far as needed to show details opened near the bottom of the view', () => {
+      const model = new FullScreenTranscript();
+      model.update([...before, collapsed, ...after], 60);
+      model.view(20);
+      model.scroll(-50);
+      model.scroll(headerRow(model, 20) - 18);
+      expect(headerRow(model, 20)).toBe(18);
+      const reading = model.view(20).lines;
+
+      model.update([...before, expanded, ...after], 60);
+      model.focusDetails('tool-7');
+      const rows = plain(model.view(20).lines);
+      expect(rows.findIndex(row => row.includes('read_file'))).toBeGreaterThan(0);
+      expect(rows.join('\n')).toContain('detail 11');
+
+      model.update([...before, collapsed, ...after], 60);
+      model.focusDetails(undefined);
+      expect(model.view(20).lines).toEqual(reading);
+    });
+
+    it('returns to the tail when details opened while following are closed', () => {
+      const model = new FullScreenTranscript();
+      model.update([...before, collapsed], 60);
+      const tail = model.view(20).lines;
+      const row = headerRow(model, 20);
+
+      model.update([...before, expanded], 60);
+      model.focusDetails('tool-7');
+      expect(headerRow(model, 20)).toBeLessThanOrEqual(row);
+      expect(plain(model.view(20).lines).join('\n')).toContain('detail 11');
+
+      model.update([...before, collapsed], 60);
+      model.focusDetails(undefined);
+      expect(model.view(20).following).toBe(true);
+      expect(model.view(20).lines).toEqual(tail);
+    });
+
+    it('marks an expandable result and names the script tool for people', () => {
+      const model = new FullScreenTranscript();
+      model.update([
+        { role: 'tool_call', tool: 'run_tool_script', content: 'Inspect active goal state' },
+        { role: 'tool', tool: 'run_tool_script', detailsId: 'script-1', content: '1 tool call (get_goal ×1) · 72ms' },
+        { role: 'tool', tool: 'read_file', content: 'no details here' },
+      ], 80);
+      const rows = plain(model.view(20).lines);
+      expect(rows.join('\n')).not.toContain('run_tool_script');
+      expect(rows).toContain('… Running script · Inspect active goal state');
+      expect(rows).toContain('✓ Ran script · 1 tool call (get_goal ×1) · 72ms');
+      expect(rows[rows.indexOf('✓ Ran script · 1 tool call (get_goal ×1) · 72ms') + 1]).toBe('▸ Click or Ctrl+O to expand');
+      expect(rows[rows.indexOf('✓ read_file') + 2]).not.toContain('expand');
+
+      // A result that is only a summary line (a registered goal) has no empty row under its hint.
+      model.update([{ role: 'tool', tool: 'Goal set · ship it', detailsId: 'goal-1', content: '' }, { role: 'assistant', content: 'next', renderMarkdown: false }], 80);
+      expect(plain(model.view(20).lines).slice(0, 4)).toEqual(['✓ Goal set · ship it', '▸ Click or Ctrl+O to expand', '', 'next']);
+
+      model.update([{ role: 'tool', tool: 'run_tool_script', detailsId: 'script-1', expanded: true, content: '1 tool call (get_goal ×1) · 72ms\n{ "ok": true }' }], 80);
+      const open = plain(model.view(20).lines);
+      expect(open[0]).toBe('✓ Ran script · 1 tool call (get_goal ×1) · 72ms');
+      expect(open[1]).toBe('▾ Click or Ctrl+O to collapse');
+      expect(open[2]).toBe('{ "ok": true }');
+    });
   });
 
   it('reports a details id only for rows of an expandable entry', () => {

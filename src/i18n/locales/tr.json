@@ -719,6 +719,11 @@
     "discarded": "Değişiklikler atıldı."
   },
   "ui": {
+    "scriptRunning": "Betik çalıştırılıyor",
+    "scriptRan": "Betik çalıştırıldı",
+    "detailsExpand": "Genişletmek için tıklayın veya Ctrl+O",
+    "detailsExpandClick": "Genişletmek için tıklayın",
+    "detailsCollapse": "Daraltmak için tıklayın veya Ctrl+O",
     "escToCancel": "iptal için esc",
     "commandHint": "? kısayollar · / komutlar · @ dosya belirt · $ yetenekler · ! terminal",
     "ctrlCToExit": "Çıkmak için Ctrl+C'ye tekrar basın",

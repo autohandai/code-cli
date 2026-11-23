@@ -488,6 +488,11 @@
     "discarded": "Cambios descartados."
   },
   "ui": {
+    "scriptRunning": "Ejecutando script",
+    "scriptRan": "Script ejecutado",
+    "detailsExpand": "Haz clic o pulsa Ctrl+O para expandir",
+    "detailsExpandClick": "Haz clic para expandir",
+    "detailsCollapse": "Haz clic o pulsa Ctrl+O para contraer",
     "escToCancel": "esc para cancelar",
     "commandHint": "? atajos · / comandos · @ mencionar archivos · $ habilidades · ! terminal",
     "ctrlCToExit": "Presione Ctrl+C de nuevo para salir",

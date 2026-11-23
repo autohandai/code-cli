@@ -1220,6 +1220,11 @@
     "discarded": "Changes discarded."
   },
   "ui": {
+    "scriptRunning": "Running script",
+    "scriptRan": "Ran script",
+    "detailsExpand": "Click or Ctrl+O to expand",
+    "detailsExpandClick": "Click to expand",
+    "detailsCollapse": "Click or Ctrl+O to collapse",
     "cancel": "Cancel",
     "escToCancel": "esc to cancel",
     "upgradeHint": "You've reached your {{plan}} plan limit. Run /upgrade to move to {{next}}.",

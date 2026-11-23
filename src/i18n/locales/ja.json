@@ -729,6 +729,11 @@
     "discarded": "変更を破棄しました。"
   },
   "ui": {
+    "scriptRunning": "スクリプトを実行中",
+    "scriptRan": "スクリプトを実行しました",
+    "detailsExpand": "クリックまたは Ctrl+O で展開",
+    "detailsExpandClick": "クリックで展開",
+    "detailsCollapse": "クリックまたは Ctrl+O で折りたたむ",
     "escToCancel": "escでキャンセル",
     "commandHint": "? ショートカット · / コマンド · @ ファイルメンション · $ スキル · ! ターミナル",
     "ctrlCToExit": "もう一度Ctrl+Cを押すと終了します",

@@ -106,5 +106,12 @@
       "groupThirdParty": "Penyedia pihak ketiga",
       "groupCustom": "Penyedia kustom"
     }
+  },
+  "ui": {
+    "scriptRunning": "Menjalankan skrip",
+    "scriptRan": "Skrip dijalankan",
+    "detailsExpand": "Klik atau tekan Ctrl+O untuk membuka",
+    "detailsExpandClick": "Klik untuk membuka",
+    "detailsCollapse": "Klik atau tekan Ctrl+O untuk menutup"
   }
 }

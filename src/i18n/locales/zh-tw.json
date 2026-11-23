@@ -729,6 +729,11 @@
     "discarded": "更改已捨棄。"
   },
   "ui": {
+    "scriptRunning": "正在執行腳本",
+    "scriptRan": "已執行腳本",
+    "detailsExpand": "點擊或按 Ctrl+O 展開",
+    "detailsExpandClick": "點擊展開",
+    "detailsCollapse": "點擊或按 Ctrl+O 收合",
     "escToCancel": "esc 取消",
     "commandHint": "? 快捷鍵 · / 指令 · @ 提及檔案 · $ 技能 · ! 終端機",
     "ctrlCToExit": "再次按 Ctrl+C 退出",

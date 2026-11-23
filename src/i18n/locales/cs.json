@@ -729,6 +729,11 @@
     "discarded": "Změny zahozeny."
   },
   "ui": {
+    "scriptRunning": "Spouští se skript",
+    "scriptRan": "Skript dokončen",
+    "detailsExpand": "Klikněte nebo stiskněte Ctrl+O pro rozbalení",
+    "detailsExpandClick": "Klikněte pro rozbalení",
+    "detailsCollapse": "Klikněte nebo stiskněte Ctrl+O pro sbalení",
     "escToCancel": "esc pro zrušení",
     "commandHint": "? zkratky · / příkazy · @ zmínit soubory · $ dovednosti · ! terminál",
     "ctrlCToExit": "Stiskněte Ctrl+C znovu pro ukončení",

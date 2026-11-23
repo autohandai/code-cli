@@ -1358,9 +1358,9 @@ export class InkRenderer {
     const expandable = this.state.toolOutputs.filter((entry): entry is ToolOutputEntry => (
       entry.type !== 'batch' && Boolean(entry.expandedOutput)
     ));
-    const target = id === undefined
-      ? expandable.at(-1)
-      : expandable.find((entry) => entry.id === id);
+    // Without an id the key closes whatever is open before it opens the latest result.
+    const target = expandable.find((entry) => entry.id === (id ?? this.state.expandedToolOutputId))
+      ?? (id === undefined ? expandable.at(-1) : undefined);
     if (!target) return;
 
     this.updateState({

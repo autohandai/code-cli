@@ -398,7 +398,7 @@ describe('full-screen transcript mouse selection', () => {
   it('collapses expanded details from a click on them and still copies a drag across a result', async () => {
     const { view, locate, onToggleToolOutputExpanded } = setup({ expandedToolOutputId: 'fetch-1' });
     await flush();
-    const hint = locate('Ctrl+O collapse');
+    const hint = locate('Ctrl+O to collapse');
     view.stdin.write(`\x1b[<0;${hint.column};${hint.row}M`); await flush();
     view.stdin.write(`\x1b[<0;${hint.column};${hint.row}m`); await flush();
     expect(onToggleToolOutputExpanded).toHaveBeenCalledExactlyOnceWith('fetch-1');

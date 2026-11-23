@@ -492,6 +492,11 @@
     "discarded": "Modifiche scartate."
   },
   "ui": {
+    "scriptRunning": "Esecuzione dello script",
+    "scriptRan": "Script eseguito",
+    "detailsExpand": "Clicca o premi Ctrl+O per espandere",
+    "detailsExpandClick": "Clicca per espandere",
+    "detailsCollapse": "Clicca o premi Ctrl+O per comprimere",
     "escToCancel": "esc per annullare",
     "commandHint": "? scorciatoie · / comandi · @ menzionare file · $ skills · ! terminale",
     "ctrlCToExit": "Premi Ctrl+C di nuovo per uscire",

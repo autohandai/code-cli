@@ -168,7 +168,7 @@ describe('full-screen frame', () => {
     messages = [...history, { role: 'tool_call', tool: 'run_tool_script', content: 'Read build script' }];
     view.rerender(frame()); await flush();
     expect(rowOf('Message 49')).toBe(anchored);
-    expect(stripAnsi(view.lastFrame() ?? '')).toContain('… run_tool_script Read build script');
+    expect(stripAnsi(view.lastFrame() ?? '')).toContain('… Running script · Read build script');
 
     model.follow();
     messages = history;

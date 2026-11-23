@@ -359,6 +359,11 @@ describe('InkRenderer live command blocks', () => {
     expect(renderer.getState().expandedToolOutputId).toBeUndefined();
     renderer.toggleToolOutputExpanded();
     expect(renderer.getState().expandedToolOutputId).toBe(newer);
+
+    // The key closes an older result that is open instead of jumping to the latest one.
+    renderer.toggleToolOutputExpanded(older);
+    renderer.toggleToolOutputExpanded();
+    expect(renderer.getState().expandedToolOutputId).toBeUndefined();
   });
 
   it.each([

@@ -729,6 +729,11 @@
     "discarded": "변경사항 버려짐."
   },
   "ui": {
+    "scriptRunning": "스크립트 실행 중",
+    "scriptRan": "스크립트 실행 완료",
+    "detailsExpand": "클릭하거나 Ctrl+O로 펼치기",
+    "detailsExpandClick": "클릭하여 펼치기",
+    "detailsCollapse": "클릭하거나 Ctrl+O로 접기",
     "escToCancel": "esc를 눌러 취소",
     "commandHint": "? 단축키 · / 명령 · @ 파일 멘션 · $ 스킬 · ! 터미널",
     "ctrlCToExit": "종료하려면 Ctrl+C를 다시 누르세요",
