@@ -20,6 +20,7 @@ const LANGUAGE_NAMES_FOR_LLM: Record<SupportedLocale, string> = {
   ja: 'Japanese (日本語)',
   ko: 'Korean (한국어)',
   ru: 'Russian (Русский)',
+  kk: 'Kazakh (Қазақ тілі)',
   'pt-br': 'Brazilian Portuguese (Português)',
   tr: 'Turkish (Türkçe)',
   pl: 'Polish (Polski)',

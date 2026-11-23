@@ -127,7 +127,7 @@ export async function maybeOfferAutohandAISwitch(deps: AutohandSwitchOfferDeps):
   // One-time: record it as shown regardless of the answer, so it never nags again.
   let next: LoadedConfig = { ...config, autohandaiSwitchPromptShown: true };
   const accepted = await deps.confirm(
-    `Your ${deps.providerLabel} hit a rate limit. Try Autohand's Fantail model instead?`,
+    t('commands.login.switchToFantail', { provider: deps.providerLabel }),
   );
   if (accepted) {
     next = applyAutohandAIProviderDefaults(next, token, 'fantail');
@@ -147,7 +147,7 @@ type LoginContext = Pick<SlashCommandContext, 'config'> & {
 export async function openBrowser(url: string): Promise<boolean> {
   // CI, SSH sessions and terminal tests have no browser to hand the URL to.
   if (process.env.AUTOHAND_NO_BROWSER === '1') {
-    console.log(`\nPlease open this URL manually:\n${url}\n`);
+    console.log(`\n${t('commands.login.openUrlManually')}\n${url}\n`);
     return false;
   }
   try {
@@ -181,10 +181,10 @@ export async function openBrowser(url: string): Promise<boolean> {
     }
 
     // If all openers fail, print the URL for manual opening
-    console.log(`\nPlease open this URL manually:\n${url}\n`);
+    console.log(`\n${t('commands.login.openUrlManually')}\n${url}\n`);
     return false;
   } catch {
-    console.log(`\nPlease open this URL manually:\n${url}\n`);
+    console.log(`\n${t('commands.login.openUrlManually')}\n${url}\n`);
     return false;
   }
 }
@@ -208,7 +208,7 @@ async function performLogin(ctx: LoginContext): Promise<string | null> {
     const result = await safePrompt<{ continueLogin: boolean }>({
       type: 'confirm',
       name: 'continueLogin',
-      message: `Already logged in as ${chalk.cyan(config.auth.user.email)}. Log in with a different account?`,
+      message: t('commands.login.alreadyLoggedIn', { email: chalk.cyan(config.auth.user.email) }),
       initial: false,
     });
 
@@ -222,21 +222,21 @@ async function performLogin(ctx: LoginContext): Promise<string | null> {
   const authClient = getAuthClient();
 
   // Step 1: Initiate device authorization
-  console.log(chalk.gray('Initiating authentication...'));
+  console.log(chalk.gray(t('commands.login.initiating')));
   const initResult = await authClient.initiateDeviceAuth();
 
   if (!initResult.success || !initResult.deviceCode || !initResult.userCode) {
     reportProgramStatusFailure('Authentication could not start');
-    console.log(chalk.red(t('commands.login.failed', { error: initResult.error || 'Unknown error' })));
+    console.log(chalk.red(t('commands.login.failed', { error: initResult.error || t('commands.login.unknownError') })));
     return null;
   }
 
   // Step 2: Display user code and open browser
   console.log();
-  console.log(chalk.bold('To sign in, visit:'));
+  console.log(chalk.bold(t('commands.login.visit')));
   console.log(chalk.cyan.underline(initResult.verificationUriComplete || `${AUTH_CONFIG.authorizationUrl}?code=${initResult.userCode}`));
   console.log();
-  console.log(chalk.gray('Or enter this code manually:'));
+  console.log(chalk.gray(t('commands.login.enterCodeManually')));
   console.log(chalk.bold.yellow(`  ${initResult.userCode}`));
   console.log();
 
@@ -246,14 +246,14 @@ async function performLogin(ctx: LoginContext): Promise<string | null> {
   );
 
   if (browserOpened) {
-    console.log(chalk.gray('Browser opened. Complete the login in your browser.'));
+    console.log(chalk.gray(t('commands.login.browserOpened')));
   } else {
-    console.log(chalk.yellow('Could not open browser automatically. Please visit the URL above.'));
+    console.log(chalk.yellow(t('commands.login.browserFailed')));
   }
 
   console.log();
-  console.log(chalk.gray('Waiting for authorization...'));
-  console.log(chalk.gray('(Press Ctrl+C to cancel)'));
+  console.log(chalk.gray(t('commands.login.waiting')));
+  console.log(chalk.gray(t('commands.login.pressCtrlCToCancel')));
 
   // Step 3: Poll for authorization
   const startTime = Date.now();
@@ -265,7 +265,7 @@ async function performLogin(ctx: LoginContext): Promise<string | null> {
 
   while (Date.now() - startTime < timeout) {
     // Show progress
-    process.stdout.write(`\r${chalk.gray('Waiting' + '.'.repeat(dots + 1) + ' '.repeat(maxDots - dots))}`);
+    process.stdout.write(`\r${chalk.gray(t('commands.login.waitingShort') + '.'.repeat(dots + 1) + ' '.repeat(maxDots - dots))}`);
     dots = (dots + 1) % (maxDots + 1);
 
     await sleep(pollInterval);
@@ -297,7 +297,7 @@ async function performLogin(ctx: LoginContext): Promise<string | null> {
       try {
         await applyTraceAuthenticationChange(updatedConfig);
       } catch {
-        console.log(chalk.yellow('Signed in, but the trace companion could not refresh its account. It will retry on the next Autohand command.'));
+        console.log(chalk.yellow(t('commands.login.traceRefreshFailed')));
       }
 
       // Profiles are independent from generic file sync. A user who chooses a
@@ -307,7 +307,7 @@ async function performLogin(ctx: LoginContext): Promise<string | null> {
         const { applyDefaultCodingAgentSettingsProfileOnLogin } = await import('../sync/CodingAgentControlPlane.js');
         const profile = await applyDefaultCodingAgentSettingsProfileOnLogin(updatedConfig, pollResult.token);
         if (profile) {
-          console.log(chalk.dim(`Applied Coding Agent settings profile: ${profile.name}`));
+          console.log(chalk.dim(t('commands.login.profileApplied', { name: profile.name })));
         }
       } catch {
         // Login remains successful when the optional control plane is offline.
@@ -322,7 +322,7 @@ async function performLogin(ctx: LoginContext): Promise<string | null> {
         const entitlement = await getAuthClient().fetchEntitlement(pollResult.token);
         const plan = formatPlan(planSummaryFromEntitlement(entitlement));
         if (plan) {
-          console.log(chalk.dim(`Plan: ${plan}`));
+          console.log(chalk.dim(t('commands.login.plan', { plan })));
         }
       } catch {
         // The plan is a courtesy; never let it block a successful sign-in.
@@ -341,14 +341,14 @@ async function performLogin(ctx: LoginContext): Promise<string | null> {
     if (pollResult.status === 'expired') {
       reportProgramStatusFailure('Authorization code expired');
       process.stdout.write('\r' + ' '.repeat(20) + '\r');
-      console.log(chalk.red('Authorization code expired. Please try again.'));
+      console.log(chalk.red(t('commands.login.codeExpired')));
       return null;
     }
 
     if (pollResult.status === 'cancelled') {
       reportProgramStatusCancellation();
       process.stdout.write('\r' + ' '.repeat(20) + '\r');
-      console.log(chalk.yellow('Authentication cancelled. Run /login again when you are ready.'));
+      console.log(chalk.yellow(t('commands.login.authCancelled')));
       return null;
     }
 
@@ -358,7 +358,7 @@ async function performLogin(ctx: LoginContext): Promise<string | null> {
   // Timeout
   reportProgramStatusFailure('Authorization timed out');
   process.stdout.write('\r' + ' '.repeat(20) + '\r');
-  console.log(chalk.red('Authorization timed out. Please try again.'));
+  console.log(chalk.red(t('commands.login.timedOut')));
   return null;
 }
 
@@ -409,43 +409,43 @@ async function checkAndRestoreSyncData(
     const totalSize = consentRequiredFiles.reduce((sum, f) => sum + f.size, 0);
     const sizeStr = formatSize(totalSize);
 
-    console.log(chalk.cyan(`Found cloud sync data (${fileCount} files, ${sizeStr})`));
-    console.log(chalk.gray('This includes your settings, agents, skills, sessions, and hooks.'));
+    console.log(chalk.cyan(t('commands.login.syncFound', { count: fileCount, size: sizeStr })));
+    console.log(chalk.gray(t('commands.login.syncIncludes')));
     console.log();
 
     const result = await safePrompt<{ restore: boolean }>({
       type: 'confirm',
       name: 'restore',
-      message: 'Would you like to restore your settings from the cloud?',
+      message: t('commands.login.syncRestorePrompt'),
       initial: true,
     });
 
     if (!result || !result.restore) {
-      console.log(chalk.gray('Skipped sync restore. You can sync later with /sync.'));
+      console.log(chalk.gray(t('commands.login.syncSkipped')));
       return;
     }
 
     // Restore from cloud with ESC/Ctrl+C cancellation support
-    console.log(chalk.gray('Restoring settings from cloud...'));
-    console.log(chalk.gray('(Press ESC or Ctrl+C to cancel)'));
+    console.log(chalk.gray(t('commands.login.syncRestoring')));
+    console.log(chalk.gray(t('commands.login.pressEscToCancel')));
 
     const syncResult = await cancellableOperation(
       () => syncService.forceDownload(),
     );
 
     if (!syncResult) {
-      console.log(chalk.yellow('\nSync restore cancelled.'));
-      console.log(chalk.gray('You can sync later with /sync.'));
+      console.log(chalk.yellow(`\n${t('commands.login.syncCancelled')}`));
+      console.log(chalk.gray(t('commands.login.syncLater')));
     } else if (syncResult.success) {
-      console.log(chalk.green(`Restored ${syncResult.downloaded} files from cloud.`));
+      console.log(chalk.green(t('commands.login.syncRestored', { count: syncResult.downloaded })));
       for (const line of formatSyncSkippedFiles(syncResult.remoteSkipped, 'Cloud')) console.log(chalk.gray(line));
     } else {
-      console.log(chalk.yellow(`Sync restore failed: ${syncResult.error}`));
-      console.log(chalk.gray('You can try again later with /sync.'));
+      console.log(chalk.yellow(t('commands.login.syncFailed', { error: String(syncResult.error) })));
+      console.log(chalk.gray(t('commands.login.syncRetryLater')));
     }
   } catch {
     // Silently fail - sync is not critical for login
-    console.log(chalk.gray('Could not check cloud sync data.'));
+    console.log(chalk.gray(t('commands.login.syncCheckFailed')));
   }
 }
 

@@ -54,7 +54,7 @@ export async function language(ctx: LanguageContext): Promise<string | null> {
   })();
 
   if (!result) {
-    console.log(chalk.gray('\nLanguage selection cancelled.'));
+    console.log(chalk.gray(`\n${t('commands.language.cancelled')}`));
     return null;
   }
 

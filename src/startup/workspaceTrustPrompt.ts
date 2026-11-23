@@ -11,6 +11,7 @@ import { applyTrustedWorkspaceEntries } from '../config.js';
 import { trustWorkspace } from '../permissions/workspaceTrust.js';
 import type { LoadedConfig, McpServerConfigEntry, WorkspaceTrustState } from '../types.js';
 import type { ShowModalOptions } from '../ui/ink/components/Modal.js';
+import { formatList, t, tPlural } from '../i18n/index.js';
 
 export type WorkspaceTrustChoice = 'trust' | 'skip';
 export type WorkspaceTrustOutcome = 'not-needed' | 'trusted' | 'skipped';
@@ -26,24 +27,21 @@ export interface ResolveWorkspaceTrustOptions {
   storePath?: string;
 }
 
-function countLabel(count: number, singular: string, plural: string): string {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
 
 /** For example "2 project hooks and 1 MCP server" or "1 project tool file". */
 export function describeWorkspaceTrustEntries(trust: WorkspaceTrustState): string {
   const parts: string[] = [];
   if (trust.hooks.length > 0) {
-    parts.push(countLabel(trust.hooks.length, 'project hook', 'project hooks'));
+    parts.push(tPlural('startup.workspaceTrust.projectHooks', trust.hooks.length));
   }
   if (trust.mcpServers.length > 0) {
-    parts.push(countLabel(trust.mcpServers.length, 'MCP server', 'MCP servers'));
+    parts.push(tPlural('startup.workspaceTrust.mcpServers', trust.mcpServers.length));
   }
   const tools = trust.tools ?? [];
   if (tools.length > 0) {
-    parts.push(countLabel(tools.length, 'project tool file', 'project tool files'));
+    parts.push(tPlural('startup.workspaceTrust.projectToolFiles', tools.length));
   }
-  return parts.length <= 2 ? parts.join(' and ') : `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+  return formatList(parts);
 }
 
 function describeServerLaunch(server: McpServerConfigEntry): string {
@@ -62,18 +60,18 @@ function formatRows(rows: Array<[string, string]>): string[] {
 export function formatWorkspaceTrustSummary(trust: WorkspaceTrustState): string {
   const lines = [trust.workspaceRoot];
   if (trust.hooks.length > 0) {
-    lines.push('', 'Hooks', ...formatRows(trust.hooks.map((hook) => [String(hook.event), hook.command])));
+    lines.push('', t('startup.workspaceTrust.hooksHeading'), ...formatRows(trust.hooks.map((hook) => [String(hook.event), hook.command])));
   }
   if (trust.mcpServers.length > 0) {
     lines.push(
       '',
-      'MCP servers',
+      t('startup.workspaceTrust.mcpServersHeading'),
       ...formatRows(trust.mcpServers.map((server) => [server.name, describeServerLaunch(server)])),
     );
   }
   const tools = trust.tools ?? [];
   if (tools.length > 0) {
-    lines.push('', `Project tools: ${tools.length} file(s)`, ...tools.map((tool) => `  ${tool.file}`));
+    lines.push('', t('startup.workspaceTrust.projectToolsHeading', { count: tools.length }), ...tools.map((tool) => `  ${tool.file}`));
   }
   return lines.join('\n');
 }
@@ -81,22 +79,22 @@ export function formatWorkspaceTrustSummary(trust: WorkspaceTrustState): string 
 export function workspaceTrustModalOptions(trust: WorkspaceTrustState): Pick<ShowModalOptions, 'title' | 'options'> {
   return {
     title: [
-      'This workspace wants to run commands from its .autohand project files.',
+      t('startup.workspaceTrust.intro'),
       '',
       formatWorkspaceTrustSummary(trust),
       '',
-      'Only trust workspaces whose files you have reviewed.',
+      t('startup.workspaceTrust.warning'),
     ].join('\n'),
     options: [
       {
-        label: 'Trust this workspace',
+        label: t('startup.workspaceTrust.trust'),
         value: 'trust',
-        description: 'Run these now and in later sessions. Autohand asks again if they change.',
+        description: t('startup.workspaceTrust.trustDescription'),
       },
       {
-        label: 'Not now',
+        label: t('startup.workspaceTrust.skip'),
         value: 'skip',
-        description: 'Start without them. Autohand asks again next time.',
+        description: t('startup.workspaceTrust.skipDescription'),
       },
     ],
   };
@@ -123,8 +121,7 @@ export async function resolveWorkspaceTrust(
 
   if (!options.interactive) {
     write(
-      `Skipped ${entries} from ${trust.workspaceRoot} because this workspace is not trusted. ` +
-        'Run autohand in that folder interactively to review and trust them.\n',
+      `${t('startup.workspaceTrust.skippedUntrusted', { entries, path: trust.workspaceRoot })}\n`,
     );
     return 'skipped';
   }
@@ -136,6 +133,6 @@ export async function resolveWorkspaceTrust(
     return 'trusted';
   }
 
-  write(`Started without ${entries} from ${trust.workspaceRoot}. Autohand will ask again next time.\n`);
+  write(`${t('startup.workspaceTrust.startedWithout', { entries, path: trust.workspaceRoot })}\n`);
   return 'skipped';
 }

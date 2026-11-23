@@ -16,8 +16,8 @@ import {
 
 describe('localeDetector', () => {
   describe('SUPPORTED_LOCALES', () => {
-    it('should contain all 17 supported locales', () => {
-      expect(SUPPORTED_LOCALES).toHaveLength(17);
+    it('should contain all 18 supported locales', () => {
+      expect(SUPPORTED_LOCALES).toHaveLength(18);
       expect(SUPPORTED_LOCALES).toContain('en');
       expect(SUPPORTED_LOCALES).toContain('zh-cn');
       expect(SUPPORTED_LOCALES).toContain('zh-tw');
@@ -35,6 +35,7 @@ describe('localeDetector', () => {
       expect(SUPPORTED_LOCALES).toContain('hu');
       expect(SUPPORTED_LOCALES).toContain('hi');
       expect(SUPPORTED_LOCALES).toContain('id');
+      expect(SUPPORTED_LOCALES).toContain('kk');
     });
   });
 
@@ -55,6 +56,7 @@ describe('localeDetector', () => {
       expect(LANGUAGE_DISPLAY_NAMES['ru']).toContain('Русский');
       expect(LANGUAGE_DISPLAY_NAMES['hi']).toContain('हिन्दी');
       expect(LANGUAGE_DISPLAY_NAMES.id).toContain('Bahasa Indonesia');
+      expect(LANGUAGE_DISPLAY_NAMES.kk).toContain('Қазақ тілі');
     });
   });
 
@@ -151,6 +153,14 @@ describe('localeDetector', () => {
       it('should map ko-KR to ko', () => {
         expect(normalizeLocale('ko-KR')).toBe('ko');
         expect(normalizeLocale('ko_KR')).toBe('ko');
+      });
+
+      it('should map Kazakh locales (kk_KZ, kk-Cyrl-KZ) to kk', () => {
+        expect(normalizeLocale('kk')).toBe('kk');
+        expect(normalizeLocale('kk_KZ')).toBe('kk');
+        expect(normalizeLocale('kk_KZ.UTF-8')).toBe('kk');
+        expect(normalizeLocale('kk-KZ')).toBe('kk');
+        expect(normalizeLocale('kk-Cyrl-KZ')).toBe('kk');
       });
 
       it('should map id-ID to id', () => {
@@ -301,6 +311,14 @@ describe('localeDetector', () => {
         const result = detectLocale({});
         expect(result.locale).toBe('es');
         expect(result.source).toBe('env');
+      });
+
+      it('should detect Kazakh from LANG and LC_MESSAGES', () => {
+        process.env.LANG = 'kk_KZ.UTF-8';
+        expect(detectLocale({})).toMatchObject({ locale: 'kk', source: 'env' });
+        delete process.env.LANG;
+        process.env.LC_MESSAGES = 'kk_KZ';
+        expect(detectLocale({})).toMatchObject({ locale: 'kk', source: 'env' });
       });
 
       it('should use LC_ALL over LANG', () => {

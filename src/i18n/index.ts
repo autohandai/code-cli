@@ -28,6 +28,7 @@ import de from './locales/de.json' with { type: 'json' };
 import ja from './locales/ja.json' with { type: 'json' };
 import ko from './locales/ko.json' with { type: 'json' };
 import ru from './locales/ru.json' with { type: 'json' };
+import kk from './locales/kk.json' with { type: 'json' };
 import tr from './locales/tr.json' with { type: 'json' };
 import pl from './locales/pl.json' with { type: 'json' };
 import cs from './locales/cs.json' with { type: 'json' };
@@ -40,7 +41,7 @@ const translations: Record<string, Record<string, unknown>> = {
   'pt-br': ptBr,
   'zh-cn': zhCn,
   'zh-tw': zhTw,
-  de, ja, ko, ru, tr, pl, cs, hu, hi, id,
+  de, ja, ko, ru, kk, tr, pl, cs, hu, hi, id,
 };
 
 let currentLocale: SupportedLocale = 'en';
@@ -134,6 +135,44 @@ export function t(key: string, options?: Record<string, string | number>): strin
 
   // Return the key itself as fallback (matches i18next behavior)
   return key;
+}
+
+/** BCP 47 tag for Intl APIs (e.g. 'pt-br' -> 'pt-BR'). */
+export function getIntlLocale(locale: SupportedLocale = currentLocale): string {
+  const [lang, region] = locale.split('-');
+  return region ? `${lang}-${region.toUpperCase()}` : lang;
+}
+
+function pluralCategory(locale: SupportedLocale, count: number): string {
+  try {
+    return new Intl.PluralRules(getIntlLocale(locale)).select(count);
+  } catch {
+    return 'other';
+  }
+}
+
+/**
+ * Plural-aware translation. Resolves `${key}_${category}` for the CLDR plural
+ * category of `count` (one, few, many, other...), then `${key}_other`, then the
+ * English equivalents. `{{count}}` is always available for interpolation.
+ */
+export function tPlural(key: string, count: number, options?: Record<string, string | number>): string {
+  const own = translations[currentLocale] ?? {};
+  const value = resolve(own, `${key}_${pluralCategory(currentLocale, count)}`)
+    ?? resolve(own, `${key}_other`)
+    ?? resolve(translations.en, `${key}_${pluralCategory('en', count)}`)
+    ?? resolve(translations.en, `${key}_other`);
+  if (typeof value !== 'string') return key;
+  return interpolate(value, { count, ...options });
+}
+
+/** Join items with the locale's conjunction ("a, b, and c", "a, b и c"). */
+export function formatList(items: string[]): string {
+  try {
+    return new Intl.ListFormat(getIntlLocale(), { style: 'long', type: 'conjunction' }).format(items);
+  } catch {
+    return items.join(', ');
+  }
 }
 
 /**

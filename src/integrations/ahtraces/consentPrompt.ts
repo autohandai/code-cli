@@ -1,5 +1,6 @@
 /** @license Apache-2.0 */
 import chalk from 'chalk';
+import { t } from '../../i18n/index.js';
 import { saveConfig } from '../../config.js';
 import type { LoadedConfig } from '../../types.js';
 import { showModal, type ModalOption } from '../../ui/ink/components/Modal.js';
@@ -10,31 +11,32 @@ import {
 } from './consent.js';
 import { reconcileAhTraces } from './client.js';
 
-const TRACE_CONSENT_OPTIONS: readonly ModalOption[] = [
+// Built on demand so labels follow the display language chosen at runtime.
+const traceConsentOptions = (): ModalOption[] => [
   {
-    label: 'Disabled (recommended default)',
+    label: t('traces.consent.disabled'),
     value: 'disabled',
-    description: 'Do not monitor coding-agent session files and do not run ahtraces.',
+    description: t('traces.consent.disabledDescription'),
   },
   {
-    label: 'Local Work Map only',
+    label: t('traces.consent.local'),
     value: 'local',
-    description: 'Process sessions locally and retain aggregate usage, outcome, and workflow signals.',
+    description: t('traces.consent.localDescription'),
   },
   {
-    label: 'Cloud sync — metadata only',
+    label: t('traces.consent.cloudMetadata'),
     value: 'cloud-metadata',
-    description: 'Upload pseudonymous timing, agent, model, provider, reasoning, token, relationship, and outcome metadata.',
+    description: t('traces.consent.cloudMetadataDescription'),
   },
   {
-    label: 'Cloud sync — redacted full traces',
+    label: t('traces.consent.cloudFull'),
     value: 'cloud-full',
-    description: 'Also upload bounded, redacted message and tool parts; this can include prompts, responses, and reasoning.',
+    description: t('traces.consent.cloudFullDescription'),
   },
 ];
 
 function isTraceConsentChoice(value: unknown): value is TraceConsentChoice {
-  return TRACE_CONSENT_OPTIONS.some((option) => option.value === value);
+  return traceConsentOptions().some((option) => option.value === value);
 }
 
 function configuredChoice(config: LoadedConfig): TraceConsentChoice {
@@ -45,14 +47,14 @@ function configuredChoice(config: LoadedConfig): TraceConsentChoice {
 
 export function printTraceConsentNotice(): void {
   console.log();
-  console.log(chalk.white.bold('  Agent traces and Work Map'));
-  console.log(chalk.gray('  Autohand can monitor supported coding-agent session files after the CLI exits.'));
-  console.log(chalk.gray('  Local mode stores a pseudonymous aggregate index, never raw prompts or code.'));
-  console.log(chalk.gray('  Cloud modes add cross-agent visibility at https://console.autohand.ai/traces.'));
-  console.log(chalk.gray('  Trace ingestion and storage does not count against your Autohand API usage.'));
-  console.log(chalk.gray('  Cloud modes require authentication and a separate explicit choice below.'));
-  console.log(chalk.gray('  Stop anytime with autohand --traces-off or ahtraces off.'));
-  console.log(chalk.gray('  You can delete cloud trace data anytime from https://console.autohand.ai/account.'));
+  console.log(chalk.white.bold(`  ${t('traces.consent.title')}`));
+  console.log(chalk.gray(`  ${t('traces.consent.line1')}`));
+  console.log(chalk.gray(`  ${t('traces.consent.line2')}`));
+  console.log(chalk.gray(`  ${t('traces.consent.line3')}`));
+  console.log(chalk.gray(`  ${t('traces.consent.line4')}`));
+  console.log(chalk.gray(`  ${t('traces.consent.line5')}`));
+  console.log(chalk.gray(`  ${t('traces.consent.line6')}`));
+  console.log(chalk.gray(`  ${t('traces.consent.line7')}`));
   console.log();
 }
 
@@ -62,12 +64,12 @@ export async function promptTraceConsentChoice(
   printTraceConsentNotice();
   const initialIndex = Math.max(
     0,
-    TRACE_CONSENT_OPTIONS.findIndex((option) => option.value === initialChoice),
+    traceConsentOptions().findIndex((option) => option.value === initialChoice),
   );
   const result = await showModal({
-    title: 'Choose trace monitoring and cloud sharing',
+    title: t('traces.consent.prompt'),
     initialIndex,
-    options: [...TRACE_CONSENT_OPTIONS],
+    options: traceConsentOptions(),
   });
   return isTraceConsentChoice(result?.value) ? result.value : undefined;
 }

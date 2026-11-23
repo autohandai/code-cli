@@ -6,6 +6,7 @@
  * Mandatory authentication gate for CLI startup
  */
 import chalk from 'chalk';
+import { t } from '../i18n/index.js';
 import { createElement } from 'react';
 import { AuthClient } from './AuthClient.js';
 import { isDurableAuthCredential } from './credentialType.js';
@@ -47,8 +48,8 @@ async function getGitCommit(): Promise<string> {
  */
 async function runUpgrade(): Promise<void> {
   const { command, args, hint } = getUpdateCommand(packageJson.version.includes('-alpha.') ? 'alpha' : 'stable');
-  console.log(chalk.gray('Upgrading Autohand...'));
-  console.log(chalk.gray(`Running: ${command} ${args.join(' ')}`));
+  console.log(chalk.gray(t('startup.auth.upgrading')));
+  console.log(chalk.gray(t('startup.auth.running', { command: `${command} ${args.join(' ')}` })));
   console.log();
 
   return new Promise((resolve, reject) => {
@@ -62,13 +63,13 @@ async function runUpgrade(): Promise<void> {
     child.on('close', (code) => {
       if (code === 0) {
         console.log();
-        console.log(chalk.green('Upgrade completed successfully!'));
-        console.log(chalk.gray('Please restart Autohand to use the new version.'));
+        console.log(chalk.green(t('startup.auth.upgradeDone')));
+        console.log(chalk.gray(t('startup.auth.restart')));
         resolve();
       } else {
         console.log();
-        console.log(chalk.red('Upgrade failed.'));
-        console.log(chalk.gray('You can try manually:'));
+        console.log(chalk.red(t('startup.auth.upgradeFailed')));
+        console.log(chalk.gray(t('startup.auth.tryManually')));
         console.log(chalk.gray(`  ${hint}`));
         reject(new Error(`Upgrade failed with exit code ${code}`));
       }
@@ -76,8 +77,8 @@ async function runUpgrade(): Promise<void> {
 
     child.on('error', (error) => {
       console.log();
-      console.log(chalk.red('Upgrade failed.'));
-      console.log(chalk.gray(`Error: ${error.message}`));
+      console.log(chalk.red(t('startup.auth.upgradeFailed')));
+      console.log(chalk.gray(t('startup.auth.error', { message: error.message })));
       reject(error);
     });
   });
@@ -101,7 +102,7 @@ export async function ensureAuthenticated(
   if (options.bare) {
     const token = resolveBareModeApiKey(config);
     if (!token) {
-      console.error(chalk.red('Bare mode requires AUTOHAND_API_KEY or auth.apiKeyHelper in --settings/config.'));
+      console.error(chalk.red(t('startup.auth.bareRequiresKey')));
       process.exit(1);
     }
     return {
@@ -202,9 +203,9 @@ function isTokenExpiredLocally(config: LoadedConfig): boolean {
 async function promptLogin(config: LoadedConfig, onLoginPromptShown?: () => void): Promise<LoadedConfig> {
   const ci = process.env.CI?.trim().toLowerCase();
   if (!process.stdin.isTTY || !process.stdout.isTTY || (ci && ci !== 'false' && ci !== '0')) {
-    const status = config.auth?.token ? 'Your Autohand sign-in has expired.' : 'Not signed in.';
-    console.error(chalk.red(`${status} Run \`autohand login\`, or in CI set AUTOHAND_API_KEY and add --bare.`));
-    console.error('CI sign-in: https://docs.autohand.ai/guides/ci-cd-automation');
+    const status = config.auth?.token ? t('startup.auth.expired') : t('startup.auth.notSignedIn');
+    console.error(chalk.red(`${status} ${t('startup.auth.nonInteractiveHint')}`));
+    console.error(t('startup.auth.ciDocs', { url: 'https://docs.autohand.ai/guides/ci-cd-automation' }));
     process.exit(1);
   }
   // Show modal with logo and login/exit options
@@ -228,24 +229,24 @@ async function promptLogin(config: LoadedConfig, onLoginPromptShown?: () => void
     }
 
     const options = [
-      { label: 'Login', value: 'login' },
+      { label: t('startup.auth.login'), value: 'login' },
     ];
 
     if (updateAvailable && latestVersion) {
       options.push({
-        label: `Upgrade (v${latestVersion} available)`,
+        label: t('startup.auth.upgradeAvailable', { version: latestVersion }),
         value: 'upgrade',
       });
     }
 
-    options.push({ label: 'Exit', value: 'exit' });
+    options.push({ label: t('startup.auth.exit'), value: 'exit' });
 
     const selected = await showModal({
       header: ({ availableRows }: { availableRows: number }) => createElement(AutohandBrand, { version: versionStr, availableRows }),
       skipAltScreen: true,
       title: updateAvailable
-        ? chalk.yellow('New version available!')
-        : chalk.white('Sign in to continue.'),
+        ? chalk.yellow(t('startup.auth.newVersion'))
+        : chalk.white(t('startup.auth.signInToContinue')),
       options,
     });
     onLoginPromptShown?.();
@@ -272,7 +273,7 @@ async function promptLogin(config: LoadedConfig, onLoginPromptShown?: () => void
   const refreshed = await loadConfig(config.configPath, config.overlayWorkspaceRoot);
 
   if (!refreshed.auth?.token) {
-    console.log(chalk.red('Login failed. Autohand requires authentication to run.'));
+    console.log(chalk.red(t('startup.auth.loginRequired')));
     process.exit(1);
   }
 

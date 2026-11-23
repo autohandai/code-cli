@@ -849,10 +849,10 @@ function Modal(props: ModalProps) {
       return t('ui.questionCustomHint');
     }
     if (isMultiSelect) {
-      return 'Space toggle \u00b7 Enter confirm \u00b7 ESC cancel';
+      return t('ui.multiSelectHint');
     }
     if (filterable) {
-      return `${t('ui.questionSelectHint')} \u00b7 / search`;
+      return `${t('ui.questionSelectHint')} \u00b7 ${t('ui.filterHint')}`;
     }
     return t('ui.questionSelectHint');
   };
