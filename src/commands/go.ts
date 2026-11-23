@@ -3,6 +3,7 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import chalk from 'chalk';
 import QRCode from 'qrcode';
@@ -73,6 +74,8 @@ interface GoContext {
   provider?: ProviderName;
   config?: LoadedConfig;
   client?: MobileHandoffClientLike;
+  /** The branch checked out in a workspace; reads git when not supplied. */
+  resolveBranch?: (workspaceRoot: string) => string | undefined;
   enqueueInstruction?: (instruction: string) => void;
   enqueueMobileInstruction?: (instruction: string, turn: MobileClaimedTurnContext) => void;
   dispatchMobileComposerCommand?: MobileComposerCommandDispatcher;
@@ -156,6 +159,20 @@ function buildMobileSessionSnapshot(session: Session): MobileSessionSnapshot {
   };
 }
 
+function currentGitBranch(workspaceRoot: string): string | undefined {
+  const result = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: workspaceRoot, encoding: 'utf8', timeout: 5_000 });
+  return result.status === 0 ? result.stdout : undefined;
+}
+
+/**
+ * The branch the phone is told this session works on. The mobile app does not accept work for a
+ * paired host until it has one, so a workspace without a readable branch reports `HEAD`, the
+ * same name git gives a detached checkout.
+ */
+function hostBranch(ctx: GoContext): string {
+  return (ctx.resolveBranch ?? currentGitBranch)(ctx.workspaceRoot)?.trim() || 'HEAD';
+}
+
 function parseMode(args: string[], canSteer: boolean): GoMode {
   if (args.includes('--queue')) return 'queue';
   if (args.includes('--steer')) return 'steer';
@@ -197,6 +214,7 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
   });
 
   try {
+    const branch = hostBranch(ctx);
     const deviceId = await client.getDeviceId();
     const registration = await client.registerDevice(token, {
       deviceId,
@@ -213,6 +231,7 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
         client: session.metadata.client,
         clientVersion: session.metadata.clientVersion,
         targetPlatform: options.platform,
+        branch,
       },
     });
 
@@ -243,6 +262,7 @@ export async function go(ctx: GoContext, args: string[] = []): Promise<string | 
         clientVersion: session.metadata.clientVersion,
         sessionSnapshot: JSON.stringify(buildMobileSessionSnapshot(session)),
         targetPlatform: options.platform,
+        branch,
       },
     });
 

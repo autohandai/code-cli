@@ -26,6 +26,7 @@
 
 ### Also in this release
 
+- Pairing tells the phone which branch the session is on. The mobile app used to stay on "has not reported its current branch yet" and would not start work.
 - Switching to an Autohand AI model from the phone applies the reasoning effort chosen there.
 - The status line and `/status` report the plan of the account you just signed in with.
 

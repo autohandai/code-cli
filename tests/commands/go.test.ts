@@ -121,6 +121,32 @@ describe('/go command', () => {
     expect(registerDevice).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['a workspace that is not a git repository', undefined],
+    ['a branch that could not be read', '  '],
+  ])('reports HEAD as the branch for %s so the phone is not left waiting', async (_label, branch) => {
+    const createPairing = vi.fn().mockResolvedValue({
+      id: 'pairing-1', pairingUrl: 'https://autohand.ai/code/go?pairing=pairing-1&token=secret',
+      expiresAt: '2026-05-13T00:10:00.000Z', pollIntervalMs: 2000,
+      session: { id: 'session-1', deviceId: 'device-1', workspacePath: '/Users/test/project', projectName: 'project', model: null, provider: null },
+    });
+    await go({
+      sessionManager: createSessionManager(createSession()),
+      workspaceRoot: '/Users/test/project',
+      model: 'test-model',
+      config: { configPath: '/unused/config.json', auth: { token: 'token' } },
+      client: {
+        getDeviceId: vi.fn().mockResolvedValue('device-1'),
+        registerDevice: vi.fn().mockResolvedValue(undefined),
+        sendRelayHeartbeat: vi.fn().mockResolvedValue(undefined),
+        createPairing,
+        claimWork: vi.fn().mockResolvedValue(null),
+      },
+      resolveBranch: () => branch,
+    }, ['ios']);
+    expect(createPairing.mock.calls[0][1].metadata).toMatchObject({ branch: 'HEAD' });
+  });
+
   it.each(['ios', 'android'] as const)('creates a %s mobile handoff and renders the returned QR link', async (platform) => {
     const client: MobileHandoffClientLike = {
       getDeviceId: vi.fn().mockResolvedValue('device-1'),
@@ -153,6 +179,7 @@ describe('/go command', () => {
         auth: { token: 'token', user: { id: 'user-1', email: 'user@example.com', name: 'User' } },
       },
       client,
+      resolveBranch: (workspaceRoot) => workspaceRoot === '/Users/test/project' ? 'feature/mobile' : undefined,
     }, [platform]);
 
     const output = stripAnsi(result || '');
@@ -189,8 +216,11 @@ describe('/go command', () => {
       metadata: expect.objectContaining({
         sessionSnapshot: expect.any(String),
         targetPlatform: platform,
+        // The phone refuses to start work until the host has told it which branch it is on.
+        branch: 'feature/mobile',
       }),
     }));
+    expect((client.registerDevice as ReturnType<typeof vi.fn>).mock.calls[0][1].metadata).toMatchObject({ branch: 'feature/mobile' });
     const payload = (client.createPairing as ReturnType<typeof vi.fn>).mock.calls[0][1];
     const snapshot = JSON.parse(String(payload.metadata?.sessionSnapshot));
     expect(snapshot.title).toBe('Investigate mobile handoff');

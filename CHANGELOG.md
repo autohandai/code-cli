@@ -20,6 +20,7 @@
 - Place the feedback question directly above the completion summary.
 - Close the open result with Ctrl+O before opening the latest one.
 - Render `/changelog` release notes as markdown, showing only what changed: the greeting, compare link and install instructions are left out.
+- Tell the phone which branch a paired session is on, so it stops waiting with "has not reported its current branch yet".
 - Never offer a provider's safety verdict or reasoning tags as the next-prompt suggestion.
 - Apply the reasoning effort chosen on the phone when it switches to an Autohand AI model (#769).
 - Report the plan of the account that Autohand Cloud inference bills after a fresh sign-in.
