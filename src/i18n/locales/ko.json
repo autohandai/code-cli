@@ -1823,7 +1823,8 @@
     "scriptRan": "스크립트 실행 완료",
     "detailsExpand": "클릭하거나 Ctrl+O로 펼치기",
     "detailsExpandClick": "클릭하여 펼치기",
-    "detailsCollapse": "클릭하거나 Ctrl+O로 접기"
+    "detailsCollapse": "클릭하거나 Ctrl+O로 접기",
+    "mobileConnected": "모바일 연결됨 · /devices로 확인 또는 페어링 해제"
   },
   "homebrew": {
     "formulaGenerated": "Homebrew 공식이 {{path}}에 생성됨"
@@ -2030,7 +2031,8 @@
     "memories": "메모리 사용 및 생성을 설정하고 로컬 메모리를 초기화",
     "mobile": "이 세션을 Autohand 모바일 앱(iOS 또는 Android)과 페어링",
     "ios": "iOS 페어링을 위해 /mobile 열기",
-    "android": "Android 페어링을 위해 /mobile 열기"
+    "android": "Android 페어링을 위해 /mobile 열기",
+    "devices": "이 세션과 페어링된 휴대폰을 확인하거나 페어링 해제"
   },
   "traces": {
     "consent": {

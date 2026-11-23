@@ -157,6 +157,62 @@ describe('MobileRelay event bridge', () => {
     vi.useRealTimers();
   });
 
+  it('reports the pairing it serves and revokes it when asked to unpair', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-23T10:00:00Z'));
+    try {
+      const sendRelayHeartbeat = vi.fn().mockResolvedValue({ pairingClaimed: false, pairingStatus: 'pending' });
+      const revokePairing = vi.fn().mockResolvedValue(undefined);
+      const client: MobileHandoffClientLike = {
+        getDeviceId: vi.fn().mockResolvedValue('device-1'),
+        registerDevice: vi.fn().mockResolvedValue(undefined),
+        createPairing: vi.fn(),
+        sendRelayHeartbeat,
+        claimWork: vi.fn().mockResolvedValue(null),
+        revokePairing,
+      };
+      const relay = startMobileRelay({
+        client, token: 'token', deviceId: 'device-1', sessionId: 'session-1', pairingId: 'pairing-1',
+        mode: 'steer', pollIntervalMs: 1_000, enqueueInstruction: vi.fn(),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(relay.connection()).toEqual({ pairingId: 'pairing-1', mode: 'steer', connected: false });
+
+      sendRelayHeartbeat.mockResolvedValue({ pairingClaimed: true, pairingStatus: 'claimed' });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(relay.connection()).toEqual({
+        pairingId: 'pairing-1', mode: 'steer', connected: true, connectedAt: Date.parse('2026-11-23T10:00:01Z'),
+      });
+
+      await expect(relay.unpair()).resolves.toBe(true);
+      expect(revokePairing).toHaveBeenCalledExactlyOnceWith('token', 'pairing-1', { sessionId: 'session-1', deviceId: 'device-1' });
+      expect(relay.connection()).toBeNull();
+      // A relay that has stopped has nothing left to revoke and no longer polls.
+      await expect(relay.unpair()).resolves.toBe(false);
+      const beats = sendRelayHeartbeat.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(sendRelayHeartbeat).toHaveBeenCalledTimes(beats);
+      expect(revokePairing).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('keeps the pairing when the revoke request fails', async () => {
+    const client: MobileHandoffClientLike = {
+      getDeviceId: vi.fn().mockResolvedValue('device-1'),
+      registerDevice: vi.fn().mockResolvedValue(undefined),
+      createPairing: vi.fn(),
+      sendRelayHeartbeat: vi.fn().mockResolvedValue({ pairingClaimed: true, pairingStatus: 'claimed' }),
+      claimWork: vi.fn().mockResolvedValue(null),
+      revokePairing: vi.fn().mockRejectedValue(new Error('network down')),
+    };
+    const relay = startMobileRelay({
+      client, token: 'token', deviceId: 'device-1', sessionId: 'session-1', pairingId: 'pairing-1',
+      mode: 'queue', pollIntervalMs: 60_000, enqueueInstruction: vi.fn(),
+    });
+    await expect(relay.unpair()).rejects.toThrow('network down');
+    expect(relay.connection()).toMatchObject({ pairingId: 'pairing-1', mode: 'queue' });
+  });
+
   it('announces a claimed mobile pairing exactly once across repeated heartbeats', async () => {
     vi.useFakeTimers();
     const onMobileConnected = vi.fn();

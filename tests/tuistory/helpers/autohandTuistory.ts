@@ -678,13 +678,15 @@ globalThis.fetch = async (input, init) => {
   };
 }
 
-export async function createMockMobilePairingFetchPreload(): Promise<MockOpenRouterFetchPreload> {
+/** `pairingStatus` is what every relay heartbeat reports: `claimed` stands in for a phone that scanned the code. */
+export async function createMockMobilePairingFetchPreload(options: { pairingStatus?: 'pending' | 'claimed' } = {}): Promise<MockOpenRouterFetchPreload> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'autohand-tuistory-mobile-pairing-'));
   const preloadPath = path.join(tempRoot, 'mock-mobile-pairing-fetch.mjs');
   const pairingUrl = 'https://autohand.ai/code/go?pairing=019fabbc-2445-7c21-9356-18aa3816db03&token='
     + 'tuistory-pairing-token-0123456789abcdef0123456789abcdef';
   const moduleSource = `
 const pairingUrl = ${JSON.stringify(pairingUrl)};
+const pairingStatus = ${JSON.stringify(options.pairingStatus ?? 'pending')};
 const originalFetch = globalThis.fetch?.bind(globalThis);
 
 globalThis.fetch = async (input, init) => {
@@ -756,7 +758,7 @@ globalThis.fetch = async (input, init) => {
   }
   if (pathname.startsWith('/v1/mobile/sessions/')) {
     if (pathname.endsWith('/heartbeat') && method.toUpperCase() === 'POST') {
-      return Response.json({ success: true, pairing: { status: 'pending' } });
+      return Response.json({ success: true, pairing: { status: pairingStatus } });
     }
     if (pathname.endsWith('/events') && method.toUpperCase() === 'POST') {
       return Response.json({ success: true });
@@ -764,6 +766,9 @@ globalThis.fetch = async (input, init) => {
     if (pathname.endsWith('/actions') && method.toUpperCase() === 'GET') {
       return Response.json({ success: true, actions: [], cursor: 0 });
     }
+  }
+  if (/^\\/v1\\/mobile\\/pairings\\/[^/]+\\/revoke$/.test(pathname) && method.toUpperCase() === 'POST') {
+    return Response.json({ success: true, pairing: { status: 'revoked' } });
   }
   if (pathname === '/v1/work/claim' && method.toUpperCase() === 'POST') {
     return Response.json({ success: false, error: 'No work available' }, { status: 404 });

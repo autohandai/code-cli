@@ -426,6 +426,7 @@ Node installs use `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` for requests, inclu
 | `/goals templates` | List reusable goal templates                                                    |
 | `/squad`           | Select an agent in the running Squad app; `/squad app` opens or installs it       |
 | `/go`              | Pair this session with the Autohand Code iOS app                                 |
+| `/devices`         | View the phone paired with this session; `/devices unpair` disconnects it         |
 | `/sync`            | Sync settings across devices                                                     |
 | `/add-dir`         | Add additional workspace directory                                               |
 | `/plan`            | Create a task plan                                                               |

@@ -449,6 +449,8 @@ export interface MobileHandoffClientLike {
     pairingId?: string
   ): Promise<MobileActionPollResponse>;
   uploadMobileArtifact?(token: string, sessionId: string, artifact: MobileArtifactUpload): Promise<MobileArtifact>;
+  /** End a pairing from the computer: the phone loses its authority over the session and its queued work. */
+  revokePairing?(token: string, pairingId: string, session: { sessionId: string; deviceId: string }): Promise<void>;
 }
 
 export function getMobileApiBaseUrl(config?: LoadedConfig): string {
@@ -511,6 +513,19 @@ export class MobileHandoffClient implements MobileHandoffClientLike {
       profile: { id: profileId },
       ...(accountId ? { account: { id: accountId } } : {}),
     };
+  }
+
+  async revokePairing(token: string, pairingId: string, session: { sessionId: string; deviceId: string }): Promise<void> {
+    const data = await this.request<{ success?: boolean; error?: string }>(
+      `/v1/mobile/pairings/${encodeURIComponent(pairingId)}/revoke`,
+      token,
+      {
+        method: 'POST',
+        body: JSON.stringify(session),
+        headers: { 'X-CLI-Version': packageJson.version, 'X-Device-ID': session.deviceId },
+      },
+    );
+    if (data.success !== true) throw new Error(data.error || 'The pairing could not be revoked.');
   }
 
   async createPairing(token: string, payload: CreateMobilePairingPayload): Promise<MobilePairing> {

@@ -1823,7 +1823,8 @@
     "scriptRan": "スクリプトを実行しました",
     "detailsExpand": "クリックまたは Ctrl+O で展開",
     "detailsExpandClick": "クリックで展開",
-    "detailsCollapse": "クリックまたは Ctrl+O で折りたたむ"
+    "detailsCollapse": "クリックまたは Ctrl+O で折りたたむ",
+    "mobileConnected": "モバイル接続中 · /devices で確認またはペアリング解除"
   },
   "homebrew": {
     "formulaGenerated": "Homebrewのフォーミュラを{{path}}に生成しました"
@@ -2030,7 +2031,8 @@
     "memories": "メモリーの使用と生成を設定し、ローカルのメモリーをリセット",
     "mobile": "このセッションを Autohand モバイルアプリ（iOS または Android）とペアリング",
     "ios": "iOS とのペアリング用に /mobile を開く",
-    "android": "Android とのペアリング用に /mobile を開く"
+    "android": "Android とのペアリング用に /mobile を開く",
+    "devices": "このセッションとペアリングしたスマートフォンを確認、またはペアリングを解除"
   },
   "traces": {
     "consent": {

@@ -138,7 +138,20 @@ export type MobileClaimedTurnOutcome =
   | { status: 'failed'; error: string; output?: string }
   | { status: 'cancelled'; error?: string };
 
+/** The phone pairing a relay serves, as the computer knows it. */
+export interface MobileConnection {
+  pairingId: string;
+  mode: 'queue' | 'steer';
+  /** The phone has claimed the pairing; before that the QR code is still waiting to be scanned. */
+  connected: boolean;
+  connectedAt?: number;
+}
+
 export interface MobileRelayController {
+  /** The pairing this relay serves, or null once it has stopped. */
+  connection(): MobileConnection | null;
+  /** Revoke the pairing and stop the relay. Resolves false when there was nothing left to unpair. */
+  unpair(): Promise<boolean>;
   finishClaimedTurn(turn: MobileClaimedTurn, outcome: MobileClaimedTurnOutcome): Promise<void>;
   publishClaimedTurnSession(turn: MobileClaimedTurn): Promise<void>;
   requestPermission(
@@ -297,6 +310,7 @@ interface ActiveMobileRelay {
   modelChangeHandler?: MobileModelChangeHandler;
   pairingClaimHandler?: () => void;
   pairingClaimDelivered: boolean;
+  connectedAt?: number;
   keepAwakeController: KeepAwakeController;
 }
 
@@ -331,6 +345,22 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
     keepAwakeController,
   };
   const controller: MobileRelayController = {
+    connection: () => relay.disposed || activeRelay !== relay ? null : {
+      pairingId: options.pairingId,
+      mode: options.mode,
+      connected: relay.mobileConnected,
+      ...(relay.connectedAt === undefined ? {} : { connectedAt: relay.connectedAt }),
+    },
+    unpair: async () => {
+      if (relay.disposed || activeRelay !== relay) return false;
+      if (!options.client.revokePairing) throw new Error('This build cannot unpair a phone.');
+      await options.client.revokePairing(options.token, options.pairingId, {
+        sessionId: options.sessionId,
+        deviceId: options.deviceId,
+      });
+      disposeRelay(relay);
+      return true;
+    },
     finishClaimedTurn: async (turn, outcome) => {
       try {
         await finishClaimedTurn(options, turn, outcome);
@@ -455,6 +485,7 @@ async function pollOnce(
         && !relay.mobileConnected
       ) {
         relay.mobileConnected = true;
+        relay.connectedAt = Date.now();
         deliverPairingClaim(options, relay);
       }
       if (relay.mobileConnected && !relay.composerCatalogPublished) {

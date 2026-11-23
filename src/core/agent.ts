@@ -2342,8 +2342,16 @@ export class AutohandAgent {
   setMobileRelayController(controller: MobileRelayController): void {
     this.mobileRelayController = controller;
     controller.setPairingClaimHandler(() => {
-      this.notifyUser('✓ Autohand Mobile connected to this session.');
+      // The full-screen header carries the connection for as long as it lasts; elsewhere a note says it once.
+      if (!this.setMobileConnected(true)) {
+        this.notifyUser('✓ Autohand Mobile connected to this session. See it with /devices; unpair with /devices unpair.');
+      }
     });
+  }
+
+  /** Reflect the phone connection in the UI. Returns whether a standing indicator shows it. */
+  setMobileConnected(connected: boolean): boolean {
+    return this.inkRenderer?.setMobileConnected?.(connected) === true;
   }
 
   private recordTurnFailure(message: string): void {

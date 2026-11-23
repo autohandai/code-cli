@@ -19,6 +19,12 @@
 - Text the model writes before calling a tool stays visible until the answer replaces it, instead of vanishing when the tool starts.
 - The feedback question sits directly above the completion summary, without blank rows between them.
 
+### Paired phones
+
+- A connected phone is shown under the header: "Mobile connected · /devices to view or unpair". It stays there for as long as the phone is connected.
+- `/devices` shows the phone paired with the session and how long it has been connected. `/devices unpair` disconnects it; the phone stays signed in and only loses this session.
+- Pairing tells the phone which branch the session is on, so the mobile app no longer waits on "has not reported its current branch yet".
+
 ### Languages
 
 - Kazakh (`kk`) is a new display language, detected from `LANG`/`LC_*` and listed in `/language` and the setup wizard.
@@ -26,7 +32,6 @@
 
 ### Also in this release
 
-- Pairing tells the phone which branch the session is on. The mobile app used to stay on "has not reported its current branch yet" and would not start work.
 - Switching to an Autohand AI model from the phone applies the reasoning effort chosen there.
 - The status line and `/status` report the plan of the account you just signed in with.
 

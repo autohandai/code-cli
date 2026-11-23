@@ -6,6 +6,7 @@
 
 ### Added
 
+- `/devices` shows the phone paired with the session and `/devices unpair` disconnects it. A connected phone is shown under the full-screen header instead of as a note above the composer.
 - Kazakh (`kk`) display language, and complete pt-BR, es, ko, ja and ru translations (#758).
 - A new `/goal` is confirmed in one line that expands to its details, instead of printing the whole goal record.
 - Results with details say so: a hint row under the result shows that a click or Ctrl+O opens it.

@@ -43,6 +43,7 @@ import * as theme from '../commands/theme.js';
 import * as automode from '../commands/automode.js';
 import * as share from '../commands/share.js';
 import * as goCmd from '../commands/go.js';
+import * as devicesCmd from '../commands/devices.js';
 import * as handoffWebCmd from '../commands/handoff-web.js';
 import * as cloudCmd from '../commands/cloud.js';
 import * as sync from '../commands/sync.js';
@@ -175,6 +176,7 @@ export const SLASH_COMMANDS: SlashCommand[] = ([
   goCmd.mobileMetadata,
   goCmd.iosMetadata,
   goCmd.androidMetadata,
+  devicesCmd.metadata,
   handoffWebCmd.handoffMetadata,
   cloudCmd.metadata,
   cloudCmd.handoffMetadata,

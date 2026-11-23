@@ -786,8 +786,23 @@ describe('agent startup and active input UI', () => {
       claimedAt: '2026-07-20T01:02:03.000Z',
     });
     expect(agent.notifyUser).toHaveBeenCalledWith(
-      '✓ Autohand Mobile connected to this session.'
+      '✓ Autohand Mobile connected to this session. See it with /devices; unpair with /devices unpair.'
     );
+  });
+
+  it('leaves a claimed pairing to the standing header line when the renderer shows one', () => {
+    const agent = Object.create(AutohandAgent.prototype) as any;
+    agent.notifyUser = vi.fn();
+    agent.inkRenderer = { setMobileConnected: vi.fn(() => true) };
+    const setPairingClaimHandler = vi.fn();
+
+    agent.setMobileRelayController({ setPairingClaimHandler } as any);
+    setPairingClaimHandler.mock.calls[0]?.[0]();
+
+    expect(agent.inkRenderer.setMobileConnected).toHaveBeenCalledExactlyOnceWith(true);
+    expect(agent.notifyUser).not.toHaveBeenCalled();
+    expect(agent.setMobileConnected(false)).toBe(true);
+    expect(agent.inkRenderer.setMobileConnected).toHaveBeenLastCalledWith(false);
   });
 
   it('ensureSpinnerRunning does not restart ora while terminal regions are active', () => {

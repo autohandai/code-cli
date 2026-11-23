@@ -259,6 +259,8 @@ export interface AgentUIState {
   announcement?: AnnouncementLineState;
   /** Optional session survey rendered above status; never takes focus from the composer. */
   feedbackSurvey?: FeedbackSurveyState;
+  /** A phone is paired with this session and has claimed the pairing. */
+  mobileConnected?: boolean;
   /** Rotating tip while working, or a pinned upgrade hint, rendered under the status line. */
   tip?: TipLineState;
   /** Compact command result placed below the status line instead of transcript history. */
@@ -2989,6 +2991,7 @@ export function AgentUI({
       rows={windowSize.rows ?? 24} columns={windowSize.columns ?? 80}
       footer={bottom}
       workspaceRoot={workspaceRoot}
+      notice={state.mobileConnected ? `✓ ${t('ui.mobileConnected')}` : undefined}
     />}
   </FullScreenMouseContext.Provider>;
 

@@ -90,11 +90,13 @@ interface FullScreenFrameProps {
   footer: React.ReactNode;
   workspaceRoot?: string;
   detailsId?: string;
+  /** A standing line under the workspace path, such as a paired phone. It takes the header's spacer row. */
+  notice?: string;
   rows: number;
   columns: number;
 }
 
-export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, columns, detailsId }: FullScreenFrameProps) {
+export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, columns, detailsId, notice }: FullScreenFrameProps) {
   const { colors, theme } = useTheme();
   const footerRef = useRef<DOMElement>(null);
   const metrics = useBoxMetrics(footerRef);
@@ -122,7 +124,7 @@ export function FullScreenFrame({ model, messages, footer, workspaceRoot, rows, 
     <Box flexDirection="column" height={FULL_SCREEN_HEADER_ROWS} flexShrink={0} paddingLeft={FULL_SCREEN_GUTTER} overflow="hidden">
       <Text wrap="truncate"><Text color={colors.accent}>{'>_ '}</Text><Text bold>Autohand Code</Text><Text color={colors.muted}>{` (v${runtimeVersion})`}</Text></Text>
       <Text color={colors.muted} wrap="truncate">{`   ${displayDirectory}`}</Text>
-      <Text> </Text>
+      {notice ? <Text color={colors.success} wrap="truncate">{`   ${notice}`}</Text> : <Text> </Text>}
     </Box>
     <Box flexDirection="column" flexGrow={1} flexShrink={1} flexBasis={0} minHeight={0} paddingLeft={FULL_SCREEN_GUTTER} overflow="hidden">
       {transcriptRows.map((row, index) => {

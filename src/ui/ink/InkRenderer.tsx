@@ -937,6 +937,15 @@ export class InkRenderer {
     this.updateState({ commandResult });
   }
 
+  /**
+   * Show or clear the paired-phone line. Returns whether a standing indicator shows it: the
+   * full-screen header does, the classic layout has nowhere to keep one.
+   */
+  setMobileConnected(mobileConnected: boolean): boolean {
+    this.updateState({ mobileConnected });
+    return Boolean(this.fullScreenTranscript);
+  }
+
   addNotification(message: string, options?: { placement: 'transcript' }): void {
     const content = message.trim();
     if (!content) {

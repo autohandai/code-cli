@@ -15,6 +15,27 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 30));
 afterEach(cleanup);
 
 describe('full-screen frame', () => {
+  it('shows a standing notice under the workspace path without moving the transcript', async () => {
+    const model = new FullScreenTranscript();
+    const messages = [{ role: 'notification' as const, content: 'First transcript row' }];
+    const frame = (notice?: string) => <ThemeProvider><FullScreenFrame model={model} messages={messages} rows={12} columns={100} workspaceRoot={os.homedir()} notice={notice}
+      footer={<Text>❯ draft</Text>} /></ThemeProvider>;
+    const rows = async (notice?: string) => {
+      const view = render(frame(notice)); await flush();
+      view.rerender(frame(notice)); await flush();
+      const result = (view.lastFrame() ?? '').split('\n').map(row => stripAnsi(row));
+      view.unmount();
+      return result;
+    };
+    const plain = await rows();
+    const noticed = await rows('✓ Mobile connected · /devices to view or unpair');
+
+    expect(plain[2].trim()).toBe('');
+    expect(noticed[2]).toBe(`${' '.repeat(FULL_SCREEN_GUTTER)}   ✓ Mobile connected · /devices to view or unpair`);
+    expect(noticed.findIndex(row => row.includes('First transcript row'))).toBe(plain.findIndex(row => row.includes('First transcript row')));
+    expect(noticed.length).toBe(plain.length);
+  });
+
   it.each([100, 40])('insets the header, transcript and hint by the left gutter, leaves the footer on the window edge and stays inside %i columns', async columns => {
     const theme = new Theme('user-background-test', { ...loadTheme('dark').colors, userMessageBg: '#654321' }, 'truecolor');
     const model = new FullScreenTranscript();

@@ -1829,7 +1829,8 @@
     "scriptRan": "Скрипт выполнен",
     "detailsExpand": "Нажмите или Ctrl+O, чтобы развернуть",
     "detailsExpandClick": "Нажмите, чтобы развернуть",
-    "detailsCollapse": "Нажмите или Ctrl+O, чтобы свернуть"
+    "detailsCollapse": "Нажмите или Ctrl+O, чтобы свернуть",
+    "mobileConnected": "Телефон подключён · /devices — посмотреть или отвязать"
   },
   "homebrew": {
     "formulaGenerated": "Формула Homebrew создана: {{path}}"
@@ -2036,7 +2037,8 @@
     "memories": "настроить использование и создание записей памяти и сбросить локальные записи",
     "mobile": "связать этот сеанс с мобильным приложением Autohand (iOS или Android)",
     "ios": "открыть /mobile для связи с iOS",
-    "android": "открыть /mobile для связи с Android"
+    "android": "открыть /mobile для связи с Android",
+    "devices": "посмотреть телефон, связанный с этим сеансом, или отвязать его"
   },
   "traces": {
     "consent": {

@@ -1823,7 +1823,8 @@
     "apiKeyPlaceholder": "Paste your API key...",
     "validationError": "Invalid input",
     "multiSelectHint": "Space toggle · Enter confirm · ESC cancel",
-    "filterHint": "/ search"
+    "filterHint": "/ search",
+    "mobileConnected": "Mobile connected · /devices to view or unpair"
   },
   "homebrew": {
     "formulaGenerated": "Homebrew formula generated at {{path}}"
@@ -2030,7 +2031,8 @@
     "memories": "configure memory use and generation, and reset local memories",
     "mobile": "pair this session with the Autohand mobile app (iOS or Android)",
     "ios": "open /mobile for iOS pairing",
-    "android": "open /mobile for Android pairing"
+    "android": "open /mobile for Android pairing",
+    "devices": "view the phone paired with this session, or unpair it"
   },
   "traces": {
     "consent": {

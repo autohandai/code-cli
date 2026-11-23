@@ -1823,7 +1823,8 @@
     "scriptRan": "Скрипт орындалды",
     "detailsExpand": "Жаю үшін басыңыз немесе Ctrl+O",
     "detailsExpandClick": "Жаю үшін басыңыз",
-    "detailsCollapse": "Жию үшін басыңыз немесе Ctrl+O"
+    "detailsCollapse": "Жию үшін басыңыз немесе Ctrl+O",
+    "mobileConnected": "Телефон қосылды · /devices — қарау немесе ажырату"
   },
   "homebrew": {
     "formulaGenerated": "Homebrew формуласы жасалды: {{path}}"
@@ -2030,7 +2031,8 @@
     "memories": "жад жазбаларын пайдалану мен жасауды баптау және жергілікті жазбаларды тазарту",
     "mobile": "осы сеансты Autohand мобильді қолданбасымен (iOS немесе Android) жұптастыру",
     "ios": "iOS-пен жұптастыру үшін /mobile ашу",
-    "android": "Android-пен жұптастыру үшін /mobile ашу"
+    "android": "Android-пен жұптастыру үшін /mobile ашу",
+    "devices": "осы сеанспен жұптастырылған телефонды қарау немесе ажырату"
   },
   "traces": {
     "consent": {

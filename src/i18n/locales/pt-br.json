@@ -1823,7 +1823,8 @@
     "scriptRan": "Script executado",
     "detailsExpand": "Clique ou pressione Ctrl+O para expandir",
     "detailsExpandClick": "Clique para expandir",
-    "detailsCollapse": "Clique ou pressione Ctrl+O para recolher"
+    "detailsCollapse": "Clique ou pressione Ctrl+O para recolher",
+    "mobileConnected": "Celular conectado · /devices para ver ou desparear"
   },
   "homebrew": {
     "formulaGenerated": "Fórmula Homebrew gerada em {{path}}"
@@ -2030,7 +2031,8 @@
     "memories": "configurar o uso e a geração de memórias e redefinir as memórias locais",
     "mobile": "parear esta sessão com o app móvel da Autohand (iOS ou Android)",
     "ios": "abrir /mobile para parear com iOS",
-    "android": "abrir /mobile para parear com Android"
+    "android": "abrir /mobile para parear com Android",
+    "devices": "ver o celular pareado com esta sessão ou despareá-lo"
   },
   "traces": {
     "consent": {

@@ -30,6 +30,7 @@ import type {
   MobileComposerCommandAvailability,
   MobileComposerCommandDispatcher,
   MobilePermissionModeChange,
+  MobileConnection,
   MobileRelayController,
 } from '../mobile/MobileRelay.js';
 import type { ExtensionService } from '../extensions/ExtensionService.js';
@@ -193,6 +194,11 @@ export interface SlashCommandContext {
     onMobileConnected?: (message: string) => void;
     /** Surface revocation of the active mobile relay pairing. */
     onMobileDisconnected?: (message: string) => void;
+    /** The phone pairing of this session, for /devices. */
+    mobileDevices?: {
+      connection: () => MobileConnection | null;
+      unpair: () => Promise<boolean>;
+    };
     /** Apply a mobile-selected permission mode to the active CLI session. */
     applyMobilePermissionMode?: (mode: MobilePermissionMode) => MobilePermissionModeChange;
     /** Event emitter for RPC/ACP mode notifications */

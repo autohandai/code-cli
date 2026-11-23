@@ -403,6 +403,10 @@ export class SlashCommandHandler {
           });
           return null;
         }
+        case '/devices': {
+          const { devices } = await import('../commands/devices.js');
+          return devices(this.ctx.mobileDevices ?? {}, args);
+        }
         case '/mobile':
         case '/go': {
           const { go } = await import('../commands/go.js');

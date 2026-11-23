@@ -2512,7 +2512,16 @@ export function initializeAgentDependencies(
         host.notifyUser?.(message);
       },
       onMobileDisconnected: (message: string) => {
+        host.setMobileConnected?.(false);
         host.notifyUser?.(message);
+      },
+      mobileDevices: {
+        connection: () => mobileRelayController?.connection() ?? null,
+        unpair: async () => {
+          const unpaired = await mobileRelayController?.unpair() ?? false;
+          if (unpaired) host.setMobileConnected?.(false);
+          return unpaired;
+        },
       },
       applyMobilePermissionMode: (mode: MobilePermissionMode) =>
         applyMobilePermissionMode({
