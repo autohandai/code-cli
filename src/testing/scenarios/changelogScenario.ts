@@ -14,7 +14,7 @@ export const RECORDED_RELEASES_ENV = {
 export async function showChangelog(session: TerminalSession): Promise<string> {
   await session.waitForText('❯', { timeout: 15_000 });
   await submitLine(session, '/changelog');
-  await session.waitForText('macOS alpha signing', { timeout: 20_000 });
+  await session.waitForText('No code changes were found in this comparison range.', { timeout: 20_000 });
   await session.waitIdle();
   return outputViewport(session);
 }
