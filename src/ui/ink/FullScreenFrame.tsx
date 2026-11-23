@@ -13,6 +13,13 @@ import { useTerminalWindowSize } from './useTerminalWindowSize.js';
 
 export const ComposerOriginContext = createContext({ left: 0, top: 0 });
 
+/**
+ * True while the full-screen view keeps terminal mouse reporting on for its whole life. The
+ * composer then leaves reporting alone: switching it off with the caret (a running turn hides
+ * it) handed the wheel back to the terminal, which sends arrow keys on the alternate screen.
+ */
+export const FullScreenMouseContext = createContext(false);
+
 /** Rows above the transcript body: title, workspace and a spacer. Mouse rows are mapped against it. */
 export const FULL_SCREEN_HEADER_ROWS = 3;
 

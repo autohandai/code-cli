@@ -7,6 +7,7 @@ import { allowedPeerScopes } from '../../session/peers/PeerScope.js';
 import chalk from 'chalk';
 import { isAxoInput } from '../../ui/axo/axoCommand.js';
 import { resolveMouseComposerCursor } from '../../ui/mouseReporting.js';
+import { shouldUseFullScreen } from '../../ui/terminal/alternateScreen.js';
 import { deliverAgentTargetMessage, listAgentMessageTargets } from './AgentMessageTargets.js';
 import os from 'node:os';
 import ora from 'ora';
@@ -317,7 +318,16 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
             : host.activityIndicator?.nextTipFitting?.(accept),
         getInteractionMode: () => host.getInteractionMode(),
         onCycleInteractionMode: () => host.cycleInteractionMode(),
-        mouseComposerCursor: resolveMouseComposerCursor(host.runtime?.config?.ui?.mouseComposerCursor),
+        mouseComposerCursor: resolveMouseComposerCursor(
+          host.runtime?.config?.ui?.mouseComposerCursor,
+          process.env,
+          shouldUseFullScreen(
+            host.runtime?.config?.features?.fullScreenMode,
+            process.stdin.isTTY,
+            process.stdout.isTTY,
+            process.env.TERM,
+          ),
+        ),
         keybindings: resolveKeybindings(
           host.runtime?.config?.ui?.keybindingProfile,
           loadExternalKeybindingOverrides(host.runtime?.config?.ui?.keybindingProfile ?? 'autohand'),

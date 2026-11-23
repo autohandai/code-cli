@@ -335,6 +335,39 @@ describe('full-screen terminal', () => {
     await exitInteractive(session);
   });
 
+  it.each(['ghostty', 'iTerm.app'])('scrolls the transcript with the wheel while a request is running on %s', async termProgram => {
+    server = await createMockAutohandAINativeSequenceServer([{ content: 'WHEEL_WORK_DONE', delayMs: 15_000 }]);
+    state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'fixture', model: 'moa', baseUrl: server.baseUrl },
+      features: { fullScreenMode: true, autohand_inference: true },
+      agent: { autoMemory: false, maxIterations: 4, sessionRetryLimit: 0 },
+      network: { maxRetries: 0 },
+      ui: { promptSuggestions: false, terminalBell: false, showCompletionNotification: false },
+    } });
+    await seedFullScreenHistory(state.autohandHome, state.workspaceRoot);
+    session = await launchBuiltAutohand(['resume', 'full-screen-history', '--config', state.configPath, '--yes'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, cols: 160, rows: 30,
+      env: { TERM_PROGRAM: termProgram, LC_TERMINAL: undefined },
+    });
+    await session.waitForText('History item 79');
+    await session.type('Keep investigating the repository'); await session.press('enter');
+    await session.waitForText('esc to cancel'); await session.waitIdle();
+    // Without mouse reporting the alternate screen turns the wheel into arrow keys, which walk the prompt history.
+    expect(isTerminalMouseTrackingEnabled(session)).toBe(true);
+    await session.scrollUp(3, 5, 3);
+    await session.waitForText('Back to bottom · Ctrl+End');
+    expect(outputViewport(session)).not.toContain('❯ Keep investigating the repository|');
+    expect(composerCaretLine(session)).not.toContain('Keep investigating');
+    expect(isTerminalMouseTrackingEnabled(session)).toBe(true);
+    await session.write('\x1b[1;5F');
+    await session.waitForText('WHEEL_WORK_DONE', { timeout: 20_000 });
+    await session.waitIdle();
+    expect(isTerminalMouseTrackingEnabled(session)).toBe(true);
+    await exitInteractive(session);
+    expect(isTerminalMouseTrackingEnabled(session)).toBe(false);
+  }, 60_000);
+
   it('copies dragged transcript text and leaves plain clicks inert', async () => {
     state = await createTempAutohandHome({ config: { features: { fullScreenMode: true }, ui: { promptSuggestions: false } } });
     await seedFullScreenHistory(state.autohandHome, state.workspaceRoot);
@@ -572,6 +605,7 @@ describe('full-screen terminal', () => {
     await session.press('esc'); await session.waitForText('? shortcuts');
     expect(outputViewport(session)).toContain('History item 79');
     await session.type('draft after modal'); await session.waitForText('❯ draft after modal');
+    expect(isTerminalMouseTrackingEnabled(session)).toBe(true);
     await exitInteractive(session);
   }, 90_000);
 

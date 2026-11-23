@@ -16,7 +16,15 @@ export function isITerm2(env: Env = process.env): boolean {
  * wheel away from native scrollback. iTerm2 also jolts the viewport when
  * reporting is switched around wheel events, so it stays off there unless the
  * user asks for it explicitly.
+ *
+ * The full-screen frame has no native scrollback to protect: without reporting
+ * the terminal turns the wheel into arrow keys, which walk the prompt history
+ * instead of the transcript. Reporting is on there unless it is turned off.
  */
-export function resolveMouseComposerCursor(configured: boolean | undefined, env: Env = process.env): boolean {
-  return configured ?? !isITerm2(env);
+export function resolveMouseComposerCursor(
+  configured: boolean | undefined,
+  env: Env = process.env,
+  fullScreen = false,
+): boolean {
+  return configured ?? (fullScreen || !isITerm2(env));
 }

@@ -3,7 +3,7 @@
  * Copyright 2025 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
-import { FULL_SCREEN_GUTTER, FULL_SCREEN_HEADER_ROWS, FullScreenFrame, FullScreenInset, fullScreenFooterWidth } from './FullScreenFrame.js';
+import { FULL_SCREEN_GUTTER, FULL_SCREEN_HEADER_ROWS, FullScreenFrame, FullScreenInset, FullScreenMouseContext, fullScreenFooterWidth } from './FullScreenFrame.js';
 import { copyToClipboard } from '../clipboard.js';
 import type { FullScreenMessage, FullScreenTranscript } from './fullScreenTranscript.js';
 import React, { useState, useEffect, memo, useMemo, useRef, useCallback } from 'react';
@@ -87,6 +87,8 @@ import { AnnouncementLine } from './AnnouncementLine.js';
 import { FeedbackSurveyLine, type FeedbackSurveyState } from './FeedbackSurveyLine.js';
 import { IdleTipRow, TipLine } from './TipLine.js';
 import {
+  DISABLE_SGR_MOUSE_TRACKING,
+  ENABLE_SGR_MOUSE_TRACKING,
   REQUEST_CURSOR_POSITION,
   parseCursorPositionReport,
   parseSgrMouseInput,
@@ -875,6 +877,14 @@ export function AgentUI({
 }: AgentUIProps) {
   const { stdout } = useStdout();
   const [, redrawFullScreen] = useState(0);
+  const fullScreenOwnsMouse = Boolean(fullScreenTranscript) && mouseComposerCursor;
+  useEffect(() => {
+    if (!fullScreenOwnsMouse || !stdout.isTTY) return;
+    stdout.write(ENABLE_SGR_MOUSE_TRACKING);
+    return () => {
+      stdout.write(DISABLE_SGR_MOUSE_TRACKING);
+    };
+  }, [fullScreenOwnsMouse, stdout]);
   const fullScreenKeys = useRef(false);
   const transcriptDragRef = useRef(false);
   const teamViewVisible = state.teamPanelVisible && Boolean(state.teamActivity?.team);
@@ -2957,12 +2967,14 @@ export function AgentUI({
         taskListPosition={taskListPosition}
       />;
 
-  if (fullScreenTranscript) return state.agentRunsPanelVisible || teamViewVisible ? <FullScreenInset rows={windowSize.rows ?? 24}>{bottom}</FullScreenInset> : <FullScreenFrame
-    model={fullScreenTranscript} messages={fullScreenMessages} detailsId={liveCommandItems.slice().reverse().find(entry => entry.isExpanded)?.id ?? expandedToolOutput?.id}
-    rows={windowSize.rows ?? 24} columns={windowSize.columns ?? 80}
-    footer={bottom}
-    workspaceRoot={workspaceRoot}
-  />;
+  if (fullScreenTranscript) return <FullScreenMouseContext.Provider value={fullScreenOwnsMouse}>
+    {state.agentRunsPanelVisible || teamViewVisible ? <FullScreenInset rows={windowSize.rows ?? 24}>{bottom}</FullScreenInset> : <FullScreenFrame
+      model={fullScreenTranscript} messages={fullScreenMessages} detailsId={liveCommandItems.slice().reverse().find(entry => entry.isExpanded)?.id ?? expandedToolOutput?.id}
+      rows={windowSize.rows ?? 24} columns={windowSize.columns ?? 80}
+      footer={bottom}
+      workspaceRoot={workspaceRoot}
+    />}
+  </FullScreenMouseContext.Provider>;
 
   return (
     <Box flexDirection="column">

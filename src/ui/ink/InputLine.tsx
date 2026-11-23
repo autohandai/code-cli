@@ -13,7 +13,7 @@ import {
   useStdout,
   type DOMElement,
 } from 'ink';
-import { ComposerOriginContext } from './FullScreenFrame.js';
+import { ComposerOriginContext, FullScreenMouseContext } from './FullScreenFrame.js';
 import { useTheme } from '../theme/ThemeContext.js';
 import { buildMultiLineRenderState } from '../inputPrompt.js';
 import { stripAnsiCodes } from '../displayUtils.js';
@@ -85,6 +85,7 @@ function InputLineComponent({
   const rootRef = useRef<DOMElement | null>(null);
   const metrics = useBoxMetrics(rootRef);
   const origin = useContext(ComposerOriginContext);
+  const frameOwnsMouse = useContext(FullScreenMouseContext);
   const { setCursorPosition } = useCursor();
   const { stdout } = useStdout();
 
@@ -173,7 +174,7 @@ function InputLineComponent({
   ]);
 
   useEffect(() => {
-    if (!enableMouseCursor || !enableHardwareCursor || !isActive || !stdout.isTTY) {
+    if (frameOwnsMouse || !enableMouseCursor || !enableHardwareCursor || !isActive || !stdout.isTTY) {
       return;
     }
 
@@ -181,7 +182,7 @@ function InputLineComponent({
     return () => {
       stdout.write(DISABLE_SGR_MOUSE_TRACKING);
     };
-  }, [enableHardwareCursor, enableMouseCursor, isActive, stdout]);
+  }, [enableHardwareCursor, enableMouseCursor, frameOwnsMouse, isActive, stdout]);
 
   const renderContentLine = (line: string, index: number) => {
     return (
