@@ -50,7 +50,7 @@ import { shouldForceAgentIdleLogout } from './AgentSessionAccounting.js';
 import {
   consumeAgentInkSubmittedInstructionEcho,
 } from './AgentUIRuntime.js';
-import { renderAgentSlashCommandResult } from './AgentCommandRuntime.js';
+import { formatAgentSlashCommandResultForStdout, renderAgentSlashCommandResult } from './AgentCommandRuntime.js';
 import {
   createQueuedAgentInstruction,
   resolveActiveGoalContinuation,
@@ -1952,7 +1952,7 @@ export async function runAgentInteractiveLoop(host: AgentLifecycleHost): Promise
                 host.writeDebugLine?.bind(host)
               );
               if (handled !== null && !renderAgentSlashCommandResult(host, command, handled)) {
-                console.log(renderTerminalMarkdown(handled));
+                console.log(formatAgentSlashCommandResultForStdout(command, handled));
               }
               // Ensure the renderer is in idle state so the Composer accepts input
               // after non-interactive slash commands like /help, /clear, /history

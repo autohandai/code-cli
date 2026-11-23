@@ -3,8 +3,10 @@
  * Copyright 2026 Autohand AI LLC
  * SPDX-License-Identifier: Apache-2.0
  */
+import { stripVTControlCharacters } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  formatAgentSlashCommandResultForStdout,
   handleAgentSlashCommand,
   renderAgentSlashCommandResult,
   parseAgentSlashCommand,
@@ -101,6 +103,14 @@ describe('renderAgentSlashCommandResult', () => {
     const report = 'Project script: passed\nEvidence: [report.md](</tmp/report.md>)';
     renderAgentSlashCommandResult(host, '/tester', report);
     expect(addAssistantMessage).toHaveBeenCalledWith(report, true);
+  });
+
+  it('keeps the release changelog as Markdown', () => {
+    const addAssistantMessage = vi.fn();
+    const host = { inkRenderer: { isRunning: () => true, addAssistantMessage } };
+    const notes = '# Autohand Changelog\n\n## v0.9.12\n\n- Honest `turn` outcomes';
+    renderAgentSlashCommandResult(host, '/changelog', notes);
+    expect(addAssistantMessage).toHaveBeenCalledWith(notes, true);
   });
 
   it.each(['/tasks', '/team', '/squad'])('pins %s below the status line', (command) => {
@@ -282,5 +292,30 @@ describe('native mobile pairing shortcuts', () => {
     ['/android', ['android']],
   ])('routes %s to the canonical mobile command', (input, args) => {
     expect(parseAgentSlashCommand({} as never, input)).toEqual({ command: '/mobile', args });
+  });
+});
+
+describe('formatAgentSlashCommandResultForStdout', () => {
+  it('lays out a markdown report for the terminal when no renderer is running', () => {
+    const printed = stripVTControlCharacters(formatAgentSlashCommandResultForStdout(
+      '/changelog',
+      '# Autohand Changelog\n\n### Updates\n\n- First **bold** change\n- Second change',
+    ));
+
+    expect(printed.split('\n')).toEqual([
+      'Autohand Changelog',
+      '',
+      'Updates',
+      '',
+      '• First bold change',
+      '• Second change',
+    ]);
+  });
+
+  it('prints preformatted command rows as written', () => {
+    const rows = 'State: Running\n  # of tasks: 2\n- [pending] item';
+
+    expect(formatAgentSlashCommandResultForStdout('/help', rows)).toBe(rows);
+    expect(formatAgentSlashCommandResultForStdout('/changelog', 'Usage: /changelog\n  # rows')).toBe('Usage: /changelog\n  # rows');
   });
 });

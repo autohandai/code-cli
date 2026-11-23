@@ -25,6 +25,7 @@ import { PlanFileStorage } from '../../modes/planMode/PlanFileStorage.js';
 import { applyPlanEdits } from '../../modes/planMode/PlanParser.js';
 import { openPlanFile } from '../../modes/planMode/openPlanFile.js';
 import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
+import { formatAssistantMarkdown } from '../../ui/terminalMarkdown.js';
 import { writeAutohandDebugLine } from '../../utils/debugLog.js';
 import { BARE_SLASH_COMMANDS_DISABLED_MESSAGE } from '../../runtime/bareMode.js';
 import { NO_DAEMON_MESSAGE } from '../../runtime/noDaemon.js';
@@ -113,11 +114,23 @@ const INTERACTIVE_SLASH_COMMANDS = new Set([
 
 /** Operational command results that belong with the fixed composer controls. */
 const FIXED_COMPOSER_RESULT_COMMANDS = new Set(['/tasks', '/team', '/teams', '/squad']);
-const MARKDOWN_REPORT_COMMANDS = new Set(['/pr-review', '/deslop', '/tester']);
+const MARKDOWN_REPORT_COMMANDS = new Set(['/pr-review', '/deslop', '/tester', '/changelog']);
 const DISCOVERY_SCAN_NOTICE = 'Scanning this workspace for workflows… Esc to cancel.';
 
 export function shouldRenderSlashCommandResultInComposer(command: string): boolean {
   return FIXED_COMPOSER_RESULT_COMMANDS.has(command);
+}
+
+/** Whether a command's result is a markdown document rather than preformatted rows. */
+function isMarkdownSlashCommandResult(command: string, result: string): boolean {
+  return MARKDOWN_REPORT_COMMANDS.has(command) && !result.startsWith('Usage:');
+}
+
+/** A slash command result as printed to stdout when no Ink renderer is running to show it. */
+export function formatAgentSlashCommandResultForStdout(command: string, result: string): string {
+  return isMarkdownSlashCommandResult(command, result)
+    ? formatAssistantMarkdown(result)
+    : renderTerminalMarkdown(result);
 }
 
 /**
@@ -140,8 +153,7 @@ export function renderAgentSlashCommandResult(
   } else if (shouldRenderSlashCommandResultInComposer(command)) {
     host.inkRenderer.setCommandResult?.(command, result);
   } else {
-    const renderMarkdown = MARKDOWN_REPORT_COMMANDS.has(command) && !result.startsWith('Usage:');
-    host.inkRenderer.addAssistantMessage?.(result, renderMarkdown);
+    host.inkRenderer.addAssistantMessage?.(result, isMarkdownSlashCommandResult(command, result));
   }
   return true;
 }

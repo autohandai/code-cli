@@ -6,7 +6,7 @@
 import chalk from 'chalk';
 import { deliverAgentTargetMessage, type MessageTargetHost } from './AgentMessageTargets.js';
 import { readInstruction, type PromptDraft } from '../../ui/inputPrompt.js';
-import { renderTerminalMarkdown } from '../immediateCommandRouter.js';
+import { formatAgentSlashCommandResultForStdout } from './AgentCommandRuntime.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
 import { SLASH_COMMANDS } from '../slashCommands.js';
 import { isAutohandDebugEnabled, writeAutohandDebugLine } from '../../utils/debugLog.js';
@@ -197,8 +197,7 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
         const handled = await host.runSlashCommandWithInput(command, args);
         if (handled !== null) {
           // Slash command returned display output - print it, don't send to LLM
-          // Convert markdown formatting (**bold**, _italic_) to ANSI terminal codes
-          console.log(renderTerminalMarkdown(handled));
+          console.log(formatAgentSlashCommandResultForStdout(command, handled));
         }
         writeAutohandDebugLine('[DEBUG] promptForInstruction: slash command handled, returning null', host.writeDebugLine?.bind(host));
         return null;

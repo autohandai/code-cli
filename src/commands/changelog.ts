@@ -4,12 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { getTerminalColumns } from '../utils/asciiArt.js';
-
 const GITHUB_RELEASES_URL = 'https://api.github.com/repos/autohandai/code-cli/releases?per_page=10';
 const REQUEST_TIMEOUT_MS = 5_000;
-const DEFAULT_TERMINAL_COLUMNS = 80;
-const MIN_TERMINAL_COLUMNS = 20;
+/** Two trailing spaces end a row inside a markdown paragraph. */
+const MARKDOWN_LINE_BREAK = '  \n';
 
 export interface ChangelogRelease {
   tagName: string;
@@ -30,7 +28,6 @@ interface GitHubRelease {
 }
 
 export interface ChangelogContext {
-  terminalColumns?: number;
   loadReleases?: () => Promise<ChangelogRelease[] | null>;
 }
 
@@ -40,74 +37,8 @@ export const metadata = {
   implemented: true,
 };
 
-function normalizeTerminalColumns(terminalColumns: number): number {
-  return Math.max(MIN_TERMINAL_COLUMNS, Math.floor(terminalColumns));
-}
-
-function stripMarkdown(value: string): string {
-  return value
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/(`+)(.*?)\1/g, '$2')
-    .replace(/(\*\*|__)(.*?)\1/g, '$2')
-    .replace(/(\*|_)(.*?)\1/g, '$2')
-    .trim();
-}
-
-function wrapLine(line: string, width: number, indent = ''): string[] {
-  const availableWidth = Math.max(1, width - indent.length);
-  const words = line.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) {
-    return [indent.trimEnd()];
-  }
-
-  const wrapped: string[] = [];
-  let currentLine = indent;
-
-  const appendChunk = (chunk: string): void => {
-    if (currentLine.length === indent.length) {
-      currentLine += chunk;
-      return;
-    }
-    currentLine += ` ${chunk}`;
-  };
-
-  for (const word of words) {
-    if (word.length > availableWidth) {
-      if (currentLine.length > indent.length) {
-        wrapped.push(currentLine);
-        currentLine = indent;
-      }
-
-      for (let offset = 0; offset < word.length; offset += availableWidth) {
-        const chunk = word.slice(offset, offset + availableWidth);
-        if (chunk.length === availableWidth) {
-          wrapped.push(`${indent}${chunk}`);
-        } else {
-          currentLine = `${indent}${chunk}`;
-        }
-      }
-      continue;
-    }
-
-    const currentContentLength = currentLine.length - indent.length;
-    const separatorLength = currentContentLength === 0 ? 0 : 1;
-    if (currentContentLength + separatorLength + word.length > availableWidth) {
-      wrapped.push(currentLine);
-      currentLine = indent;
-    }
-    appendChunk(word);
-  }
-
-  if (currentLine.length > indent.length) {
-    wrapped.push(currentLine);
-  }
-
-  return wrapped;
-}
-
-function wrapText(value: string, width: number, indent = ''): string[] {
-  return value.split('\n').flatMap((line) => wrapLine(line, width, indent));
+function escapeMarkdown(value: string): string {
+  return value.replace(/[\\`*_[\]<>~&]/g, '\\$&');
 }
 
 function formatPublishedAt(publishedAt: string | null): string | null {
@@ -128,62 +59,36 @@ function formatPublishedAt(publishedAt: string | null): string | null {
   }).format(date);
 }
 
-function getReleaseNotes(body: string | null): string[] {
-  if (!body?.trim()) {
-    return [];
-  }
+function formatRelease(release: ChangelogRelease): string[] {
+  const title = [
+    release.tagName,
+    ...(release.prerelease ? ['[pre-release]'] : []),
+    ...(release.name?.trim() ? [`— ${release.name.trim()}`] : []),
+  ].join(' ');
+  const publishedAt = formatPublishedAt(release.publishedAt);
+  const details = [
+    ...(publishedAt ? [`Published ${publishedAt}`] : []),
+    ...(release.url ? [`<${release.url}>`] : []),
+  ].join(MARKDOWN_LINE_BREAK);
+  const notes = release.body?.replace(/\r\n?/g, '\n').trim();
 
-  return body
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith('#'))
-    .map((line) => line.replace(/^[-*+]\s+|^\d+[.)]\s+/, ''))
-    .map(stripMarkdown)
-    .filter(Boolean);
+  return [
+    `## ${escapeMarkdown(title)}`,
+    ...(details ? [details] : []),
+    notes || 'No release notes provided.',
+  ];
 }
 
-function formatReleaseUrl(url: string, width: number): string[] {
-  const displayUrl = url.replace(/^https?:\/\//, '');
-  return wrapText(`Release: ${displayUrl}`, width);
-}
+/**
+ * Recent releases as one markdown document. The release notes are passed through as GitHub
+ * published them, so whichever surface shows the result lays them out at its own width.
+ */
+export function formatChangelog(releases: ChangelogRelease[]): string {
+  const blocks = releases.length === 0
+    ? ['No published releases found.']
+    : releases.flatMap(formatRelease);
 
-export function formatChangelog(
-  releases: ChangelogRelease[],
-  { terminalColumns = DEFAULT_TERMINAL_COLUMNS }: Pick<ChangelogContext, 'terminalColumns'> = {},
-): string {
-  const width = normalizeTerminalColumns(terminalColumns);
-  const lines = ['Autohand Changelog'];
-
-  if (releases.length === 0) {
-    lines.push('', 'No published releases found.');
-    return lines.join('\n');
-  }
-
-  for (const release of releases) {
-    const title = [
-      release.tagName,
-      ...(release.prerelease ? ['[pre-release]'] : []),
-      ...(release.name?.trim() ? [`— ${release.name.trim()}`] : []),
-    ].join(' ');
-    const publishedAt = formatPublishedAt(release.publishedAt);
-    const notes = getReleaseNotes(release.body);
-
-    lines.push('');
-    lines.push(...wrapText(title, width));
-    if (publishedAt) {
-      lines.push(...wrapText(`Published ${publishedAt}`, width));
-    }
-    if (notes.length === 0) {
-      lines.push(...wrapText('No release notes provided.', width));
-    } else {
-      for (const note of notes) {
-        lines.push(...wrapText(note, width, '• '));
-      }
-    }
-    lines.push(...formatReleaseUrl(release.url, width));
-  }
-
-  return lines.join('\n');
+  return ['# Autohand Changelog', ...blocks].join('\n\n');
 }
 
 async function loadGitHubReleases(): Promise<ChangelogRelease[] | null> {
@@ -231,7 +136,5 @@ export async function changelog(ctx: ChangelogContext = {}): Promise<string> {
     return 'Unable to load the release changelog. Check your internet connection and try again.';
   }
 
-  return formatChangelog(releases, {
-    terminalColumns: ctx.terminalColumns ?? getTerminalColumns(process.stdout),
-  });
+  return formatChangelog(releases);
 }
