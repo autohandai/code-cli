@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## 0.9.13 - 2026-11-23
+
+### Added
+
+- Kazakh (`kk`) display language, and complete pt-BR, es, ko, ja and ru translations (#758).
+- A new `/goal` is confirmed in one line that expands to its details, instead of printing the whole goal record.
+- Results with details say so: a hint row under the result shows that a click or Ctrl+O opens it.
+- Script runs read "Running script" and "Ran script" in every supported language instead of `run_tool_script`.
+
+### Fixed
+
+- Scroll the full-screen transcript with the mouse wheel while a turn is running, and on iTerm2; the wheel used to walk the prompt history.
+- Open a result's details in place and return the view to where it was when they close, instead of jumping to the end of the transcript.
+- Keep text the model streams ahead of a tool call on screen until the answer replaces it.
+- Show a turn as working as soon as it is accepted, before its hooks and environment setup run.
+- Place the feedback question directly above the completion summary.
+- Close the open result with Ctrl+O before opening the latest one.
+- Render `/changelog` release notes as markdown.
+- Apply the reasoning effort chosen on the phone when it switches to an Autohand AI model (#769).
+- Report the plan of the account that Autohand Cloud inference bills after a fresh sign-in.
+- Deliver the startup update notice when the version check finishes before the agent is ready.
+- Summarize a script result instead of printing its JSON payload.
+
 ## 0.9.12 - 2026-11-20
 
 ### Added
