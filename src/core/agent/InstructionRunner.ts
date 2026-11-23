@@ -170,6 +170,11 @@ export interface AgentInstructionHost {
     ctrlCInterrupt?: boolean
   ): () => void;
   startPreparationStatus(instruction: string): () => void;
+  /**
+   * Shows the turn as working from the moment it is taken on. The returned function puts the
+   * composer back to idle for a turn that ends before its UI starts.
+   */
+  showTurnStarting?(): () => void;
   buildTurnContext(instruction: string): Promise<string>;
   setUIStatus(status: string): void;
   saveUserMessage(instruction: string): Promise<void>;
@@ -217,6 +222,11 @@ export interface RunInstructionOptions extends QueuedInstructionPolicy {
   /** Internal instructions still reach the model and session log when their terminal echo is hidden. */
   echoInTranscript?: boolean;
   onStepFinish?: (step: AgentLoopStep) => boolean | Promise<boolean>;
+}
+
+/** Undoes the early working state of a turn that never reaches its UI start. */
+interface TurnStartIndicator {
+  release: () => void;
 }
 
 interface DeepResearchInstructionState {
@@ -312,6 +322,7 @@ export class InstructionRunner {
     };
     abortController.signal.addEventListener('abort', pausePeers, { once: true });
     let turnSucceeded = false;
+    const turnStart: TurnStartIndicator = { release: () => {} };
     try {
       try {
         await host.beginSkillLearningTurn?.(instruction, abortController.signal);
@@ -324,9 +335,13 @@ export class InstructionRunner {
         options,
         deepResearch,
         finalizeResearch,
+        turnStart,
       );
       turnSucceeded = result === true;
       return result;
+    } catch (error) {
+      turnStart.release();
+      throw error;
     } finally {
       // Escape targets this turn from its first phase to its last; only the end of the turn releases it.
       if (host.currentInkAbortController === abortController) host.currentInkAbortController = null;
@@ -350,6 +365,7 @@ export class InstructionRunner {
     options: RunInstructionOptions,
     deepResearch: DeepResearchInstructionState,
     finalizeResearch: FinalizeResearch,
+    turnStart: TurnStartIndicator,
   ): Promise<boolean | 'retry-provider'> {
     const host = this.host;
 
@@ -363,7 +379,15 @@ export class InstructionRunner {
     if (useInkInput) {
       host.currentInkAbortController = abortController;
       host.currentInkOnCancel = null;
+      // Hooks, permission checks and environment setup below can run for seconds before the UI
+      // start. Escape already reaches the turn here, so the screen has to say that it is running.
+      turnStart.release = host.showTurnStarting?.() ?? turnStart.release;
     }
+    /** Ends a turn that was refused before its UI started, without leaving it shown as working. */
+    const endBeforeStart = (): false => {
+      turnStart.release();
+      return false;
+    };
     /** A turn stopped before its UI started still ends as interrupted, never silently or as failed. */
     const reportInterruptedBeforeStart = (): void => {
       host.lastTurnOutcome = 'interrupted';
@@ -399,7 +423,7 @@ export class InstructionRunner {
         const reason = blocked.response?.reason ?? blocked.response?.stopReason ?? blocked.error ?? 'Prompt blocked by hook';
         host.emitOutput({ type: 'error', content: reason });
         if (!host.runtime.isRpcMode) console.log(chalk.yellow(reason));
-        return false;
+        return endBeforeStart();
       }
       for (const result of hookResults) {
         if (result.response?.additionalContext) {
@@ -421,7 +445,7 @@ export class InstructionRunner {
         if (!abortController.signal.aborted && issue) {
           host.emitOutput({ type: 'error', content: issue });
           if (!host.runtime.isRpcMode) console.log(chalk.yellow(issue));
-          return false;
+          return endBeforeStart();
         }
       }
     } finally {
@@ -494,10 +518,11 @@ export class InstructionRunner {
         console.log(chalk.red(`\n[BLOCKED] ${issue}`));
         host.emitOutput({ type: 'error', content: issue });
         host.isInstructionActive = false;
-        return false;
+        return endBeforeStart();
       }
       if (abortController.signal.aborted) {
         host.isInstructionActive = false;
+        reportInterruptedBeforeStart();
         return false;
       }
     }
@@ -552,6 +577,8 @@ export class InstructionRunner {
 
     // Initialize UI (InkRenderer or ora spinner)
     // Pass abort controller for InkRenderer to handle ESC/Ctrl+C
+    // From here the turn's own teardown owns the working state.
+    turnStart.release = () => {};
     await host.initializeUI(abortController, () => {
       if (!canceledByUser) {
         canceledByUser = true;

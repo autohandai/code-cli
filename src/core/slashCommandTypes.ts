@@ -164,6 +164,11 @@ export interface SlashCommandContext {
     repeatManager?: RepeatManager;
     /** Queue an instruction to be sent to the LLM on the next turn (not displayed to user) */
     queueInstruction?: (instruction: string, postTurnAction?: PendingPostTurnAction, policy?: QueuedInstructionPolicy) => void;
+    /**
+     * Ask the surface to show this command's result collapsed under a one-line summary, with the
+     * full text behind its expand gesture. Surfaces that cannot expand print the result as usual.
+     */
+    collapseResult?: (summary: string) => void;
     /** Run the consent-gated Open Research publication flow for a saved report. */
     requestResearchPublication?: (reportPath: string) => Promise<string>;
     /** Queue a visible user instruction, matching a typed prompt in the interactive UI */

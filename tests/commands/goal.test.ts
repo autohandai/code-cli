@@ -95,6 +95,56 @@ describe('/goal command', () => {
       .toBe('default interactive objective');
   });
 
+  it('summarizes a newly created goal in one line and keeps its details as the result', async () => {
+    const summaries: string[] = [];
+    ctx.collapseResult = summary => summaries.push(summary);
+
+    const result = await goal(ctx, ['ship', 'the', 'onboarding', 'flow']);
+
+    expect(summaries).toEqual(['Goal set · ship the onboarding flow']);
+    expect(result).toContain('Goal created.');
+    expect(result).toContain('Goal: ship the onboarding flow');
+    expect(result).toContain('Status: active');
+    expect(result).toMatch(/ID: [0-9a-f-]{36}/u);
+  });
+
+  it('keeps the summary of a long objective on one short line', async () => {
+    const summaries: string[] = [];
+    ctx.collapseResult = summary => summaries.push(summary);
+    const objective = `rewrite   the billing module ${'and keep every invoice test green '.repeat(8)}`;
+
+    const result = await goal(ctx, [objective]);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toMatch(/^Goal set · rewrite the billing module and keep every invoice/u);
+    expect(summaries[0]).toMatch(/…$/u);
+    expect(summaries[0]).not.toContain('\n');
+    expect(summaries[0].length).toBeLessThanOrEqual('Goal set · '.length + 60);
+    expect(result).toContain('and keep every invoice test green and keep every invoice test green');
+  });
+
+  it('leaves queued goals, the status view, and other subcommands expanded', async () => {
+    await goal(ctx, ['first objective']);
+    const summaries: string[] = [];
+    ctx.collapseResult = summary => summaries.push(summary);
+
+    expect(await goal(ctx, ['second objective'])).toContain('Queued 1 goal');
+    expect(await goal(ctx, [])).toContain('Status: active');
+    expect(await goal(ctx, ['pause'])).toContain('Status: paused');
+    expect(await goal(ctx, ['resume'])).toContain('Status: active');
+    expect(await goal(ctx, ['clear'])).not.toBe('');
+
+    expect(summaries).toEqual([]);
+  });
+
+  it('prints the full creation result where nothing can collapse it', async () => {
+    const result = await runGoalCli(workspaceRoot, 'plain surface objective', ctx.config);
+
+    expect(result).toContain('Goal created.');
+    expect(result).toContain('Goal: plain surface objective');
+    expect(result).toContain('Status: active');
+  });
+
   it('creates a CLI goal without an opt-in flag', async () => {
     const config = { configPath: path.join(workspaceRoot, 'config.json') };
 

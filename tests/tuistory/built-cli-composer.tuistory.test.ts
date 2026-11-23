@@ -584,7 +584,7 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     await waitForComposer(session);
     await session.type('/goal build a toddler-friendly browser game');
     await session.press('enter');
-    await session.waitForText('Goal created.', { timeout: 10_000 });
+    await session.waitForText('Goal set · build a toddler-friendly browser game', { timeout: 10_000 });
     await session.waitForText('FIRST_GOAL_TURN_FINISHED', { timeout: 15_000 });
     await session.waitForText('GOAL_CONTINUATION_FINISHED', { timeout: 5_000 });
 
@@ -712,7 +712,7 @@ describe('interactive built CLI Tuistory tests: composer, tips, announcements, a
     await waitForComposer(session);
     await session.type('/goal ship the first queue item');
     await session.press('enter');
-    await session.waitForText('Goal created.', { timeout: 5_000 });
+    await session.waitForText('Goal set · ship the first queue item', { timeout: 5_000 });
     await session.waitForText('FIRST_GOAL_TURN_IDLE', { timeout: 15_000 });
 
     await waitForComposer(session);

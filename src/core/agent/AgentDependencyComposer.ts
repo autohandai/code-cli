@@ -2470,6 +2470,9 @@ export function initializeAgentDependencies(
           ...(postTurnAction ? { postTurnAction } : {}),
         }));
       },
+      collapseResult: (summary: string) => {
+        host.collapsedCommandResultSummary = summary;
+      },
       requestResearchPublication: (reportPath: string) =>
         host.requestResearchPublication(reportPath),
       // Queue a remote instruction as if the user typed it into the interactive composer.

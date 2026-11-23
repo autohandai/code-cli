@@ -269,6 +269,7 @@ import {
   setAgentSpinnerStatus,
   setAgentUIStatus,
   shouldAgentPreferPtyForImmediateShellCommands,
+  showAgentTurnStarting,
   startAgentStatusUpdates,
   stopAgentStatusUpdates,
   stopAgentUI,
@@ -532,6 +533,8 @@ export class AutohandAgent {
   private inkRenderer: InkRenderer | null = null;
   private useInkRenderer = false;
   private pendingInkInstructions: PendingAgentInstruction[] = [];
+  /** One-line summary a slash command asked its result to be collapsed under; consumed when that result renders. */
+  private collapsedCommandResultSummary?: string;
   private restoredChatMessages: ChatLogMessage[] = [];
   private inkInstructionResolver: (() => void) | null = null;
   private readlinePromptActive = false;
@@ -1965,6 +1968,10 @@ export class AutohandAgent {
     return installAgentPersistentConsoleBridge(this as unknown as AgentInputTurnHost);
   }
 
+
+  private showTurnStarting(): () => void {
+    return showAgentTurnStarting(this);
+  }
 
   private startPreparationStatus(instruction: string): () => void {
     return startAgentPreparationStatus(this as unknown as AgentInputTurnHost, instruction);

@@ -454,6 +454,20 @@ export function setAgentComposerIdle(host: AgentUIRuntimeHost): void {
     host.terminalTitle?.setState('idle');
   }
 
+/**
+ * Shows a turn as working as soon as it is taken on. Its hooks, permission checks and environment
+ * setup run before the turn's UI start, and until then an idle composer reads as "nothing happened".
+ */
+export function showAgentTurnStarting(host: AgentUIRuntimeHost): () => void {
+    if (!host.inkRenderer?.isRunning?.()) {
+      return () => {};
+    }
+    host.inkRenderer.setElapsed(formatElapsedTime(Date.now()));
+    host.inkRenderer.setWorking(true, 'Starting...');
+    host.terminalTitle?.setState('working');
+    return () => setAgentComposerIdle(host);
+  }
+
 export function clearAgentActivityForCompletedTurn(host: AgentUIRuntimeHost): void {
     host.inkRenderer?.clearActivityItems?.();
   }

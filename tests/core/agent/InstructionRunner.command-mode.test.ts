@@ -168,6 +168,100 @@ describe('InstructionRunner turn outcome', () => {
   });
 });
 
+describe('InstructionRunner working state while a turn starts', () => {
+  // Recorded in a terminal: after "/goal <objective>" the composer sat idle for seconds while the
+  // queued turn ran its hooks and environment setup, with nothing on screen saying it had started.
+  const inkHost = () => {
+    const order: string[] = [];
+    const release = vi.fn(() => { order.push('release'); });
+    const host = Object.assign(createHost(), {
+      useInkRenderer: true,
+      inkRenderer: {},
+      currentInkAbortController: null as AbortController | null,
+      currentInkOnCancel: null as (() => void) | null,
+      showTurnStarting: vi.fn(() => { order.push('working'); return release; }),
+    });
+    host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation' as const, confidence: 1, keywords: [], reason: 'fixture' }));
+    host.runEnvironmentBootstrap = vi.fn(async () => { order.push('bootstrap'); return { success: true }; });
+    host.initializeUI = vi.fn(async () => { order.push('ui'); });
+    host.hookManager = new HookManager({ workspaceRoot: '/tmp', settings: { hooks: [{ event: 'pre-prompt', command: 'echo guarded' }] } });
+    vi.spyOn(host.hookManager, 'executeHooks').mockImplementation(async () => { order.push('hooks'); return []; });
+    return { host, order, release };
+  };
+
+  it('shows the turn as working before its hooks, environment setup and UI start', async () => {
+    const { host, order, release } = inkHost();
+
+    expect(await new InstructionRunner(host).run('Active goal: build the game', { echoInTranscript: false })).toBe(true);
+
+    expect(order).toEqual(['working', 'hooks', 'bootstrap', 'ui']);
+    expect(host.showTurnStarting).toHaveBeenCalledTimes(1);
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it('returns to idle when a hook blocks the prompt before the UI start', async () => {
+    const { host, release } = inkHost();
+    vi.mocked(host.hookManager!.executeHooks).mockResolvedValue([
+      { hook: { event: 'pre-prompt', command: 'echo guarded' }, success: true, duration: 1, exitCode: 0, response: { decision: 'block', reason: 'PROMPT_BLOCKED' } },
+    ] as never);
+
+    expect(await new InstructionRunner(host).run('blocked prompt')).toBe(false);
+
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(host.initializeUI).not.toHaveBeenCalled();
+  });
+
+  it('returns to idle when environment setup fails before the UI start', async () => {
+    const { host, release } = inkHost();
+    host.runEnvironmentBootstrap = vi.fn(async () => ({ success: false }));
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    expect(await new InstructionRunner(host).run('implement the feature')).toBe(false);
+    log.mockRestore();
+
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(host.initializeUI).not.toHaveBeenCalled();
+  });
+
+  it('returns to idle when preparation throws before the UI start', async () => {
+    const { host, release } = inkHost();
+    host.runEnvironmentBootstrap = vi.fn(async () => { throw new Error('setup exploded'); });
+
+    await expect(new InstructionRunner(host).run('implement the feature')).rejects.toThrow('setup exploded');
+
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an Escape during environment setup as an interruption', async () => {
+    const { host, release } = inkHost();
+    host.runEnvironmentBootstrap = vi.fn(async () => { host.currentInkAbortController?.abort(); return { success: true }; });
+
+    expect(await new InstructionRunner(host).run('implement the feature')).toBe(false);
+
+    expect(host.lastTurnOutcome).toBe('interrupted');
+    expect(host.stopUI).toHaveBeenCalledWith(false, undefined, { interrupted: true });
+    expect(release).not.toHaveBeenCalled();
+    expect(host.initializeUI).not.toHaveBeenCalled();
+  });
+
+  it('leaves surfaces without the interactive renderer alone', async () => {
+    const host = Object.assign(createHost(), { showTurnStarting: vi.fn(() => vi.fn()) });
+
+    expect(await new InstructionRunner(host).run('explain this function')).toBe(true);
+
+    expect(host.showTurnStarting).not.toHaveBeenCalled();
+  });
+
+  it('leaves RPC turns alone even when a renderer exists', async () => {
+    const { host } = inkHost();
+    host.runtime.isRpcMode = true;
+
+    expect(await new InstructionRunner(host).run('explain this function')).toBe(true);
+
+    expect(host.showTurnStarting).not.toHaveBeenCalled();
+  });
+});
+
 describe('InstructionRunner Escape target while a turn starts', () => {
   const inkHost = () => Object.assign(createHost(), {
     useInkRenderer: true,

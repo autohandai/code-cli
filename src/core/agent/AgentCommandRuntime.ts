@@ -129,10 +129,15 @@ export function renderAgentSlashCommandResult(
   command: string,
   result: string,
 ): boolean {
+  const collapsedSummary: string | undefined = host.collapsedCommandResultSummary;
+  host.collapsedCommandResultSummary = undefined;
   if (!host.inkRenderer?.isRunning?.()) {
     return false;
   }
-  if (shouldRenderSlashCommandResultInComposer(command)) {
+  if (collapsedSummary && host.inkRenderer.addToolOutput) {
+    // A tool result is the transcript's one expandable entry: the summary is its row, the result its details.
+    host.inkRenderer.addToolOutput(collapsedSummary, true, '', undefined, result);
+  } else if (shouldRenderSlashCommandResultInComposer(command)) {
     host.inkRenderer.setCommandResult?.(command, result);
   } else {
     const renderMarkdown = MARKDOWN_REPORT_COMMANDS.has(command) && !result.startsWith('Usage:');
@@ -318,6 +323,8 @@ async function handleStableAgentSlashCommand(
       host.flushMcpStartupSummaryIfPending();
     }
 
+    // A summary belongs to the command that set it; one whose result was never rendered must not outlive it.
+    host.collapsedCommandResultSummary = undefined;
     const result = await host.slashHandler.handle(command, args);
     if (command === '/mcp' || command === '/mcp install') {
       host.syncMcpTools();

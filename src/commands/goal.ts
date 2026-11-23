@@ -17,6 +17,8 @@ import type { GoalEventData } from '../telemetry/types.js';
 import { GOAL_FEATURE_DISABLED_MESSAGE, resolveGoalFeatureEnabled } from '../goals/feature.js';
 
 const GOAL_OBJECTIVE_PREVIEW_LENGTH = 160;
+/** Short enough that the confirmation of a new goal stays on one transcript row. */
+const GOAL_SUMMARY_OBJECTIVE_LENGTH = 60;
 
 type GoalCommandContext = Pick<SlashCommandContext, 'workspaceRoot'> & Partial<SlashCommandContext>;
 
@@ -193,6 +195,7 @@ export async function goal(ctx: GoalCommandContext, args: string[] = []): Promis
       if (created.ok && !created.queued?.length && created.goal) {
         await emitGoalWrittenCompleted(ctx, created.goal, 'slash');
         queueGoalContinuation(ctx, created.goal);
+        ctx.collapseResult?.(`Goal set · ${formatObjectivePreview(created.goal.objective, GOAL_SUMMARY_OBJECTIVE_LENGTH)}`);
       }
       return formatMutation(created);
     }
@@ -421,12 +424,12 @@ function formatCompletedRun(completed: NonNullable<GoalMutationResult['completed
   ].join('\n');
 }
 
-function formatObjectivePreview(objective: string): string {
+function formatObjectivePreview(objective: string, maxLength = GOAL_OBJECTIVE_PREVIEW_LENGTH): string {
   const normalized = objective.replace(/\s+/gu, ' ').trim();
-  if (normalized.length <= GOAL_OBJECTIVE_PREVIEW_LENGTH) {
+  if (normalized.length <= maxLength) {
     return normalized;
   }
-  return `${normalized.slice(0, GOAL_OBJECTIVE_PREVIEW_LENGTH - 1).trimEnd()}…`;
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
 function formatDuration(seconds: number): string {

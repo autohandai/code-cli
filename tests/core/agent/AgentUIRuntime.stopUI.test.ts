@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it, vi } from 'vitest';
-import { stopAgentUI, type AgentUIRuntimeHost } from '../../../src/core/agent/AgentUIRuntime.js';
+import { showAgentTurnStarting, stopAgentUI, type AgentUIRuntimeHost } from '../../../src/core/agent/AgentUIRuntime.js';
 
 function createHost(): AgentUIRuntimeHost {
   return {
@@ -61,5 +61,43 @@ describe('stopAgentUI', () => {
     stopAgentUI(host, true, undefined, { needsReview: true });
     expect(spinner.stop).toHaveBeenCalledOnce();
     expect(spinner.fail).not.toHaveBeenCalled();
+  });
+});
+
+describe('showAgentTurnStarting', () => {
+  const runningHost = (): AgentUIRuntimeHost => {
+    const host = createHost();
+    host.inkRenderer.isRunning = () => true;
+    host.ui = { setWorking: vi.fn() };
+    return host;
+  };
+
+  it('raises the working state and the working title before the turn has its own UI', () => {
+    const host = runningHost();
+
+    showAgentTurnStarting(host);
+
+    expect(host.inkRenderer.setWorking).toHaveBeenCalledWith(true, 'Starting...');
+    expect(host.inkRenderer.setElapsed).toHaveBeenCalledWith('0m 00s');
+    expect(host.terminalTitle.setState).toHaveBeenCalledWith('working');
+  });
+
+  it('returns the composer to idle when the turn ends before its UI starts', () => {
+    const host = runningHost();
+
+    showAgentTurnStarting(host)();
+
+    expect(host.inkRenderer.setWorking).toHaveBeenLastCalledWith(false);
+    expect(host.terminalTitle.setState).toHaveBeenLastCalledWith('idle');
+  });
+
+  it('does nothing while the interactive renderer is not on screen', () => {
+    const host = createHost();
+    host.inkRenderer.isRunning = () => false;
+
+    showAgentTurnStarting(host)();
+
+    expect(host.inkRenderer.setWorking).not.toHaveBeenCalled();
+    expect(host.terminalTitle.setState).not.toHaveBeenCalled();
   });
 });

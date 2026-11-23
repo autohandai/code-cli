@@ -119,6 +119,63 @@ describe('renderAgentSlashCommandResult', () => {
     expect(addAssistantMessage).not.toHaveBeenCalled();
   });
 
+  it('collapses a result its command summarized and keeps the full text as expandable details', () => {
+    const addToolOutput = vi.fn();
+    const addAssistantMessage = vi.fn();
+    const details = 'Goal created.\n\nGoal: ship it\nStatus: active\nID: 929a37d3\nElapsed: 0s\nTokens: 0';
+    const host: Record<string, unknown> = {
+      collapsedCommandResultSummary: 'Goal set · ship it',
+      inkRenderer: { isRunning: () => true, addToolOutput, addAssistantMessage },
+    };
+
+    expect(renderAgentSlashCommandResult(host, '/goal', details)).toBe(true);
+
+    expect(addToolOutput).toHaveBeenCalledWith('Goal set · ship it', true, '', undefined, details);
+    expect(addAssistantMessage).not.toHaveBeenCalled();
+    expect(host.collapsedCommandResultSummary).toBeUndefined();
+  });
+
+  it('shows the next result in full once a summary has been used', () => {
+    const addToolOutput = vi.fn();
+    const addAssistantMessage = vi.fn();
+    const host: Record<string, unknown> = {
+      collapsedCommandResultSummary: 'Goal set · ship it',
+      inkRenderer: { isRunning: () => true, addToolOutput, addAssistantMessage },
+    };
+    renderAgentSlashCommandResult(host, '/goal', 'Goal created.');
+
+    renderAgentSlashCommandResult(host, '/goal', 'Goal: ship it\nStatus: active');
+
+    expect(addToolOutput).toHaveBeenCalledTimes(1);
+    expect(addAssistantMessage).toHaveBeenCalledWith('Goal: ship it\nStatus: active', false);
+  });
+
+  it('leaves a summarized result to the plain printer when no interactive renderer is running', () => {
+    const addToolOutput = vi.fn();
+    const host: Record<string, unknown> = {
+      collapsedCommandResultSummary: 'Goal set · ship it',
+      inkRenderer: { isRunning: () => false, addToolOutput },
+    };
+
+    expect(renderAgentSlashCommandResult(host, '/goal', 'Goal created.')).toBe(false);
+
+    expect(addToolOutput).not.toHaveBeenCalled();
+    expect(host.collapsedCommandResultSummary).toBeUndefined();
+  });
+
+  it('drops a summary whose result was never rendered before the next command runs', async () => {
+    const host: Record<string, unknown> = {
+      collapsedCommandResultSummary: 'Goal set · stale',
+      runtime: { options: { bare: false } },
+      telemetryManager: { trackCommand: vi.fn().mockResolvedValue(undefined) },
+      slashHandler: { getKnownSubcommands: vi.fn(() => []), handle: vi.fn().mockResolvedValue('Help output') },
+    };
+
+    await expect(handleAgentSlashCommand(host, '/help')).resolves.toBe('Help output');
+
+    expect(host.collapsedCommandResultSummary).toBeUndefined();
+  });
+
   it('keeps unrelated command results in transcript history', () => {
     const setCommandResult = vi.fn();
     const addAssistantMessage = vi.fn();
