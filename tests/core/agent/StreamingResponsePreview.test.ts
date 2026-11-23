@@ -92,6 +92,31 @@ describe('streaming response preview', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it('leaves a finished reply on screen for the turn to replace, and still clears one that failed', () => {
+    vi.useFakeTimers();
+    try {
+      const render = vi.fn();
+      const finished = new StreamingResponsePreview(render);
+      finished.onDelta({ type: 'content', text: 'Reading the build' });
+      finished.onDelta({ type: 'content', text: ' pipeline.' });
+      finished.settle();
+      // The throttled tail is shown at once rather than dropped with the timer.
+      expect(render).toHaveBeenLastCalledWith('Reading the build pipeline.');
+      finished.dispose();
+      finished.onDelta({ type: 'content', text: ' late' });
+      vi.runAllTimers();
+      expect(render).toHaveBeenLastCalledWith('Reading the build pipeline.');
+      expect(render).not.toHaveBeenCalledWith(null);
+
+      const failed = new StreamingResponsePreview(render);
+      failed.onDelta({ type: 'content', text: 'Partial' });
+      failed.dispose();
+      expect(render).toHaveBeenLastCalledWith(null);
+      failed.settle();
+      expect(render).toHaveBeenLastCalledWith(null);
+    } finally { vi.useRealTimers(); }
+  });
+
   it.each(['{', '[', '<'])('does not expose legacy protocol content starting with %s', (prefix) => {
     const render = vi.fn();
     const preview = new StreamingResponsePreview(render);

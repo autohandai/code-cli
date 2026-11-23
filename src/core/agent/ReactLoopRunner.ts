@@ -1087,6 +1087,7 @@ export async function runAgentReactLoop(
           });
           acknowledgeSkills();
           await skillAcknowledgment;
+          if (!abortController.signal.aborted) preview?.settle();
         } finally {
           retryWait.dispose();
           preview?.dispose();

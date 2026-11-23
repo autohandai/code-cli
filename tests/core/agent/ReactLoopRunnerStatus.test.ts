@@ -438,7 +438,8 @@ describe('ReactLoopRunner composer status', () => {
       setStreamingResponse: preview,
     };
     await runAgentReactLoop(host, new AbortController());
-    expect(preview).toHaveBeenLastCalledWith(null);
+    // The streamed text stays up until the renderer's final response replaces it.
+    expect(preview).toHaveBeenLastCalledWith('The answer');
     expect(host.saveAssistantMessage).toHaveBeenCalledTimes(1);
     expect(host.inkRenderer.setFinalResponse).toHaveBeenCalledWith('The answer is ready.');
   });

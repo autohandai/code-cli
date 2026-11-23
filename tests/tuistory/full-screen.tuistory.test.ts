@@ -368,6 +368,36 @@ describe('full-screen terminal', () => {
     expect(isTerminalMouseTrackingEnabled(session)).toBe(false);
   }, 60_000);
 
+  it('keeps text streamed ahead of a tool call on screen until the answer replaces it', async () => {
+    const narration = 'STREAMED_AHEAD of the tool call.';
+    server = await createMockAutohandAINativeSequenceServer([
+      { content: narration, toolCallDelayMs: 300, toolCall: { id: 'streamed-ahead', name: 'run_command', args: { command: 'sleep', args: ['2'] } } },
+      { content: 'STREAMED_AHEAD_ANSWER' },
+    ]);
+    state = await createTempAutohandHome({ config: {
+      provider: 'autohandai',
+      autohandai: { plan: 'cloud', authMode: 'api-key', apiKey: 'tuistory-test-key', model: 'moa', baseUrl: server.baseUrl },
+      features: { fullScreenMode: true, autohand_inference: true },
+      agent: { autoMemory: false, maxIterations: 6, sessionRetryLimit: 0 },
+      network: { maxRetries: 0, retryDelay: 0 },
+      ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+    } });
+    session = await launchBuiltAutohand(['--yes', '--path', state.workspaceRoot, '--config', state.configPath], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000, cols: 100, rows: 40,
+    });
+    await session.waitForText('❯', { timeout: 20_000 });
+    await session.type('go'); await session.press('enter');
+    await session.waitForText(narration, { timeout: 15_000 });
+    // It used to vanish the moment the reply ended and nothing of it came back until the final answer.
+    await session.waitForText('sleep 2', { timeout: 15_000 });
+    expect(outputViewport(session)).toContain(narration);
+    await session.waitForText('STREAMED_AHEAD_ANSWER', { timeout: 20_000 });
+    await session.text({ timeout: 10_000, waitFor: () => !outputViewport(session!).includes('esc to cancel') });
+    await session.waitIdle();
+    expect(outputViewport(session)).not.toContain(narration);
+    await exitInteractive(session);
+  }, 60_000);
+
   it('copies dragged transcript text and leaves plain clicks inert', async () => {
     state = await createTempAutohandHome({ config: { features: { fullScreenMode: true }, ui: { promptSuggestions: false } } });
     await seedFullScreenHistory(state.autohandHome, state.workspaceRoot);

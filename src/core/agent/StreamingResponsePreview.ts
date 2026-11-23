@@ -108,7 +108,12 @@ export class StreamedOutputRelay {
   }
 }
 
-/** A transient, bounded view; the completed response remains the sole history entry. */
+/**
+ * A transient, bounded view; the completed response remains the sole history entry. A reply that
+ * arrived whole is left on screen for the turn to replace (the next streamed reply, a draft, the
+ * final answer, the end of the turn): clearing it at once left nothing of it visible while its
+ * tool calls and the completion review ran.
+ */
 export class StreamingResponsePreview {
   private readonly gate = new StreamedContentGate();
   private text = '';
@@ -135,7 +140,19 @@ export class StreamingResponsePreview {
     this.render(safeText.split('\n').slice(-12).join('\n'));
   }
 
+  /** The reply arrived whole: show its last text now and stop updating, without clearing it. */
+  settle(): void {
+    if (this.disposed) return;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.flush();
+    }
+    this.disposed = true;
+  }
+
+  /** Stop and clear the view, unless a finished reply was settled and left for the turn to replace. */
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     clearTimeout(this.timer);
     this.text = '';
