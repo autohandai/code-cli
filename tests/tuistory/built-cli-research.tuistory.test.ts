@@ -266,10 +266,14 @@ describe('interactive built CLI Tuistory tests: processes, research, usage, sett
       await session.type('/deep-research status');
       await session.press('enter');
       await session.waitForText('State: Running', { timeout: 3_000 });
-      const activeStatus = session.readAll().replace(/\s+/g, ' ');
+      // A full-screen redraw can be captured mid-frame; wait for the block's last asserted line.
+      const activeStatus = await vi.waitFor(() => {
+        const screen = session.readAll().replace(/\s+/g, ' ');
+        expect(screen).toContain('Progress: No task plan recorded yet.');
+        expect(screen).toContain('Report: .autohand/research/topic-live-progress-audit.md (not written yet)');
+        return screen;
+      }, { timeout: 5_000 });
 
-      expect(activeStatus).toContain('Progress: No task plan recorded yet.');
-      expect(activeStatus).toContain('Report: .autohand/research/topic-live-progress-audit.md (not written yet)');
       expect(activeStatus).not.toContain('Research is still incomplete.');
 
       releaseResponse();

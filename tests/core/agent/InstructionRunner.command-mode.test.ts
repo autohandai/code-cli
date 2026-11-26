@@ -63,7 +63,7 @@ function createHost(): AgentInstructionHost {
     promptSeedInput: '',
     useInkRenderer: false,
     inkRenderer: null,
-    modalActive: false,
+    enterModal: vi.fn(() => vi.fn()),
     sessionRetryCount: 0,
     sessionTokensUsed: 0,
     runtime: {
@@ -1633,5 +1633,118 @@ describe('accepted plan execution cleanup', () => {
     expect(getPlanModeManager().getPhase()).toBe('completed');
     expect(host.permissionManager.checkPermission({ tool: 'write_file', path: '/repo/main.ts' }).allowed).toBe(false);
     expect(getPlanModeManager().getPromptIndicator()).toBe('');
+  });
+});
+
+describe('InstructionRunner turn phase guarantee', () => {
+  const recordActivity = (host: AgentInstructionHost): boolean[] => {
+    const writes: boolean[] = [];
+    let active = host.isInstructionActive;
+    Object.defineProperty(host, 'isInstructionActive', {
+      configurable: true,
+      get: () => active,
+      set: (value: boolean) => { active = value; writes.push(value); },
+    });
+    return writes;
+  };
+
+  it('returns to idle when environment bootstrap throws before the turn UI starts', async () => {
+    const host = createHost();
+    host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
+    host.runEnvironmentBootstrap = vi.fn(async () => { throw new Error('toolchain probe crashed'); });
+
+    await expect(new InstructionRunner(host).run('add a feature')).rejects.toThrow('toolchain probe crashed');
+
+    expect(host.isInstructionActive).toBe(false);
+    expect(host.activeAbortController).toBeNull();
+    expect(host.runReactLoop).not.toHaveBeenCalled();
+  });
+
+  it('returns to idle when the turn UI fails to initialize', async () => {
+    const host = createHost();
+    host.initializeUI = vi.fn(async () => { throw new Error('renderer unavailable'); });
+
+    await expect(new InstructionRunner(host).run('explain this function')).rejects.toThrow('renderer unavailable');
+
+    expect(host.isInstructionActive).toBe(false);
+    expect(host.activeAbortController).toBeNull();
+  });
+
+  it('admits the next turn after a turn that failed while preparing', async () => {
+    const host = createHost();
+    const runner = new InstructionRunner(host);
+    host.initializeUI = vi.fn()
+      .mockRejectedValueOnce(new Error('renderer unavailable'))
+      .mockResolvedValue(undefined);
+
+    await expect(runner.run('first')).rejects.toThrow('renderer unavailable');
+    await expect(runner.run('second')).resolves.toBe(true);
+
+    expect(host.runReactLoop).toHaveBeenCalledOnce();
+    expect(host.isInstructionActive).toBe(false);
+  });
+
+  it('stays active from admission to the end of the turn without an idle gap after the prompt hooks', async () => {
+    const host = createHost();
+    const writes = recordActivity(host);
+
+    await expect(new InstructionRunner(host).run('explain this function')).resolves.toBe(true);
+
+    expect(writes).toEqual([true, false]);
+  });
+
+  it('reports each phase of a completed turn in order', async () => {
+    const host = createHost();
+    const phases: string[] = [];
+    const runner = new InstructionRunner(host);
+    host.hookManager = { getHooksForEvent: vi.fn(() => []), executeHooks: vi.fn(async () => { phases.push(host.turnActivity!.phase); return []; }) } as unknown as AgentInstructionHost['hookManager'];
+    host.initializeUI = vi.fn(async () => { phases.push(host.turnActivity!.phase); });
+    host.runReactLoop = vi.fn(async () => { phases.push(host.turnActivity!.phase); return { status: 'completed' as const }; });
+    host.cleanupUI = vi.fn(async () => { phases.push(host.turnActivity!.phase); });
+
+    await expect(runner.run('explain this function')).resolves.toBe(true);
+
+    expect(phases).toEqual(['admitted', 'preparing', 'running', 'finishing']);
+    expect(host.turnActivity!.phase).toBe('idle');
+  });
+});
+
+describe('InstructionRunner quality pipeline modal scope', () => {
+  const implementationHost = () => {
+    const host = createHost();
+    host.runtime = { ...host.runtime, options: {}, isCommandMode: false };
+    host.intentDetector.detect = vi.fn(() => ({ intent: 'implementation', confidence: 1, reasons: [] }));
+    host.runReactLoop = vi.fn(async () => {
+      host.filesModifiedThisSession = true;
+      return { status: 'completed' as const };
+    });
+    return host;
+  };
+
+  it('holds its own modal scope for the whole quality pipeline', async () => {
+    const host = implementationHost();
+    const leave = vi.fn();
+    host.enterModal = vi.fn(() => leave);
+    host.runQualityPipeline = vi.fn(async () => {
+      expect(host.enterModal).toHaveBeenCalledOnce();
+      expect(leave).not.toHaveBeenCalled();
+      return true;
+    });
+
+    await expect(new InstructionRunner(host).run('change the code')).resolves.toBe(true);
+
+    expect(leave).toHaveBeenCalledOnce();
+  });
+
+  it('leaves its modal scope when the quality pipeline throws', async () => {
+    const host = implementationHost();
+    const leave = vi.fn();
+    host.enterModal = vi.fn(() => leave);
+    host.runQualityPipeline = vi.fn(async () => { throw new Error('quality runner crashed'); });
+
+    await expect(new InstructionRunner(host).run('change the code')).resolves.toBe(false);
+
+    expect(leave).toHaveBeenCalledOnce();
+    expect(host.isInstructionActive).toBe(false);
   });
 });

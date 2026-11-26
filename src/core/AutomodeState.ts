@@ -9,6 +9,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { createHash, randomUUID } from 'node:crypto';
 import { resolveAutohandHome } from '../constants.js';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
 import type {
   AutomodeSessionState,
   AutomodeIterationLog,
@@ -22,6 +23,25 @@ const LEGACY_STATE_FILE_PATH = '.autohand/automode.local.md';
 export async function hasLegacyAutomodeState(workspaceRoot: string): Promise<boolean> {
   return fs.pathExists(path.join(workspaceRoot, LEGACY_STATE_FILE_PATH));
 }
+
+/**
+ * Persisted run status. Each event is named after the status it moves to, and a
+ * finished run (cancelled, completed, failed) can never be reopened or rewritten.
+ */
+export const AUTOMODE_STATUS_TRANSITIONS = defineStateMachine<AutomodeStatus, AutomodeStatus>({
+  name: 'automode-status',
+  initial: 'running',
+  transitions: {
+    running: { paused: 'paused', cancelled: 'cancelled', completed: 'completed', failed: 'failed' },
+    paused: { running: 'running', cancelled: 'cancelled', completed: 'completed', failed: 'failed' },
+    cancelled: {},
+    completed: {},
+    failed: {},
+  },
+});
+
+const isKnownStatus = (status: string): status is AutomodeStatus =>
+  Object.prototype.hasOwnProperty.call(AUTOMODE_STATUS_TRANSITIONS.transitions, status);
 
 /** Default circuit breaker thresholds */
 const DEFAULT_THRESHOLDS = {
@@ -211,14 +231,22 @@ export class AutomodeState {
   }
 
   /**
-   * Update status
+   * Move the run to `status` when the transition table allows it.
+   * Returns false (and leaves the state untouched) for a refused transition.
+   * A status this version does not recognise (older or hand-edited file) is
+   * not validated, so such runs can still be closed.
    */
   async setStatus(
     status: AutomodeStatus,
     reason?: AutomodeCancelReason,
     errorMessage?: string
-  ): Promise<void> {
-    if (!this.state) return;
+  ): Promise<boolean> {
+    if (!this.state) return false;
+
+    const current = this.state.status;
+    if (isKnownStatus(current) && !new StateMachine(AUTOMODE_STATUS_TRANSITIONS, { initial: current }).can(status)) {
+      return false;
+    }
 
     this.state.status = status;
     if (reason) {
@@ -228,6 +256,7 @@ export class AutomodeState {
       this.state.errorMessage = errorMessage;
     }
     await this.save();
+    return true;
   }
 
   /**
@@ -338,10 +367,8 @@ export class AutomodeState {
       if (await fs.pathExists(filePath)) {
         // Don't delete - keep for reference
         // Instead, mark as archived
-        if (this.state && this.state.status === 'running') {
-          this.state.status = 'cancelled';
-          this.state.cancelReason = 'error';
-          await this.save();
+        if (this.state?.status === 'running') {
+          await this.setStatus('cancelled', 'error');
         }
       }
     } catch (error) {

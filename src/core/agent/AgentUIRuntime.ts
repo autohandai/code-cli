@@ -990,24 +990,26 @@ export async function withAgentModalPause<T>(host: AgentUIRuntimeHost, fn: () =>
     }
 
     host.persistentInput.pause();
-
-    if (host.inkRenderer) {
-      host.inkRenderer.pause();
-    }
+    const renderer = host.inkRenderer;
+    let rendererPaused = false;
 
     try {
+      if (renderer) {
+        renderer.pause();
+        rendererPaused = true;
+      }
       return await fn();
     } finally {
-      if (host.inkRenderer) {
-        await host.inkRenderer.resume();
+      try {
+        if (rendererPaused) await renderer?.resume();
+      } finally {
+        host.persistentInput.resume();
+
+        if (spinnerWasSpinning && host.runtime.spinner) {
+          host.resumeSpinnerAfterModalPause();
+        }
+
+        host.startStatusUpdates();
       }
-
-      host.persistentInput.resume();
-
-      if (spinnerWasSpinning && host.runtime.spinner) {
-        host.resumeSpinnerAfterModalPause();
-      }
-
-      host.startStatusUpdates();
     }
   }

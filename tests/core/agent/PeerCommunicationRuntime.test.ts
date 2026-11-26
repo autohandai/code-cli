@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPeerHarness, type PeerHarness } from '../../../src/testing/scenarios/peerCommunicationHarness.js';
-import { PeerCommunicationRuntime, formatPeerContext, type PeerContextEnvelope } from '../../../src/core/agent/PeerCommunicationRuntime.js';
+import { PEER_TURN_LIFECYCLE, PeerCommunicationRuntime, formatPeerContext, type PeerContextEnvelope, type PeerTurnEvent } from '../../../src/core/agent/PeerCommunicationRuntime.js';
+import { reachableStates, terminalStates } from '../../../src/utils/stateMachine.js';
+import { randomEventWalk } from '../../helpers/stateMachineProperties.js';
 
 let h: PeerHarness;
 const runtimes: PeerCommunicationRuntime[] = [];
@@ -186,6 +188,82 @@ describe('peer arrival and safe turn scheduling', () => {
     await sender.send({ to: receiver.self.peerId, content: 'late but durable' });
     expect(recorded).toEqual([]);
     expect((await receiver.messages({ consume: false })).messages[0].content).toBe('late but durable');
+  });
+});
+
+describe('peer turn lifecycle state machine', () => {
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+
+  it('declares closed as the only terminal state and reaches every state', () => {
+    expect(terminalStates(PEER_TURN_LIFECYCLE)).toEqual(['closed']);
+    expect([...reachableStates(PEER_TURN_LIFECYCLE)].sort()).toEqual(['awaitingTurn', 'closed', 'idle', 'inTurn', 'requesting']);
+  });
+
+  it('only accepts a wake from idle and only settles a wake that is still requesting', () => {
+    const { transitions } = PEER_TURN_LIFECYCLE;
+    expect(transitions.idle.requestWake).toBe('requesting');
+    expect(transitions.inTurn.requestWake).toBeUndefined();
+    expect(transitions.awaitingTurn.requestWake).toBeUndefined();
+    expect(transitions.idle.wakeAccepted).toBeUndefined();
+    expect(transitions.requesting.wakeDeclined).toBe('idle');
+    expect(transitions.closed).toEqual({});
+  });
+
+  it('holds the transition table under random event sequences', () => {
+    const events: PeerTurnEvent[] = ['requestWake', 'wakeAccepted', 'wakeDeclined', 'wakeFailed', 'beginTurn', 'endTurn', 'close'];
+    randomEventWalk(PEER_TURN_LIFECYCLE, events, { seeds: 40, steps: 120 });
+  });
+
+  it('re-arms automatic wakes after the host declines one instead of wedging forever', async () => {
+    const sender = await h.create();
+    const receiver = await h.create({ policy: { enabled: true, idleBehavior: 'auto' } });
+    const requestAutoTurn = vi.fn(async (): Promise<boolean | void> => undefined).mockResolvedValueOnce(false);
+    const runtime = new PeerCommunicationRuntime({ messaging: receiver, notify: () => {}, commitContext: async () => {}, requestAutoTurn });
+    runtimes.push(runtime);
+    await sender.send({ to: receiver.self.peerId, content: 'host is busy, declines' });
+    await vi.waitFor(() => expect(requestAutoTurn).toHaveBeenCalledOnce());
+    await settle();
+    expect(runtime.turnState).toBe('idle');
+    await sender.send({ to: receiver.self.peerId, content: 'host is free now' });
+    await vi.waitFor(() => expect(requestAutoTurn).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not spin on a declined wake until something new happens', async () => {
+    const sender = await h.create();
+    const receiver = await h.create({ policy: { enabled: true, idleBehavior: 'auto' } });
+    const requestAutoTurn = vi.fn(async (): Promise<boolean | void> => false);
+    const runtime = new PeerCommunicationRuntime({ messaging: receiver, notify: () => {}, commitContext: async () => {}, requestAutoTurn });
+    runtimes.push(runtime);
+    await sender.send({ to: receiver.self.peerId, content: 'declined' });
+    for (let tick = 0; tick < 5; tick += 1) await settle();
+    expect(requestAutoTurn).toHaveBeenCalledOnce();
+    runtime.setPaused('permission', true);
+    runtime.setPaused('permission', false);
+    await vi.waitFor(() => expect(requestAutoTurn).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps an accepted wake pending until its turn begins, then returns to idle on endTurn', async () => {
+    const sender = await h.create();
+    const receiver = await h.create({ policy: { enabled: true, idleBehavior: 'auto' } });
+    const runtime = new PeerCommunicationRuntime({ messaging: receiver, notify: () => {}, commitContext: async () => {}, requestAutoTurn: async () => {} });
+    runtimes.push(runtime);
+    await sender.send({ to: receiver.self.peerId, content: 'queued' });
+    await vi.waitFor(() => expect(runtime.turnState).toBe('awaitingTurn'));
+    runtime.beginTurn();
+    expect(runtime.turnState).toBe('inTurn');
+    runtime.endTurn();
+    expect(runtime.turnState).toBe('idle');
+  });
+
+  it('ignores turn events after close', async () => {
+    const receiver = await h.create();
+    const runtime = new PeerCommunicationRuntime({ messaging: receiver, notify: () => {}, commitContext: async () => {}, requestAutoTurn: async () => {} });
+    await runtime.close();
+    runtime.beginTurn();
+    runtime.endTurn(true);
+    runtime.setPaused('permission', false);
+    expect(runtime.turnState).toBe('closed');
+    expect(await runtime.finishTurn()).toEqual({ continueTurn: false });
   });
 });
 

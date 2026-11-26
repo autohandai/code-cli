@@ -32,6 +32,7 @@ import type { QueuedInstructionPolicy } from './PostTurnActionCoordinator.js';
 import type { PeerCommunicationRuntime } from './PeerCommunicationRuntime.js';
 import type { AgentProgramStatus } from './AgentProgramStatus.js';
 import type { PeerReference } from '../../ui/peerMention.js';
+import { resolveTurnActivity, type TurnActivity } from './TurnActivity.js';
 import type {
   AgentLoopStep,
   ReactLoopControl,
@@ -112,6 +113,8 @@ export interface AgentInstructionHost {
   peerCommunicationRuntime?: PeerCommunicationRuntime;
   recordPeerReferences?: (instruction: string, references: PeerReference[]) => Promise<void>;
   isInstructionActive: boolean;
+  /** Owns the turn phase; hosts without one get a mirror onto `isInstructionActive`. */
+  turnActivity?: TurnActivity;
   /** How the most recent turn ended; read by protocol hosts and the stop hook. */
   lastTurnOutcome?: TurnOutcome;
   filesModifiedThisSession: boolean;
@@ -131,7 +134,8 @@ export interface AgentInstructionHost {
   promptSeedInput: string;
   useInkRenderer: boolean;
   inkRenderer: InstructionInkRenderer | null;
-  modalActive: boolean;
+  /** Opens a modal scope; the returned release is idempotent. */
+  enterModal(): () => void;
   sessionRetryCount: number;
   sessionTokensUsed: number;
   runtime: AgentRuntime;
@@ -237,6 +241,14 @@ interface DeepResearchInstructionState {
 }
 
 type FinalizeResearch = (turnSucceeded: boolean) => Promise<boolean>;
+
+interface AdmittedTurnContext {
+  abortController: AbortController;
+  options: RunInstructionOptions;
+  deepResearch: DeepResearchInstructionState;
+  finalizeResearch: FinalizeResearch;
+  turnStart: TurnStartIndicator;
+}
 
 export class InstructionRunner {
   private computerUseModeScope?: { restore?: () => void };
@@ -373,7 +385,22 @@ export class InstructionRunner {
       return false;
     }
 
-    host.isInstructionActive = true;
+    const turn = resolveTurnActivity(host);
+    turn.admit();
+    try {
+      return await this.runAdmitted(instruction, turn, { abortController, options, deepResearch, finalizeResearch, turnStart });
+    } finally {
+      turn.settle();
+      if (host.activeAbortController === abortController) host.activeAbortController = null;
+    }
+  }
+
+  private async runAdmitted(
+    instruction: string,
+    turn: TurnActivity,
+    { abortController, options, deepResearch, finalizeResearch, turnStart }: AdmittedTurnContext,
+  ): Promise<boolean | 'retry-provider'> {
+    const host = this.host;
     host.activeAbortController = abortController;
     const useInkInput = !host.runtime.isRpcMode && host.useInkRenderer && !!host.inkRenderer;
     if (useInkInput) {
@@ -451,10 +478,10 @@ export class InstructionRunner {
     } finally {
       abortController.signal.removeEventListener('abort', cleanupPromptInterrupts);
       cleanupPromptInterrupts();
-      host.isInstructionActive = false;
       host.activeAbortController = null;
     }
     if (abortController.signal.aborted) {
+      turn.settle();
       if (!host.runtime.isRpcMode) console.log(chalk.yellow('Request canceled.'));
       reportInterruptedBeforeStart();
       return false;
@@ -467,7 +494,7 @@ export class InstructionRunner {
       await markDeepResearchRunStarted(host.runtime.workspaceRoot, deepResearch.runId);
     }
 
-    host.isInstructionActive = true;
+    turn.prepare();
     host.clearExplorationLog();
     host.filesModifiedThisSession = false;
     host.lastAssistantResponseForNotification = '';
@@ -483,7 +510,7 @@ export class InstructionRunner {
     }
     // Escape can land anywhere after the pre-prompt phase; nothing below should start for a stopped turn.
     if (abortController.signal.aborted) {
-      host.isInstructionActive = false;
+      turn.settle();
       reportInterruptedBeforeStart();
       return false;
     }
@@ -517,11 +544,11 @@ export class InstructionRunner {
         const issue = 'Environment setup failed. Check the dependency installation and toolchain before retrying.';
         console.log(chalk.red(`\n[BLOCKED] ${issue}`));
         host.emitOutput({ type: 'error', content: issue });
-        host.isInstructionActive = false;
+        turn.settle();
         return endBeforeStart();
       }
       if (abortController.signal.aborted) {
-        host.isInstructionActive = false;
+        turn.settle();
         reportInterruptedBeforeStart();
         return false;
       }
@@ -643,6 +670,7 @@ export class InstructionRunner {
     // try so the finally below always releases it, including the early abort
     // return and any failure raised while preparing specialists.
     let stopPreparation: () => void = () => {};
+    turn.start();
     try {
       const specialistResults = options.specialistPreparation === 'skip'
         ? undefined : await host.prepareSpecialists?.(instruction);
@@ -695,7 +723,7 @@ export class InstructionRunner {
       }
 
       if (host.lastIntent === 'implementation' && host.filesModifiedThisSession && options.qualityPipeline !== 'agent-managed') {
-        host.modalActive = true;
+        const leaveModal = host.enterModal();
         try {
           // PersistentInput uses terminal scroll regions that must be torn down
           // before child-process quality output is printed. Ink owns the live
@@ -714,7 +742,7 @@ export class InstructionRunner {
             host.stopUI(true, 'Quality checks failed');
           }
         } finally {
-          host.modalActive = false;
+          leaveModal();
         }
       }
       success = await finalizeResearchForTurn(success);
@@ -871,6 +899,7 @@ export class InstructionRunner {
       // are disabled. Otherwise, in-flight streaming output bypasses writeAbove
       // and writes directly to stdout while regions are still active, corrupting
       // the fixed-region composer box (overlapping borders, leaked tool data).
+      turn.finish();
       host.permissionManager?.setPlanEditApproval(undefined);
       getPlanModeManager().completeExecution();
       cleanupEsc();
@@ -991,7 +1020,7 @@ export class InstructionRunner {
       host.lastTurnOutcome = canceledByUser || abortController.signal.aborted ? 'interrupted'
         : success ? 'completed' : awaitingReview ? 'needs_review' : 'failed';
       host.taskStartedAt = null;
-      host.isInstructionActive = false;
+      turn.settle();
       host.activeAbortController = null;
       host.clearExplorationLog();
       if (success && !canceledByUser && !abortController.signal.aborted && !reflectionSuperseded

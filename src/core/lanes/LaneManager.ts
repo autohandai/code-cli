@@ -6,10 +6,24 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentRunsSnapshot } from '../agents/AgentRunStore.js';
 import type { ToolActionOutcome } from '../../types.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
 import { MAX_ACTIVE_LANES, MAX_RETAINED_LANES } from './feature.js';
 import { formatLaneElapsed } from './laneFormat.js';
 
 export type LaneStatus = 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+
+/** A lane settles once; events are named after the status they enter. */
+export const LANE_LIFECYCLE = defineStateMachine<LaneStatus, LaneStatus>({
+  name: 'Lane',
+  initial: 'running',
+  transitions: {
+    running: { completed: 'completed', partial: 'partial', failed: 'failed', cancelled: 'cancelled' },
+    completed: {},
+    partial: {},
+    failed: {},
+    cancelled: {},
+  },
+});
 
 /** A named background agent run, as the lanes list and the lead see it. */
 export interface Lane {
@@ -162,8 +176,9 @@ export class LaneManager {
 
   private settle(id: string, outcome: ToolActionOutcome): void {
     const lane = this.lanes.get(id);
-    if (!lane) return;
-    const settled: Lane = { ...lane, status: settledStatus(outcome), finishedAt: this.now() };
+    const status = settledStatus(outcome);
+    if (!lane || !new StateMachine(LANE_LIFECYCLE, { initial: lane.status }).can(status)) return;
+    const settled: Lane = { ...lane, status, finishedAt: this.now() };
     this.lanes.set(id, settled);
     this.publish();
     this.options.onSettled({ ...settled }, outcome);

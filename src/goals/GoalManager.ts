@@ -12,7 +12,14 @@ import { buildCompletionReceipt, parseAcceptanceCriteria } from './GoalCompletio
 import { captureSubmittedGoalSkills, parsePinnedSkill, preflightGoalContinuity, preserveUnknownEffects, retainCheckpointHistory } from './GoalContinuity.js';
 import type { GoalContinuityResolver, PinnedSkillReference } from './GoalContinuity.js';
 import { applyGoalProgress } from './GoalProgress.js';
-import { parseGoalStatus, UNSCOPED_GOAL_SESSION_KEY as UNKNOWN_SESSION_KEY } from './types.js';
+import { StateMachine } from '../utils/stateMachine.js';
+import {
+  canTransitionGoalStatus,
+  GOAL_STATUS_LIFECYCLE,
+  goalStatusEvent,
+  parseGoalStatus,
+  UNSCOPED_GOAL_SESSION_KEY as UNKNOWN_SESSION_KEY,
+} from './types.js';
 import { ActiveAgentRegistry } from '../session/ActiveAgentRegistry.js';
 import { parseQueueBlockItems } from './queueBlockParser.js';
 import { listGoalTemplateMetadata, resolveGoalTemplateByName, resolveGoalTemplateInvocation } from './templates.js';
@@ -239,7 +246,7 @@ export class GoalManager {
       }
       if (goal.status !== 'active') return this.result(snapshot, true, 'Stopped checkpoint owner verified. Explicitly resume when ready.');
       const now = Date.now();
-      const next = { ...snapshot, goals: { ...snapshot.goals, [key]: { ...goal, status: 'paused' as const, updatedAt: now } }, updatedAt: now };
+      const next = { ...snapshot, goals: { ...snapshot.goals, [key]: transitionStatus(goal, 'paused', now) }, updatedAt: now };
       await this.writeSnapshot(next);
       return this.result(next, true, 'Restored checkpoint paused. Explicitly resume after reviewing the current context.');
     });
@@ -285,7 +292,7 @@ export class GoalManager {
       const now = Date.now();
       const next: GoalSnapshot = {
         ...snapshot,
-        goals: { ...snapshot.goals, [sessionId]: { ...target, status: 'paused', updatedAt: now } },
+        goals: { ...snapshot.goals, [sessionId]: transitionStatus(target, 'paused', now) },
         updatedAt: now,
       };
       await this.writeSnapshot(next);
@@ -311,7 +318,7 @@ export class GoalManager {
       const restored: GoalSnapshot = {
         ...backup,
         goals: Object.fromEntries(Object.entries(backup.goals).map(([key, goal]) => [key,
-          goal.status === 'active' ? { ...goal, status: 'paused' as const, updatedAt: now } : goal,
+          goal.status === 'active' ? transitionStatus(goal, 'paused', now) : goal,
         ])),
         updatedAt: now,
       };
@@ -478,6 +485,15 @@ export class GoalManager {
     if (floorError) return this.result(snapshot, false, floorError);
 
     if (input.status !== undefined) {
+      if (current.status === 'complete' && input.status === 'complete') {
+        return this.result({ ...snapshot, goals: { ...snapshot.goals, [key]: current } }, false, 'Goal is already complete.');
+      }
+      if (!canTransitionGoalStatus(current.status, input.status)) {
+        const guidance = current.status === 'complete'
+          ? ' Resume the goal first.'
+          : current.status === 'budgetLimited' ? ' Raise the budget, then resume the goal.' : '';
+        return this.result(snapshot, false, `Cannot change a ${current.status} goal to ${input.status}.${guidance}`);
+      }
       if (input.status === 'complete' && !floorMet(next)) {
         return this.result(snapshot, false, 'Completion floor is not met yet. Keep working, raise the floor, or clear the goal if the user explicitly wants to stop.');
       }
@@ -998,8 +1014,10 @@ function validateFloors(input: Pick<GoalCreateInput, 'tokenBudget' | 'timeBudget
   return null;
 }
 
-function transitionStatus(goal: GoalState, status: GoalState['status']): GoalState {
-  return { ...goal, status, updatedAt: Date.now() };
+/** The single writer of `GoalState.status`; callers check {@link canTransitionGoalStatus} first. */
+function transitionStatus(goal: GoalState, status: GoalState['status'], at = Date.now()): GoalState {
+  const next = new StateMachine(GOAL_STATUS_LIFECYCLE, { initial: goal.status }).send(goalStatusEvent(status));
+  return { ...goal, status: next, updatedAt: at };
 }
 
 function budgetLimitReason(goal: GoalState): string | null {

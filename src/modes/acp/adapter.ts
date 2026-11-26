@@ -1,6 +1,7 @@
 import { executeWorkflowGoal, withWorkflowGoalConfig } from './workflowGoal.js';
 import { parseWorkflowExecution } from './workflowExecution.js';
 import { parseWorkflowSkillHooks } from './workflowHooks.js';
+import { isPeerCommunicationAvailable } from '../../session/peers/PeerSettings.js';
 import { getAutohandAIAvailableModelOptions } from "../../providers/AutohandAIProvider.js";
 /**
  * ACP Adapter
@@ -66,6 +67,7 @@ import {
 import type { ReviewRequest } from '../../review/reviewRequest.js';
 import { REVIEW_KINDS } from '../../review/reviewRequest.js';
 import { buildCommandUseData } from '../../telemetry/commandUsage.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
 
 import {
   ACP_HOOK_NOTIFICATIONS,
@@ -198,18 +200,96 @@ function parseAssistantReplayParts(content: string): AssistantReplayParts {
 }
 
 /**
+ * Prompt lifecycle of one ACP session. Overlapping prompts are admitted and run
+ * in order (the agent queues them); `drain` covers a live turn ending while only
+ * cancelled turns remain.
+ */
+export const ACP_SESSION_LIFECYCLE = defineStateMachine({
+  name: 'AcpSession',
+  initial: 'idle',
+  transitions: {
+    idle: { prompt: 'prompting', cancel: 'idle', close: 'closed' },
+    prompting: { prompt: 'prompting', cancel: 'cancelling', drain: 'cancelling', settle: 'idle', close: 'closed' },
+    cancelling: { prompt: 'prompting', cancel: 'cancelling', settle: 'idle', close: 'closed' },
+    closed: {},
+  },
+});
+
+export type AcpSessionLifecycleState = keyof typeof ACP_SESSION_LIFECYCLE.transitions;
+
+export interface AcpPromptTurn {
+  readonly signal: AbortSignal;
+}
+
+/**
+ * Gives every prompt its own cancellation scope so a later prompt can neither
+ * swallow an earlier cancel nor take the earlier prompt out of reach of the next one.
+ */
+export class AcpSessionLifecycle {
+  private readonly machine = new StateMachine(ACP_SESSION_LIFECYCLE);
+  private readonly turns: AbortController[] = [];
+  private outOfTurn = new AbortController();
+
+  constructor(private readonly session: AbortController = new AbortController()) {}
+
+  get state(): AcpSessionLifecycleState {
+    return this.machine.state;
+  }
+
+  /** Scope for work the running turn starts, or the session's when no turn runs. */
+  get activeSignal(): AbortSignal {
+    return (this.turns[0] ?? this.outOfTurn).signal;
+  }
+
+  beginTurn(): AcpPromptTurn {
+    this.machine.send('prompt');
+    const turn = new AbortController();
+    this.turns.push(turn);
+    return turn;
+  }
+
+  endTurn(turn: AcpPromptTurn): void {
+    const index = this.turns.findIndex(controller => controller.signal === turn.signal);
+    if (index < 0) return;
+    this.turns.splice(index, 1);
+    if (this.machine.is('closed')) return;
+    if (this.turns.length === 0) this.machine.send('settle');
+    else if (this.turns.every(controller => controller.signal.aborted)) this.machine.trySend('drain');
+  }
+
+  /** Cancels what is in flight now; later prompts and questions start clean. */
+  cancel(): void {
+    if (!this.machine.trySend('cancel')) return;
+    for (const turn of this.turns) turn.abort();
+    this.outOfTurn.abort();
+    this.outOfTurn = new AbortController();
+  }
+
+  close(): void {
+    if (!this.machine.trySend('close')) return;
+    this.session.abort();
+    this.outOfTurn.abort();
+    for (const turn of this.turns) turn.abort();
+  }
+}
+
+interface AcpSessionEntry {
+  readonly state: AcpSessionState;
+  readonly agent: AutohandAgent;
+  readonly config: LoadedConfig;
+  readonly permissionBridge: ReturnType<typeof createPermissionBridge>;
+  readonly configOptions: SessionConfigOption[];
+  readonly lifecycle: AcpSessionLifecycle;
+  stopForwardingHooks?: () => void;
+}
+
+/**
  * AutohandAcpAdapter implements the ACP Agent interface.
  * All agent interaction happens in-process (no subprocess spawning).
  */
 export class AutohandAcpAdapter implements Agent {
-  private sessions = new Map<string, AcpSessionState>();
+  private sessions = new Map<string, AcpSessionEntry>();
   private sessionWorktrees = new Map<string, SessionWorktreeInfo>();
-  private agents = new Map<string, AutohandAgent>();
-  private sessionConfigs = new Map<string, LoadedConfig>();
-  private permissionBridges = new Map<string, ReturnType<typeof createPermissionBridge>>();
-  private sessionConfigOptions = new Map<string, SessionConfigOption[]>();
-  private cancelledSessions = new Set<string>();
-  private hookForwarders = new Map<string, () => void>();
   private config: LoadedConfig | null = null;
   private clientCapabilities?: InitializeRequest['clientCapabilities'];
   private toolStartTimes = new Map<string, number>();
@@ -290,25 +370,25 @@ export class AutohandAcpAdapter implements Agent {
   }
 
   private getSessionConfigOptions(sessionId: string): SessionConfigOption[] {
-    const options = this.sessionConfigOptions.get(sessionId) ?? [];
+    const options = this.sessions.get(sessionId)?.configOptions ?? [];
     return this.cloneConfigOptions(options);
   }
 
   private updateModelConfigOption(sessionId: string, modelId: string): void {
-    const option = this.sessionConfigOptions
+    const option = this.sessions
       .get(sessionId)
-      ?.find((entry) => entry.id === 'model');
+      ?.configOptions.find((entry) => entry.id === 'model');
     if (option?.type === 'select') {
       option.currentValue = modelId;
     }
   }
 
   private async applySessionModel(sessionId: string, modelId: string): Promise<void> {
-    const session = this.sessions.get(sessionId);
-    const agent = this.agents.get(sessionId);
-    if (!session || !agent) {
+    const entry = this.sessions.get(sessionId);
+    if (!entry) {
       throw RequestError.invalidParams({ message: 'Session not found' });
     }
+    const { state: session, agent } = entry;
 
     const config = await this.ensureConfig();
     await this.validateModel(config, modelId);
@@ -464,25 +544,30 @@ export class AutohandAcpAdapter implements Agent {
       promptCount: 0,
     };
 
-    this.sessions.get(managedSessionId)?.abortController.abort();
-    const previousAgent = this.agents.get(managedSessionId);
-    if (previousAgent && previousAgent !== agent) {
-      void this.shutdownAgent(previousAgent);
+    const previous = this.sessions.get(managedSessionId);
+    if (previous) this.retireSession(previous);
+    if (previous && previous.agent !== agent) {
+      void this.shutdownAgent(previous.agent);
     }
-    this.sessions.set(managedSessionId, state);
-    this.agents.set(managedSessionId, agent);
-    this.sessionConfigs.set(managedSessionId, config);
-    this.forwardHookLifecycle(managedSessionId, agent);
-    this.sessionConfigOptions.set(managedSessionId, buildConfigOptions(config, await this.availableModelIds(config)));
-
-    agent.setOutputListener((event: AgentOutputEvent) => {
-      this.handleAgentOutput(managedSessionId, event);
-    });
-
     const permBridge = createPermissionBridge({
       connection: this.connection,
       sessionId: managedSessionId,
       modeId,
+    });
+    const entry: AcpSessionEntry = {
+      state,
+      agent,
+      config,
+      permissionBridge: permBridge,
+      configOptions: [],
+      lifecycle: new AcpSessionLifecycle(state.abortController),
+    };
+    this.sessions.set(managedSessionId, entry);
+    entry.stopForwardingHooks = this.forwardHookLifecycle(managedSessionId, agent);
+    entry.configOptions.push(...buildConfigOptions(config, await this.availableModelIds(config)));
+
+    agent.setOutputListener((event: AgentOutputEvent) => {
+      this.handleAgentOutput(managedSessionId, event);
     });
 
     agent.setConfirmationCallback(async (message, context) => {
@@ -490,10 +575,8 @@ export class AutohandAcpAdapter implements Agent {
     });
     if (this.clientCapabilities?.elicitation?.form) {
       agent.setFollowupQuestionCallback(async (question, suggestedAnswers) => {
-        const session = state;
-        const signal = session.abortController.signal;
-        if (this.sessions.get(managedSessionId) !== session
-          || this.agents.get(managedSessionId) !== agent || signal.aborted) {
+        const signal = entry.lifecycle.activeSignal;
+        if (this.sessions.get(managedSessionId) !== entry || signal.aborted) {
           return null;
         }
         const request = this.connection.request(methods.client.elicitation.create, {
@@ -527,7 +610,7 @@ export class AutohandAcpAdapter implements Agent {
         } finally {
           if (cancelElicitation) signal.removeEventListener('abort', cancelElicitation);
         }
-        if (signal.aborted || this.sessions.get(managedSessionId) !== session) {
+        if (signal.aborted || this.sessions.get(managedSessionId) !== entry) {
           return null;
         }
         if (response.action === 'decline' || response.action === 'cancel') {
@@ -543,7 +626,6 @@ export class AutohandAcpAdapter implements Agent {
         return typeof answer === 'string' && answer.trim() ? answer : undefined;
       });
     }
-    this.permissionBridges.set(managedSessionId, permBridge);
     await this.publishSessionCommands(managedSessionId, config);
 
     return { config, state, agent };
@@ -675,7 +757,6 @@ export class AutohandAcpAdapter implements Agent {
         agent.applyAcpModel(state.modelId);
       }
 
-      this.sessions.set(sessionId, state);
       return { config, state, messages };
     } catch (error) {
       this.forgetSession(sessionId);
@@ -727,7 +808,7 @@ export class AutohandAcpAdapter implements Agent {
         // not read as the user asking for specialists; see userAuthoredInstruction.
         hostContext: { version: 1 },
         autohandRunToolScope: { version: 1, allToolsDeny },
-        ...(this.config.sessions?.communication?.enabled && this.clientCapabilities?._meta?.autohandPeerEvents === 1
+        ...(isPeerCommunicationAvailable(this.config.sessions?.communication) && this.clientCapabilities?._meta?.autohandPeerEvents === 1
           ? { peerCommunication: { version: 1 } } : {}),
       },
     };
@@ -788,10 +869,8 @@ export class AutohandAcpAdapter implements Agent {
   // ==========================================================================
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
-    const session = this.sessions.get(params.sessionId);
-    const agent = this.agents.get(params.sessionId);
-
-    if (!session || !agent) {
+    const entry = this.sessions.get(params.sessionId);
+    if (!entry || entry.lifecycle.state === 'closed') {
       throw RequestError.invalidParams({ message: 'Session not found' });
     }
 
@@ -804,10 +883,21 @@ export class AutohandAcpAdapter implements Agent {
       throw RequestError.invalidParams({ message: error instanceof Error ? error.message : String(error) });
     }
 
-    // Reset cancellation state
-    session.abortController = new AbortController();
-    this.cancelledSessions.delete(params.sessionId);
+    const turn = entry.lifecycle.beginTurn();
+    try {
+      return await this.runPromptTurn(params, entry, turn, workflowExecution, workflowHooks);
+    } finally {
+      entry.lifecycle.endTurn(turn);
+    }
+  }
 
+  private async runPromptTurn(
+    params: PromptRequest,
+    { state: session, agent, config: sessionConfig }: AcpSessionEntry,
+    turn: AcpPromptTurn,
+    workflowExecution: ReturnType<typeof parseWorkflowExecution>,
+    workflowHooks: ReturnType<typeof parseWorkflowSkillHooks>,
+  ): Promise<PromptResponse> {
     // Resolve prompt text from content blocks
     let instruction = '';
     const appendInstructionPart = (part: string): void => {
@@ -973,14 +1063,14 @@ export class AutohandAcpAdapter implements Agent {
         ...(this.clientCapabilities?._meta?.autohandWorkspaceSetup === 'agent-managed'
           ? { environmentBootstrap: 'skip' as const, qualityPipeline: 'agent-managed' as const }
           : {}),
-        signal: session.abortController.signal,
+        signal: turn.signal,
       });
       const success = reviewRequest
         ? await executeReviewWithLifecycle({
             request: reviewRequest,
             surface: 'acp',
             sessionId: params.sessionId,
-            signal: session.abortController.signal,
+            signal: turn.signal,
             hookManager: agent.getHookManager?.(),
             permissionManager: agent.getPermissionManager?.(),
             onEvent: (event, context) => this.emitHookReview(event, context),
@@ -988,16 +1078,15 @@ export class AutohandAcpAdapter implements Agent {
           })
         : workflowExecution?.type === 'goal'
           ? await (async () => {
-              const config = this.sessionConfigs.get(params.sessionId);
               const persistentSessionId = agent.getSessionManager().getCurrentSession()?.metadata.sessionId;
-              if (!config || !persistentSessionId) throw new Error('Workflow goals require a managed persistent session.');
-              await withWorkflowGoalConfig(config, () => executeWorkflowGoal({
+              if (!persistentSessionId) throw new Error('Workflow goals require a managed persistent session.');
+              await withWorkflowGoalConfig(sessionConfig, () => executeWorkflowGoal({
                 workspaceRoot: session.workspaceRoot,
                 goalContinuity: agent.getGoalContinuity(),
                 sessionId: persistentSessionId,
                 executionId: workflowExecution.executionId,
                 instruction,
-                signal: session.abortController.signal,
+                signal: turn.signal,
                 runTurn: async prompt => {
                   if (!await runInstruction(prompt)) throw new Error('The native workflow goal turn failed.');
                 },
@@ -1009,8 +1098,7 @@ export class AutohandAcpAdapter implements Agent {
       // A turn that was stopped is not a failed turn: the client gets `cancelled`, and hooks get
       // an outcome instead of `success: false`, whichever path interrupted it.
       const interrupted = !success && (
-        session.abortController.signal.aborted
-        || this.cancelledSessions.has(params.sessionId)
+        turn.signal.aborted
         || agent.getLastTurnOutcome?.() === 'interrupted'
       );
       // The answer was delivered with its review still open. The client sees a normal end of
@@ -1020,7 +1108,7 @@ export class AutohandAcpAdapter implements Agent {
       try {
         await agent.getHookManager?.()?.executeHooks('stop', {
           sessionId: params.sessionId, turnDuration, turnOutcome, ...(interrupted || needsReview ? {} : { success }),
-        }, { signal: session.abortController.signal });
+        }, { signal: turn.signal });
       } catch (error) {
         process.stderr.write(`[ACP] Stop hook failed: ${error instanceof Error ? error.message : String(error)}\n`);
       }
@@ -1036,7 +1124,7 @@ export class AutohandAcpAdapter implements Agent {
       }
       return { stopReason: 'end_turn' };
     } catch (err) {
-      if (session.abortController.signal.aborted || this.cancelledSessions.has(params.sessionId)) {
+      if (turn.signal.aborted) {
         return { stopReason: 'cancelled' };
       }
       if (err instanceof RequestError) throw err;
@@ -1068,14 +1156,10 @@ export class AutohandAcpAdapter implements Agent {
    * orphans the MCP servers each session spawned.
    */
   async dispose(): Promise<void> {
-    const agents = [...this.agents.values()];
-    for (const session of this.sessions.values()) session.abortController.abort();
+    const entries = [...this.sessions.values()];
+    for (const entry of entries) this.retireSession(entry);
     this.sessions.clear();
-    this.agents.clear();
-    this.sessionConfigs.clear();
-    this.permissionBridges.clear();
-    this.sessionConfigOptions.clear();
-    this.cancelledSessions.clear();
+    const agents = entries.map((entry) => entry.agent);
     await Promise.all(agents.map((agent) => this.shutdownAgent(agent)));
     await this.cleanupWorktrees();
   }
@@ -1101,15 +1185,10 @@ export class AutohandAcpAdapter implements Agent {
   }
 
   async cancel(params: CancelNotification): Promise<void> {
-    const session = this.sessions.get(params.sessionId);
-    const agent = this.agents.get(params.sessionId);
-    if (session) {
-      session.abortController.abort();
-      this.cancelledSessions.add(params.sessionId);
-    }
-    if (agent) {
-      agent.cancelCurrentInstruction();
-    }
+    const entry = this.sessions.get(params.sessionId);
+    if (!entry) return;
+    entry.lifecycle.cancel();
+    entry.agent.cancelCurrentInstruction();
   }
 
   // ==========================================================================
@@ -1117,19 +1196,16 @@ export class AutohandAcpAdapter implements Agent {
   // ==========================================================================
 
   async setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
-    const session = this.sessions.get(params.sessionId);
-    const agent = this.agents.get(params.sessionId);
-    if (!session) {
+    const entry = this.sessions.get(params.sessionId);
+    if (!entry) {
       throw RequestError.invalidParams({ message: 'Session not found' });
     }
-    if (!agent) {
-      throw RequestError.invalidParams({ message: 'Session agent not found' });
-    }
+    const { state: session, agent } = entry;
 
     this.validateMode(params.modeId);
 
     session.modeId = params.modeId;
-    this.permissionBridges.get(params.sessionId)?.setMode(params.modeId);
+    entry.permissionBridge.setMode(params.modeId);
     agent.applyAcpMode(params.modeId);
     process.stderr.write(`[ACP] Session ${params.sessionId} mode set to: ${params.modeId}\n`);
     await this.connection.sessionUpdate({
@@ -1157,12 +1233,11 @@ export class AutohandAcpAdapter implements Agent {
   async setSessionConfigOption(
     params: SetSessionConfigOptionRequest
   ): Promise<SetSessionConfigOptionResponse> {
-    const options = this.sessionConfigOptions.get(params.sessionId);
-    const agent = this.agents.get(params.sessionId);
-    const session = this.sessions.get(params.sessionId);
-    if (!options || !agent || !session) {
+    const entry = this.sessions.get(params.sessionId);
+    if (!entry) {
       throw RequestError.invalidParams({ message: 'Session not found' });
     }
+    const { configOptions: options, agent } = entry;
 
     const option = options.find((entry) => entry.id === params.configId);
     if (!option) {
@@ -1283,26 +1358,24 @@ export class AutohandAcpAdapter implements Agent {
   // ==========================================================================
 
   async unstable_forkSession(params: ForkSessionRequest): Promise<ForkSessionResponse> {
-    const sourceSession = this.sessions.get(params.sessionId);
-    if (!sourceSession) {
+    const source = this.sessions.get(params.sessionId);
+    if (!source) {
       throw RequestError.invalidParams({ message: 'Source session not found' });
     }
+    const { state: sourceSession, agent: sourceAgent } = source;
 
     // Best-effort memory extraction from source session before forking
-    const sourceAgent = this.agents.get(params.sessionId);
-    if (sourceAgent) {
-      try {
-        const conversation = ConversationManager.getInstance();
-        const { extractAndSaveSessionMemories } = await import('../../memory/extractSessionMemories.js');
-        await extractAndSaveSessionMemories({
-          llm: sourceAgent.getLlmProvider(),
-          memoryManager: sourceAgent.getMemoryManager(),
-          conversationHistory: conversation.history(),
-          workspaceRoot: sourceSession.workspaceRoot,
-        });
-      } catch {
-        // Memory extraction is best-effort; don't block fork
-      }
+    try {
+      const conversation = ConversationManager.getInstance();
+      const { extractAndSaveSessionMemories } = await import('../../memory/extractSessionMemories.js');
+      await extractAndSaveSessionMemories({
+        llm: sourceAgent.getLlmProvider(),
+        memoryManager: sourceAgent.getMemoryManager(),
+        conversationHistory: conversation.history(),
+        workspaceRoot: sourceSession.workspaceRoot,
+      });
+    } catch {
+      // Memory extraction is best-effort; don't block fork
     }
 
     const { SessionManager } = await import('../../session/SessionManager.js');
@@ -1358,8 +1431,7 @@ export class AutohandAcpAdapter implements Agent {
    * never sent. Events the adapter already emits by hand are skipped so a
    * client never sees the same event twice.
    */
-  private forwardHookLifecycle(sessionId: string, agent: AutohandAgent): void {
-    this.hookForwarders.get(sessionId)?.();
+  private forwardHookLifecycle(sessionId: string, agent: AutohandAgent): (() => void) | undefined {
     const unsubscribe = agent.getHookManager?.()?.subscribeLifecycle?.((context) => {
       switch (context.event) {
         case 'program-status':
@@ -1395,22 +1467,22 @@ export class AutohandAcpAdapter implements Agent {
           break;
       }
     });
-    if (unsubscribe) {
-      this.hookForwarders.set(sessionId, unsubscribe);
-    }
     agent.programStatus?.start();
+    return unsubscribe;
+  }
+
+  private retireSession(entry: AcpSessionEntry): void {
+    entry.lifecycle.close();
+    entry.stopForwardingHooks?.();
+    entry.stopForwardingHooks = undefined;
   }
 
   private forgetSession(sessionId: string): void {
-    this.sessions.get(sessionId)?.abortController.abort();
-    this.agents.get(sessionId)?.programStatus?.dispose();
-    this.hookForwarders.get(sessionId)?.();
-    this.hookForwarders.delete(sessionId);
+    const entry = this.sessions.get(sessionId);
+    if (!entry) return;
+    this.retireSession(entry);
+    entry.agent.programStatus?.dispose();
     this.sessions.delete(sessionId);
-    this.agents.delete(sessionId);
-    this.sessionConfigs.delete(sessionId);
-    this.permissionBridges.delete(sessionId);
-    this.sessionConfigOptions.delete(sessionId);
   }
 
   /**
@@ -1419,14 +1491,13 @@ export class AutohandAcpAdapter implements Agent {
    */
   async shutdown(reason: 'quit' | 'exit' | 'error' = 'exit'): Promise<void> {
     const sessions = [...this.sessions.entries()];
-    for (const [, state] of sessions) state.abortController.abort();
+    for (const [, entry] of sessions) entry.lifecycle.close();
     const agents: AutohandAgent[] = [];
-    for (const [sessionId, state] of sessions) {
+    for (const [sessionId, { state, agent }] of sessions) {
       const duration = Math.max(0, Date.now() - state.createdAt);
-      const agent = this.agents.get(sessionId);
-      if (agent) agents.push(agent);
+      agents.push(agent);
       try {
-        await agent?.getHookManager?.()?.executeHooks('session-end', {
+        await agent.getHookManager?.()?.executeHooks('session-end', {
           sessionId,
           sessionEndReason: reason,
           duration,
@@ -1580,7 +1651,7 @@ export class AutohandAcpAdapter implements Agent {
         case 'peer_update':
         case 'resource_update': {
           const update = event.type === 'peer_update' ? event.peerEvent : event.resourceEvent;
-          if (update && this.sessions.has(sessionId) && this.config?.sessions?.communication?.enabled
+          if (update && this.sessions.has(sessionId) && isPeerCommunicationAvailable(this.config?.sessions?.communication)
             && this.clientCapabilities?._meta?.autohandPeerEvents === 1) {
             await this.connection.extNotification(event.type === 'peer_update' ? 'autohand.peerUpdate' : 'autohand.resourceUpdate', { sessionId, event: update });
           }

@@ -8,7 +8,7 @@ import { PeerError } from '../../session/peers/PeerProtocol.js';
 import { isPeerCommunicationAvailable } from '../../session/peers/PeerSettings.js';
 import { ResourceCoordinator } from '../../session/peers/ResourceCoordinator.js';
 import { defaultPeerAlias, safePeerLabel } from '../../session/peers/PeerScope.js';
-import { PeerCommunicationRuntime, formatPeerContext, type PeerContextEnvelope, type PeerRunRuntime } from './PeerCommunicationRuntime.js';
+import { PeerCommunicationRuntime, formatPeerContext, type PeerCommunicationRuntimeOptions, type PeerContextEnvelope, type PeerRunRuntime } from './PeerCommunicationRuntime.js';
 import { resolvePeerInput, type PeerReference } from '../../ui/peerMention.js';
 
 export interface AgentPeerRuntimeOptions extends PeerMessagingOptions {
@@ -16,7 +16,7 @@ export interface AgentPeerRuntimeOptions extends PeerMessagingOptions {
   addContext: (content: string) => void;
   notify: (message: string) => void;
   emitOutput: (event: AgentOutputEvent) => void;
-  requestAutoTurn: () => Promise<void>;
+  requestAutoTurn: PeerCommunicationRuntimeOptions['requestAutoTurn'];
   onError?: (error: unknown) => void;
 }
 

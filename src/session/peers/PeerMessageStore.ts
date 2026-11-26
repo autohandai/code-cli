@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
 import { atomicWriteFile, withFileLock } from '../../utils/atomicFile.js';
-import { PeerError, type PeerEnvelope, type PeerEvent, type PeerMessage, type PeerReceipt } from './PeerProtocol.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
+import { PeerError, type PeerEnvelope, type PeerEvent, type PeerMessage, type PeerReceipt, type PeerReceiptState } from './PeerProtocol.js';
 import { resolvePeerLimits, type PeerLimits } from './PeerSettings.js';
 import { ensurePrivatePeerDirectory, readPrivatePeerFile } from './PeerStorage.js';
 
@@ -62,6 +63,30 @@ export interface PeerInboxResult {
   messages: PeerMessage[];
   events: PeerEvent[];
   cursor: string;
+}
+
+/**
+ * Receipt lifecycle shared by local assignments and by merging receipts reported
+ * from other processes. Outbox receipts start `pending`, inbox receipts start
+ * `accepted`; events are named after the state they enter. A same-state update
+ * (new fields, same state) is always allowed and is not a transition.
+ */
+export const PEER_RECEIPT_LIFECYCLE = defineStateMachine<PeerReceiptState, PeerReceiptState>({
+  name: 'PeerReceipt',
+  initial: 'pending',
+  transitions: {
+    pending: { unknown: 'unknown', accepted: 'accepted', consumed: 'consumed', replied: 'replied', rejected: 'rejected', expired: 'expired' },
+    unknown: { pending: 'pending', accepted: 'accepted', consumed: 'consumed', replied: 'replied', rejected: 'rejected', expired: 'expired' },
+    accepted: { consumed: 'consumed', replied: 'replied', expired: 'expired' },
+    consumed: { replied: 'replied' },
+    replied: {},
+    rejected: {},
+    expired: {},
+  },
+});
+
+export function canUpdateReceipt(from: PeerReceiptState, to: PeerReceiptState): boolean {
+  return from === to || new StateMachine(PEER_RECEIPT_LIFECYCLE, { initial: from }).can(to);
 }
 
 function inboxKey(envelope: PeerEnvelope): string {
@@ -146,16 +171,10 @@ export class PeerMessageStore {
       const parsed = receiptSchema.safeParse(receipt);
       if (!parsed.success || receipt.to !== to || receipt.messageId !== messageId) throw new PeerError('INVALID_RPC', 'Receipt identity does not match the original message.');
       const incoming = { ...parsed.data, from };
-      const ranks = { pending: 0, unknown: 0, accepted: 1, consumed: 2, replied: 3, rejected: 4, expired: 4 };
-      if (['replied', 'rejected', 'expired'].includes(entry.receipt.state) && incoming.state !== entry.receipt.state) return { ...entry.receipt };
-      if (entry.receipt.state === 'consumed' && ['rejected', 'expired'].includes(incoming.state)) return { ...entry.receipt };
-      if (entry.receipt.state === 'accepted' && incoming.state === 'rejected') return { ...entry.receipt };
-      if (ranks[incoming.state] < ranks[entry.receipt.state]) return { ...entry.receipt };
       const comparable = { ...incoming, cursor: entry.receipt.cursor };
-      if (JSON.stringify(receiptSchema.parse(comparable)) === JSON.stringify(receiptSchema.parse(entry.receipt))) return { ...entry.receipt };
-      entry.receipt = { ...entry.receipt, ...incoming, cursor: String(state.cursor + 1) };
-      entry.updatedAt = this.now();
-      this.addEvent(state, { type: 'receipt', messageId, from, to, state: entry.receipt.state, receipt: entry.receipt });
+      if (JSON.stringify(receiptSchema.parse(comparable)) !== JSON.stringify(receiptSchema.parse(entry.receipt))) {
+        this.updateReceipt(state, entry, { ...entry.receipt, ...incoming });
+      }
       return { ...entry.receipt };
     });
   }
@@ -243,9 +262,7 @@ export class PeerMessageStore {
       const entry = state.inbox.find(candidate => candidate.envelope.from === from && candidate.envelope.messageId === messageId && candidate.envelope.to === to);
       if (!entry) throw new PeerError('INVALID_REPLY', 'No authorized incoming message exists for this reply.');
       if (entry.receipt.state === 'replied') return;
-      entry.receipt = { ...entry.receipt, state: 'replied', repliedAt: new Date(this.now()).toISOString(), cursor: String(state.cursor + 1) };
-      entry.updatedAt = this.now();
-      this.addEvent(state, { type: 'receipt', messageId, from, to, state: 'replied', receipt: entry.receipt });
+      this.updateReceipt(state, entry, { ...entry.receipt, state: 'replied', repliedAt: new Date(this.now()).toISOString() });
     });
   }
 
@@ -264,9 +281,7 @@ export class PeerMessageStore {
     await this.transaction(state => {
       for (const entry of state.inbox) {
         if (entry.envelope.to !== to || entry.receipt.state !== 'accepted' || entry.receipt.outcome) continue;
-        entry.receipt = { ...entry.receipt, outcome: 'TARGET_ENDED', cursor: String(state.cursor + 1) };
-        entry.updatedAt = this.now();
-        this.addEvent(state, { type: 'receipt', messageId: entry.envelope.messageId, from: entry.envelope.from, to, state: 'accepted', receipt: entry.receipt });
+        this.updateReceipt(state, entry, { ...entry.receipt, outcome: 'TARGET_ENDED' });
       }
     });
   }
@@ -397,9 +412,16 @@ export class PeerMessageStore {
   private markConsumed(state: StoreState, entry: InboxEntry): void {
     delete entry.consumer;
     entry.contextPrepared = false;
-    entry.receipt = { ...entry.receipt, state: 'consumed', consumedAt: new Date(this.now()).toISOString(), cursor: String(state.cursor + 1) };
+    this.updateReceipt(state, entry, { ...entry.receipt, state: 'consumed', consumedAt: new Date(this.now()).toISOString() });
+  }
+
+  /** The only writer of receipt state; refuses moves the lifecycle table does not allow. */
+  private updateReceipt(state: StoreState, entry: InboxEntry | PeerOutboxEntry, next: Omit<PeerReceipt, 'cursor'>): void {
+    if (!canUpdateReceipt(entry.receipt.state, next.state)) return;
+    entry.receipt = { ...next, cursor: String(state.cursor + 1) };
     entry.updatedAt = this.now();
-    this.addEvent(state, { type: 'receipt', messageId: entry.envelope.messageId, from: entry.envelope.from, to: entry.envelope.to, state: 'consumed', receipt: entry.receipt });
+    const { messageId, from, to } = entry.envelope;
+    this.addEvent(state, { type: 'receipt', messageId, from, to, state: next.state, receipt: entry.receipt });
   }
 
   private selectInbox(state: StoreState, to: string, selections: PeerMessageSelection[]): InboxEntry[] {
@@ -418,9 +440,7 @@ export class PeerMessageStore {
   private expireInbox(state: StoreState): void {
     for (const entry of state.inbox) {
       if (entry.receipt.state !== 'accepted' || Date.parse(entry.envelope.expiresAt) > this.now() || entry.consumer) continue;
-      entry.receipt = { ...entry.receipt, state: 'expired', cursor: String(state.cursor + 1) };
-      entry.updatedAt = this.now();
-      this.addEvent(state, { type: 'receipt', messageId: entry.envelope.messageId, from: entry.envelope.from, to: entry.envelope.to, state: 'expired', receipt: entry.receipt });
+      this.updateReceipt(state, entry, { ...entry.receipt, state: 'expired' });
     }
   }
 

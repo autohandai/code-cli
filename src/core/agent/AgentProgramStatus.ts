@@ -5,6 +5,7 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { shouldWriteTerminalTitle } from '../../ui/terminalTitle.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
 
 export type ProgramStatusKind = 'permission' | 'question' | 'auth';
 
@@ -75,21 +76,36 @@ export interface AgentProgramStatusOptions {
   onChange?: (report: ProgramStatusReport) => void;
 }
 
+/**
+ * One activity period spans from the first overlapping run starting to the last one finishing.
+ * A failure or cancellation reported anywhere in the period decides its outcome, and
+ * cancellation dominates failure; otherwise the last run to finish decides.
+ */
+export const AGENT_PROGRAM_STATUS_LIFECYCLE = defineStateMachine({
+  name: 'AgentProgramStatus',
+  initial: 'settled',
+  transitions: {
+    settled: { begin: 'running', fail: 'settled', cancel: 'settled', dispose: 'disposed' },
+    running: { fail: 'failing', cancel: 'cancelling', settle: 'settled', dispose: 'disposed' },
+    failing: { fail: 'failing', cancel: 'cancelling', settle: 'settled', dispose: 'disposed' },
+    cancelling: { fail: 'cancelling', cancel: 'cancelling', settle: 'settled', dispose: 'disposed' },
+    disposed: {},
+  },
+});
+
 export class AgentProgramStatus {
-  private base: ProgramStatusReport = { state: 'idle' };
+  private readonly lifecycle = new StateMachine(AGENT_PROGRAM_STATUS_LIFECYCLE);
+  private readonly runs = new Map<symbol, string | undefined>();
+  private outcome: ProgramStatusReport = { state: 'idle' };
   private waits = new Map<symbol, { kind: ProgramStatusKind; message: string }>();
-  private activeOperations = 0;
   private lastSequence?: string;
-  private disposed = false;
-  private cancelled = false;
-  private failed = false;
   private exitHandler?: () => void;
   private title?: string;
 
   constructor(private readonly options: AgentProgramStatusOptions) {}
 
   start(): void {
-    if (this.disposed) return;
+    if (this.lifecycle.is('disposed')) return;
     if (this.options.enabled && !this.exitHandler) {
       this.exitHandler = () => this.dispose(false);
       process.on('exit', this.exitHandler);
@@ -98,12 +114,9 @@ export class AgentProgramStatus {
   }
 
   async run<T>(operation: () => Promise<T>, options: { signal?: AbortSignal; message?: string } = {}): Promise<T> {
-    if (this.activeOperations === 0) {
-      this.cancelled = false;
-      this.failed = false;
-    }
-    this.activeOperations++;
-    this.base = { state: 'working', ...(options.message ? { message: options.message } : {}) };
+    const token = Symbol();
+    if (this.runs.size === 0) this.lifecycle.trySend('begin');
+    this.runs.set(token, options.message);
     this.apply();
     let succeeded = false;
     try {
@@ -111,12 +124,8 @@ export class AgentProgramStatus {
       succeeded = result !== false;
       return result;
     } finally {
-      this.activeOperations--;
-      if (this.activeOperations === 0) {
-        if (!this.failed || options.signal?.aborted || this.cancelled) {
-          this.base = { state: options.signal?.aborted || this.cancelled ? 'idle' : succeeded ? 'done' : 'error' };
-        }
-      }
+      this.runs.delete(token);
+      if (this.runs.size === 0) this.settle(options.signal?.aborted === true, succeeded);
       this.apply();
     }
   }
@@ -127,16 +136,16 @@ export class AgentProgramStatus {
   }
 
   cancel(): void {
-    this.cancelled = true;
+    if (!this.lifecycle.trySend('cancel')) return;
     this.waits.clear();
-    this.base = { state: 'idle' };
+    this.outcome = { state: 'idle' };
     this.apply();
   }
 
   fail(message: string): void {
-    this.failed = true;
+    if (!this.lifecycle.trySend('fail')) return;
     this.waits.clear();
-    this.base = { state: 'error', message };
+    if (!this.lifecycle.is('cancelling')) this.outcome = { state: 'error', message };
     this.apply();
   }
 
@@ -157,18 +166,32 @@ export class AgentProgramStatus {
   }
 
   dispose(notify = true): void {
-    if (this.disposed) return;
+    if (this.lifecycle.is('disposed')) return;
     this.waits.clear();
     this.publish({ state: 'clear' }, notify);
-    this.disposed = true;
+    this.lifecycle.send('dispose');
     if (this.exitHandler) process.off('exit', this.exitHandler);
     this.exitHandler = undefined;
   }
 
+  private settle(aborted: boolean, succeeded: boolean): void {
+    const period = this.lifecycle.state;
+    if (!this.lifecycle.trySend('settle')) return;
+    if (aborted || period === 'cancelling') this.outcome = { state: 'idle' };
+    else if (period === 'running') this.outcome = { state: succeeded ? 'done' : 'error' };
+  }
+
   private apply(): void {
-    if (this.disposed) return;
+    if (this.lifecycle.is('disposed')) return;
+    this.publish(this.report());
+  }
+
+  private report(): ProgramStatusReport {
     const wait = [...this.waits.values()].at(-1);
-    this.publish(wait ? { state: 'blocked', ...wait } : this.base);
+    if (wait) return { state: 'blocked', ...wait };
+    if (!this.lifecycle.is('running')) return this.outcome;
+    const message = [...this.runs.values()].at(-1);
+    return { state: 'working', ...(message ? { message } : {}) };
   }
 
   private publish(report: ProgramStatusReport, notify = true): void {

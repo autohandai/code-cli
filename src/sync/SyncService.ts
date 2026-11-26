@@ -59,6 +59,7 @@ import {
   type SyncSkippedFiles,
 } from './rootBudgets.js';
 import { resolveSyncHealth, type SyncHealth, type SyncState } from './syncHealth.js';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
 
 const hasSkippedFiles = (skipped: SyncSkippedFiles): boolean => Object.values(skipped).some(count => count > 0);
 
@@ -140,6 +141,18 @@ function isRemoteNewer(localFile: SyncFileEntry, remoteFile: SyncFileEntry): boo
   return remoteTime > localTime;
 }
 
+/** `stopped` and `authFailed` are terminal: a fresh service is needed to sync again. */
+export const SYNC_SERVICE_LIFECYCLE = defineStateMachine({
+  name: 'SyncService',
+  initial: 'idle',
+  transitions: {
+    idle: { start: 'running', stop: 'stopped', authFail: 'authFailed' },
+    running: { pause: 'idle', stop: 'stopped', authFail: 'authFailed' },
+    stopped: {},
+    authFailed: {},
+  },
+});
+
 export class SyncService {
   private readonly authToken: string;
   private readonly userId: string;
@@ -158,10 +171,7 @@ export class SyncService {
   private readonly controlPlaneConfigPath: string;
 
   private timer: ReturnType<typeof setInterval> | null = null;
-  private syncing = false;
-  private started = false;
-  private authFailed = false;
-  private stopped = false;
+  private readonly lifecycle = new StateMachine(SYNC_SERVICE_LIFECYCLE);
   private generation = 0;
   private operationController: AbortController | null = null;
   private activeOperation: Promise<SyncResult> | null = null;
@@ -186,8 +196,7 @@ export class SyncService {
    * Start the background sync timer
    */
   start(): void {
-    if (this.started || this.stopped || !this.config.enabled) return;
-    this.started = true;
+    if (!this.config.enabled || !this.lifecycle.trySend('start')) return;
 
     if (this.operationController?.signal.aborted && this.activeOperation) {
       this.pendingStartGeneration = this.generation;
@@ -197,8 +206,6 @@ export class SyncService {
 
     // Set up periodic sync
     this.timer = setInterval(() => {
-      // Skip if auth has failed
-      if (this.authFailed) return;
       this.sync().catch(() => {});
     }, this.config.interval);
     this.timer.unref?.();
@@ -208,18 +215,25 @@ export class SyncService {
    * Stop the background sync timer
    */
   stop(): void {
-    this.stopped = true;
-    this.pause();
+    this.lifecycle.trySend('stop');
+    this.haltActivity();
   }
 
-  /** Pause immediately without making an explicit later opt-in impossible. */
+  /**
+   * Pause immediately without making an explicit later opt-in impossible.
+   * The preference is always recorded; once stopped it cannot restart the service.
+   */
   setEnabled(enabled: boolean): void {
     this.config.enabled = enabled;
-    if (enabled) this.start();
-    else this.pause();
+    if (enabled) {
+      this.start();
+    } else {
+      this.lifecycle.trySend('pause');
+      this.haltActivity();
+    }
   }
 
-  private pause(): void {
+  private haltActivity(): void {
     this.pendingStartGeneration = null;
     this.generation++;
     this.operationController?.abort(new SyncOperationStoppedError());
@@ -227,7 +241,14 @@ export class SyncService {
       clearInterval(this.timer);
       this.timer = null;
     }
-    this.started = false;
+  }
+
+  private get stopped(): boolean {
+    return this.lifecycle.is('stopped', 'authFailed');
+  }
+
+  private get syncing(): boolean {
+    return this.activeOperation !== null;
   }
 
   shutdown(options: { timeoutMs?: number } = {}): Promise<void> {
@@ -243,7 +264,7 @@ export class SyncService {
    * Check if the service is running
    */
   get isRunning(): boolean {
-    return this.started;
+    return this.lifecycle.is('running');
   }
 
   /**
@@ -289,7 +310,7 @@ export class SyncService {
         this.operationController = null;
       }
       if (this.activeOperation === null && this.pendingStartGeneration === this.generation
-        && this.started && !this.stopped) {
+        && this.isRunning) {
         this.pendingStartGeneration = null;
         void this.sync().catch(() => {});
       }
@@ -302,8 +323,6 @@ export class SyncService {
     context: SyncOperationContext,
     operation: (context: SyncOperationContext) => Promise<SyncResult>,
   ): Promise<SyncResult> {
-
-    this.syncing = true;
     let lock: Awaited<ReturnType<typeof acquireFileLock>> = null;
     let result: SyncResult | undefined;
     try {
@@ -343,11 +362,7 @@ export class SyncService {
       return this.resultWithSkips({ success: false, uploaded: result?.uploaded ?? 0,
         downloaded: result?.downloaded ?? 0, conflicts: result?.conflicts ?? 0, error: reason });
     } finally {
-      try {
-        await lock?.release();
-      } finally {
-        this.syncing = false;
-      }
+      await lock?.release();
     }
   }
 
@@ -650,10 +665,8 @@ export class SyncService {
    * Handle authentication failure - stop service and notify
    */
   private handleAuthFailure(errorMessage: string): void {
-    if (this.authFailed) return; // Already handled
-
-    this.authFailed = true;
-    this.stop();
+    if (!this.lifecycle.trySend('authFail')) return;
+    this.haltActivity();
     this.emitEventSafely({ type: 'auth_failure', error: errorMessage });
     try {
       this.onAuthFailure?.();

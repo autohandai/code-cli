@@ -9,6 +9,7 @@ import { MessageRouter } from './MessageRouter.js';
 import type { TeamMember, TeamMemberStatus, TeamTask } from './types.js';
 import type { ProviderName } from '../../types.js';
 import type { TeamModelAssignmentSource } from './TeamModelPolicy.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
 
 interface TeammateSpawnOptions {
   teamName: string;
@@ -37,6 +38,50 @@ const DEFAULT_TERM_TIMEOUT_MS = 750;
 const DEFAULT_KILL_TIMEOUT_MS = 250;
 const MAX_STDERR_BYTES = 16 * 1024;
 
+/** Process lifecycle as seen by the lead. Only `created` may spawn and `exited` is final, so a teammate is single-use. */
+export const TEAMMATE_LIFECYCLE = defineStateMachine({
+  name: 'teammate-lifecycle',
+  initial: 'created',
+  transitions: {
+    created: { spawn: 'spawning', idle: 'idle', work: 'working', shutdownAck: 'stopping' },
+    spawning: { idle: 'idle', work: 'working', shutdownAck: 'stopping', transportFailed: 'stopping', exit: 'exited' },
+    idle: { work: 'working', shutdownAck: 'stopping', transportFailed: 'stopping', exit: 'exited' },
+    working: { idle: 'idle', shutdownAck: 'stopping', transportFailed: 'stopping', exit: 'exited' },
+    stopping: { exit: 'exited' },
+    exited: {},
+  },
+});
+
+/** Stdio channel to the child; it outlives `exit` until `close` so buffered messages still drain. */
+export const TEAMMATE_TRANSPORT = defineStateMachine({
+  name: 'teammate-transport',
+  initial: 'open',
+  transitions: {
+    open: { fail: 'failed', close: 'closed' },
+    failed: { close: 'closed' },
+    closed: {},
+  },
+});
+
+type TeammateLifecycleState = keyof typeof TEAMMATE_LIFECYCLE.transitions;
+type TeammateLifecycleEvent = 'spawn' | 'idle' | 'work' | 'shutdownAck' | 'transportFailed' | 'exit';
+
+const STATUS_BY_STATE: Record<TeammateLifecycleState, TeamMemberStatus> = {
+  created: 'spawning',
+  spawning: 'spawning',
+  idle: 'idle',
+  working: 'working',
+  stopping: 'shutdown',
+  exited: 'shutdown',
+};
+
+const EVENT_BY_STATUS: Record<TeamMemberStatus, TeammateLifecycleEvent | undefined> = {
+  spawning: undefined,
+  idle: 'idle',
+  working: 'work',
+  shutdown: 'shutdownAck',
+};
+
 /**
  * Manages spawning and communicating with a single autohand teammate child process.
  *
@@ -52,13 +97,11 @@ const MAX_STDERR_BYTES = 16 * 1024;
  */
 export class TeammateProcess {
   private child: ChildProcess | null = null;
-  private childClosed = false;
-  private childExited = false;
+  private readonly lifecycle = new StateMachine(TEAMMATE_LIFECYCLE);
+  private readonly transport = new StateMachine(TEAMMATE_TRANSPORT);
   private router = new MessageRouter();
-  private _status: TeamMemberStatus = 'spawning';
   private exitCode: number | null | undefined;
   private error?: string;
-  private transportFailed = false;
   private termination?: Promise<void>;
   private onMessage?: MessageHandler;
   private readonly opts: TeammateSpawnOptions;
@@ -68,7 +111,7 @@ export class TeammateProcess {
   }
 
   get status(): TeamMemberStatus {
-    return this._status;
+    return STATUS_BY_STATE[this.lifecycle.state];
   }
 
   get name(): string {
@@ -83,9 +126,10 @@ export class TeammateProcess {
     return this.child !== null && this.isChildRunning(this.child);
   }
 
+  /** Applies a lead-observed status; writes that would revive a stopping or exited teammate are ignored. */
   setStatus(status: TeamMemberStatus): void {
-    if (this.childExited) return;
-    this._status = status;
+    const event = EVENT_BY_STATUS[status];
+    if (event) this.lifecycle.trySend(event);
   }
 
   /**
@@ -132,18 +176,12 @@ export class TeammateProcess {
    * via piped stdin/stdout using JSON-RPC.
    */
   spawn(onMessage: MessageHandler, onExit: (code: number | null) => void): void {
-    if (this.child) {
+    if (!this.lifecycle.trySend('spawn')) {
       throw new Error(`Teammate "${this.name}" has already been spawned`);
     }
     const args = TeammateProcess.buildSpawnArgs(this.opts);
     const binPath = process.argv[1];
     this.onMessage = onMessage;
-    this.childClosed = false;
-    this.childExited = false;
-    this.transportFailed = false;
-    this.exitCode = undefined;
-    this.error = undefined;
-    this._status = 'spawning';
     let child: ChildProcess;
     try {
       child = spawn(process.execPath, [binPath, ...args], {
@@ -151,29 +189,23 @@ export class TeammateProcess {
         env: TeammateProcess.buildSpawnEnv(this.opts),
       });
     } catch (error) {
-      this.child = null;
-      this.childClosed = true;
-      this.childExited = true;
+      this.transport.trySend('close');
+      this.lifecycle.send('exit');
       this.exitCode = null;
-      this._status = 'shutdown';
       this.recordError(error);
       throw error;
     }
     this.child = child;
 
-    let exitNotified = false;
     const finish = (code: number | null): void => {
-      if (exitNotified) return;
-      exitNotified = true;
-      this.childExited = true;
+      if (!this.lifecycle.trySend('exit')) return;
       this.exitCode = code;
-      this._status = 'shutdown';
       onExit(code);
     };
     child.on('error', (error: Error) => {
       this.recordError(error);
       if (child.pid === undefined) {
-        this.childClosed = true;
+        this.transport.trySend('close');
         finish(null);
       } else {
         this.handleTransportFailure(error);
@@ -187,7 +219,7 @@ export class TeammateProcess {
 
     const stopMessages = child.stdout
       ? this.router.onMessage(child.stdout, (message) => {
-        if (!this.childClosed && !this.transportFailed) onMessage(message);
+        if (this.transport.is('open')) onMessage(message);
       }, error => this.handleTransportFailure(error))
       : undefined;
 
@@ -210,7 +242,7 @@ export class TeammateProcess {
     child.stderr?.on('end', flushStderr);
 
     child.on('close', (code: number | null) => {
-      this.childClosed = true;
+      this.transport.trySend('close');
       stopMessages?.();
       try {
         flushStderr();
@@ -224,7 +256,7 @@ export class TeammateProcess {
    * Send an arbitrary JSON-RPC message to the child process via stdin.
    */
   send(msg: { method: string; params: Record<string, unknown> }): boolean {
-    if (this.child?.stdin && this.isRunning && !this.transportFailed
+    if (this.child?.stdin && this.isRunning && this.transport.is('open')
       && !this.child.stdin.destroyed && !this.child.stdin.writableEnded) {
       try {
         this.router.send(this.child.stdin, msg);
@@ -241,8 +273,7 @@ export class TeammateProcess {
    * sends a `team.assignTask` message.
    */
   assignTask(task: TeamTask): void {
-    if (this.childExited || this.transportFailed) return;
-    this._status = 'working';
+    if (!this.lifecycle.is('working') && !this.lifecycle.trySend('work')) return;
     this.send({ method: 'team.assignTask', params: { task, waitForRunReady: true } });
   }
 
@@ -303,7 +334,7 @@ export class TeammateProcess {
 
   private async terminateChild(options: TeammateTerminationOptions): Promise<void> {
     const child = this.child;
-    if (!child || this.childClosed) return;
+    if (!child || this.transport.is('closed')) return;
 
     const gracefulTimeoutMs = options.gracefulTimeoutMs ?? DEFAULT_GRACEFUL_TIMEOUT_MS;
     const termTimeoutMs = options.termTimeoutMs ?? DEFAULT_TERM_TIMEOUT_MS;
@@ -317,7 +348,8 @@ export class TeammateProcess {
   }
 
   private isChildRunning(child: ChildProcess): boolean {
-    return !this.childClosed && !this.childExited && child.exitCode === null && child.signalCode === null;
+    return !this.transport.is('closed') && !this.lifecycle.is('exited')
+      && child.exitCode === null && child.signalCode === null;
   }
 
   private recordError(error: unknown): void {
@@ -335,14 +367,14 @@ export class TeammateProcess {
   }
 
   private handleTransportFailure(error: unknown): void {
-    if (this.childExited || this.transportFailed) return;
-    this.transportFailed = true;
+    if (this.lifecycle.is('exited') || !this.transport.trySend('fail')) return;
+    this.lifecycle.trySend('transportFailed');
     this.recordError(error);
     void this.terminate({ gracefulTimeoutMs: 0 });
   }
 
   private waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
-    if (this.childClosed) return Promise.resolve(true);
+    if (this.transport.is('closed')) return Promise.resolve(true);
 
     return new Promise<boolean>((resolve) => {
       let settled = false;
@@ -355,18 +387,18 @@ export class TeammateProcess {
         resolve(exited);
       };
       const onClose = (): void => {
-        this.childClosed = true;
+        this.transport.trySend('close');
         finish(true);
       };
       const onError = (): void => {
-        if (this.childClosed) finish(true);
+        if (this.transport.is('closed')) finish(true);
       };
       const timeout = setTimeout(() => finish(false), timeoutMs);
       timeout.unref?.();
       child.once('close', onClose);
       child.on('error', onError);
 
-      if (this.childClosed) finish(true);
+      if (this.transport.is('closed')) finish(true);
     });
   }
 
@@ -379,8 +411,8 @@ export class TeammateProcess {
       name: this.opts.name,
       agentName: this.opts.agentName,
       pid: this.pid,
-      status: this._status,
-      ...(this._status === 'shutdown' ? { exitCode: this.exitCode ?? null } : {}),
+      status: this.status,
+      ...(this.status === 'shutdown' ? { exitCode: this.exitCode ?? null } : {}),
       ...(this.error ? { error: this.error } : {}),
       provider: this.opts.provider,
       model: this.opts.model,

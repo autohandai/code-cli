@@ -1,5 +1,6 @@
 import type { PeerClient, PeerEvent, PeerMessage } from '../../session/peers/PeerMessaging.js';
 import type { ResourceCoordinatorClient } from '../../session/peers/ResourceCoordinator.js';
+import { StateMachine, defineStateMachine } from '../../utils/stateMachine.js';
 
 export interface PeerRunRuntime {
   messaging: PeerClient;
@@ -46,41 +47,62 @@ export interface PeerCommunicationRuntimeOptions {
   messaging: PeerClient;
   notify: (event: PeerEvent) => void;
   commitContext: (messages: PeerContextEnvelope[]) => Promise<void>;
-  requestAutoTurn: () => Promise<void>;
+  /** Resolve `false` when the host declines the automatic turn; anything else means it was admitted. */
+  requestAutoTurn: () => Promise<boolean | void>;
   onError?: (error: unknown) => void;
 }
 
+export type PeerPauseReason = 'permission' | 'cancelled' | 'shutdown';
+export type PeerTurnState = 'idle' | 'requesting' | 'awaitingTurn' | 'inTurn' | 'closed';
+export type PeerTurnEvent = 'requestWake' | 'wakeAccepted' | 'wakeDeclined' | 'wakeFailed' | 'beginTurn' | 'endTurn' | 'close';
+
+/**
+ * `requesting`: the host is deciding whether to admit an automatic turn.
+ * `awaitingTurn`: the host admitted it (e.g. queued it) but it has not begun.
+ * A turn may begin from any open state, because the user can always start one.
+ */
+export const PEER_TURN_LIFECYCLE = defineStateMachine<PeerTurnState, PeerTurnEvent>({
+  name: 'peer-turn',
+  initial: 'idle',
+  transitions: {
+    idle: { requestWake: 'requesting', beginTurn: 'inTurn', close: 'closed' },
+    requesting: { wakeAccepted: 'awaitingTurn', wakeDeclined: 'idle', wakeFailed: 'idle', beginTurn: 'inTurn', close: 'closed' },
+    awaitingTurn: { beginTurn: 'inTurn', wakeFailed: 'idle', close: 'closed' },
+    inTurn: { beginTurn: 'inTurn', endTurn: 'idle', close: 'closed' },
+    closed: {},
+  },
+});
+
 export class PeerCommunicationRuntime {
-  private busy = false;
-  private closed = false;
+  private readonly turn = new StateMachine(PEER_TURN_LIFECYCLE);
   private generation = 0;
   private contextRevision = 0;
-  private wakeRequested = false;
   private pendingAutomatic = false;
-  private readonly paused = new Set<'permission' | 'cancelled' | 'shutdown'>();
+  private readonly paused = new Set<PeerPauseReason>();
   private boundary: Promise<void> = Promise.resolve();
-  private wake?: Promise<void>;
+  private wakeInFlight = false;
   private readonly unsubscribe: () => void;
 
   constructor(private readonly options: PeerCommunicationRuntimeOptions) {
     this.unsubscribe = options.messaging.subscribe(event => this.arrived(event));
   }
 
+  get turnState(): PeerTurnState { return this.turn.state; }
+
   beginTurn(): void {
-    if (this.closed) return;
-    this.busy = true;
-    this.wakeRequested = false;
+    if (!this.turn.trySend('beginTurn')) return;
     this.pendingAutomatic = false;
     this.paused.delete('cancelled');
   }
 
   endTurn(cancelled = false): void {
-    this.busy = false;
+    if (this.turn.is('closed')) return;
+    this.turn.trySend('endTurn');
     if (cancelled) this.paused.add('cancelled');
     this.scheduleWake();
   }
 
-  setPaused(reason: 'permission' | 'cancelled' | 'shutdown', paused: boolean): void {
+  setPaused(reason: PeerPauseReason, paused: boolean): void {
     if (paused) this.paused.add(reason);
     else this.paused.delete(reason);
     if (!paused) this.scheduleWake();
@@ -105,26 +127,25 @@ export class PeerCommunicationRuntime {
     const generation = this.generation;
     const revision = this.contextRevision;
     await this.safeBoundary();
-    if (this.closed || this.paused.size) { this.busy = false; return { continueTurn: false }; }
+    if (this.turn.is('closed') || this.paused.size) { this.turn.trySend('endTurn'); return { continueTurn: false }; }
     const { messages } = await this.options.messaging.messages({ consume: false });
     if (messages.length || this.generation !== generation || this.contextRevision !== revision) return { continueTurn: true };
-    this.busy = false;
+    this.turn.trySend('endTurn');
     this.pendingAutomatic = false;
     return { continueTurn: false };
   }
 
   async close(): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
+    if (!this.turn.trySend('close')) return;
     this.paused.add('shutdown');
     this.unsubscribe();
     await this.boundary.catch(() => {});
   }
 
-  private canConsume(): boolean { return !this.closed && this.busy && !this.paused.size; }
+  private canConsume(): boolean { return this.turn.is('inTurn') && !this.paused.size; }
 
   private arrived(event: PeerEvent): void {
-    if (this.closed) return;
+    if (this.turn.is('closed')) return;
     try { this.options.notify(event); } catch (error) { this.report(error); }
     if (event.type !== 'message' || event.to !== this.options.messaging.self.peerId) return;
     this.generation++;
@@ -133,21 +154,32 @@ export class PeerCommunicationRuntime {
   }
 
   private scheduleWake(): void {
-    if (this.closed || this.busy || this.paused.size || this.wake || this.wakeRequested || !this.pendingAutomatic || this.options.messaging.policy.idleBehavior !== 'auto') return;
-    this.wakeRequested = true;
-    const waking = Promise.resolve().then(async () => {
-      if (!this.closed && !this.busy && !this.paused.size) await this.options.requestAutoTurn();
-      else this.wakeRequested = false;
-    });
-    this.wake = waking;
-    void waking.catch(error => {
-      this.wakeRequested = false;
-      this.pendingAutomatic = false;
-      this.report(error);
-    }).finally(() => {
-      if (this.wake === waking) this.wake = undefined;
-      this.scheduleWake();
-    });
+    if (this.wakeInFlight || this.paused.size || !this.pendingAutomatic || this.options.messaging.policy.idleBehavior !== 'auto') return;
+    if (!this.turn.trySend('requestWake')) return;
+    this.wakeInFlight = true;
+    void Promise.resolve()
+      .then(() => this.options.requestAutoTurn())
+      .then(
+        admitted => {
+          if (admitted === false) {
+            this.turn.trySend('wakeDeclined');
+            return false;
+          }
+          this.turn.trySend('wakeAccepted');
+          return true;
+        },
+        error => {
+          this.turn.trySend('wakeFailed');
+          this.pendingAutomatic = false;
+          this.report(error);
+          return true;
+        },
+      )
+      .then(rearm => {
+        this.wakeInFlight = false;
+        // A declined wake waits for the next arrival, turn end or unpause rather than re-asking at once.
+        if (rearm) this.scheduleWake();
+      });
   }
 
   private report(error: unknown): void { try { this.options.onError?.(error); } catch { /* Runtime reporting cannot revoke mailbox custody. */ } }

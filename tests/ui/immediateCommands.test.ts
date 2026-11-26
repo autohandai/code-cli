@@ -9,6 +9,8 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PERSISTENT_INPUT_LIFECYCLE, type PersistentInputState } from '../../src/ui/persistentInput.js';
+import { StateMachine } from '../../src/utils/stateMachine.js';
 
 describe('Immediate command detection - isImmediateCommand', () => {
   let isImmediateCommand: typeof import('../../src/ui/shellCommand.js').isImmediateCommand;
@@ -58,6 +60,14 @@ describe('Immediate command detection - isImmediateCommand', () => {
   });
 });
 
+/** Put a PersistentInput into a lifecycle state without start(), which needs a TTY. */
+function forceLifecycle(pi: object, state: PersistentInputState): void {
+  Object.assign(pi, {
+    lifecycle: new StateMachine(PERSISTENT_INPUT_LIFECYCLE, { initial: state }),
+    pauseDepth: state === 'paused' ? 1 : 0,
+  });
+}
+
 describe('PersistentInput immediate command handling', () => {
   let PersistentInput: typeof import('../../src/ui/persistentInput.js').PersistentInput;
   let getPlanModeManager: typeof import('../../src/commands/plan.js').getPlanModeManager;
@@ -77,8 +87,8 @@ describe('PersistentInput immediate command handling', () => {
 
   it('should emit immediate-command instead of queuing for ! commands', () => {
     const pi = new PersistentInput({ silentMode: true });
-    // Bypass start() which needs TTY - set isActive directly
-    (pi as any).isActive = true;
+    // Bypass start() which needs TTY
+    forceLifecycle(pi, 'active');
 
     const immediateHandler = vi.fn();
     const queueHandler = vi.fn();
@@ -101,7 +111,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('should emit immediate-command instead of queuing for / commands', () => {
     const pi = new PersistentInput({ silentMode: true });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
 
     const immediateHandler = vi.fn();
     const queueHandler = vi.fn();
@@ -127,7 +137,7 @@ describe('PersistentInput immediate command handling', () => {
     vi.useFakeTimers();
     try {
       const pi = new PersistentInput({ silentMode: true });
-      (pi as any).isActive = true;
+      forceLifecycle(pi, 'active');
 
       const immediateHandler = vi.fn();
       const queueHandler = vi.fn();
@@ -155,7 +165,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('should clear currentInput after immediate command', () => {
     const pi = new PersistentInput({ silentMode: true });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
 
     pi.on('immediate-command', () => {});
 
@@ -171,7 +181,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('emits input-change events while editing and after submit', () => {
     const pi = new PersistentInput({ silentMode: true });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
 
     const handler = (pi as any).handleKeypress;
     const changes: string[] = [];
@@ -198,7 +208,7 @@ describe('PersistentInput immediate command handling', () => {
     const focusScrollBottom = vi.fn();
     const disable = vi.fn();
 
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
     (pi as any).regions = {
       focusScrollBottom,
       disable,
@@ -221,7 +231,7 @@ describe('PersistentInput immediate command handling', () => {
     const enable = vi.fn();
     const render = vi.fn();
 
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
     (pi as any).supportsRawMode = true;
     (pi as any).input = {
       isTTY: true,
@@ -278,8 +288,7 @@ describe('PersistentInput immediate command handling', () => {
     (mockInput as any).setRawMode = setRawMode;
     (mockInput as any).isRaw = false;
     (pi as any).input = mockInput;
-    (pi as any).isActive = true;
-    (pi as any).isPaused = true;
+    forceLifecycle(pi, 'paused');
     (pi as any).supportsRawMode = true;
     (pi as any).regions = {
       enable,
@@ -309,7 +318,7 @@ describe('PersistentInput immediate command handling', () => {
       silentMode: true,
       onCycleInteractionMode,
     });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
     const manager = getPlanModeManager();
     manager.disable();
 
@@ -330,7 +339,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('Tab accepts shell command completion while composing ! command', () => {
     const pi = new PersistentInput({ silentMode: true });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
 
     const handler = (pi as any).handleKeypress;
     handler('!', { name: undefined });
@@ -346,7 +355,7 @@ describe('PersistentInput immediate command handling', () => {
     fs.mkdirSync(path.join(tempDir, 'build'), { recursive: true });
 
     const pi = new PersistentInput({ silentMode: true, workspaceRoot: tempDir });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
 
     const handler = (pi as any).handleKeypress;
     handler('!', { name: undefined });
@@ -368,7 +377,7 @@ describe('PersistentInput immediate command handling', () => {
       silentMode: true,
       resolveShellSuggestion,
     });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
 
     const handler = (pi as any).handleKeypress;
     handler('!', { name: undefined });
@@ -390,7 +399,7 @@ describe('PersistentInput immediate command handling', () => {
       silentMode: true,
       resolveShellSuggestion,
     });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
 
     const handler = (pi as any).handleKeypress;
     handler('!', { name: undefined });
@@ -410,7 +419,7 @@ describe('PersistentInput immediate command handling', () => {
     vi.useFakeTimers();
     try {
       const pi = new PersistentInput({ silentMode: true });
-      (pi as any).isActive = true;
+      forceLifecycle(pi, 'active');
 
       const handler = (pi as any).handleKeypress;
 
@@ -448,7 +457,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('Ctrl+Q writes queue snapshot above composer in terminal regions mode', () => {
     const pi = new PersistentInput({ silentMode: false });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
     (pi as any).queue = [
       { text: 'first item', timestamp: 1 },
       { text: 'second item', timestamp: 2 },
@@ -489,7 +498,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('queue browser supports up/down selection before pulling with Enter', () => {
     const pi = new PersistentInput({ silentMode: true });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
     (pi as any).queue = [
       { text: 'first item', timestamp: 1 },
       { text: 'second item', timestamp: 2 },
@@ -509,7 +518,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('queue browser supports removing selected item with Backspace', () => {
     const pi = new PersistentInput({ silentMode: true });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
     (pi as any).queue = [
       { text: 'first item', timestamp: 1 },
       { text: 'second item', timestamp: 2 },
@@ -528,7 +537,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('Ctrl+Q reports empty queue without changing input', () => {
     const pi = new PersistentInput({ silentMode: true });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
     pi.setCurrentInput('draft');
 
     const handler = (pi as any).handleKeypress;
@@ -540,7 +549,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('shows shortcut help when ? is typed on empty draft in terminal regions mode', () => {
     const pi = new PersistentInput({ silentMode: false });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
 
     const writeAbove = vi.fn();
     (pi as any).regions = {
@@ -569,7 +578,7 @@ describe('PersistentInput immediate command handling', () => {
 
   it('? behaves as normal character when draft is not empty', () => {
     const pi = new PersistentInput({ silentMode: true });
-    (pi as any).isActive = true;
+    forceLifecycle(pi, 'active');
     pi.setCurrentInput('why');
 
     const handler = (pi as any).handleKeypress;
@@ -582,7 +591,7 @@ describe('PersistentInput immediate command handling', () => {
     vi.useFakeTimers();
     try {
       const pi = new PersistentInput({ silentMode: true });
-      (pi as any).isActive = true;
+      forceLifecycle(pi, 'active');
       const queued: string[] = [];
       pi.on('queued', (text: string) => queued.push(text));
 
@@ -611,7 +620,7 @@ describe('PersistentInput immediate command handling', () => {
     vi.useFakeTimers();
     try {
       const pi = new PersistentInput({ silentMode: true });
-      (pi as any).isActive = true;
+      forceLifecycle(pi, 'active');
       const queued: string[] = [];
       pi.on('queued', (text: string) => queued.push(text));
 

@@ -97,6 +97,30 @@ describe('SimpleChatHandler prompt cache affinity', () => {
   });
 });
 
+describe('SimpleChatHandler turn activity', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('is active only while the greeting is answered', async () => {
+    const { agent, complete } = createAgent();
+    complete.mockImplementationOnce(async () => {
+      expect(agent.isInstructionActive).toBe(true);
+      return { id: 'greeting', created: 1, content: 'Hi!', raw: {} };
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(await new SimpleChatHandler(agent).handle('hello')).toBe(true);
+    expect(agent.isInstructionActive).toBe(false);
+  });
+
+  it('returns to idle when probing provider capabilities throws', async () => {
+    const { agent } = createAgent();
+    agent.llm.getCapabilities = () => { throw new Error('capabilities unavailable'); };
+    await expect(new SimpleChatHandler(agent).handle('hello')).rejects.toThrow('capabilities unavailable');
+    expect(agent.isInstructionActive).toBe(false);
+  });
+});
+
 function createAgent(activeSessionId?: string): {
   agent: SimpleChatAgent;
   complete: ReturnType<typeof vi.fn>;

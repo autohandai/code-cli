@@ -7,11 +7,28 @@ import { randomUUID } from 'node:crypto';
 import fs from 'fs-extra';
 import path from 'node:path';
 import type { SessionMessage } from '../session/types.js';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
 
 export const DEEP_RESEARCH_RUN_MARKER = 'AUTOHAND_DEEP_RESEARCH_RUN_ID';
 export const DEEP_RESEARCH_STATUS_PATH = path.join('.autohand', 'research', 'status.json');
 
 export type DeepResearchRunStatus = 'queued' | 'running' | 'incomplete' | 'completed';
+
+/** A completed run is final: a resubmitted run marker can neither restart nor re-finalize it. */
+export const DEEP_RESEARCH_RUN_LIFECYCLE = defineStateMachine<DeepResearchRunStatus, 'start' | 'complete' | 'block'>({
+  name: 'deep research run',
+  initial: 'queued',
+  transitions: {
+    queued: { start: 'running', complete: 'completed', block: 'incomplete' },
+    running: { start: 'running', complete: 'completed', block: 'incomplete' },
+    incomplete: { start: 'running', complete: 'completed', block: 'incomplete' },
+    completed: {},
+  },
+});
+
+function canAdvance(run: DeepResearchRun, event: 'start' | 'complete' | 'block'): boolean {
+  return new StateMachine(DEEP_RESEARCH_RUN_LIFECYCLE, { initial: run.status }).can(event);
+}
 
 export interface DeepResearchRun {
   id: string;
@@ -116,7 +133,7 @@ export async function markDeepResearchRunStarted(
   runId: string,
 ): Promise<DeepResearchRun | null> {
   const run = await readDeepResearchRun(workspaceRoot);
-  if (!run || run.id !== runId || run.status === 'completed') {
+  if (!run || run.id !== runId || !canAdvance(run, 'start')) {
     return null;
   }
 
@@ -256,6 +273,9 @@ export async function finalizeDeepResearchRun(
   const run = await readDeepResearchRun(options.workspaceRoot);
   if (!run || run.id !== options.runId) {
     return { completed: false, blockers: ['The deep research run could not be found.'] };
+  }
+  if (!canAdvance(run, 'complete')) {
+    return { completed: run.status === 'completed', blockers: [...run.blockers] };
   }
 
   const blockers: string[] = [];

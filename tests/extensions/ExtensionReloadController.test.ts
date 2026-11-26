@@ -7,13 +7,16 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ExtensionReloadController } from '../../src/extensions/ExtensionReloadController.js';
+import { watch } from 'node:fs';
+import { EXTENSION_RELOAD_LIFECYCLE, ExtensionReloadController } from '../../src/extensions/ExtensionReloadController.js';
+import { reachableStates, StateMachine, terminalStates } from '../../src/utils/stateMachine.js';
+import { randomEventWalk } from '../helpers/stateMachineProperties.js';
 
-const watchers = vi.hoisted(() => new Map<string, { change: (event: string, file: string) => void; close: ReturnType<typeof vi.fn> }>());
+const watchers = vi.hoisted(() => new Map<string, { root: string; change: (event: string, file: string) => void; close: ReturnType<typeof vi.fn> }>());
 vi.mock('node:fs', async (original) => ({
   ...await original<typeof import('node:fs')>(),
   watch: vi.fn((root: string, _options: unknown, change: (event: string, file: string) => void) => {
-    const watcher = { change, close: vi.fn(), on: vi.fn().mockReturnThis(), unref: vi.fn() };
+    const watcher = { root, change, close: vi.fn(), on: vi.fn().mockReturnThis(), unref: vi.fn() };
     watchers.set(root, watcher);
     return watcher;
   }),
@@ -26,6 +29,7 @@ describe('ExtensionReloadController', () => {
     for (const controller of controllers.splice(0)) await controller.stop();
     vi.useRealTimers();
     watchers.clear();
+    vi.mocked(watch).mockClear();
     await Promise.all(roots.splice(0).map((root) => fs.remove(root)));
   });
 
@@ -150,4 +154,64 @@ describe('ExtensionReloadController', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('starts once when start is called concurrently', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-watch-double-start-'));
+    roots.push(root);
+    const controller = new ExtensionReloadController({ roots: [root], isIdle: () => true, reload: async () => {} });
+    controllers.push(controller);
+
+    await Promise.all([controller.start(), controller.start()]);
+
+    expect(vi.mocked(watch).mock.calls.filter(([watched]) => watched === root)).toHaveLength(1);
+  });
+
+  it('watches the most recently requested package roots when updates overlap', async () => {
+    const { root, controller } = await setup();
+    const [first, extra, second] = ['first', 'extra', 'second'].map((name) => path.join(root, name));
+    await Promise.all([first, extra, second].map((dir) => fs.ensureDir(dir)));
+    vi.mocked(watch).mockClear();
+
+    await Promise.all([controller.setPackageRoots([first, extra]), controller.setPackageRoots([second])]);
+
+    const created = vi.mocked(watch).mock.results.map((result) => result.value as { root: string; close: ReturnType<typeof vi.fn> });
+    const open = created.filter((watcher) => watcher.close.mock.calls.length === 0).map((watcher) => watcher.root);
+    expect(open).toEqual([second]);
+    expect(new Set(created.map((watcher) => watcher.root)).size).toBe(created.length);
+
+    await controller.stop();
+    expect(created.every((watcher) => watcher.close.mock.calls.length === 1)).toBe(true);
+  });
+
+  it('never starts watching after stop wins a race with start', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'autohand-watch-stop-race-'));
+    roots.push(root);
+    const controller = new ExtensionReloadController({ roots: [root], isIdle: () => true, reload: async () => {} });
+    const starting = controller.start();
+    await controller.stop();
+    await starting;
+    await controller.start();
+    await controller.setPackageRoots([root]);
+    expect(watch).not.toHaveBeenCalled();
+  });
+});
+
+describe('extension reload lifecycle table', () => {
+  it('only moves forward from idle through starting and watching to stopped', () => {
+    const machine = new StateMachine(EXTENSION_RELOAD_LIFECYCLE);
+    expect(machine.send('start')).toBe('starting');
+    expect(machine.can('start')).toBe(false);
+    expect(machine.send('ready')).toBe('watching');
+    expect(machine.can('start')).toBe(false);
+    expect(machine.send('stop')).toBe('stopped');
+    expect(terminalStates(EXTENSION_RELOAD_LIFECYCLE)).toEqual(['stopped']);
+    expect([...reachableStates(EXTENSION_RELOAD_LIFECYCLE)].sort()).toEqual(['idle', 'starting', 'stopped', 'watching']);
+    for (const from of ['idle', 'starting'] as const) {
+      expect(new StateMachine(EXTENSION_RELOAD_LIFECYCLE, { initial: from }).send('stop')).toBe('stopped');
+    }
+    expect(new StateMachine(EXTENSION_RELOAD_LIFECYCLE).can('ready')).toBe(false);
+  });
+
+  it('accepts exactly the table edges for any event sequence', () => {
+    randomEventWalk(EXTENSION_RELOAD_LIFECYCLE, ['start', 'ready', 'stop'], { seeds: 50, steps: 40 });
+  });
 });

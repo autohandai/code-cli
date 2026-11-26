@@ -19,6 +19,7 @@ import {
   JSON_RPC_ERROR_CODES,
 } from './types.js';
 import { getRpcErrorMetadata, getRpcIdMetadata, writeRpcDebugLine } from './logging.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
 
 // ============================================================================
 // Parsing
@@ -160,6 +161,20 @@ export function generateId(prefix: string = 'id'): string {
 // ============================================================================
 
 /**
+ * `closed` means no more input will arrive; `disposed` means the reader was
+ * detached on purpose and discards whatever partial line it was holding.
+ */
+export const LINE_READER_LIFECYCLE = defineStateMachine({
+  name: 'LineReader',
+  initial: 'open',
+  transitions: {
+    open: { finish: 'closed', dispose: 'disposed' },
+    closed: { dispose: 'disposed' },
+    disposed: {},
+  },
+});
+
+/**
  * Buffered line reader for stdin
  * Handles partial messages and newline-delimited JSON
  */
@@ -170,17 +185,15 @@ export class LineReader {
     resolve: (line: string) => void;
     reject: (error: Error) => void;
   }> = [];
-  private closed = false;
-  private disposed = false;
+  private readonly lifecycle = new StateMachine(LINE_READER_LIFECYCLE);
   private readonly onData = (chunk: string): void => this.handleData(chunk);
-  private readonly onEnd = (): void => this.handleEnd();
-  private readonly onClose = (): void => this.handleClose();
+  private readonly onInputFinished = (): void => this.finishInput();
 
   constructor(private stream: NodeJS.ReadableStream) {
     this.stream.setEncoding('utf8');
     this.stream.on('data', this.onData);
-    this.stream.on('end', this.onEnd);
-    this.stream.on('close', this.onClose);
+    this.stream.on('end', this.onInputFinished);
+    this.stream.on('close', this.onInputFinished);
   }
 
   private handleData(chunk: string): void {
@@ -198,17 +211,15 @@ export class LineReader {
     }
   }
 
-  private handleEnd(): void {
-    // Process any remaining buffer content
-    if (this.buffer.trim()) {
-      this.deliverLine(this.buffer);
-    }
+  /** `end` and `close` both mean no more input: flush the unterminated tail once. */
+  private finishInput(): void {
+    if (!this.lifecycle.trySend('finish')) return;
+    const tail = this.buffer;
     this.buffer = '';
-    this.closePendingReads();
-  }
-
-  private handleClose(): void {
-    this.closePendingReads();
+    if (tail.trim()) {
+      this.deliverLine(tail);
+    }
+    this.rejectPendingReads();
   }
 
   private deliverLine(line: string): void {
@@ -220,12 +231,7 @@ export class LineReader {
     }
   }
 
-  private closePendingReads(): void {
-    if (this.closed) {
-      return;
-    }
-
-    this.closed = true;
+  private rejectPendingReads(): void {
     const error = new Error('Stream closed');
     for (const pendingRead of this.pendingReads.splice(0)) {
       pendingRead.reject(error);
@@ -240,7 +246,7 @@ export class LineReader {
       return this.lineQueue.shift()!;
     }
 
-    if (this.closed) {
+    if (this.isClosed()) {
       throw new Error('Stream closed');
     }
 
@@ -253,16 +259,16 @@ export class LineReader {
    * Detach stream listeners and settle any pending read.
    */
   dispose(): void {
-    if (this.disposed) {
+    if (!this.lifecycle.trySend('dispose')) {
       return;
     }
 
-    this.disposed = true;
+    this.buffer = '';
     this.stream.removeListener('data', this.onData);
-    this.stream.removeListener('end', this.onEnd);
-    this.stream.removeListener('close', this.onClose);
+    this.stream.removeListener('end', this.onInputFinished);
+    this.stream.removeListener('close', this.onInputFinished);
     this.stream.pause?.();
-    this.closePendingReads();
+    this.rejectPendingReads();
   }
 
   /**
@@ -276,7 +282,7 @@ export class LineReader {
    * Check if the stream is closed
    */
   isClosed(): boolean {
-    return this.closed;
+    return !this.lifecycle.is('open');
   }
 }
 

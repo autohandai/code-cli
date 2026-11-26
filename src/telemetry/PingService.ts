@@ -9,12 +9,27 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import { AUTOHAND_HOME, AUTOHAND_FILES } from '../constants.js';
 import { atomicWriteJson } from '../utils/atomicFile.js';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
 
 const PING_INTERVAL_MS = 45 * 60 * 1000; // 45 minutes
 const PING_CACHE_FILE = path.join(AUTOHAND_HOME, 'last-ping.json');
 const API_BASE_URL = process.env.AUTOHAND_API_URL || 'https://api.autohand.ai';
 const REQUEST_TIMEOUT_MS = 5000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2500;
+
+/** `stopped` is terminal: a stopped service never pings or restarts. */
+export const PING_SERVICE_LIFECYCLE = defineStateMachine({
+  name: 'PingService',
+  initial: 'idle',
+  transitions: {
+    idle: { start: 'running', stop: 'stopped' },
+    running: { stop: 'stopped' },
+    stopped: {},
+  },
+});
+export type PingServiceState = keyof typeof PING_SERVICE_LIFECYCLE.transitions;
+
+type PingResult = { success: boolean; updateAvailable?: boolean; latestVersion?: string };
 
 interface PingCache {
   lastPing: string;
@@ -27,16 +42,9 @@ export class PingService {
   private platform: string;
   private clientType: string;
   private pingTimer: NodeJS.Timeout | null = null;
-  private isPinging = false;
-  private started = false;
-  private stopped = false;
-  private generation = 0;
+  private readonly lifecycle = new StateMachine(PING_SERVICE_LIFECYCLE);
   private requestController: AbortController | null = null;
-  private activePingPromise: Promise<{
-    success: boolean;
-    updateAvailable?: boolean;
-    latestVersion?: string;
-  }> | null = null;
+  private activePingPromise: Promise<PingResult> | null = null;
   private shutdownPromise: Promise<void> | null = null;
 
   constructor(options: {
@@ -47,6 +55,10 @@ export class PingService {
     this.clientType = options.clientType || 'cli';
     this.platform = `${os.platform()}-${os.arch()}`;
     this.deviceId = this.getOrCreateDeviceId();
+  }
+
+  get lifecycleState(): PingServiceState {
+    return this.lifecycle.state;
   }
 
   /**
@@ -91,16 +103,16 @@ export class PingService {
   /**
    * Update the ping cache
    */
-  private async updateCache(generation: number): Promise<void> {
+  private async updateCache(): Promise<void> {
     try {
       await fs.ensureDir(path.dirname(PING_CACHE_FILE));
-      this.assertActive(generation);
+      this.assertActive();
       const cache: PingCache = {
         lastPing: new Date().toISOString(),
         pingDate: new Date().toISOString().split('T')[0],
       };
       await atomicWriteJson(PING_CACHE_FILE, cache, {
-        beforeCommit: () => this.assertActive(generation),
+        beforeCommit: () => this.assertActive(),
       });
     } catch {
       // Silently fail - ping should never break the CLI
@@ -110,8 +122,8 @@ export class PingService {
   /**
    * Send a ping to the API
    */
-  async ping(): Promise<{ success: boolean; updateAvailable?: boolean; latestVersion?: string }> {
-    if (this.isPinging || this.stopped) {
+  async ping(): Promise<PingResult> {
+    if (this.activePingPromise || this.lifecycle.is('stopped')) {
       return { success: false };
     }
 
@@ -120,18 +132,13 @@ export class PingService {
       return { success: false };
     }
 
-    this.isPinging = true;
-    const generation = this.generation;
-    const activePing = this.performPing(generation);
+    const activePing = this.performPing();
     this.activePingPromise = activePing;
 
     try {
       return await activePing;
     } finally {
-      this.isPinging = false;
-      if (this.activePingPromise === activePing) {
-        this.activePingPromise = null;
-      }
+      this.activePingPromise = null;
     }
   }
 
@@ -139,15 +146,11 @@ export class PingService {
    * Start periodic ping timer (every 45 minutes)
    */
   start(): void {
-    if (this.started || this.stopped) return;
-    this.started = true;
+    if (!this.lifecycle.trySend('start')) return;
     // Ping immediately on start
     this.ping().catch(() => {});
 
     // Then ping every 45 minutes
-    if (this.pingTimer) {
-      clearInterval(this.pingTimer);
-    }
     this.pingTimer = setInterval(() => {
       this.ping().catch(() => {});
     }, PING_INTERVAL_MS);
@@ -162,16 +165,13 @@ export class PingService {
    * Stop periodic ping timer
    */
   stop(): void {
-    if (!this.stopped) {
-      this.stopped = true;
-      this.generation++;
+    if (this.lifecycle.trySend('stop')) {
       this.requestController?.abort();
     }
     if (this.pingTimer) {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
     }
-    this.started = false;
   }
 
   shutdown(options: { timeoutMs?: number } = {}): Promise<void> {
@@ -190,14 +190,10 @@ export class PingService {
     return this.deviceId;
   }
 
-  private async performPing(generation: number): Promise<{
-    success: boolean;
-    updateAvailable?: boolean;
-    latestVersion?: string;
-  }> {
+  private async performPing(): Promise<PingResult> {
     try {
       const shouldPing = await this.shouldPing();
-      this.assertActive(generation);
+      this.assertActive();
       if (!shouldPing) {
         return { success: true };
       }
@@ -222,17 +218,13 @@ export class PingService {
           }),
           signal: controller.signal,
         });
-        this.assertActive(generation);
+        this.assertActive();
 
         if (response.ok) {
-          const data = await response.json() as {
-            success: boolean;
-            updateAvailable?: boolean;
-            latestVersion?: string;
-          };
-          this.assertActive(generation);
-          await this.updateCache(generation);
-          this.assertActive(generation);
+          const data = await response.json() as PingResult;
+          this.assertActive();
+          await this.updateCache();
+          this.assertActive();
           return {
             success: true,
             updateAvailable: data.updateAvailable,
@@ -252,8 +244,8 @@ export class PingService {
     return { success: false };
   }
 
-  private assertActive(generation: number): void {
-    if (this.stopped || generation !== this.generation) {
+  private assertActive(): void {
+    if (this.lifecycle.is('stopped')) {
       throw new DOMException('Ping service stopped', 'AbortError');
     }
   }

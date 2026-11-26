@@ -41,6 +41,7 @@ import type {
   PermissionMode,
 } from '../../types.js';
 import { isAutohandInferenceEnabled } from '../../featureFlags.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
 import type {
   JsonRpcId,
   RpcMessage,
@@ -278,6 +279,16 @@ const RPC_ERROR_ICON_MAP: Record<ApiErrorCode, string> = {
 
 const RPC_SHUTDOWN_TIMEOUT_MS = 2_500;
 
+export const RPC_ADAPTER_LIFECYCLE = defineStateMachine({
+  name: 'RPCAdapter',
+  initial: 'open',
+  transitions: {
+    open: { shutdown: 'shuttingDown' },
+    shuttingDown: { seal: 'sealed' },
+    sealed: {},
+  },
+});
+
 /**
  * Descriptor for a VS Code MCP tool registered by the extension
  */
@@ -354,9 +365,7 @@ export class RPCAdapter {
   private activePrompt: ActivePrompt | null = null;
   private activePromptWork: Promise<PromptResult> | null = null;
   private pendingPromptStarts = new Map<symbol, PendingPromptStart>();
-  private shuttingDown = false;
-  private notificationsSealed = false;
-  private status: 'idle' | 'processing' | 'waiting_permission' = 'idle';
+  private readonly lifecycle = new StateMachine(RPC_ADAPTER_LIFECYCLE);
   private model = '';
   private workspace = '';
   private contextPercent = 0;
@@ -390,6 +399,22 @@ export class RPCAdapter {
     maxThinkingTokens?: number;
     [key: string]: unknown;
   } = { configPath: '' };
+
+  private get shuttingDown(): boolean {
+    return !this.lifecycle.is('open');
+  }
+
+  private get notificationsSealed(): boolean {
+    return this.lifecycle.is('sealed');
+  }
+
+  /** Derived from live facts so no resolution path can leave a stale status behind. */
+  private get status(): GetStateResult['status'] {
+    if (this.pendingPermissions.size > 0 || this.pendingDirectoryAccess.size > 0) {
+      return 'waiting_permission';
+    }
+    return this.activePrompt === null ? 'idle' : 'processing';
+  }
 
   /**
    * Check if the current model supports vision/image inputs.
@@ -655,7 +680,6 @@ export class RPCAdapter {
         this.stopKeepalive();
         this.activePrompt = null;
         this.abortController = null;
-        this.status = 'idle';
       }
       scheduled.resolve();
     }
@@ -669,7 +693,6 @@ export class RPCAdapter {
     this.turnStartTime = null;
     this.currentMessageId = null;
     this.currentMessageContent = '';
-    this.status = 'idle';
   }
 
   private canContinuePrompt(prompt: ActivePrompt): boolean {
@@ -735,7 +758,6 @@ export class RPCAdapter {
       pendingStepDecision: null,
       finalized: false,
     };
-    this.status = 'processing';
     this.abortController = abortController;
     this.activePrompt = prompt;
 
@@ -1226,7 +1248,6 @@ export class RPCAdapter {
 
     this.stopKeepalive();
     this.activePrompt = null;
-    this.status = 'idle';
     this.currentTurnId = null;
     this.turnStartTime = null;
     this.currentMessageId = null;
@@ -1262,7 +1283,6 @@ export class RPCAdapter {
       return { success: false };
     }
 
-    this.status = 'processing';
     if (!prompt.cancelRequested) {
       prompt.cancelRequested = true;
       this.agent?.cancelCurrentInstruction();
@@ -1311,7 +1331,6 @@ export class RPCAdapter {
     this.stopKeepalive();
     this.sessionId = generateId('session');
     this.sessionStartedAt = Date.now();
-    this.status = 'idle';
     this.currentTurnId = null;
     this.currentMessageId = null;
     this.currentMessageContent = '';
@@ -1427,7 +1446,6 @@ export class RPCAdapter {
     this.sessionStartedAt = Date.now();
     this.workspace = attached.workspaceRoot;
     this.model = attached.model;
-    this.status = 'idle';
     await this.executeSessionStartLifecycle('resume', this.sessionId);
 
     return {
@@ -1462,8 +1480,7 @@ export class RPCAdapter {
       }
       this.pendingPermissions.delete(permRequestId);
       pending.resolve(normalized);
-      this.status = 'processing';
-      writeRpcDebugLine('Permission resolved status=processing');
+      writeRpcDebugLine(`Permission resolved status=${this.status}`);
       return { success: true };
     }
 
@@ -1486,7 +1503,6 @@ export class RPCAdapter {
       return { decision: 'deny_once' };
     }
     const permRequestId = generateId('perm');
-    this.status = 'waiting_permission';
     writeRpcDebugLine(
       `requestPermission toolLength=${tool.length}, descriptionLength=${description.length}, hasContext=${Object.keys(context).length > 0}`
     );
@@ -1517,7 +1533,6 @@ export class RPCAdapter {
       // If extension doesn't acknowledge, something is wrong (extension dead/disconnected)
       const ackTimeout = setTimeout(() => {
         this.pendingPermissions.delete(permRequestId);
-        this.status = 'processing';
         writeRpcDebugLine('Permission acknowledgement timeout');
         resolve({ decision: 'deny_once' }); // Deny - extension not responding
       }, 30000); // 30 second acknowledgment timeout
@@ -1559,7 +1574,6 @@ export class RPCAdapter {
     // This is just a safety net - extension controls actual timeout
     pending.responseTimeout = setTimeout(() => {
       this.pendingPermissions.delete(permRequestId);
-      this.status = 'processing';
       writeRpcDebugLine('Permission response timeout');
       pending.resolve({ decision: 'deny_once' });
     }, 3600000); // 1 hour
@@ -1580,7 +1594,6 @@ export class RPCAdapter {
   ): Promise<string | undefined> {
     if (this.shuttingDown) return undefined;
     const requestId = generateId('dir');
-    this.status = 'waiting_permission';
     writeRpcDebugLine(
       `requestDirectoryAccess pathLength=${dirPath.length}, reasonLength=${reason?.length ?? 0}`
     );
@@ -1596,7 +1609,6 @@ export class RPCAdapter {
       // Phase 1: Wait for acknowledgment (30s)
       const ackTimeout = setTimeout(() => {
         this.pendingDirectoryAccess.delete(requestId);
-        this.status = 'processing';
         writeRpcDebugLine('Directory access acknowledgement timeout');
         resolve(undefined); // Deny - extension not responding
       }, 30000); // 30 second acknowledgment timeout
@@ -1637,7 +1649,6 @@ export class RPCAdapter {
     // Set a very long timeout for user response (1 hour)
     pending.responseTimeout = setTimeout(() => {
       this.pendingDirectoryAccess.delete(requestId);
-      this.status = 'processing';
       writeRpcDebugLine('Directory access response timeout');
       pending.resolve(undefined);
     }, 3600000); // 1 hour
@@ -1665,8 +1676,7 @@ export class RPCAdapter {
       }
       this.pendingDirectoryAccess.delete(requestId);
       pending.resolve(granted ? pending.path : undefined);
-      this.status = 'processing';
-      writeRpcDebugLine('Directory access resolved status=processing');
+      writeRpcDebugLine(`Directory access resolved status=${this.status}`);
       return { success: true };
     }
 
@@ -3253,7 +3263,7 @@ export class RPCAdapter {
 
     try {
       this.agent?.programStatus?.dispose();
-      this.shuttingDown = true;
+      this.lifecycle.send('shutdown');
       this.hookLifecycleUnsubscribe?.();
       this.hookLifecycleUnsubscribe = null;
       this.stopKeepalive();
@@ -3323,7 +3333,7 @@ export class RPCAdapter {
         reason === 'error' ? 'error' : 'exit',
         Math.max(0, Date.now() - this.sessionStartedAt),
       );
-      this.notificationsSealed = true;
+      this.lifecycle.send('seal');
       const agentEndReason = reason === 'disconnected' ? 'aborted' : reason;
       writeNotification(RPC_NOTIFICATIONS.AGENT_END, {
         sessionId: this.sessionId!,

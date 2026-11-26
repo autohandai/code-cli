@@ -25,6 +25,24 @@ import { getPrimaryShellCommandSuggestion, isImmediateCommand } from './shellCom
 import { getPlanModeManager } from '../commands/plan.js';
 import type { InteractionMode } from '../core/agent/InteractionModeController.js';
 import { nextQueuedWorkSequence } from '../utils/queuedWorkSequence.js';
+import { StateMachine, defineStateMachine } from '../utils/stateMachine.js';
+
+/**
+ * Composer lifecycle. Nested pauses (a debug line flushed inside a modal, a
+ * modal opened from a confirmation) stay in `paused`; only the outermost
+ * resume returns to `active`, so stdin is released and reclaimed exactly once.
+ */
+export const PERSISTENT_INPUT_LIFECYCLE = defineStateMachine({
+  name: 'PersistentInput',
+  initial: 'inactive',
+  transitions: {
+    inactive: { start: 'active' },
+    active: { pause: 'paused', stop: 'inactive' },
+    paused: { resume: 'active', stop: 'inactive' },
+  },
+});
+
+export type PersistentInputState = keyof typeof PERSISTENT_INPUT_LIFECYCLE.transitions;
 
 export interface QueuedMessage {
   text: string;
@@ -74,12 +92,12 @@ const MAX_PERSISTENT_NEWLINES = 9;
 export class PersistentInput extends EventEmitter {
   private queue: QueuedMessage[] = [];
   private textBuffer: TextBuffer;
-  private isActive = false;
+  private readonly lifecycle = new StateMachine(PERSISTENT_INPUT_LIFECYCLE);
+  private pauseDepth = 0;
   private maxQueueSize: number;
   private statusLine: string | { left: string; right: string };
   private output: NodeJS.WriteStream;
   private input: RawModeReadStream;
-  private isPaused = false;
   private regions: TerminalRegions;
   private silentMode: boolean;
   private activityLine = '';
@@ -116,6 +134,18 @@ export class PersistentInput extends EventEmitter {
     this.textBuffer = new TextBuffer(80, 5);
   }
 
+  get lifecycleState(): PersistentInputState {
+    return this.lifecycle.state;
+  }
+
+  private get isActive(): boolean {
+    return !this.lifecycle.is('inactive');
+  }
+
+  private get isPaused(): boolean {
+    return this.lifecycle.is('paused');
+  }
+
   /** Compatibility getter: returns the full text content from TextBuffer. */
   get currentInput(): string {
     return this.textBuffer.getText();
@@ -149,9 +179,10 @@ export class PersistentInput extends EventEmitter {
       return;
     }
 
-    this.isActive = true;
+    this.lifecycle.send('start');
+    this.pauseDepth = 0;
+    this.resetPasteState();
     this.textBuffer.setText('');
-    this.isPaused = false;
 
     // Resize TextBuffer to match terminal width
     const width = this.output.columns ?? 80;
@@ -199,13 +230,15 @@ export class PersistentInput extends EventEmitter {
    * Stop the persistent input (call when agent finishes)
    */
   stop(): void {
-    if (!this.isActive) {
+    if (!this.lifecycle.trySend('stop')) {
       return;
     }
 
-    this.isActive = false;
+    this.pauseDepth = 0;
     disableBracketedPaste(this.output);
     this.clearRapidEnterTimer();
+    this.rapidEnterLines = [];
+    this.resetPasteState();
 
     this.input.off('keypress', this.handleKeypress);
 
@@ -241,9 +274,7 @@ export class PersistentInput extends EventEmitter {
    * Pause input handling temporarily (for confirmations)
    */
   pause(): void {
-    if (!this.isActive) return;
-
-    this.isPaused = true;
+    if (!this.enterPause()) return;
 
     if (!this.silentMode) {
       // Temporarily disable regions so Modal prompts can work
@@ -259,11 +290,9 @@ export class PersistentInput extends EventEmitter {
    * region painted behind the next renderer.
    */
   pauseForModal(): void {
-    if (!this.isActive) {
+    if (!this.enterPause()) {
       return;
     }
-
-    this.isPaused = true;
 
     if (!this.silentMode) {
       this.regions.clearFixedRegionForModal();
@@ -272,10 +301,41 @@ export class PersistentInput extends EventEmitter {
     this.releaseStdin();
   }
 
+  /** Records a pause; true only for the outermost one, which must release the terminal. */
+  private enterPause(): boolean {
+    if (this.lifecycle.is('paused')) {
+      this.pauseDepth += 1;
+      return false;
+    }
+    if (!this.lifecycle.trySend('pause')) {
+      return false;
+    }
+    this.pauseDepth = 1;
+    return true;
+  }
+
+  /** Releases one pause; true only when the outermost pause ends and stdin must be reclaimed. */
+  private exitPause(): boolean {
+    if (!this.lifecycle.is('paused')) {
+      return false;
+    }
+    this.pauseDepth -= 1;
+    return this.pauseDepth === 0 && this.lifecycle.trySend('resume');
+  }
+
+  private resetPasteState(): void {
+    this.isInPaste = false;
+    this.pasteBuffer = [];
+    this.currentPasteLine = '';
+  }
+
   /**
    * Hand stdin over to the next reader (an Ink modal or prompt).
    */
   private releaseStdin(): void {
+    // The rest of an in-flight bracketed paste now belongs to the next reader.
+    this.resetPasteState();
+
     // Remove keypress listener so readline.emitKeypressEvents removes its
     // data listener from stdin. Ink 7 uses a readable listener, and the
     // readline data listener (flowing mode) conflicts with it — data events
@@ -301,7 +361,7 @@ export class PersistentInput extends EventEmitter {
    * Resume input handling after confirmations
    */
   resume(): void {
-    if (!this.isActive) return;
+    if (!this.exitPause()) return;
     this.reclaimStdin();
   }
 
@@ -309,7 +369,7 @@ export class PersistentInput extends EventEmitter {
    * Resume the persistent composer after an Ink modal has released the terminal.
    */
   resumeFromModal(): void {
-    if (!this.isActive) {
+    if (!this.exitPause()) {
       return;
     }
     this.reclaimStdin();
@@ -319,7 +379,6 @@ export class PersistentInput extends EventEmitter {
    * Take stdin back after pause()/pauseForModal() and repaint the composer.
    */
   private reclaimStdin(): void {
-    this.isPaused = false;
     try {
       this.input.resume();
     } catch {
@@ -474,9 +533,8 @@ export class PersistentInput extends EventEmitter {
     // ── Bracketed paste detection ──
     const seq = key?.sequence ?? _str;
     if (seq?.includes(PASTE_START) || _str?.includes(PASTE_START)) {
+      this.resetPasteState();
       this.isInPaste = true;
-      this.pasteBuffer = [];
-      this.currentPasteLine = '';
       return;
     }
     if (seq?.includes(PASTE_END) || _str?.includes(PASTE_END)) {
@@ -653,11 +711,8 @@ export class PersistentInput extends EventEmitter {
     if (this.currentPasteLine) {
       this.pasteBuffer.push(this.currentPasteLine);
     }
-    this.isInPaste = false;
-
     const lines = this.pasteBuffer;
-    this.pasteBuffer = [];
-    this.currentPasteLine = '';
+    this.resetPasteState();
 
     if (lines.length === 0) return;
 

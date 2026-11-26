@@ -946,14 +946,17 @@ describe('SyncService', () => {
       });
 
       (service as any).basePath = tempDir;
-
-      // Set syncing flag
-      (service as any).syncing = true;
+      const manifest = Promise.withResolvers<SyncManifest | null>();
+      vi.mocked(mockApiClient.getRemoteManifest).mockReturnValueOnce(manifest.promise);
+      const inFlight = service.sync();
+      await vi.waitFor(() => expect(mockApiClient.getRemoteManifest).toHaveBeenCalledOnce());
 
       const result = await service.sync();
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Sync already in progress');
+      manifest.resolve(null);
+      await inFlight;
     });
   });
 

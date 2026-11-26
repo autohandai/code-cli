@@ -2253,6 +2253,8 @@ export function initializeAgentDependencies(
       args,
       completion,
     ) => enqueueMobileComposerCommand(host, command, args, completion);
+    /** Slash modals open and close in LIFO pairs; each holds its own modal scope. */
+    const slashModalReleases: Array<() => void> = [];
     const slashContext = {
       goalContinuity: runtime.goalContinuity,
       decisionDispatcher: host.adaptiveDecisionRuntime.dispatcher,
@@ -2407,7 +2409,7 @@ export function initializeAgentDependencies(
           `[DEBUG] onBeforeModal: inkRenderer exists=${!!host.inkRenderer}, persistentInputActive=${host.persistentInputActiveTurn}`,
           host.writeDebugLine?.bind(host)
         );
-        host.modalActive = true;
+        slashModalReleases.push(host.enterModal());
         if (host.inkRenderer) {
           host.inkRenderer.pause();
           // Yield a macrotask so React 19's Scheduler flushes any pending passive
@@ -2425,17 +2427,20 @@ export function initializeAgentDependencies(
           `[DEBUG] onAfterModal: inkRenderer exists=${!!host.inkRenderer}, persistentInputActive=${host.persistentInputActiveTurn}`,
           host.writeDebugLine?.bind(host)
         );
-        if (host.persistentInputActiveTurn) {
-          try {
-            host.persistentInput.resumeFromModal();
-          } catch {
-            // Best effort — continue to resume InkRenderer
+        try {
+          if (host.persistentInputActiveTurn) {
+            try {
+              host.persistentInput.resumeFromModal();
+            } catch {
+              // Best effort — continue to resume InkRenderer
+            }
           }
+          if (host.inkRenderer) {
+            await host.inkRenderer.resume();
+          }
+        } finally {
+          slashModalReleases.pop()?.();
         }
-        if (host.inkRenderer) {
-          await host.inkRenderer.resume();
-        }
-        host.modalActive = false;
         writeAutohandDebugLine('[DEBUG] onAfterModal completed', host.writeDebugLine?.bind(host));
       },
       // After /learn recommends a skill, seed the next prompt with the install command

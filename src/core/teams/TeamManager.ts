@@ -17,6 +17,7 @@ import type { AgentRunStore } from '../agents/AgentRunStore.js';
 import { TeammateAuthorizationRequestSchema, type TeammateAuthorizationResult, type TeammateToolCall } from './TeammateAuthorization.js';
 import { TeammatePeerHost } from './TeammatePeerBridge.js';
 import type { PeerRunRuntimeFactory } from '../agent/PeerCommunicationRuntime.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
 
 interface TeamManagerOptions {
   bindPeerRun?: PeerRunRuntimeFactory;
@@ -59,6 +60,25 @@ const UsageSchema = z.object({
   cacheWriteTokens: z.number().finite().nonnegative().optional(),
 });
 
+/**
+ * `stalled` means shutdown gave up while children still hold thread leases; it
+ * resumes when retried or when the last of those children exits. `finalizing`
+ * is the window where the team already reports `completed` but shutdown hooks
+ * are still running, so a replacement team must wait.
+ */
+export const TEAM_LIFECYCLE = defineStateMachine({
+  name: 'team-lifecycle',
+  initial: 'none',
+  transitions: {
+    none: { create: 'active' },
+    active: { shutdown: 'closing' },
+    closing: { stopped: 'finalizing', stall: 'stalled' },
+    stalled: { shutdown: 'closing' },
+    finalizing: { settled: 'completed' },
+    completed: { create: 'active' },
+  },
+});
+
 function settleWithin(task: Promise<unknown>, timeoutMs: number): Promise<void> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<void>((resolve) => {
@@ -83,7 +103,11 @@ export class TeamManager {
   private _tasks: TaskManager;
   private readonly opts: TeamManagerOptions;
   private shutdownPromise: Promise<void> | null = null;
-  private closing = false;
+  private readonly lifecycle = new StateMachine(TEAM_LIFECYCLE, {
+    onTransition: ({ to }) => {
+      if (this.team) this.team.status = to === 'finalizing' || to === 'completed' ? 'completed' : 'active';
+    },
+  });
   private readonly maxTeammates: number;
   private readonly listeners = new Set<(snapshot: TeamActivitySnapshot) => void>();
   private readonly threadBudget: SessionThreadBudget;
@@ -104,6 +128,10 @@ export class TeamManager {
     this.maxTeammates = Math.max(1, Math.floor(opts.maxTeammates ?? 5));
     this.threadBudget = opts.threadBudget ?? new SessionThreadBudget();
     this._tasks = this.createTaskManager();
+  }
+
+  private get closing(): boolean {
+    return this.lifecycle.is('closing', 'stalled', 'finalizing');
   }
 
   private createTaskManager(): TaskManager {
@@ -130,7 +158,7 @@ export class TeamManager {
     if (this.closing) {
       throw new Error('Team is shutting down');
     }
-    if (this.team?.status === 'active') {
+    if (this.lifecycle.is('active')) {
       throw new Error('A team is already active. Shut it down first.');
     }
     if (this.processLeases.size > 0) throw new Error('Previous teammates are still shutting down.');
@@ -144,6 +172,7 @@ export class TeamManager {
       status: 'active',
       members: [],
     };
+    this.lifecycle.send('create');
     this.shutdownPromise = null;
     this._tasks = this.createTaskManager();
     this.taskRuns.clear();
@@ -175,7 +204,7 @@ export class TeamManager {
    */
   addTeammate(opts: AddTeammateOptions): TeammateProcess {
     if (this.closing) throw new Error('Team is shutting down');
-    if (!this.team || this.team.status !== 'active') throw new Error('No active team');
+    if (!this.team || !this.lifecycle.is('active')) throw new Error('No active team');
     const existing = this.teammates.get(opts.name);
     if (existing && this.processLeases.has(existing)) {
       throw new Error(`Teammate "${opts.name}" is already active`);
@@ -393,7 +422,7 @@ export class TeamManager {
     if (tp) {
       tp.setStatus('shutdown');
     }
-    if (!this.closing && this.team?.status === 'active') {
+    if (this.lifecycle.is('active')) {
       this.opts.onTeammateMessage?.(name, {
         method: 'team.log',
         params: {
@@ -416,6 +445,7 @@ export class TeamManager {
     }
     this.tryAssignIdleTeammate();
     this.notifyStateChanged();
+    if (this.lifecycle.is('stalled') && this.processLeases.size === 0) void this.shutdown().catch(() => {});
   }
 
   /**
@@ -423,7 +453,7 @@ export class TeamManager {
    * Call after creating tasks or when a teammate becomes idle.
    */
   tryAssignIdleTeammate(): void {
-    if (this.closing || this.team?.status !== 'active') return;
+    if (!this.team || !this.lifecycle.is('active')) return;
     for (const [name, tp] of this.teammates) {
       if (tp.status !== 'idle' || !this.processLeases.has(tp)) continue;
       const available = this._tasks.getAvailableTasks();
@@ -733,7 +763,8 @@ export class TeamManager {
     if (!host) return;
     const retirement = host.then(peer => peer?.close());
     this.peerRetirements.add(retirement);
-    void retirement.then(() => this.peerRetirements.delete(retirement), () => {});
+    const retire = (): void => { this.peerRetirements.delete(retirement); };
+    void retirement.then(retire, retire);
   }
 
   /**
@@ -751,7 +782,7 @@ export class TeamManager {
    */
   shutdown(): Promise<void> {
     if (!this.shutdownPromise) {
-      this.closing = true;
+      this.lifecycle.trySend('shutdown');
       this.shutdownPromise = this.performShutdown();
     }
     return this.shutdownPromise;
@@ -786,8 +817,8 @@ export class TeamManager {
       if (this.processLeases.size > 0) {
         throw new Error('Teammates have not stopped; their session thread reservations are retained.');
       }
-      await Promise.all(this.peerRetirements);
-      this.team.status = 'completed';
+      await Promise.allSettled(this.peerRetirements);
+      this.lifecycle.send('stopped');
       this.notifyStateChanged();
       const tasks = this._tasks.listTasks();
       await settleWithin(this.emitHookEvent('team-shutdown', {
@@ -798,11 +829,20 @@ export class TeamManager {
         teamTasksTotal: tasks.length,
       }), TEAM_SHUTDOWN_TIMEOUT_MS);
     } finally {
-      if (this.processLeases.size === 0) this.teammates.clear();
-      this.closing = this.processLeases.size > 0;
-      if (this.closing) this.shutdownPromise = null;
-      this.notifyStateChanged();
+      this.settleShutdown();
     }
+  }
+
+  private settleShutdown(): void {
+    if (this.processLeases.size > 0) {
+      this.lifecycle.trySend('stall');
+      this.shutdownPromise = null;
+    } else {
+      this.teammates.clear();
+      this.lifecycle.trySend('stopped');
+      this.lifecycle.trySend('settled');
+    }
+    this.notifyStateChanged();
   }
 
   getSnapshot(): TeamActivitySnapshot {

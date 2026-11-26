@@ -5,6 +5,32 @@
  */
 
 import type { TaskStatus, TeamTask } from './types.js';
+import { defineStateMachine, InvalidTransitionError, StateMachine } from '../../utils/stateMachine.js';
+
+type TaskEvent = 'claim' | 'complete' | 'fail' | 'cancel' | 'release';
+
+/**
+ * A task is claimed only by the scheduler (`assignTask`); the lead may resolve,
+ * cancel or retry it, but a finished outcome is only replaced through a retry.
+ */
+export const TASK_LIFECYCLE = defineStateMachine<TaskStatus, TaskEvent>({
+  name: 'TeamTask',
+  initial: 'pending',
+  transitions: {
+    pending: { claim: 'in_progress', complete: 'completed', fail: 'failed', cancel: 'cancelled' },
+    in_progress: { complete: 'completed', fail: 'failed', cancel: 'cancelled', release: 'pending' },
+    completed: { release: 'pending' },
+    failed: { release: 'pending' },
+    cancelled: { release: 'pending' },
+  },
+});
+
+const STATUS_EVENT: Record<Exclude<TaskStatus, 'in_progress'>, TaskEvent> = {
+  pending: 'release',
+  completed: 'complete',
+  failed: 'fail',
+  cancelled: 'cancel',
+};
 
 interface CreateTaskInput {
   subject: string;
@@ -34,6 +60,22 @@ export class TaskManager {
     this.onChange?.();
   }
 
+  private requireTask(id: string): TeamTask {
+    const task = this.tasks.get(id);
+    if (!task) throw new Error(`Task ${id} not found`);
+    return task;
+  }
+
+  private nextStatus(task: TeamTask, event: TaskEvent): TaskStatus {
+    const machine = new StateMachine(TASK_LIFECYCLE, { initial: task.status });
+    if (!machine.trySend(event)) throw new InvalidTransitionError(`Task ${task.id}`, task.status, event);
+    return machine.state;
+  }
+
+  private isUnblocked(task: TeamTask): boolean {
+    return task.blockedBy.every((depId) => this.tasks.get(depId)?.status === 'completed');
+  }
+
   createTask(input: CreateTaskInput): TeamTask {
     const id = `task-${++this.counter}`;
     const task: TeamTask = {
@@ -60,48 +102,35 @@ export class TaskManager {
   }
 
   getAvailableTasks(): TeamTask[] {
-    return this.listTasks().filter((t) => {
-      if (t.status !== 'pending') return false;
-      return t.blockedBy.every((depId) => {
-        const dep = this.tasks.get(depId);
-        return dep?.status === 'completed';
-      });
-    });
+    return this.listTasks().filter((t) => t.status === 'pending' && this.isUnblocked(t));
   }
 
   assignTask(id: string, owner: string, runId?: string): void {
-    const task = this.tasks.get(id);
-    if (!task) throw new Error(`Task ${id} not found`);
+    const task = this.requireTask(id);
+    const status = this.nextStatus(task, 'claim');
+    if (!this.isUnblocked(task)) throw new Error(`Task ${id} is blocked by unfinished dependencies`);
     task.owner = owner;
-    task.status = 'in_progress';
+    task.status = status;
     task.runId = runId;
     task.output = undefined;
-    task.error = undefined;
-    this.notifyChange();
-  }
-
-  completeTask(id: string): void {
-    const task = this.tasks.get(id);
-    if (!task) throw new Error(`Task ${id} not found`);
-    task.status = 'completed';
-    task.completedAt = new Date().toISOString();
-    this.notifyChange();
-  }
-
-  releaseTask(id: string): void {
-    const task = this.tasks.get(id);
-    if (!task) throw new Error(`Task ${id} not found`);
-    task.status = 'pending';
-    task.owner = undefined;
-    task.completedAt = undefined;
     task.error = undefined;
     task.cancelRequested = undefined;
     this.notifyChange();
   }
 
+  completeTask(id: string): void {
+    this.updateTask(id, { status: 'completed' });
+  }
+
+  releaseTask(id: string): void {
+    this.updateTask(id, { status: 'pending' });
+  }
+
   updateTask(id: string, updates: UpdateTaskInput): TeamTask {
-    const task = this.tasks.get(id);
-    if (!task) throw new Error(`Task ${id} not found`);
+    const task = this.requireTask(id);
+    const requested = updates.status === task.status ? undefined : updates.status;
+    if (requested === 'in_progress') throw new Error(`Task ${id} starts only when a teammate claims it`);
+    const status = requested && this.nextStatus(task, STATUS_EVENT[requested]);
 
     if (updates.subject !== undefined) {
       task.subject = updates.subject;
@@ -120,19 +149,16 @@ export class TaskManager {
     }
     if (updates.cancelRequested !== undefined) task.cancelRequested = updates.cancelRequested;
 
-    if (updates.status === 'completed' || updates.status === 'failed' || updates.status === 'cancelled') {
-      task.status = updates.status;
-      task.completedAt = new Date().toISOString();
-      task.cancelRequested = undefined;
-    } else if (updates.status === 'pending') {
-      task.status = 'pending';
+    if (status === 'pending') {
       task.owner = undefined;
       task.completedAt = undefined;
       task.error = undefined;
+    } else if (status) {
+      task.completedAt = new Date().toISOString();
+    }
+    if (status) {
+      task.status = status;
       task.cancelRequested = undefined;
-    } else if (updates.status === 'in_progress') {
-      task.status = 'in_progress';
-      task.completedAt = undefined;
     }
 
     this.notifyChange();
@@ -144,8 +170,7 @@ export class TaskManager {
   }
 
   setTaskOutput(id: string, output: string): TeamTask {
-    const task = this.tasks.get(id);
-    if (!task) throw new Error(`Task ${id} not found`);
+    const task = this.requireTask(id);
     task.output = output;
     this.notifyChange();
     return task;

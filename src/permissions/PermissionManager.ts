@@ -26,6 +26,7 @@ import { filterAdvertisedTools } from './toolAdvertising.js';
 import { checkRunToolScope, isToolAdvertisedByScope, type RunToolScope } from './runToolScope.js';
 import { YoloTimer } from './yoloMode.js';
 import { setBounded } from '../utils/bounded.js';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
 import {
   addToSessionAllowList,
   addToSessionDenyList,
@@ -34,6 +35,21 @@ import {
   type SessionProjectPermissions,
 } from './sessionProjectPermissions.js';
 import type { ExtensionPermissionPolicy } from '../extensions/ExtensionRuntimeHost.js';
+
+/**
+ * A --yolo --timeout window: `armed` while auto-approval is live, `expired`
+ * once the baseline is restored. Expiry latches until a new window is armed,
+ * so explicit run allowlists stop granting approval after the window ends.
+ */
+export const AUTO_APPROVAL_LIFECYCLE = defineStateMachine({
+  name: 'auto-approval window',
+  initial: 'off',
+  transitions: {
+    off: { arm: 'armed' },
+    armed: { arm: 'armed', expire: 'expired' },
+    expired: { arm: 'armed' },
+  },
+});
 
 const READ_ONLY_REVIEW_TOOLS = new Set([
   'read_file', 'find_grep', 'fff_find', 'find', 'list_tree', 'list_dir',
@@ -213,16 +229,21 @@ export class PermissionManager {
   private workspaceRoot?: string;
   private localSettingsLoaded = false;
   private extensionPolicies: ExtensionPermissionPolicy[] = [];
-  private readOnlyReview = false;
+  private readonly readOnlyReviewHolds = new Set<symbol>();
 
+  /** Each review holds the scope until its own release; releases may come in any order and repeat. */
   beginReadOnlyReview(): () => void {
-    const previous = this.readOnlyReview;
-    this.readOnlyReview = true;
-    return () => { this.readOnlyReview = previous; };
+    const hold = Symbol('read-only review');
+    this.readOnlyReviewHolds.add(hold);
+    return () => { this.readOnlyReviewHolds.delete(hold); };
   }
 
   isReadOnlyReview(): boolean {
     return this.readOnlyReview;
+  }
+
+  private get readOnlyReview(): boolean {
+    return this.readOnlyReviewHolds.size > 0;
   }
 
   private normalizeSettings(settings: PermissionSettings | undefined): PermissionSettings {
@@ -306,8 +327,8 @@ export class PermissionManager {
     };
   }
 
-  private autoApprovalExpired = false;
-  private autoApproval: { timer: YoloTimer; baseline: PermissionSettings; onExpire?: () => void } | undefined;
+  private readonly autoApprovalLifecycle = new StateMachine(AUTO_APPROVAL_LIFECYCLE);
+  private autoApprovalWindow: { timer: YoloTimer; baseline: PermissionSettings; onExpire?: () => void } | undefined;
 
   /**
    * Bounds --yolo to a time window (--timeout). The yolo settings are already
@@ -320,15 +341,15 @@ export class PermissionManager {
     onExpire?: () => void,
   ): void {
     if (!timeoutSeconds || timeoutSeconds <= 0) return;
-    this.autoApprovalExpired = false;
-    this.autoApproval = { timer: new YoloTimer(timeoutSeconds), baseline: baseline ?? {}, onExpire };
+    this.autoApprovalLifecycle.send('arm');
+    this.autoApprovalWindow = { timer: new YoloTimer(timeoutSeconds), baseline: baseline ?? {}, onExpire };
   }
 
   private restoreExpiredAutoApproval(): void {
-    if (!this.autoApproval || this.autoApproval.timer.isActive()) return;
-    const { baseline, onExpire } = this.autoApproval;
-    this.autoApproval = undefined;
-    this.autoApprovalExpired = true;
+    if (!this.autoApprovalWindow || this.autoApprovalWindow.timer.isActive()) return;
+    const { baseline, onExpire } = this.autoApprovalWindow;
+    this.autoApprovalWindow = undefined;
+    this.autoApprovalLifecycle.send('expire');
     this.settings = this.normalizeSettings(baseline);
     this.setMode(this.settings.mode || 'interactive');
     onExpire?.();
@@ -547,7 +568,7 @@ export class PermissionManager {
     // Explicit CLI tool selection is consent for this run. Denials, safety
     // modes, plan checkpoints and rules above retain their precedence; an
     // internal additional scope alone never grants approval.
-    if (!this.autoApprovalExpired && this.runToolScope && this.runToolScope.allowed.length > 0 && this.checkRunToolScope(context).allowed) {
+    if (!this.autoApprovalLifecycle.is('expired') && this.runToolScope && this.runToolScope.allowed.length > 0 && this.checkRunToolScope(context).allowed) {
       return { allowed: true, reason: 'user_approved' };
     }
 

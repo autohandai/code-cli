@@ -6,6 +6,18 @@
 import { watch, type FSWatcher } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
+
+export const EXTENSION_RELOAD_LIFECYCLE = defineStateMachine({
+  name: 'extension reload',
+  initial: 'idle',
+  transitions: {
+    idle: { start: 'starting', stop: 'stopped' },
+    starting: { ready: 'watching', stop: 'stopped' },
+    watching: { stop: 'stopped' },
+    stopped: {},
+  },
+});
 
 interface ExtensionReloadOptions {
   roots: string[];
@@ -22,19 +34,30 @@ export class ExtensionReloadController {
   private running?: Promise<void>;
   private dirty = false;
   private sessionOperations = 0;
-  private started = false;
-  private stopped = false;
+  private readonly lifecycle = new StateMachine(EXTENSION_RELOAD_LIFECYCLE);
+  private startup?: Promise<void>;
+  private watcherSync: Promise<void> = Promise.resolve();
+  private queuedWatcherSync?: Promise<void>;
   private readonly abort = (): void => { void this.stop(); };
 
   constructor(private readonly options: ExtensionReloadOptions) {}
 
-  async start(): Promise<void> {
-    if (this.stopped || this.started || this.options.signal?.aborted) return;
+  private get stopped(): boolean {
+    return this.lifecycle.is('stopped');
+  }
+
+  start(): Promise<void> {
+    if (this.startup) return this.startup;
+    if (this.options.signal?.aborted || !this.lifecycle.trySend('start')) return Promise.resolve();
+    this.startup = this.runStartup();
+    return this.startup;
+  }
+
+  private async runStartup(): Promise<void> {
     this.options.signal?.addEventListener('abort', this.abort, { once: true });
     await Promise.all(this.options.roots.map((root) => fs.mkdir(root, { recursive: true })
       .catch((error: unknown) => this.options.onError?.(error))));
-    if (this.stopped) return;
-    this.started = true;
+    if (!this.lifecycle.trySend('ready')) return;
     await this.updateWatchers();
   }
 
@@ -43,8 +66,26 @@ export class ExtensionReloadController {
     await this.updateWatchers();
   }
 
-  private async updateWatchers(): Promise<void> {
-    if (this.stopped || !this.started) return;
+  /**
+   * Reconciliations run one at a time so an older, slower pass can never close
+   * watchers a newer pass created. Requests made while a pass is queued share
+   * it; the queued pass reads the roots only when it begins, so it always
+   * reflects the latest request.
+   */
+  private updateWatchers(): Promise<void> {
+    if (!this.lifecycle.is('watching')) return Promise.resolve();
+    if (this.queuedWatcherSync) return this.queuedWatcherSync;
+    const queued = this.watcherSync.then(() => {
+      this.queuedWatcherSync = undefined;
+      return this.reconcileWatchers();
+    });
+    this.queuedWatcherSync = queued;
+    this.watcherSync = queued.catch(() => {});
+    return queued;
+  }
+
+  private async reconcileWatchers(): Promise<void> {
+    if (!this.lifecycle.is('watching')) return;
     const targets = [...this.options.roots, ...this.packageRoots].map((root) => path.resolve(root));
     const watchedRoots = new Set<string>();
     for (const target of targets) {
@@ -69,7 +110,7 @@ export class ExtensionReloadController {
         });
         watcher.on('error', (error) => {
           watcher.close();
-          this.watchers.delete(root);
+          if (this.watchers.get(root) === watcher) this.watchers.delete(root);
           this.options.onError?.(error);
           this.requestReload();
         });
@@ -120,7 +161,7 @@ export class ExtensionReloadController {
   }
 
   async stop(): Promise<void> {
-    this.stopped = true;
+    this.lifecycle.trySend('stop');
     this.options.signal?.removeEventListener('abort', this.abort);
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;

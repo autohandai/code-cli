@@ -1330,6 +1330,44 @@ describe('hook context delivery', () => {
     }
   });
 
+  it('keeps hook output suppressed until the outermost of nested modals closes', async () => {
+    const { agent, internals } = createAgent();
+    const notify = vi.spyOn(inputPrompt, 'promptNotify').mockImplementation(() => {});
+    try {
+      const manager = agent.getHookManager();
+      manager.setWorkspaceRoot(process.cwd());
+      manager.getSettings().hooks!.push({ event: 'session-start', command: 'printf nested-modal-output' });
+      const ctx = (internals.slashHandler as unknown as { ctx: { onBeforeModal(): Promise<void>; onAfterModal(): Promise<void> } }).ctx;
+      internals.modalActive = true;
+      await ctx.onBeforeModal();
+      await ctx.onBeforeModal();
+      await ctx.onAfterModal();
+      expect(internals.modalActive).toBe(true);
+      await ctx.onAfterModal();
+      expect(internals.modalActive).toBe(true);
+      await manager.executeHooks('session-start', {});
+      expect(notify).not.toHaveBeenCalled();
+      internals.modalActive = false;
+      expect(internals.modalActive).toBe(false);
+      await ctx.onAfterModal();
+      expect(internals.modalActive).toBe(false);
+    } finally {
+      notify.mockRestore();
+    }
+  });
+
+  it('closes the slash modal scope even when resuming the renderer fails', async () => {
+    const { internals } = createAgent();
+    const ctx = (internals.slashHandler as unknown as { ctx: { onBeforeModal(): Promise<void>; onAfterModal(): Promise<void> } }).ctx;
+    const host = internals as unknown as { inkRenderer: unknown };
+    host.inkRenderer = { pause: vi.fn(), resume: vi.fn(async () => { throw new Error('resume failed'); }) };
+    await ctx.onBeforeModal();
+    expect(internals.modalActive).toBe(true);
+    await expect(ctx.onAfterModal()).rejects.toThrow('resume failed');
+    expect(internals.modalActive).toBe(false);
+    host.inkRenderer = null;
+  });
+
   it('injects session hook context even when protocol output is suppressed', async () => {
     const { agent, internals, runtime } = createAgent();
     runtime.isRpcMode = true;

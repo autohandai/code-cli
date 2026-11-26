@@ -1,5 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { CloudClient, CloudRequestError, cloudSessionUrl, type CloudConversation, type CloudInteraction, type CloudJob, type CloudMessage } from './CloudClient.js';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
+
+/** `ended`: not observing after a failed connect or a refused event stream (401/403/404); `/refresh` reconnects. */
+export const CLOUD_SESSION_LIFECYCLE = defineStateMachine({
+  name: 'CloudSession',
+  initial: 'idle',
+  transitions: {
+    idle: { start: 'connecting', dispose: 'disposed' },
+    connecting: { connected: 'observing', failed: 'ended', dispose: 'disposed' },
+    observing: { end: 'ended', dispose: 'disposed' },
+    ended: { start: 'connecting', dispose: 'disposed' },
+    disposed: {},
+  },
+});
+export type CloudSessionLifecycleState = keyof typeof CLOUD_SESSION_LIFECYCLE.transitions;
 
 export interface CloudSessionState {
   conversation: CloudConversation;
@@ -23,7 +38,9 @@ export class CloudSession {
   private state: CloudSessionState;
   private readonly listeners = new Set<() => void>();
   private readonly abort = new AbortController();
+  private readonly lifecycle = new StateMachine(CLOUD_SESSION_LIFECYCLE);
   private refreshTask?: Promise<void>;
+  private startTask?: Promise<void>;
   private observation?: Promise<void>;
   private refreshTimer?: ReturnType<typeof setTimeout>;
   private retryTimer?: ReturnType<typeof setTimeout>;
@@ -33,6 +50,7 @@ export class CloudSession {
   constructor(private readonly client: CloudClient, conversation: CloudConversation, private readonly actions: CloudSessionActions = {}, private readonly executionMode: 'auto' | 'plan' = 'auto') {
     this.state = { conversation, messages: [], jobs: [], interaction: null, selected: 0, busy: false, connected: false, notice: 'Connecting to Autohand Cloud…' };
   }
+  get lifecycleState(): CloudSessionLifecycleState { return this.lifecycle.state; }
   getSnapshot = (): CloudSessionState => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private update(changes: Partial<CloudSessionState>): void {
@@ -59,15 +77,22 @@ export class CloudSession {
     })();
     try { await this.refreshTask; } finally { this.refreshTask = undefined; }
   }
-  async start(): Promise<void> {
-    if (this.observation || this.abort.signal.aborted) return;
-    await this.refresh();
+  start(): Promise<void> {
+    if (this.lifecycle.is('connecting')) return this.startTask ?? Promise.resolve();
+    if (!this.lifecycle.trySend('start')) return Promise.resolve();
+    this.startTask = this.connect().finally(() => { this.startTask = undefined; });
+    return this.startTask;
+  }
+  private async connect(): Promise<void> {
+    try { await this.refresh(); }
+    catch (error) { this.lifecycle.trySend('failed'); throw error; }
+    if (!this.lifecycle.trySend('connected')) return;
     this.update({ notice: 'Cloud session connected. Enter queues; ↑/↓ selects a queued row.' });
     this.observation = this.observe();
     this.scheduleRefresh();
   }
   private scheduleRefresh(): void {
-    if (this.abort.signal.aborted) return;
+    if (this.abort.signal.aborted || this.refreshTimer) return;
     const active = this.state.jobs.some(job => ['scheduled', 'running', 'queued', 'waiting'].includes(job.state));
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = undefined;
@@ -95,7 +120,7 @@ export class CloudSession {
       } catch (error) {
         if (this.abort.signal.aborted) return;
         this.report(error); failures++;
-        if (error instanceof CloudRequestError && [401, 403, 404].includes(error.status)) return;
+        if (error instanceof CloudRequestError && [401, 403, 404].includes(error.status)) { this.lifecycle.trySend('end'); return; }
       }
       await this.delay(failures ? Math.min(30_000, 1000 * 2 ** Math.min(failures, 5)) : this.state.jobs.length ? 1000 : 15_000);
     }
@@ -141,7 +166,8 @@ export class CloudSession {
       } else if (command === '/quit' || command === '/exit' || command === '/detach') {
         this.actions.detach?.();
       } else if (command === '/refresh' || command === '/cloud') {
-        await this.refresh(); this.update({ notice: 'Cloud session refreshed.' });
+        if (this.lifecycle.is('ended')) await this.start(); else await this.refresh();
+        this.update({ notice: 'Cloud session refreshed.' });
       } else if (command === '/help') {
         this.update({ notice: '/open [web|desktop] · /steer · /approve · /decline · /answer · /stop · /resume · /handoff · /refresh · /detach' });
       } else if (command.startsWith('/')) {
@@ -159,7 +185,7 @@ export class CloudSession {
     finally { this.update({ busy: false }); }
   }
   dispose(): void {
-    if (this.abort.signal.aborted) return;
+    if (!this.lifecycle.trySend('dispose')) return;
     this.abort.abort();
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     if (this.retryTimer) clearTimeout(this.retryTimer);

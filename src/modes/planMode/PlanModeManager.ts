@@ -9,6 +9,20 @@
 
 import { EventEmitter } from 'node:events';
 import type { Plan, PlanModeState, PlanPhase, PlanAcceptOption, PlanAcceptConfig } from './types.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
+
+type PlanPhaseEvent = 'accept' | 'complete' | 'replan';
+
+/** An accepted plan is consumed: planning again always starts from a fresh plan. */
+export const PLAN_MODE_PHASE = defineStateMachine<PlanPhase, PlanPhaseEvent>({
+  name: 'PlanModePhase',
+  initial: 'planning',
+  transitions: {
+    planning: { accept: 'executing' },
+    executing: { complete: 'completed', replan: 'planning' },
+    completed: { replan: 'planning' },
+  },
+});
 
 /**
  * Tools that are read-only and allowed in plan mode
@@ -94,7 +108,7 @@ export class PlanModeManager extends EventEmitter {
     if (this.state.enabled) return;
 
     this.state.enabled = true;
-    this.state.phase = 'planning';
+    if (this.transition('replan')) this.state.plan = null;
     this.state.startedAt = Date.now();
     this.emit('enabled');
   }
@@ -170,18 +184,12 @@ export class PlanModeManager extends EventEmitter {
    * Transitions from planning to executing phase
    */
   startExecution(): void {
-    if (!this.state.plan) {
-      throw new Error('No plan to execute');
-    }
-
-    this.state.phase = 'executing';
-    this.state.executionStartedAt = Date.now();
-    this.emit('execution:started', this.state.plan);
+    const plan = this.beginExecution('No plan to execute');
+    this.emit('execution:started', plan);
   }
 
   completeExecution(): void {
-    if (this.state.phase !== 'executing') return;
-    this.state.phase = 'completed';
+    if (!this.transition('complete')) return;
     this.disable();
     this.emit('execution:completed', this.state.plan);
   }
@@ -208,6 +216,10 @@ export class PlanModeManager extends EventEmitter {
       ...this.state,
       ...state,
     };
+    const { enabled, phase, plan } = this.state;
+    if (enabled && (phase === 'completed' || (phase === 'executing' && !plan))) {
+      this.state.phase = 'planning';
+    }
 
     if (this.state.enabled) {
       this.emit('restored', this.state);
@@ -224,24 +236,33 @@ export class PlanModeManager extends EventEmitter {
    * - auto_accept: Auto-accept edits without clearing context
    */
   acceptPlan(option: PlanAcceptOption): PlanAcceptConfig {
-    if (!this.state.plan) {
-      throw new Error('No plan to accept');
-    }
-
+    const plan = this.beginExecution('No plan to accept');
     const config: PlanAcceptConfig = {
       option,
       clearContext: option === 'clear_context_auto_accept',
       autoAcceptEdits: option !== 'manual_approve',
     };
 
-    // Transition to executing phase
-    this.state.phase = 'executing';
-    this.state.executionStartedAt = Date.now();
-
     this.emit('plan:accepted', config);
-    this.emit('execution:started', this.state.plan);
+    this.emit('execution:started', plan);
 
     return config;
+  }
+
+  private beginExecution(missingPlanMessage: string): Plan {
+    const { plan } = this.state;
+    if (!plan) throw new Error(missingPlanMessage);
+    if (!this.state.enabled) throw new Error('Plan mode is not active');
+    if (!this.transition('accept')) throw new Error(`Plan ${plan.id} is already executing`);
+    this.state.executionStartedAt = Date.now();
+    return plan;
+  }
+
+  private transition(event: PlanPhaseEvent): boolean {
+    const machine = new StateMachine(PLAN_MODE_PHASE, { initial: this.state.phase });
+    if (!machine.trySend(event)) return false;
+    this.state.phase = machine.state;
+    return true;
   }
 
   /**

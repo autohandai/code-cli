@@ -9,6 +9,7 @@ import type { LLMProvider } from '../../providers/LLMProvider.js';
 import { getSessionPromptCacheDirective } from './PromptCache.js';
 import type { ReactionParser } from './ReactionParser.js';
 import { StreamingResponsePreview } from './StreamingResponsePreview.js';
+import { resolveTurnActivity, type TurnActivity } from './TurnActivity.js';
 
 interface SimpleChatConversation {
   addMessage(message: LLMMessage): void;
@@ -17,6 +18,7 @@ interface SimpleChatConversation {
 
 export interface SimpleChatAgent {
   isInstructionActive: boolean;
+  turnActivity?: TurnActivity;
   conversation: SimpleChatConversation;
   llm: LLMProvider;
   inkRenderer?: { setStreamingResponse?(response: string | null): void } | null;
@@ -59,12 +61,12 @@ export class SimpleChatHandler {
   }
 
   async handle(instruction: string): Promise<boolean> {
-    this.agent.isInstructionActive = true;
     const supportsStreaming = this.agent.llm.getCapabilities?.().streaming === true;
     const preview = supportsStreaming && this.agent.inkRenderer?.setStreamingResponse
       ? new StreamingResponsePreview((text) => this.agent.inkRenderer?.setStreamingResponse?.(text))
       : undefined;
-
+    const turn = resolveTurnActivity(this.agent);
+    turn.admit();
     try {
       this.agent.conversation.addMessage({ role: 'user', content: instruction });
       await this.agent.saveUserMessage(instruction);
@@ -126,7 +128,7 @@ export class SimpleChatHandler {
       return false;
     } finally {
       preview?.dispose();
-      this.agent.isInstructionActive = false;
+      turn.settle();
     }
   }
 }

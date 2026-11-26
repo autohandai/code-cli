@@ -49,6 +49,7 @@ import {
   type MobileComposerExecutableCommand,
 } from './MobileCommandPolicy.js';
 import type { MobileTerminalReporterLike } from './MobileTerminalReporter.js';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
 
 export interface MobileChangePreview {
   id: string;
@@ -286,12 +287,27 @@ function claimedQueueWorkMatchesRelayScope(
     && work.deviceId === options.deviceId;
 }
 
+/** A relay waits for the phone to scan the QR code, serves it once claimed, and never revives after disposal. */
+export const MOBILE_RELAY_LIFECYCLE = defineStateMachine({
+  name: 'MobileRelay',
+  initial: 'awaitingClaim',
+  transitions: {
+    awaitingClaim: { claim: 'connected', dispose: 'disposed' },
+    connected: { dispose: 'disposed' },
+    disposed: {},
+  },
+});
+type MobileRelayLifecycle = StateMachine<
+  keyof typeof MOBILE_RELAY_LIFECYCLE.transitions,
+  'claim' | 'dispose'
+>;
+
 interface ActiveMobileRelay {
   deviceId: string;
   timer: ReturnType<typeof setInterval>;
-  disposed: boolean;
+  lifecycle: MobileRelayLifecycle;
   polling: boolean;
-  mobileConnected: boolean;
+  unpairInFlight?: Promise<boolean>;
   composerCatalogPublished: boolean;
   composerCatalogPublishInFlight?: Promise<boolean>;
   composerCatalog?: MobileComposerCatalog;
@@ -317,6 +333,15 @@ interface ActiveMobileRelay {
 let activeRelay: ActiveMobileRelay | null = null;
 let durableQueueWorkInFlightId: string | undefined;
 
+/** The single answer to "may this relay still act?": not disposed and not replaced. */
+function isLive(relay: ActiveMobileRelay): boolean {
+  return !relay.lifecycle.is('disposed') && activeRelay === relay;
+}
+
+function isConnected(relay: ActiveMobileRelay): boolean {
+  return isLive(relay) && relay.lifecycle.is('connected');
+}
+
 export function startMobileRelay(options: MobileRelayOptions): MobileRelayController {
   stopMobileRelay();
   const keepAwakeController = options.keepAwakeController ?? new KeepAwakeController();
@@ -331,9 +356,8 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
   const relay: ActiveMobileRelay = {
     deviceId: options.deviceId,
     timer: undefined as unknown as ReturnType<typeof setInterval>,
-    disposed: false,
+    lifecycle: new StateMachine(MOBILE_RELAY_LIFECYCLE),
     polling: false,
-    mobileConnected: false,
     composerCatalogPublished: false,
     composerCommandDispatcher: options.dispatchComposerCommand,
     composerResultAbortControllers: new Set(),
@@ -345,22 +369,13 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
     keepAwakeController,
   };
   const controller: MobileRelayController = {
-    connection: () => relay.disposed || activeRelay !== relay ? null : {
+    connection: () => isLive(relay) ? {
       pairingId: options.pairingId,
       mode: options.mode,
-      connected: relay.mobileConnected,
+      connected: relay.lifecycle.is('connected'),
       ...(relay.connectedAt === undefined ? {} : { connectedAt: relay.connectedAt }),
-    },
-    unpair: async () => {
-      if (relay.disposed || activeRelay !== relay) return false;
-      if (!options.client.revokePairing) throw new Error('This build cannot unpair a phone.');
-      await options.client.revokePairing(options.token, options.pairingId, {
-        sessionId: options.sessionId,
-        deviceId: options.deviceId,
-      });
-      disposeRelay(relay);
-      return true;
-    },
+    } : null,
+    unpair: () => unpairRelay(options, relay),
     finishClaimedTurn: async (turn, outcome) => {
       try {
         await finishClaimedTurn(options, turn, outcome);
@@ -376,16 +391,21 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
     requestDirectoryAccess: (path, reason) => requestDirectoryAccess(options, relay, path, reason),
     requestFollowupQuestion: (message, suggestedOptions) =>
       requestFollowupQuestion(options, relay, message, suggestedOptions),
-    publishEvent: (eventType, payload, ...requestId) =>
-      publishEvent(options, eventType, payload, ...requestId),
-    publishPullRequestStatus: (pullRequest) => publishEvent(options, 'pull_request_status', { pullRequest }),
-    publishDeploymentStatus: (deployments) => publishEvent(options, 'deployment_status', { deployments }),
+    publishEvent: async (eventType, payload, ...requestId) => {
+      if (isLive(relay)) await publishEvent(options, eventType, payload, ...requestId);
+    },
+    publishPullRequestStatus: async (pullRequest) => {
+      if (isLive(relay)) await publishEvent(options, 'pull_request_status', { pullRequest });
+    },
+    publishDeploymentStatus: async (deployments) => {
+      if (isLive(relay)) await publishEvent(options, 'deployment_status', { deployments });
+    },
     refreshDeliveryStatus: async () => {
       await publishComposerCatalog(options, relay, true);
-      await refreshDeliveryStatus(options);
+      await refreshDeliveryStatus(options, relay);
     },
     publishArtifactsFromText: async (text) => {
-      if (!options.workspaceRoot) return;
+      if (!options.workspaceRoot || !isLive(relay)) return;
       try {
         const artifacts = await collectAndUploadMobileArtifacts({
           text,
@@ -395,24 +415,24 @@ export function startMobileRelay(options: MobileRelayOptions): MobileRelayContro
           sessionId: options.sessionId,
           deviceId: options.deviceId,
         });
-        if (artifacts.length > 0) await publishEvent(options, 'session_artifacts', { artifacts });
+        if (artifacts.length > 0 && isLive(relay)) await publishEvent(options, 'session_artifacts', { artifacts });
       } catch (error) {
         options.onError?.(error as Error);
       }
     },
     setKeepAwake: (enabled) => setKeepAwake(options, relay, enabled),
     setSessionControlHandler: (handler) => {
-      if (!relay.disposed && activeRelay === relay) relay.sessionControlHandler = handler;
+      if (isLive(relay)) relay.sessionControlHandler = handler;
     },
     setPairingClaimHandler: (handler) => {
-      if (relay.disposed || activeRelay !== relay) return;
+      if (!isLive(relay)) return;
       relay.pairingClaimHandler = handler;
       deliverPairingClaim(options, relay);
     },
     requestChangesDecision: (batchId, changes) =>
       requestChangesDecision(options, relay, batchId, changes),
     setModelChangeHandler: (handler) => {
-      if (!relay.disposed && activeRelay === relay) relay.modelChangeHandler = handler;
+      if (isLive(relay)) relay.modelChangeHandler = handler;
     },
   };
 
@@ -439,9 +459,27 @@ export function stopMobileRelay(): void {
   disposeRelay(relay);
 }
 
+function unpairRelay(options: MobileRelayOptions, relay: ActiveMobileRelay): Promise<boolean> {
+  if (!isLive(relay)) return Promise.resolve(false);
+  const revokePairing = options.client.revokePairing?.bind(options.client);
+  if (!revokePairing) return Promise.reject(new Error('This build cannot unpair a phone.'));
+  relay.unpairInFlight ??= (async () => {
+    try {
+      await revokePairing(options.token, options.pairingId, {
+        sessionId: options.sessionId,
+        deviceId: options.deviceId,
+      });
+      disposeRelay(relay);
+      return true;
+    } finally {
+      relay.unpairInFlight = undefined;
+    }
+  })();
+  return relay.unpairInFlight;
+}
+
 function disposeRelay(relay: ActiveMobileRelay): void {
-  if (relay.disposed) return;
-  relay.disposed = true;
+  if (!relay.lifecycle.trySend('dispose')) return;
   clearInterval(relay.timer);
   relay.keepAwakeController.dispose();
   relay.sessionControlHandler = undefined;
@@ -460,7 +498,7 @@ async function pollOnce(
   relay: ActiveMobileRelay,
   controller: MobileRelayController,
 ): Promise<void> {
-  if (activeRelay !== relay || relay.polling) {
+  if (!isLive(relay) || relay.polling) {
     return;
   }
 
@@ -474,25 +512,21 @@ async function pollOnce(
         pairingId: options.pairingId,
         mode: options.mode,
       });
-      if (activeRelay !== relay) return;
+      if (!isLive(relay)) return;
       if (heartbeat?.pairingStatus === 'revoked') {
         disposeRelay(relay);
         options.onMobileDisconnected?.(MOBILE_DISCONNECTED_MESSAGE);
         return;
       }
-      if (
-        heartbeat?.pairingClaimed === true
-        && !relay.mobileConnected
-      ) {
-        relay.mobileConnected = true;
+      if (heartbeat?.pairingClaimed === true && relay.lifecycle.trySend('claim')) {
         relay.connectedAt = Date.now();
         deliverPairingClaim(options, relay);
       }
-      if (relay.mobileConnected && !relay.composerCatalogPublished) {
+      if (relay.lifecycle.is('connected') && !relay.composerCatalogPublished) {
         void publishComposerCatalog(options, relay);
       }
     } catch (error) {
-      if (activeRelay !== relay) return;
+      if (!isLive(relay)) return;
       options.onError?.(error as Error);
     }
 
@@ -502,7 +536,7 @@ async function pollOnce(
       sessionId: options.sessionId,
       pairingId: options.pairingId,
     });
-    if (activeRelay !== relay) {
+    if (!isLive(relay)) {
       if (work && claimedSteerWorkMatchesRelayScope(work, options)) {
         await finishClaimedTurn(options, {
           workId: work.id,
@@ -523,7 +557,7 @@ async function pollOnce(
         deliveryMode: 'queue',
         workspaceRoot: options.workspaceRoot,
       });
-      if (activeRelay !== relay) {
+      if (!isLive(relay)) {
         if (work && claimedQueueWorkMatchesRelayScope(work, options)) {
           await finishClaimedTurn(options, {
             workId: work.id,
@@ -583,7 +617,7 @@ async function pollOnce(
         } catch (error) {
           rollbackPermissionModeChange(options, permissionModeApplication.change);
           options.onError?.(error as Error);
-          if (activeRelay !== relay) {
+          if (!isLive(relay)) {
             await controller.finishClaimedTurn(turn, {
               status: 'cancelled',
               error: 'Mobile relay was replaced before the claimed turn could start.',
@@ -596,7 +630,7 @@ async function pollOnce(
           }
           return;
         }
-        if (activeRelay !== relay) {
+        if (!isLive(relay)) {
           rollbackPermissionModeChange(options, permissionModeApplication.change);
           await controller.finishClaimedTurn(turn, {
             status: 'cancelled',
@@ -619,7 +653,7 @@ async function pollOnce(
         prompt: turn.prompt,
         startedAt: turn.startedAt,
       });
-      if (activeRelay !== relay) {
+      if (!isLive(relay)) {
         rollbackPermissionModeChange(options, permissionModeApplication?.change);
         await controller.finishClaimedTurn(turn, {
           status: 'cancelled',
@@ -654,17 +688,17 @@ async function pollOnce(
         relay.actionCursor,
         options.pairingId,
       );
-      if (activeRelay !== relay) return;
+      if (!isLive(relay)) return;
       for (const action of actions.actions) {
         await resolveAction(action, options, relay, controller);
-        if (activeRelay !== relay) return;
+        if (!isLive(relay)) return;
         relay.actionCursor = Math.max(relay.actionCursor, action.sequence);
         relay.permissionModeActionResults.delete(action.id.trim());
       }
       relay.actionCursor = Math.max(relay.actionCursor, actions.nextCursor);
     }
   } catch (error) {
-    if (activeRelay === relay) options.onError?.(error as Error);
+    if (isLive(relay)) options.onError?.(error as Error);
   } finally {
     relay.polling = false;
   }
@@ -687,7 +721,7 @@ async function publishClaimedTurnSession(
   relay: ActiveMobileRelay,
   turn: MobileClaimedTurn,
 ): Promise<void> {
-  if (relay.disposed || activeRelay !== relay) return;
+  if (!isLive(relay)) return;
   const agentSessionId = typeof turn.agentSessionId === 'string'
     ? turn.agentSessionId.trim()
     : '';
@@ -707,7 +741,7 @@ async function publishClaimedTurnSession(
       options.onError?.(error as Error);
     }
   }
-  if (relay.disposed || activeRelay !== relay) return;
+  if (!isLive(relay)) return;
   await publishTurnState(options, {
     workId: turn.workId,
     agentSessionId,
@@ -817,9 +851,7 @@ function deliverPairingClaim(
   relay: ActiveMobileRelay,
 ): void {
   if (
-    relay.disposed ||
-    activeRelay !== relay ||
-    !relay.mobileConnected ||
+    !isConnected(relay) ||
     relay.pairingClaimDelivered ||
     (!relay.pairingClaimHandler && !options.onMobileConnected)
   ) {
@@ -881,9 +913,7 @@ async function publishComposerCatalog(
     await relay.composerCatalogPublishInFlight;
   }
   if (
-    relay.disposed
-    || activeRelay !== relay
-    || !relay.mobileConnected
+    !isConnected(relay)
     || !options.client.publishMobileEvent
     || (!force && relay.composerCatalogPublished)
   ) {
@@ -900,7 +930,7 @@ async function publishComposerCatalog(
             && isMobileCommandPermitted(command)
             && (options.isComposerCommandAvailable?.(command) ?? true),
         });
-      if (relay.disposed || activeRelay !== relay || !relay.mobileConnected) return false;
+      if (!isConnected(relay)) return false;
       await publishEvent(options, 'composer_catalog', catalog);
       relay.composerCatalog = catalog;
       relay.composerCatalogPublished = true;
@@ -920,8 +950,11 @@ async function publishComposerCatalog(
   }
 }
 
-async function refreshDeliveryStatus(options: MobileRelayOptions): Promise<void> {
-  if (!options.client.publishMobileEvent) return;
+async function refreshDeliveryStatus(
+  options: MobileRelayOptions,
+  relay: ActiveMobileRelay,
+): Promise<void> {
+  if (!options.client.publishMobileEvent || !isLive(relay)) return;
 
   try {
     let snapshot: MobileDeliveryStatusSnapshot;
@@ -932,6 +965,7 @@ async function refreshDeliveryStatus(options: MobileRelayOptions): Promise<void>
     } else {
       return;
     }
+    if (!isLive(relay)) return;
     if (snapshot.pullRequest) {
       await publishEvent(options, 'pull_request_status', { pullRequest: snapshot.pullRequest });
     }
@@ -960,7 +994,7 @@ async function setKeepAwake(
   relay: ActiveMobileRelay,
   enabled: boolean
 ): Promise<MobileKeepAwakeStatus> {
-  if (relay.disposed || activeRelay !== relay) return relay.keepAwakeController.currentState();
+  if (!isLive(relay)) return relay.keepAwakeController.currentState();
   const controller = relay.keepAwakeController;
   const status = enabled ? controller.enable() : controller.disable();
   await publishKeepAwakeStatus(options, status);
@@ -982,14 +1016,14 @@ function applyPermissionMode(
     ? requestedModeLabel as MobilePermissionMode
     : undefined;
 
-  if (relay.disposed || activeRelay !== relay) {
+  if (!isLive(relay)) {
     return { status: {
       requestedMode: requestedModeLabel,
       status: 'failed',
       error: 'Mobile relay is no longer active.',
     } };
   }
-  if (!relay.mobileConnected) {
+  if (!relay.lifecycle.is('connected')) {
     return { status: {
       requestedMode: requestedModeLabel,
       status: 'failed',
@@ -1013,7 +1047,7 @@ function applyPermissionMode(
 
   try {
     const change = options.applyPermissionMode(mode);
-    if (relay.disposed || activeRelay !== relay) {
+    if (!isLive(relay)) {
       return {
         status: {
           requestedMode: mode,
@@ -1068,7 +1102,7 @@ async function publishPermissionModeStatus(
   status: MobilePermissionModeStatus,
   requestId?: string,
 ): Promise<void> {
-  if (relay.disposed || activeRelay !== relay) return;
+  if (!isLive(relay)) return;
   await publishEvent(options, 'permission_mode_status', status, requestId);
 }
 
@@ -1080,8 +1114,7 @@ function waitForAction<T extends PermissionPromptResponse | string | MobileChang
   fallback: T
 ): Promise<T> {
   if (
-    relay.disposed
-    || activeRelay !== relay
+    !isLive(relay)
     || !options.client.publishMobileEvent
     || !options.client.pollMobileActions
   ) {
@@ -1127,7 +1160,7 @@ async function requestPermission(
   }, fallback);
 
   try {
-    if (relay.disposed || activeRelay !== relay) return fallback;
+    if (!isLive(relay)) return fallback;
     await publishEvent(options, 'permission_request', {
       message,
       tool: context?.tool,
@@ -1157,7 +1190,7 @@ async function requestDirectoryAccess(
   }, fallback);
 
   try {
-    if (relay.disposed || activeRelay !== relay) return fallback;
+    if (!isLive(relay)) return fallback;
     await publishEvent(options, 'directory_access_request', { path, reason }, requestId);
   } catch (error) {
     cancelAction(relay, requestId);
@@ -1184,7 +1217,7 @@ async function requestFollowupQuestion(
     .filter((option) => option.length > 0);
 
   try {
-    if (relay.disposed || activeRelay !== relay) {
+    if (!isLive(relay)) {
       cancelAction(relay, requestId);
       return fallback;
     }
@@ -1214,7 +1247,7 @@ async function requestChangesDecision(
   }, fallback);
 
   try {
-    if (relay.disposed || activeRelay !== relay) return fallback;
+    if (!isLive(relay)) return fallback;
     await publishEvent(options, 'changes_batch', { batchId, changes }, requestId);
   } catch (error) {
     cancelAction(relay, requestId);
@@ -1245,7 +1278,7 @@ async function publishComposerCommandResult(
   if (ownedController) relay.composerResultAbortControllers.add(ownedController);
 
   try {
-    if (relay.disposed || activeRelay !== relay || !relay.mobileConnected) return 'cancelled';
+    if (!isConnected(relay)) return 'cancelled';
     if (!options.client.publishMobileEvent) {
       throw new Error('Mobile event transport is unavailable in this CLI client');
     }
@@ -1257,7 +1290,7 @@ async function publishComposerCommandResult(
       requestId,
       payload: result,
     }, requestSignal);
-    return relay.disposed || activeRelay !== relay || !relay.mobileConnected
+    return !isConnected(relay)
       ? 'cancelled'
       : 'delivered';
   } finally {
@@ -1276,7 +1309,7 @@ async function publishFinalComposerCommandResult(
   let lastError: Error | undefined;
   try {
     for (let attempt = 1; attempt <= TERMINAL_TRANSPORT_ATTEMPTS; attempt += 1) {
-      if (relay.disposed || activeRelay !== relay || !relay.mobileConnected) return 'cancelled';
+      if (!isConnected(relay)) return 'cancelled';
       try {
         return await publishComposerCommandResult(
           options,
@@ -1289,7 +1322,7 @@ async function publishFinalComposerCommandResult(
         lastError = error as Error;
       }
 
-      if (relay.disposed || activeRelay !== relay || !relay.mobileConnected) return 'cancelled';
+      if (!isConnected(relay)) return 'cancelled';
       const retryDelayMs = composerCommandResultRetryDelay(lastError, attempt);
       if (retryDelayMs === null) break;
       if (attempt < TERMINAL_TRANSPORT_ATTEMPTS) {
@@ -1299,9 +1332,7 @@ async function publishFinalComposerCommandResult(
 
     if (
       lastError
-      && !relay.disposed
-      && activeRelay === relay
-      && relay.mobileConnected
+      && isConnected(relay)
     ) {
       options.onError?.(lastError);
     }
@@ -1356,7 +1387,7 @@ async function resolveComposerCommand(
   const command = action.payload?.command;
   const args = action.payload?.args;
   if (
-    !relay.mobileConnected
+    !isConnected(relay)
     || !requestId.trim()
     || typeof catalogRevision !== 'string'
     || !catalogRevision.trim()
@@ -1419,7 +1450,7 @@ async function resolveComposerCommand(
     status: 'queued',
     message: 'Command queued for serialized CLI execution.',
   });
-  if (relay.disposed || activeRelay !== relay || !relay.mobileConnected) return;
+  if (!isConnected(relay)) return;
 
   let finalOutcome: MobileComposerCommandResult | undefined;
   let finalDelivery: Promise<void> | undefined;
@@ -1518,7 +1549,7 @@ async function resolveWorkspaceFileQuery(
   const query = action.payload?.query;
   const limit = action.payload?.limit;
   if (
-    !relay.mobileConnected
+    !isConnected(relay)
     || !requestId.trim()
     || typeof query !== 'string'
     || query.length > MAX_MOBILE_WORKSPACE_FILE_QUERY_LENGTH
@@ -1548,7 +1579,7 @@ async function resolveWorkspaceFileQuery(
     }
   }
 
-  if (relay.disposed || activeRelay !== relay || !relay.mobileConnected) return;
+  if (!isConnected(relay)) return;
   await publishEvent(options, 'workspace_file_result', result, requestId);
 }
 
@@ -1558,7 +1589,7 @@ async function resolveAction(
   relay: ActiveMobileRelay,
   controller: MobileRelayController,
 ): Promise<void> {
-  if (relay.disposed || activeRelay !== relay) return;
+  if (!isLive(relay)) return;
 
   if (action.actionType === 'composer_command_execute') {
     await resolveComposerCommand(action, options, relay);
@@ -1595,7 +1626,7 @@ async function resolveAction(
         prompt: turn.prompt,
         startedAt: turn.startedAt,
       });
-      if (relay.disposed || activeRelay !== relay) return;
+      if (!isLive(relay)) return;
       const context: MobileClaimedTurnContext = { turn, relay: controller };
       options.enqueueInstruction(prompt, context);
     }
@@ -1652,7 +1683,7 @@ async function resolveAction(
         };
       }
 
-      if (relay.disposed || activeRelay !== relay) return;
+      if (!isLive(relay)) return;
       await publishEvent(options, 'model_status', result);
     }
     return;
@@ -1682,8 +1713,9 @@ async function resolveAction(
               status: 'failed' as const,
               message: 'The relay has no workspace root for GitHub operations.',
             };
+      if (!isLive(relay)) return;
       await publishEvent(options, 'pull_request_merge_result', result);
-      await refreshDeliveryStatus(options);
+      await refreshDeliveryStatus(options, relay);
     }
     return;
   }

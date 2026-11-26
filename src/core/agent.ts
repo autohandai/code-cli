@@ -143,6 +143,7 @@ import { ProviderConfigManager } from './agent/ProviderConfigManager.js';
 import { ReactionParser } from './agent/ReactionParser.js';
 import { ShellSuggestionProvider } from './agent/ShellSuggestionProvider.js';
 import { SimpleChatHandler, type SimpleChatAgent } from './agent/SimpleChatHandler.js';
+import { ModalDepth, TurnActivity } from './agent/TurnActivity.js';
 import {
   isPromptCachingEnabled as resolvePromptCachingEnabled,
   PromptCacheToolSet,
@@ -446,7 +447,12 @@ export class AutohandAgent {
   private reactionParser!: ReactionParser;
   private simpleChatHandler!: SimpleChatHandler;
   private readonly promptCacheToolSet = new PromptCacheToolSet();
-  private isInstructionActive = false;
+  private turnActivityState?: TurnActivity;
+  private get turnActivity(): TurnActivity {
+    return (this.turnActivityState ??= new TurnActivity());
+  }
+  private get isInstructionActive(): boolean { return this.turnActivity.active; }
+  private set isInstructionActive(active: boolean) { this.turnActivity.setActive(active); }
   private lastTurnOutcome: import('../types.js').TurnOutcome | undefined;
   private hasPrintedExplorationHeader = false;
   private activeProvider!: ProviderName;
@@ -539,12 +545,25 @@ export class AutohandAgent {
   private restoredChatMessages: ChatLogMessage[] = [];
   private inkInstructionResolver: (() => void) | null = null;
   private readlinePromptActive = false;
-  private modalVisible = false;
-  private get modalActive(): boolean { return this.modalVisible; }
-  private set modalActive(visible: boolean) {
-    this.modalVisible = visible;
-    this.peerCommunicationRuntime?.setPaused('permission', visible || this.peerAwaitingInputCount > 0);
+  private modalDepthState?: ModalDepth;
+  private releaseFlaggedModal?: () => void;
+  private get modalDepth(): ModalDepth {
+    return (this.modalDepthState ??= new ModalDepth((visible) => {
+      this.peerCommunicationRuntime?.setPaused('permission', visible || this.peerAwaitingInputCount > 0);
+    }));
   }
+  private get modalActive(): boolean { return this.modalDepth.visible; }
+  /** Boolean writers share one modal scope; nested modals hold their own through enterModal(). */
+  private set modalActive(visible: boolean) {
+    if (visible) {
+      this.releaseFlaggedModal ??= this.modalDepth.enter();
+      return;
+    }
+    const release = this.releaseFlaggedModal;
+    this.releaseFlaggedModal = undefined;
+    release?.();
+  }
+  private enterModal(): () => void { return this.modalDepth.enter(); }
   private deferredDebugLines: string[] = [];
   private queueInput = '';
   private promptSeedInput = '';
@@ -714,6 +733,7 @@ export class AutohandAgent {
   /** Promise that resolves when background init is complete */
   private initReady: Promise<void> | null = null;
   private initDone = false;
+  private initSessionType: 'startup' | 'resume' = 'startup';
 
   private getParallelismLimit(): number {
     return this.runtime?.config?.agent?.parallelToolConcurrency ?? 5;
@@ -3196,10 +3216,11 @@ export class AutohandAgent {
         emitOutput: event => this.emitOutput(event),
         requestAutoTurn: async () => {
           await peerRuntimeReady;
-          if (!this.peerRuntime || this.shouldExit || this.runtimeResourceShutdownController.signal.aborted) return;
+          if (!this.peerRuntime || this.shouldExit || this.runtimeResourceShutdownController.signal.aborted) return false;
           const text = 'Process the newly received external peer messages within the existing user goal and local permissions. Reply through peer tools only when useful.';
           if (this.runtime.isRpcMode || this.runtime.isCommandMode) {
-            if (!this.isInstructionActive && !this.instructionAdmissionCount) await this.runInstruction(text, { peerAutomatic: true, echoInTranscript: false, environmentBootstrap: 'skip' });
+            if (this.isInstructionActive || this.instructionAdmissionCount) return false;
+            await this.runInstruction(text, { peerAutomatic: true, echoInTranscript: false, environmentBootstrap: 'skip' });
           } else {
             this.pendingInkInstructions.push(createQueuedAgentInstruction({ text, echoInTranscript: false,
               executionPolicy: { environmentBootstrap: 'skip', peerAutomatic: true } }));

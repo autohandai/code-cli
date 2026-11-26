@@ -4,7 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
-import { TeamManager } from '../../../src/core/teams/TeamManager.js';
+import { TEAM_LIFECYCLE, TeamManager } from '../../../src/core/teams/TeamManager.js';
+import { reachableStates, StateMachine, terminalStates } from '../../../src/utils/stateMachine.js';
+import { randomEventWalk } from '../../helpers/stateMachineProperties.js';
 import { SessionThreadBudget } from '../../../src/core/agents/SessionThreadBudget.js';
 import { AgentRunStore } from '../../../src/core/agents/AgentRunStore.js';
 import { PassThrough } from 'node:stream';
@@ -844,6 +846,110 @@ describe('TeamManager', () => {
     resolveShutdownHook();
     await shutdown;
     expect(manager.createTeam('replacement').name).toBe('replacement');
+  });
+
+  it('completes a stalled shutdown once the last stuck teammate finally exits', async () => {
+    vi.useFakeTimers();
+    const onHookEvent = vi.fn();
+    manager = new TeamManager({ leadSessionId: 'session', workspacePath: '/tmp', onHookEvent });
+    manager.createTeam('stuck-child');
+    const worker = manager.addTeammate({ name: 'worker', agentName: 'tester' });
+    vi.mocked(worker.kill).mockImplementation(() => {});
+
+    const rejected = expect(manager.shutdown()).rejects.toThrow('not stopped');
+    await vi.runAllTimersAsync();
+    await rejected;
+    expect(manager.getTeam()?.status).toBe('active');
+    expect(() => manager.addTeammate({ name: 'late', agentName: 'tester' })).toThrow(/shutting down/i);
+
+    exitTeammate(worker, 1);
+    await vi.runAllTimersAsync();
+
+    expect(manager.getTeam()?.status).toBe('completed');
+    expect(onHookEvent).toHaveBeenCalledWith('team-shutdown', expect.objectContaining({ teamName: 'stuck-child' }));
+    expect(manager.createTeam('replacement').status).toBe('active');
+  });
+
+  it('retries a stalled shutdown on demand and completes when the child is gone', async () => {
+    vi.useFakeTimers();
+    manager.createTeam('retry');
+    const worker = manager.addTeammate({ name: 'worker', agentName: 'tester' });
+    vi.mocked(worker.kill).mockImplementation(() => {});
+    const first = expect(manager.shutdown()).rejects.toThrow('not stopped');
+    await vi.runAllTimersAsync();
+    await first;
+
+    vi.mocked(worker.kill).mockImplementation(() => exitTeammate(worker, 0));
+    const retry = manager.shutdown();
+    await vi.runAllTimersAsync();
+    await retry;
+
+    expect(manager.getTeam()?.status).toBe('completed');
+    expect(manager.shutdown()).toBe(retry);
+  });
+
+  it('completes shutdown even when a teammate peer binding failed', async () => {
+    vi.useFakeTimers();
+    manager = new TeamManager({
+      leadSessionId: 'session', workspacePath: '/tmp',
+      bindPeerRun: () => Promise.reject(new Error('peer bind failed')),
+    });
+    manager.createTeam('peer-failure');
+    const worker = manager.addTeammate({ name: 'worker', agentName: 'tester' });
+    manager.tasks.createTask({ subject: 'Work', description: '' });
+    emit(worker, 'team.ready', {});
+    await vi.runAllTimersAsync();
+
+    const shutdown = manager.shutdown();
+    await vi.runAllTimersAsync();
+
+    await expect(shutdown).resolves.toBeUndefined();
+    expect(manager.getTeam()?.status).toBe('completed');
+    expect(manager.createTeam('next').status).toBe('active');
+  });
+
+  it('treats shutdown without a team as an idempotent no-op', async () => {
+    await expect(manager.shutdown()).resolves.toBeUndefined();
+    expect(manager.getTeam()).toBeNull();
+    expect(manager.createTeam('after-noop').status).toBe('active');
+  });
+});
+
+describe('TEAM_LIFECYCLE', () => {
+  const events = ['create', 'shutdown', 'stopped', 'stall', 'settled'] as const;
+
+  it('declares the team lifecycle edges', () => {
+    expect(TEAM_LIFECYCLE.initial).toBe('none');
+    expect(TEAM_LIFECYCLE.transitions).toEqual({
+      none: { create: 'active' },
+      active: { shutdown: 'closing' },
+      closing: { stopped: 'finalizing', stall: 'stalled' },
+      stalled: { shutdown: 'closing' },
+      finalizing: { settled: 'completed' },
+      completed: { create: 'active' },
+    });
+  });
+
+  it('has no terminal dead-ends and reaches every state', () => {
+    expect(terminalStates(TEAM_LIFECYCLE)).toEqual([]);
+    expect(reachableStates(TEAM_LIFECYCLE)).toEqual(new Set(Object.keys(TEAM_LIFECYCLE.transitions)));
+  });
+
+  it.each([
+    ['active', 'create'],
+    ['closing', 'create'],
+    ['stalled', 'create'],
+    ['finalizing', 'create'],
+    ['closing', 'shutdown'],
+    ['completed', 'shutdown'],
+  ] as const)('rejects %s --%s', (from, event) => {
+    const machine = new StateMachine(TEAM_LIFECYCLE, { initial: from });
+    expect(machine.trySend(event)).toBe(false);
+    expect(machine.state).toBe(from);
+  });
+
+  it('accepts exactly its table for random event sequences', () => {
+    randomEventWalk(TEAM_LIFECYCLE, events, { seeds: 50, steps: 40 });
   });
 });
 

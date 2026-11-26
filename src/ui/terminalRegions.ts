@@ -16,6 +16,7 @@ import { themedFg } from './theme/index.js';
 import { stripAnsiCodes } from './displayUtils.js';
 import { getContentDisplay } from './displayUtils.js';
 import { getPlanModeManager } from '../commands/plan.js';
+import { StateMachine, defineStateMachine } from '../utils/stateMachine.js';
 
 // ANSI escape sequences
 const ESC = '\x1B';
@@ -25,6 +26,17 @@ const PROMPT_INPUT_PREFIX = '❯ ';
 const CONTINUATION_PREFIX = '  ';
 /** Maximum number of visible input lines in the fixed region. */
 const MAX_VISIBLE_INPUT_LINES = 5;
+/** activity + input top + one input line + input bottom + status */
+const DEFAULT_FIXED_LINES = 5;
+
+export const TERMINAL_REGIONS_LIFECYCLE = defineStateMachine({
+  name: 'TerminalRegions',
+  initial: 'inactive',
+  transitions: {
+    inactive: { enable: 'active' },
+    active: { disable: 'inactive', deactivate: 'inactive' },
+  },
+});
 
 /**
  * TerminalRegions manages split terminal regions:
@@ -32,8 +44,8 @@ const MAX_VISIBLE_INPUT_LINES = 5;
  * - Fixed region (bottom): Input field, status line, queue display
  */
 export class TerminalRegions {
-  private isActive = false;
-  private fixedLines = 5; // activity + input top + input line + input bottom + status
+  private readonly lifecycle = new StateMachine(TERMINAL_REGIONS_LIFECYCLE);
+  private fixedLines = DEFAULT_FIXED_LINES;
   private output: NodeJS.WriteStream;
   private resizeHandler: (() => void) | null = null;
   private currentInput = '';
@@ -55,6 +67,10 @@ export class TerminalRegions {
     return this.isActive;
   }
 
+  private get isActive(): boolean {
+    return this.lifecycle.is('active');
+  }
+
   /**
    * Enable split regions - reserves bottom lines for input
    */
@@ -70,7 +86,7 @@ export class TerminalRegions {
 
     this.lastHeight = height;
     this.lastWidth = width;
-    this.isActive = true;
+    this.lifecycle.send('enable');
 
     // Handle terminal resize
     this.resizeHandler = () => this.handleResize();
@@ -103,13 +119,7 @@ export class TerminalRegions {
     // staying in the (now-cleared) fixed-region area at the bottom.
     this.output.write(`${CSI}${scrollEnd};1H`);
 
-    // Remove resize handler
-    if (this.resizeHandler) {
-      this.output.off('resize', this.resizeHandler);
-      this.resizeHandler = null;
-    }
-
-    this.isActive = false;
+    this.release('disable');
   }
 
   /**
@@ -120,13 +130,20 @@ export class TerminalRegions {
     if (!this.isActive) {
       return;
     }
+    this.release('deactivate');
+  }
 
+  /**
+   * Leave the active state. The fixed region grows with multi-line input, so
+   * its height is reset here; otherwise the next enable() reserves stale rows.
+   */
+  private release(event: 'disable' | 'deactivate'): void {
     if (this.resizeHandler) {
       this.output.off('resize', this.resizeHandler);
       this.resizeHandler = null;
     }
-
-    this.isActive = false;
+    this.fixedLines = DEFAULT_FIXED_LINES;
+    this.lifecycle.send(event);
   }
 
   /**

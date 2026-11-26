@@ -145,6 +145,19 @@ describe('plan presentation and review', () => {
       expect(host.permissionManager.checkPermission({ tool: 'run_command', command: 'npm test' }).allowed).toBe(false);
     });
 
+    it('refuses a second acceptance while the plan is already executing, without reopening the review', async () => {
+      modal.showPlanAcceptModal.mockResolvedValue({ type: 'option', optionId: 'manual_approve' });
+      vi.spyOn(PlanFileStorage.prototype, 'loadPlan').mockResolvedValue(plan());
+      const { host } = createHost();
+      await handleAgentExitPlanMode(host);
+      modal.showPlanAcceptModal.mockClear();
+
+      const again = await handleAgentExitPlanMode(host);
+
+      expect(again).toMatchObject({ success: false, kind: 'validation', error: expect.stringContaining('already executing') });
+      expect(modal.showPlanAcceptModal).not.toHaveBeenCalled();
+    });
+
     it('accepts an untouched plan and lists its steps for execution', async () => {
       modal.showPlanAcceptModal.mockResolvedValue({ type: 'option', optionId: 'manual_approve' });
       vi.spyOn(PlanFileStorage.prototype, 'loadPlan').mockResolvedValue(plan());

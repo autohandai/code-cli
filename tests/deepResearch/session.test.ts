@@ -176,6 +176,26 @@ describe('deep research session lifecycle', () => {
     });
   });
 
+  it('keeps a completed run completed when a later turn for the same run fails', async () => {
+    const run = await startDeepResearchRun({
+      workspaceRoot,
+      topic: 'Hermes and DSPy',
+      reportPath: '.autohand/research/topic-hermes-and-dspy.md',
+    });
+    await fs.outputFile(path.join(workspaceRoot, run.reportPath), validReport());
+    const messages = [todoMessage([{ title: 'Finish report', status: 'completed' }])];
+    await finalizeDeepResearchRun({ workspaceRoot, runId: run.id, turnSucceeded: true, qualityPassed: true, finalResponse: '', messages });
+    const completed = await readDeepResearchRun(workspaceRoot);
+
+    // A resubmitted instruction still carries the run marker; markDeepResearchRunStarted
+    // already refuses a completed run, so finalization must not rewrite it either.
+    await expect(markDeepResearchRunStarted(workspaceRoot, run.id)).resolves.toBeNull();
+    const again = await finalizeDeepResearchRun({ workspaceRoot, runId: run.id, turnSucceeded: false, qualityPassed: false, finalResponse: '', messages: [] });
+
+    expect(again).toEqual({ completed: true, blockers: [] });
+    await expect(readDeepResearchRun(workspaceRoot)).resolves.toEqual(completed);
+  });
+
   it('uses the reserved path and successful lifecycle instead of parsing final prose', async () => {
     const run = await startDeepResearchRun({
       workspaceRoot,

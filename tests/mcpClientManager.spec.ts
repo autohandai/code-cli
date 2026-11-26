@@ -279,7 +279,7 @@ describe('McpClientManager', () => {
   describe('waitForServerSettlement', () => {
     afterEach(() => {
       const internals = manager as unknown as {
-        connectionAttempts: Map<string, Promise<void>>;
+        connectionAttempts: Map<string, { settled: Promise<void> }>;
       };
       internals.connectionAttempts.delete('cua-driver');
       vi.useRealTimers();
@@ -292,14 +292,14 @@ describe('McpClientManager', () => {
         settle = resolve;
       });
       const internals = manager as unknown as {
-        connectionAttempts: Map<string, Promise<void>>;
+        connectionAttempts: Map<string, { settled: Promise<void> }>;
         servers: Map<string, {
           config: McpServerConfig;
           status: 'connected';
           tools: [];
         }>;
       };
-      internals.connectionAttempts.set('cua-driver', attempt);
+      internals.connectionAttempts.set('cua-driver', { settled: attempt });
       const baselineTimers = vi.getTimerCount();
 
       const waiting = manager.waitForServerSettlement('cua-driver', { timeoutMs: 8_000 });
@@ -329,9 +329,9 @@ describe('McpClientManager', () => {
       vi.useFakeTimers();
       const neverSettles = new Promise<void>(() => {});
       const internals = manager as unknown as {
-        connectionAttempts: Map<string, Promise<void>>;
+        connectionAttempts: Map<string, { settled: Promise<void> }>;
       };
-      internals.connectionAttempts.set('cua-driver', neverSettles);
+      internals.connectionAttempts.set('cua-driver', { settled: neverSettles });
       const baselineTimers = vi.getTimerCount();
 
       const waiting = manager.waitForServerSettlement('cua-driver', { timeoutMs: 8_000 });
@@ -347,9 +347,9 @@ describe('McpClientManager', () => {
       vi.useFakeTimers();
       const neverSettles = new Promise<void>(() => {});
       const internals = manager as unknown as {
-        connectionAttempts: Map<string, Promise<void>>;
+        connectionAttempts: Map<string, { settled: Promise<void> }>;
       };
-      internals.connectionAttempts.set('cua-driver', neverSettles);
+      internals.connectionAttempts.set('cua-driver', { settled: neverSettles });
       const controller = new AbortController();
       const baselineTimers = vi.getTimerCount();
 
@@ -561,6 +561,71 @@ describe('McpClientManager', () => {
 
     it('throws for unknown server name', async () => {
       await expect(manager.disconnect('nonexistent')).rejects.toThrow('not found');
+    });
+
+    it('cancels an in-flight stdio connect so it never registers as connected', async () => {
+      const tempDirectory = await mkdtemp(path.join(tmpdir(), 'autohand-mcp-disconnect-race-'));
+      const eventLog = path.join(tempDirectory, 'events.jsonl');
+      const config: McpServerConfig = {
+        ...stdioConfig,
+        env: { MCP_TEST_EVENT_LOG: eventLog, MCP_TEST_INITIALIZE_DELAY_MS: '250' },
+      };
+
+      try {
+        const connecting = manager.connect(config);
+        const events = await waitForEvents(eventLog, (current) =>
+          current.some((event) => event.event === 'initialize_received')
+        );
+        const pid = Number(events.find((event) => event.event === 'started')?.pid);
+        expect(pid).toBeGreaterThan(0);
+
+        await manager.disconnect(config.name);
+
+        await expect(connecting).rejects.toMatchObject({ name: 'AbortError' });
+        expect(manager.listServers()).toEqual([]);
+        expect((manager as unknown as { connections: Map<string, unknown> }).connections.size).toBe(0);
+        await waitForProcessExit(pid);
+      } finally {
+        await rm(tempDirectory, { recursive: true, force: true });
+      }
+    });
+
+    it('cancels an in-flight HTTP handshake for that server only', async () => {
+      let initializeSignal: AbortSignal | undefined;
+      vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        initializeSignal = init?.signal ?? undefined;
+        return await new Promise<Response>((_resolve, reject) => {
+          initializeSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+        });
+      }));
+      const config: McpServerConfig = { name: 'http-disconnect-race', transport: 'http', url: 'https://mcp.test/rpc' };
+
+      const connecting = manager.connect(config);
+      await vi.waitFor(() => expect(initializeSignal).toBeDefined());
+      await manager.disconnect(config.name);
+
+      await expect(connecting).rejects.toMatchObject({ name: 'AbortError' });
+      expect(initializeSignal?.aborted).toBe(true);
+      expect(manager.listServers()).toEqual([]);
+      await manager.connect(stdioConfig);
+      expect(manager.listServers()).toEqual([expect.objectContaining({ name: stdioConfig.name, status: 'connected' })]);
+    });
+
+    it('does not record a cancelled explicit-framing connect as an error after shutdown', async () => {
+      const hangingConfig: McpServerConfig = {
+        name: 'hanging-newline-server',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'],
+        stdioFraming: 'newline',
+      };
+      const connecting = manager.connectAll([hangingConfig]);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      await manager.disconnectAll();
+      await connecting;
+
+      expect(manager.listServers()).toEqual([]);
     });
   });
 

@@ -4,6 +4,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
+
+/**
+ * Process listeners are installed only while `open`. A signal hands shutdown to
+ * the agent (`signalled`); the owner's own shutdown then releases resources.
+ */
+export const CLI_RUNTIME_LIFECYCLE = defineStateMachine({
+  name: 'CliRuntimeResourceOwner',
+  initial: 'open',
+  transitions: {
+    open: { signal: 'signalled', shutdown: 'closed' },
+    signalled: { shutdown: 'closed' },
+    closed: {},
+  },
+});
+export type CliRuntimeLifecycleState = keyof typeof CLI_RUNTIME_LIFECYCLE.transitions;
+
 export interface CliOwnedBackgroundService {
   start(): void;
   stop(): void | Promise<void>;
@@ -94,16 +111,16 @@ export class CliRuntimeResourceOwner<
   private readonly shutdownTimeoutMs: number;
   private readonly backgroundEnabled: boolean;
 
-  private generation = 0;
-  private closed = false;
-  private listenersInstalled = false;
+  private readonly lifecycle = new StateMachine(CLI_RUNTIME_LIFECYCLE, {
+    onTransition: ({ from }) => {
+      if (from === 'open') this.removeProcessListeners();
+    },
+  });
   private pingStarted = false;
   private pingStopPromise: Promise<void> | null = null;
   private startupPromise: Promise<void> | null = null;
   private syncService: Service | null = null;
   private shutdownPromise: Promise<void> | null = null;
-  private registryCleared = false;
-  private signalHandlingStarted = false;
   private readonly serviceStopPromises = new WeakMap<object, Promise<void>>();
 
   private readonly handleExit = (): void => {
@@ -130,27 +147,29 @@ export class CliRuntimeResourceOwner<
     this.onSignal = options.onSignal;
     this.shutdownTimeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
     this.backgroundEnabled = options.backgroundEnabled !== false;
-    this.installProcessListeners();
+    this.runtimeProcess.on('exit', this.handleExit);
+    this.runtimeProcess.on('SIGINT', this.handleSigint);
+    this.runtimeProcess.on('SIGTERM', this.handleSigterm);
+  }
+
+  get lifecycleState(): CliRuntimeLifecycleState {
+    return this.lifecycle.state;
   }
 
   startPing(startPing: () => void): void {
-    if (!this.backgroundEnabled || this.closed || this.pingStarted) return;
+    if (!this.backgroundEnabled || !this.isOpen() || this.pingStarted) return;
     this.pingStarted = true;
-    this.installProcessListeners();
     startPing();
   }
 
   startBackgroundStartup(
     startup: CliBackgroundStartup<AuthUser, VersionResult, Service>,
   ): void {
-    if (!this.backgroundEnabled || this.closed || this.startupPromise) return;
-    this.installProcessListeners();
-    const generation = this.generation;
-    const startupPromise = this.runBackgroundStartup(startup, generation)
+    if (!this.backgroundEnabled || !this.isOpen() || this.startupPromise) return;
+    this.startupPromise = this.runBackgroundStartup(startup)
       .catch(() => {
         // Auth, update, and sync startup are deliberately non-critical.
       });
-    this.startupPromise = startupPromise;
   }
 
   shutdown(): Promise<void> {
@@ -162,10 +181,9 @@ export class CliRuntimeResourceOwner<
 
   private async runBackgroundStartup(
     startup: CliBackgroundStartup<AuthUser, VersionResult, Service>,
-    generation: number,
   ): Promise<void> {
     const { authUser, versionResult } = await startup.resolveAuthAndVersion();
-    if (!this.isGenerationActive(generation)) return;
+    if (!this.isOpen()) return;
 
     if (versionResult) {
       startup.onVersionResult(versionResult);
@@ -175,7 +193,7 @@ export class CliRuntimeResourceOwner<
     if (!shouldStart && !startup.shouldCreateSync?.(authUser)) return;
 
     const service = await startup.createSyncService(authUser);
-    if (!this.isGenerationActive(generation)) {
+    if (!this.isOpen()) {
       await this.stopService(service);
       return;
     }
@@ -183,7 +201,7 @@ export class CliRuntimeResourceOwner<
     this.syncService = service;
     try {
       if (shouldStart) service.start();
-      if (!this.isGenerationActive(generation)) {
+      if (!this.isOpen()) {
         this.syncService = null;
         await this.stopService(service);
         return;
@@ -195,49 +213,29 @@ export class CliRuntimeResourceOwner<
     }
   }
 
-  private isGenerationActive(generation: number): boolean {
-    return !this.closed && generation === this.generation;
-  }
-
-  private installProcessListeners(): void {
-    if (this.listenersInstalled) return;
-    this.listenersInstalled = true;
-    this.runtimeProcess.on('exit', this.handleExit);
-    this.runtimeProcess.on('SIGINT', this.handleSigint);
-    this.runtimeProcess.on('SIGTERM', this.handleSigterm);
+  private isOpen(): boolean {
+    return this.lifecycle.is('open');
   }
 
   private removeProcessListeners(): void {
-    if (!this.listenersInstalled) return;
-    this.listenersInstalled = false;
     this.runtimeProcess.off('exit', this.handleExit);
     this.runtimeProcess.off('SIGINT', this.handleSigint);
     this.runtimeProcess.off('SIGTERM', this.handleSigterm);
   }
 
   private startSignalShutdown(signal: 'SIGINT' | 'SIGTERM'): void {
-    if (this.signalHandlingStarted) return;
-    this.signalHandlingStarted = true;
-    this.closed = true;
-    this.generation++;
-    this.removeProcessListeners();
+    if (!this.lifecycle.trySend('signal')) return;
     void Promise.resolve()
       .then(() => this.onSignal(signal))
       .catch(() => undefined);
   }
 
   private async performShutdown(): Promise<void> {
-    this.closed = true;
-    this.generation++;
-    this.removeProcessListeners();
-
-    if (!this.registryCleared) {
-      this.registryCleared = true;
-      try {
-        this.setSyncServiceCallback(null);
-      } catch {
-        // Resource teardown remains best-effort.
-      }
+    this.lifecycle.send('shutdown');
+    try {
+      this.setSyncServiceCallback(null);
+    } catch {
+      // Resource teardown remains best-effort.
     }
 
     const service = this.syncService;

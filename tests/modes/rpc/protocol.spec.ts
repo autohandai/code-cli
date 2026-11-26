@@ -8,6 +8,7 @@ import {
   parseRequest,
   serialize,
   LineReader,
+  LINE_READER_LIFECYCLE,
   generateId,
   createTimestamp,
   writeErrorResponse,
@@ -16,6 +17,13 @@ import {
 } from '../../../src/modes/rpc/protocol.js';
 import { JSON_RPC_ERROR_CODES } from '../../../src/modes/rpc/types.js';
 import { PassThrough, Readable } from 'stream';
+import {
+  InvalidTransitionError,
+  StateMachine,
+  reachableStates,
+  terminalStates,
+} from '../../../src/utils/stateMachine.js';
+import { randomEventWalk } from '../../helpers/stateMachineProperties.js';
 
 const originalDebugValue = process.env.AUTOHAND_DEBUG;
 
@@ -409,6 +417,72 @@ describe('JSON-RPC 2.0 Protocol', () => {
       expect(stream.listenerCount('end')).toBe(baseline.end);
       expect(stream.listenerCount('close')).toBe(baseline.close);
       expect(stream.isPaused()).toBe(true);
+    });
+
+    it('moves open -> closed -> disposed and treats dispose as terminal', () => {
+      const machine = new StateMachine(LINE_READER_LIFECYCLE);
+      expect(machine.send('finish')).toBe('closed');
+      expect(machine.can('finish')).toBe(false);
+      expect(machine.send('dispose')).toBe('disposed');
+      expect(() => machine.send('finish')).toThrow(InvalidTransitionError);
+      expect(terminalStates(LINE_READER_LIFECYCLE)).toEqual(['disposed']);
+      expect(reachableStates(LINE_READER_LIFECYCLE)).toEqual(new Set(['open', 'closed', 'disposed']));
+      expect(new StateMachine(LINE_READER_LIFECYCLE).send('dispose')).toBe('disposed');
+    });
+
+    it('accepts exactly the declared lifecycle edges under random event sequences', () => {
+      randomEventWalk(LINE_READER_LIFECYCLE, ['finish', 'dispose'], { seeds: 50, steps: 20 });
+    });
+
+    it('delivers a complete unterminated request when the stream closes without ending', async () => {
+      const stream = new PassThrough();
+      const reader = new LineReader(stream);
+      const request = '{"jsonrpc":"2.0","id":1,"method":"autohand.getState"}';
+
+      stream.write(request);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      stream.destroy();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      await expect(reader.readLine()).resolves.toBe(request);
+      await expect(reader.readLine()).rejects.toThrow('Stream closed');
+      expect(reader.isClosed()).toBe(true);
+    });
+
+    it('surfaces a truncated trailing line on close as a parse error, not a request', async () => {
+      const stream = new PassThrough();
+      const reader = new LineReader(stream);
+
+      stream.write('{"jsonrpc":"2.0","id":1,"meth');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      stream.destroy();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      const line = await reader.readLine();
+      expect(parseRequest(line)).toMatchObject({ type: 'error', code: JSON_RPC_ERROR_CODES.PARSE_ERROR });
+    });
+
+    it('flushes the trailing line only once when end is followed by close', async () => {
+      const stream = new PassThrough();
+      const reader = new LineReader(stream);
+
+      stream.end('tail');
+      await new Promise<void>((resolve) => stream.once('close', resolve));
+
+      await expect(reader.readLine()).resolves.toBe('tail');
+      await expect(reader.readLine()).rejects.toThrow('Stream closed');
+    });
+
+    it('drops a buffered partial line on dispose instead of delivering it', async () => {
+      const stream = new PassThrough();
+      const reader = new LineReader(stream);
+
+      stream.write('partial');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      reader.dispose();
+
+      expect(reader.hasPendingLines()).toBe(false);
+      await expect(reader.readLine()).rejects.toThrow('Stream closed');
     });
   });
 });

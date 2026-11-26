@@ -605,6 +605,10 @@ export async function handleAgentExitPlanMode(
       const error = 'No plan has been created yet. Call the `plan` tool first to create a plan before calling `exit_plan_mode`.';
       return { success: false, kind: 'validation', error };
     }
+    if (planManager.getPhase() !== 'planning') {
+      const error = `Plan ${plan.id} is already executing. Continue the accepted plan instead of calling \`exit_plan_mode\` again.`;
+      return { success: false, kind: 'validation', error };
+    }
 
     const nonInteractive = Boolean(host.runtime.options.prompt)
       || !process.stdin.isTTY

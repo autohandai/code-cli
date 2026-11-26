@@ -422,7 +422,7 @@ export class SubAgent {
         const runtime = this.options.peerMessaging ? new PeerCommunicationRuntime({
             messaging: this.options.peerMessaging,
             notify: event => this.options.onPeerEvent?.(event),
-            requestAutoTurn: async () => {},
+            requestAutoTurn: async () => false,
             commitContext: async messages => {
                 if (this.options.recordPeerContext) await this.options.recordPeerContext(messages);
                 else await this.options.peerMessaging!.recordContext(messages);

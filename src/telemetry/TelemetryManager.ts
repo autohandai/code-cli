@@ -20,8 +20,25 @@ import type {
   SessionFailureBugData
 } from './types.js';
 import packageJson from '../../package.json' with { type: 'json' };
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
 
 const ORDERLY_TELEMETRY_SYNC_TIMEOUT_MS = 1_500;
+
+/**
+ * An ended session keeps its id so the final session upload, which races
+ * endSession during shutdown, still reaches the right history record.
+ */
+export const TELEMETRY_SESSION_LIFECYCLE = defineStateMachine({
+  name: 'TelemetrySession',
+  initial: 'idle',
+  transitions: {
+    idle: { start: 'active', shutdown: 'shutdown' },
+    active: { start: 'active', end: 'ended', shutdown: 'shutdown' },
+    ended: { start: 'active', shutdown: 'shutdown' },
+    shutdown: {},
+  },
+});
+export type TelemetrySessionState = keyof typeof TELEMETRY_SESSION_LIFECYCLE.transitions;
 
 export class TelemetryManager {
   private client: TelemetryClient;
@@ -38,7 +55,7 @@ export class TelemetryManager {
   private readonly heartbeatIntervalMs: number;
   private orderlySyncDeadlineAt: number | null = null;
   private orderlySyncPromise: Promise<void> | null = null;
-  private shutdownStarted = false;
+  private readonly lifecycle = new StateMachine(TELEMETRY_SESSION_LIFECYCLE);
   private shutdownPromise: Promise<void> | null = null;
   private readonly shutdownController = new AbortController();
 
@@ -46,6 +63,10 @@ export class TelemetryManager {
     this.client = new TelemetryClient(config);
     this.telemetryEnabled = config.enabled === true;
     this.heartbeatIntervalMs = 60_000;
+  }
+
+  get lifecycleState(): TelemetrySessionState {
+    return this.lifecycle.state;
   }
 
   /**
@@ -72,7 +93,7 @@ export class TelemetryManager {
     eventData?: Record<string, unknown>,
     signal?: AbortSignal
   ): Promise<void> {
-    if (this.shutdownStarted || signal?.aborted) return;
+    if (this.lifecycle.is('shutdown') || signal?.aborted) return;
     const event = {
       eventType,
       eventData,
@@ -99,11 +120,11 @@ export class TelemetryManager {
     startedAt?: number | string | Date,
     providerMetadata: ProviderModelMetadata = {}
   ): Promise<void> {
-    if (this.shutdownStarted) return;
+    if (this.lifecycle.is('shutdown')) return;
     if (this.orderlySyncPromise) {
       await this.orderlySyncPromise;
     }
-    if (this.shutdownStarted) return;
+    if (!this.lifecycle.trySend('start')) return;
     this.orderlySyncDeadlineAt = null;
     this.sessionId = sessionId;
     this.sessionStartTime = this.normalizeSessionStartTime(startedAt);
@@ -120,7 +141,7 @@ export class TelemetryManager {
       provider,
       ...providerMetadata,
     }, this.shutdownController.signal);
-    if (this.shutdownStarted) return;
+    if (this.lifecycle.is('shutdown')) return;
 
     // Try to sync any queued sessions from previous offline periods
     await this.client.syncQueuedSessions();
@@ -132,6 +153,13 @@ export class TelemetryManager {
   async endSession(status: 'completed' | 'crashed' | 'abandoned' = 'completed'): Promise<void> {
     this.stopHeartbeatTimer();
     this.ensureOrderlySyncDeadline();
+    if (this.lifecycle.trySend('end')) {
+      await this.trackSessionEnd(status);
+    }
+    await this.syncForOrderlyShutdown();
+  }
+
+  private async trackSessionEnd(status: 'completed' | 'crashed' | 'abandoned'): Promise<void> {
     const duration = this.getSessionDurationSeconds();
     const deadlineSignal = this.createOrderlyDeadlineSignal();
     try {
@@ -145,8 +173,6 @@ export class TelemetryManager {
     } finally {
       deadlineSignal.dispose();
     }
-
-    await this.syncForOrderlyShutdown();
   }
 
   /**
@@ -422,7 +448,7 @@ export class TelemetryManager {
    */
   enable(): void {
     this.telemetryEnabled = true;
-    if (this.sessionId) {
+    if (this.lifecycle.is('active')) {
       this.startHeartbeatTimer();
     }
     this.client.enable();
@@ -434,7 +460,7 @@ export class TelemetryManager {
   shutdown(): Promise<void> {
     if (this.shutdownPromise) return this.shutdownPromise;
 
-    this.shutdownStarted = true;
+    this.lifecycle.send('shutdown');
     this.shutdownController.abort();
     this.shutdownPromise = this.performShutdown();
     return this.shutdownPromise;
@@ -536,9 +562,8 @@ export class TelemetryManager {
   }
 
   private startHeartbeatTimer(): void {
-    if (this.shutdownStarted) return;
     this.stopHeartbeatTimer();
-    if (!this.telemetryEnabled) return;
+    if (!this.telemetryEnabled || !this.lifecycle.is('active')) return;
 
     this.heartbeatTimer = setInterval(() => {
       this.trackHeartbeat().catch(() => {});

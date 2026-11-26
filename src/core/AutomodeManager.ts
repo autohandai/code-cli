@@ -29,6 +29,7 @@ import { AgentsMdUpdater } from './AgentsMdUpdater.js';
 import type { HookManager } from './HookManager.js';
 import type { Session } from '../session/SessionManager.js';
 import type { MemoryManager } from '../memory/MemoryManager.js';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
 
 /** Default auto-mode settings */
 const DEFAULTS: Required<AutomodeSettings> = {
@@ -43,6 +44,29 @@ const DEFAULTS: Required<AutomodeSettings> = {
   testOnlyThreshold: 3,
   sameFileThreshold: 3,
 };
+
+export type AutomodeLifecycleState = 'idle' | 'starting' | 'running' | 'paused' | 'cancelled' | 'completed' | 'failed';
+export type AutomodeLifecycleEvent =
+  | 'start' | 'abandon' | 'begin' | 'pause' | 'resume' | 'cancel' | 'complete' | 'fail' | 'settle';
+
+/**
+ * In-memory lifecycle of one manager. `starting` is entered synchronously so a
+ * concurrent start is refused, outcomes (cancelled/completed/failed) only allow
+ * `settle` once cleanup has finished, which returns the manager to `idle`.
+ */
+export const AUTOMODE_LIFECYCLE = defineStateMachine<AutomodeLifecycleState, AutomodeLifecycleEvent>({
+  name: 'automode-lifecycle',
+  initial: 'idle',
+  transitions: {
+    idle: { start: 'starting' },
+    starting: { abandon: 'idle', begin: 'running', cancel: 'cancelled', fail: 'failed' },
+    running: { pause: 'paused', cancel: 'cancelled', complete: 'completed', fail: 'failed' },
+    paused: { resume: 'running', cancel: 'cancelled', complete: 'completed', fail: 'failed' },
+    cancelled: { settle: 'idle' },
+    completed: { settle: 'idle' },
+    failed: { settle: 'idle' },
+  },
+});
 
 /** Auto-mode options from CLI */
 export interface AutomodeOptions {
@@ -97,8 +121,9 @@ export class AutomodeManager extends EventEmitter {
   private originalBranch: string | null = null;
   private branchName: string | null = null;
   private gitCommits: Array<{ hash: string; message: string }> = [];
-  private isRunning: boolean = false;
-  private isPaused: boolean = false;
+  private readonly lifecycle = new StateMachine(AUTOMODE_LIFECYCLE);
+  /** Reason for a cancel received before the run's state was initialised. */
+  private startupCancelReason: AutomodeCancelReason = 'user_cancel';
   private detectedPatterns?: ProjectPatterns;
 
   constructor(
@@ -127,14 +152,14 @@ export class AutomodeManager extends EventEmitter {
    * Check if auto-mode is currently running
    */
   isActive(): boolean {
-    return this.isRunning;
+    return !this.lifecycle.is('idle');
   }
 
   /**
    * Check if auto-mode is paused
    */
   isPausedState(): boolean {
-    return this.isPaused;
+    return this.lifecycle.is('paused');
   }
 
   /**
@@ -192,9 +217,16 @@ export class AutomodeManager extends EventEmitter {
     options: AutomodeOptions,
     runIteration: IterationCallback
   ): Promise<void> {
-    if (this.isRunning) {
+    if (!this.lifecycle.trySend('start')) {
       throw new Error('Auto-mode is already running');
     }
+
+    const abortController = new AbortController();
+    this.abortController = abortController;
+    this.startTime = Date.now();
+    this.totalCost = 0;
+    this.gitCommits = [];
+    this.startupCancelReason = 'user_cancel';
 
     // Check for existing session
     if (await this.state.hasActiveSession()) {
@@ -203,16 +235,11 @@ export class AutomodeManager extends EventEmitter {
         console.log(chalk.yellow(`\n⚠ Existing auto-mode session found: ${existingState.sessionId}`));
         console.log(chalk.gray(`  Status: ${existingState.status}, Iteration: ${existingState.currentIteration}`));
         console.log(chalk.gray(`  Use /automode resume to continue or /automode cancel to start fresh\n`));
+        this.abortController = null;
+        this.lifecycle.send(this.lifecycle.is('starting') ? 'abandon' : 'settle');
         return;
       }
     }
-
-    this.isRunning = true;
-    this.isPaused = false;
-    this.abortController = new AbortController();
-    this.startTime = Date.now();
-    this.totalCost = 0;
-    this.gitCommits = [];
 
     // Merge options with defaults
     const maxIterations = options.maxIterations ?? this.settings.maxIterations;
@@ -231,64 +258,64 @@ export class AutomodeManager extends EventEmitter {
     console.log(chalk.gray(`   Completion promise: "${completionPromise}"`));
     console.log(chalk.gray(`   Worktree isolation: ${useWorktree ? 'enabled' : 'disabled'}`));
 
-    // Create worktree if enabled AND not already prepared
-    if (useWorktree && !this.worktreePath) {
-      try {
-        await this.setupWorktree(sessionId);
+    try {
+      // Create worktree if enabled AND not already prepared
+      if (useWorktree && !this.worktreePath) {
+        try {
+          await this.setupWorktree(sessionId);
+          console.log(chalk.gray(`   Branch: ${this.branchName}`));
+        } catch (error) {
+          console.log(chalk.yellow(`   ⚠ Worktree setup failed, continuing in current branch`));
+          console.log(chalk.gray(`   ${error}`));
+        }
+      } else if (this.worktreePath) {
+        // Worktree was already prepared via prepareWorktree()
         console.log(chalk.gray(`   Branch: ${this.branchName}`));
-      } catch (error) {
-        console.log(chalk.yellow(`   ⚠ Worktree setup failed, continuing in current branch`));
-        console.log(chalk.gray(`   ${error}`));
+        console.log(chalk.gray(`   Worktree: ${this.worktreePath}`));
       }
-    } else if (this.worktreePath) {
-      // Worktree was already prepared via prepareWorktree()
-      console.log(chalk.gray(`   Branch: ${this.branchName}`));
-      console.log(chalk.gray(`   Worktree: ${this.worktreePath}`));
-    }
 
-    // Initialize state
-    await this.state.initialize({
-      sessionId,
-      prompt: options.prompt,
-      maxIterations,
-      completionPromise,
-      branch: this.branchName ?? undefined,
-      worktreePath: this.worktreePath ?? undefined,
-    });
-
-    console.log(chalk.cyan('\n   Press ESC to cancel auto-mode\n'));
-
-    // Save initial prompt to session
-    await this.session?.append({
-      role: 'user',
-      content: `[Auto-Mode Start] ${options.prompt}`,
-      timestamp: new Date().toISOString(),
-      _meta: {
-        automode: true,
+      // Initialize state
+      await this.state.initialize({
         sessionId,
+        prompt: options.prompt,
         maxIterations,
         completionPromise,
-      },
-    });
+        branch: this.branchName ?? undefined,
+        worktreePath: this.worktreePath ?? undefined,
+      });
 
-    // Emit start event
-    await this.emitHookEvent('automode:start', {
-      automodeSessionId: sessionId,
-      automodePrompt: options.prompt,
-      automodeMaxIterations: maxIterations,
-    });
+      console.log(chalk.cyan('\n   Press ESC to cancel auto-mode\n'));
 
-    try {
-      // Main loop
+      // Save initial prompt to session
+      await this.session?.append({
+        role: 'user',
+        content: `[Auto-Mode Start] ${options.prompt}`,
+        timestamp: new Date().toISOString(),
+        _meta: {
+          automode: true,
+          sessionId,
+          maxIterations,
+          completionPromise,
+        },
+      });
+
+      // Emit start event
+      await this.emitHookEvent('automode:start', {
+        automodeSessionId: sessionId,
+        automodePrompt: options.prompt,
+        automodeMaxIterations: maxIterations,
+      });
+
+      if (!this.lifecycle.trySend('begin')) {
+        await this.recordCancellation(this.startupCancelReason);
+      }
+
       for (let iteration = 1; iteration <= maxIterations; iteration++) {
-        // Check for cancellation
-        if (this.abortController.signal.aborted) {
-          break;
-        }
-
-        // Check for pause
-        while (this.isPaused && !this.abortController.signal.aborted) {
+        while (this.lifecycle.is('paused')) {
           await this.delay(500);
+        }
+        if (!this.lifecycle.is('running')) {
+          break;
         }
 
         // Check runtime limit
@@ -311,7 +338,7 @@ export class AutomodeManager extends EventEmitter {
         const result = await runIteration(
           iteration,
           options.prompt,
-          this.abortController.signal
+          abortController.signal
         );
 
         // Track costs
@@ -365,6 +392,10 @@ export class AutomodeManager extends EventEmitter {
         // the iteration that produced the decision.
         await this.state.recordIteration(iterationLog);
 
+        if (!this.lifecycle.is('running', 'paused')) {
+          break;
+        }
+
         if (result.success && result.output && this.state.checkCompletionPromise(result.output)) {
           console.log(chalk.green('\n✓ Task complete'));
           await this.complete();
@@ -403,17 +434,16 @@ export class AutomodeManager extends EventEmitter {
         }
       }
 
-      // Check if we hit max iterations
-      const currentState = this.state.getState();
-      if (currentState && currentState.status === 'running') {
-        if (currentState.currentIteration >= maxIterations) {
-          console.log(chalk.yellow(`\n⚠ Maximum iterations (${maxIterations}) reached`));
-          await this.cancel('max_iterations');
-        }
+      // The loop only exits while still live once every iteration has been used.
+      if (this.lifecycle.is('running', 'paused')) {
+        console.log(chalk.yellow(`\n⚠ Maximum iterations (${maxIterations}) reached`));
+        await this.cancel('max_iterations');
       }
     } catch (error) {
       console.error(chalk.red(`\n❌ Auto-mode error: ${error}`));
-      await this.state.setStatus('failed', 'error', String(error));
+      if (this.lifecycle.trySend('fail')) {
+        await this.state.setStatus('failed', 'error', String(error));
+      }
       await this.emitHookEvent('automode:error', {
         automodeSessionId: sessionId,
         error: String(error),
@@ -427,11 +457,23 @@ export class AutomodeManager extends EventEmitter {
    * Cancel the auto-mode loop
    */
   async cancel(reason: AutomodeCancelReason = 'user_cancel'): Promise<void> {
-    if (!this.isRunning) return;
+    const cancelledDuringStartup = this.lifecycle.is('starting');
+    if (!this.lifecycle.trySend('cancel')) return;
 
     console.log(chalk.yellow(`\n⚠ Auto-mode cancelled: ${reason}`));
 
     this.abortController?.abort();
+    if (cancelledDuringStartup) {
+      this.startupCancelReason = reason;
+      return;
+    }
+    await this.recordCancellation(reason);
+  }
+
+  /**
+   * Persist, log and announce a cancellation that the lifecycle has accepted
+   */
+  private async recordCancellation(reason: AutomodeCancelReason): Promise<void> {
     await this.state.setStatus('cancelled', reason);
 
     const currentState = this.state.getState();
@@ -464,9 +506,8 @@ export class AutomodeManager extends EventEmitter {
    * Pause the auto-mode loop
    */
   async pause(): Promise<void> {
-    if (!this.isRunning || this.isPaused) return;
+    if (!this.lifecycle.trySend('pause')) return;
 
-    this.isPaused = true;
     await this.state.setStatus('paused');
 
     const currentState = this.state.getState();
@@ -483,9 +524,8 @@ export class AutomodeManager extends EventEmitter {
    * Resume the auto-mode loop
    */
   async resume(): Promise<void> {
-    if (!this.isRunning || !this.isPaused) return;
+    if (!this.lifecycle.trySend('resume')) return;
 
-    this.isPaused = false;
     await this.state.setStatus('running');
 
     const currentState = this.state.getState();
@@ -502,6 +542,7 @@ export class AutomodeManager extends EventEmitter {
    * Mark auto-mode as complete
    */
   private async complete(): Promise<void> {
+    if (!this.lifecycle.trySend('complete')) return;
     await this.state.setStatus('completed', 'completion');
 
     const currentState = this.state.getState();
@@ -712,10 +753,18 @@ export class AutomodeManager extends EventEmitter {
    * Clean up after auto-mode ends
    */
   private async cleanup(): Promise<void> {
-    this.isRunning = false;
-    this.isPaused = false;
     this.abortController = null;
+    try {
+      await this.reportRun();
+    } finally {
+      this.lifecycle.send('settle');
+    }
+  }
 
+  /**
+   * Write the changelog, final checkpoint and summary for the finished run
+   */
+  private async reportRun(): Promise<void> {
     // Generate changelog
     const currentState = this.state.getState();
     if (currentState) {

@@ -5,6 +5,7 @@
  */
 
 import type { GoalContinuity } from './GoalContinuity.js';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
 
 export const GOAL_STATUSES = ['active', 'paused', 'blocked', 'waiting', 'budgetLimited', 'complete'] as const;
 export type GoalStatus = typeof GOAL_STATUSES[number];
@@ -17,6 +18,50 @@ export function parseGoalStatus(value: unknown): GoalStatus | undefined {
   if (value === undefined) return undefined;
   if (!isGoalStatus(value)) throw new TypeError(`status must be one of: ${GOAL_STATUSES.join(', ')}.`);
   return value;
+}
+
+export const GOAL_STATUS_EVENTS = ['activate', 'pause', 'block', 'wait', 'exhaustBudget', 'complete'] as const;
+export type GoalStatusEvent = typeof GOAL_STATUS_EVENTS[number];
+
+const GOAL_STATUS_EVENT: Readonly<Record<GoalStatus, GoalStatusEvent>> = {
+  active: 'activate',
+  paused: 'pause',
+  blocked: 'block',
+  waiting: 'wait',
+  budgetLimited: 'exhaustBudget',
+  complete: 'complete',
+};
+
+const OPEN_GOAL_EDGES = { activate: 'active', pause: 'paused', block: 'blocked', wait: 'waiting', complete: 'complete' } as const;
+
+/**
+ * The only status changes a goal may make. Open goals move freely between
+ * each other and may complete; only a running goal exhausts its budget; a
+ * terminal goal (complete, budgetLimited) reopens solely by resuming — the
+ * documented "reopen and record new evidence" flow — so it can never slip
+ * back into a stopped-but-unfinished state that blocks replacement.
+ * Completing a budget-limited goal stays allowed so a user can close out work
+ * that finished on its final turn.
+ */
+export const GOAL_STATUS_LIFECYCLE = defineStateMachine<GoalStatus, GoalStatusEvent>({
+  name: 'goal status',
+  initial: 'active',
+  transitions: {
+    active: { ...OPEN_GOAL_EDGES, exhaustBudget: 'budgetLimited' },
+    paused: OPEN_GOAL_EDGES,
+    blocked: OPEN_GOAL_EDGES,
+    waiting: OPEN_GOAL_EDGES,
+    budgetLimited: { activate: 'active', complete: 'complete' },
+    complete: { activate: 'active' },
+  },
+});
+
+export function goalStatusEvent(status: GoalStatus): GoalStatusEvent {
+  return GOAL_STATUS_EVENT[status];
+}
+
+export function canTransitionGoalStatus(from: GoalStatus, to: GoalStatus): boolean {
+  return new StateMachine(GOAL_STATUS_LIFECYCLE, { initial: from }).can(goalStatusEvent(to));
 }
 
 export const UNSCOPED_GOAL_SESSION_KEY = '__unscoped__';

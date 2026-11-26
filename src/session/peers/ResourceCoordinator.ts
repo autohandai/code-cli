@@ -7,6 +7,7 @@ import { atomicWriteFile, withFileLock } from '../../utils/atomicFile.js';
 import { PeerError } from './PeerProtocol.js';
 import { ensurePrivatePeerDirectory, readPrivatePeerFile } from './PeerStorage.js';
 import { probePeerProcess, type PeerProcessProof, type PeerProcessState } from './PeerProcessIdentity.js';
+import { defineStateMachine, StateMachine, terminalStates } from '../../utils/stateMachine.js';
 
 const identifier = z.string().min(1).max(256).refine(value => !/[\x00-\x1f\x7f]/.test(value));
 const resourceKey = z.string().max(256).regex(/^(?:machine\/[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|repository\/[A-Za-z0-9_-]{1,128}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,63})$/);
@@ -33,6 +34,28 @@ const ticketSchema = z.object({ requestId: identifier, principal: principalSchem
   launchId: identifier.optional(), commandDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 type ResourceTicket = z.infer<typeof ticketSchema>;
+export type ResourceTicketState = ResourceTicket['state'];
+export type ResourceTicketEvent = 'grant' | 'start' | 'spawn' | 'spawn_failed' | 'complete' | 'release' | 'expire' | 'revoke' | 'cancel' | 'end';
+export const RESOURCE_TICKET_LIFECYCLE = defineStateMachine<ResourceTicketState, ResourceTicketEvent>({
+  name: 'ResourceTicket',
+  initial: 'queued',
+  transitions: {
+    queued: { grant: 'reserved', revoke: 'stale', cancel: 'cancelled', end: 'ended' },
+    reserved: { start: 'starting', release: 'released', expire: 'expired', revoke: 'stale', cancel: 'cancelled', end: 'ended' },
+    starting: { spawn: 'running', spawn_failed: 'released' },
+    running: { complete: 'completed' },
+    released: {}, cancelled: {}, expired: {}, stale: {}, ended: {}, completed: {},
+  },
+});
+const finishedTicketStates: ReadonlySet<ResourceTicketState> = new Set(terminalStates(RESOURCE_TICKET_LIFECYCLE));
+
+/** Applies `event` to a ticket only when the lifecycle allows it; terminal tickets are never rewritten. */
+function transitionTicket(ticket: ResourceTicket, event: ResourceTicketEvent): boolean {
+  const machine = new StateMachine(RESOURCE_TICKET_LIFECYCLE, { initial: ticket.state });
+  if (!machine.trySend(event)) return false;
+  ticket.state = machine.state;
+  return true;
+}
 const reservationSchema = z.object({
   resource: resourceKey, reservationId: identifier, requestId: identifier, principal: principalSchema,
   epoch: z.number().int().nonnegative(), state: z.enum(['reserved', 'starting', 'running']),
@@ -151,12 +174,9 @@ export class ResourceCoordinator {
         const existingLaunch = state.holder ? state.tickets.find(ticket => ticket.requestId === state.holder?.requestId)?.launchId : undefined;
         state.blockers = [...new Set([...state.blockers, ...launches.filter(launch => launch.launchId !== existingLaunch
           && isEnrolled(launch.principal, state.enrolled) && (state.profile === 'strict' || this.isBuildCommand(launch.command))).map(launch => launch.launchId)])];
-        if (state.holder?.state === 'reserved') {
-          this.ticket(state, state.holder.requestId).state = 'stale';
-          state.holder = null;
-        }
+        if (state.holder?.state === 'reserved') this.settleHolder(state, 'revoke');
         for (const ticket of state.tickets) {
-          if (ticket.state === 'queued' && !isEnrolled(ticket.principal, [...state.participants, operation.controller])) ticket.state = 'stale';
+          if (ticket.state === 'queued' && !isEnrolled(ticket.principal, [...state.participants, operation.controller])) transitionTicket(ticket, 'revoke');
         }
         return this.snapshot(state);
       }
@@ -187,8 +207,7 @@ export class ResourceCoordinator {
           const ownerAlive = await this.isPrincipalAlive(state.holder.principal);
           throw new PeerError(ownerAlive ? 'RESOURCE_BUSY' : 'RECOVERY_REQUIRED', 'The resource remains occupied until its owned process lifetime is resolved.');
         }
-        if (ticket.state !== 'queued') throw new PeerError('RESOURCE_BUSY', 'This ticket has already been used.');
-        ticket.state = 'reserved';
+        if (!transitionTicket(ticket, 'grant')) throw new PeerError('RESOURCE_BUSY', 'This ticket has already been used.');
         ticket.epoch = state.epoch;
         state.holder = { resource, reservationId: randomUUID(), requestId: ticket.requestId, principal: { ...ticket.principal }, epoch: state.epoch, state: 'reserved', grantedAt: this.now(), expiresAt: this.now() + 30_000 };
         return this.snapshot(state, ticket);
@@ -197,10 +216,9 @@ export class ResourceCoordinator {
       if (['starting', 'running'].includes(ticket.state)) throw new PeerError('RESOURCE_BUSY', 'A launched command remains occupied until its process tree is proven gone.');
       if (operation.operation === 'release') {
         if (ticket.state === 'released' || ticket.state === 'completed') return this.snapshot(state, ticket);
-        if (ticket.state !== 'reserved') throw new PeerError('RESOURCE_BUSY', 'Only an unused reservation can be released.');
-        ticket.state = 'released';
+        if (!transitionTicket(ticket, 'release')) throw new PeerError('RESOURCE_BUSY', 'Only an unused reservation can be released.');
       } else {
-        if (!['completed', 'released', 'ended'].includes(ticket.state)) ticket.state = 'cancelled';
+        transitionTicket(ticket, 'cancel');
       }
       if (state.holder?.requestId === ticket.requestId) state.holder = null;
       return this.snapshot(state, ticket);
@@ -277,9 +295,8 @@ export class ResourceCoordinator {
       this.assertParticipant(state);
       if (!state.holder || state.holder.requestId !== ticket.requestId || state.holder.state !== 'reserved') throw new PeerError('RESOURCE_BUSY', 'A unique unused reservation is required immediately before spawn.');
       if (!await this.isPrincipalAlive(ticket.principal)) throw new PeerError('TARGET_ENDED', 'The requesting run ended before spawn.');
-      state.holder.state = 'starting';
+      this.advanceHolder(state, state.holder, 'start');
       state.holder.command = parsed.data;
-      ticket.state = 'starting';
       return structuredClone(state.holder);
     });
   }
@@ -294,9 +311,8 @@ export class ResourceCoordinator {
         return structuredClone(reservation);
       }
       if (reservation.state !== 'starting') throw new PeerError('RESOURCE_BUSY', 'The command must reserve its spawn transition first.');
+      this.advanceHolder(state, reservation, 'spawn');
       reservation.process = parsed.data;
-      reservation.state = 'running';
-      this.ticket(state, reservation.requestId).state = 'running';
       return structuredClone(reservation);
     });
   }
@@ -307,8 +323,7 @@ export class ResourceCoordinator {
       if (!reservation.process) throw new PeerError('RECOVERY_REQUIRED', 'A starting reservation has no published process identity.');
       const observed = await this.probeProcess(reservation.process);
       if (observed !== 'gone') throw new PeerError(observed === 'alive' ? 'RESOURCE_BUSY' : 'RECOVERY_REQUIRED', 'The owned process tree has not been proven gone.');
-      this.ticket(state, reservation.requestId).state = 'completed';
-      state.holder = null;
+      this.settleHolder(state, 'complete');
     });
   }
 
@@ -316,8 +331,7 @@ export class ResourceCoordinator {
     await this.withReservation(reservationId, async (state, reservation) => {
       this.assertOwner(reservation.principal);
       if (reservation.state !== 'starting' || reservation.process) throw new PeerError('RESOURCE_BUSY', 'The executor can clear only a proven failure before a process was created.');
-      this.ticket(state, reservation.requestId).state = 'released';
-      state.holder = null;
+      this.settleHolder(state, 'spawn_failed');
     });
   }
 
@@ -325,8 +339,7 @@ export class ResourceCoordinator {
     for (const resource of await this.resources()) {
       await this.transaction(resource, async state => {
         for (const ticket of state.tickets) {
-          if (ticket.principal.instanceId !== this.options.principal.instanceId || ticket.principal.runId !== runId || !['queued', 'reserved'].includes(ticket.state)) continue;
-          ticket.state = 'ended';
+          if (ticket.principal.instanceId !== this.options.principal.instanceId || ticket.principal.runId !== runId || !transitionTicket(ticket, 'end')) continue;
           if (state.holder?.requestId === ticket.requestId) state.holder = null;
         }
       });
@@ -474,13 +487,22 @@ export class ResourceCoordinator {
     }
     const holder = state.holder;
     if (!holder) return;
-    if (holder.state === 'reserved' && holder.expiresAt <= this.now()) {
-      this.ticket(state, holder.requestId).state = 'expired';
-      state.holder = null;
-    } else if (holder.state === 'running' && holder.process && await this.probeProcess(holder.process) === 'gone') {
-      this.ticket(state, holder.requestId).state = 'completed';
-      state.holder = null;
-    }
+    if (holder.state === 'reserved' && holder.expiresAt <= this.now()) this.settleHolder(state, 'expire');
+    else if (holder.state === 'running' && holder.process && await this.probeProcess(holder.process) === 'gone') this.settleHolder(state, 'complete');
+  }
+
+  /** Moves the holder and its ticket together; a holder whose ticket disagrees is refused rather than forced. */
+  private advanceHolder(state: ResourceState, holder: ResourceReservation, event: 'start' | 'spawn'): void {
+    const ticket = this.ticket(state, holder.requestId);
+    if (!transitionTicket(ticket, event) || ticket.state !== 'starting' && ticket.state !== 'running') throw new PeerError('RECOVERY_REQUIRED', 'The reservation and its resource ticket disagree; preserve them for explicit recovery.');
+    holder.state = ticket.state;
+  }
+
+  /** Frees the holder; persisted records may hold a pruned or already-finished ticket, which is left untouched. */
+  private settleHolder(state: ResourceState, event: ResourceTicketEvent): void {
+    const ticket = state.tickets.find(candidate => candidate.requestId === state.holder?.requestId);
+    if (ticket) transitionTicket(ticket, event);
+    state.holder = null;
   }
 
   private snapshot(state: ResourceState, ticket?: ResourceTicket): ResourceSnapshot {
@@ -582,7 +604,7 @@ export class ResourceCoordinator {
       const before = JSON.stringify(state);
       const beforeEpoch = state.epoch;
       const previousBlockers = state.blockers.length;
-      state.tickets = state.tickets.filter(ticket => ['queued', 'reserved', 'starting', 'running'].includes(ticket.state) || ticket.createdAt > this.now() - 86_400_000);
+      state.tickets = state.tickets.filter(ticket => !finishedTicketStates.has(ticket.state) || ticket.createdAt > this.now() - 86_400_000);
       const ticketStates = new Map(state.tickets.map(ticket => [ticket.requestId, ticket.state]));
       const value = await operation(state);
       if (JSON.stringify(state) !== before) {

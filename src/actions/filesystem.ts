@@ -13,6 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { GitIgnoreParser } from '../utils/gitIgnore.js';
 import { resolveRipgrepCommand } from '../utils/ripgrep.js';
 import { applyValidatedPatch, extractPatchTarget } from '../utils/patchValidator.js';
+import { defineStateMachine, StateMachine } from '../utils/stateMachine.js';
 import {
   readTextFileWindow,
   type ReadTextWindowOptions,
@@ -160,6 +161,16 @@ const SEARCH_EXCLUDED_DIRECTORIES = new Set([
   'binaries',
 ]);
 
+/** Whether mutations are written directly or batched for review; applying a batch never leaves preview. */
+export const FILE_PREVIEW_MODE = defineStateMachine({
+  name: 'FilePreviewMode',
+  initial: 'direct',
+  transitions: {
+    direct: { enterPreview: 'preview' },
+    preview: { enterPreview: 'preview', exitPreview: 'direct' },
+  },
+});
+
 /** Inspects a text write before it lands; throws to block it. Paths are workspace-relative. */
 export type FileWriteGuard = (relativePath: string, previous: string | null, next: string) => void;
 
@@ -171,9 +182,9 @@ export class FileActionManager {
   private readonly additionalDirs: string[];
   private readonly resolveSearchCommand: () => string;
 
-  // Preview mode state
-  private previewMode = false;
+  private readonly previewMode = new StateMachine(FILE_PREVIEW_MODE);
   private pendingChanges: BatchedChange[] = [];
+  private readonly applyingChanges = new WeakSet<BatchedChange>();
   private pendingTurns = new WeakMap<BatchedChange, FileMutationTurn>();
   private batchId: string | null = null;
   private changeCounter = 0;
@@ -260,7 +271,7 @@ export class FileActionManager {
    * Enter preview mode - changes will be batched instead of written
    */
   enterPreviewMode(batchId: string, onBatchChange?: BatchChangeCallback): void {
-    this.previewMode = true;
+    this.previewMode.send('enterPreview');
     this.batchId = batchId;
     this.pendingChanges = [];
     this.changeCounter = 0;
@@ -271,7 +282,7 @@ export class FileActionManager {
    * Exit preview mode
    */
   exitPreviewMode(): void {
-    this.previewMode = false;
+    this.previewMode.trySend('exitPreview');
     this.batchId = null;
     this.onBatchChange = null;
   }
@@ -284,7 +295,7 @@ export class FileActionManager {
    * Check if in preview mode
    */
   isInPreviewMode(): boolean {
-    return this.previewMode;
+    return this.previewMode.is('preview');
   }
 
   /**
@@ -321,16 +332,13 @@ export class FileActionManager {
    * Apply pending changes (selected or all)
    */
   async applyPendingChanges(changeIds?: string[]): Promise<{ applied: string[]; errors: Array<{ id: string; error: string }> }> {
-    const changesToApply = changeIds
-      ? this.pendingChanges.filter((c) => changeIds.includes(c.id))
-      : this.pendingChanges;
+    const changesToApply = this.pendingChanges.filter((c) =>
+      !this.applyingChanges.has(c) && (!changeIds || changeIds.includes(c.id)));
+    changesToApply.forEach((change) => this.applyingChanges.add(change));
 
     const applied: string[] = [];
+    const appliedChanges = new Set<BatchedChange>();
     const errors: Array<{ id: string; error: string }> = [];
-
-    // Temporarily disable preview mode to actually write files
-    const wasPreviewMode = this.previewMode;
-    this.previewMode = false;
 
     for (const change of changesToApply) {
       try {
@@ -372,6 +380,7 @@ export class FileActionManager {
         }
 
         applied.push(change.id);
+        appliedChanges.add(change);
       } catch (err) {
         errors.push({
           id: change.id,
@@ -380,12 +389,8 @@ export class FileActionManager {
       }
     }
 
-    // Restore preview mode state
-    this.previewMode = wasPreviewMode;
-
-    // Remove applied changes from pending
-    const appliedSet = new Set(applied);
-    this.pendingChanges = this.pendingChanges.filter((c) => !appliedSet.has(c.id));
+    this.pendingChanges = this.pendingChanges.filter((c) => !appliedChanges.has(c));
+    changesToApply.forEach((change) => this.applyingChanges.delete(change));
 
     return { applied, errors };
   }
@@ -873,7 +878,7 @@ export class FileActionManager {
     const changeType = exists ? 'modify' : 'create';
 
     // In preview mode, batch the change instead of writing
-    if (this.previewMode) {
+    if (this.isInPreviewMode()) {
       this.addBatchedChange(
         target,
         changeType,
@@ -919,7 +924,7 @@ export class FileActionManager {
     const updated = applyValidatedPatch(current, patch);
 
     // In preview mode, batch the change instead of writing
-    if (this.previewMode) {
+    if (this.isInPreviewMode()) {
       this.addBatchedChange(
         target,
         'modify',
@@ -1397,7 +1402,7 @@ export class FileActionManager {
     const previousContents = snapshotAvailable ? await fs.readFile(fullPath) : Buffer.alloc(0);
 
     // In preview mode, batch the change instead of deleting
-    if (this.previewMode) {
+    if (this.isInPreviewMode()) {
       this.addBatchedChange(
         relativePath,
         'delete',

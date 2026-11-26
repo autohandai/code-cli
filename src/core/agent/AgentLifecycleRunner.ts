@@ -580,6 +580,7 @@ export async function runAgentInteractive(host: AgentLifecycleHost, initialInstr
     // Start ALL initialization in background so prompt appears instantly.
     // The user can start typing while managers initialize.
     // When they submit, we await initReady before processing.
+    host.initSessionType = 'startup';
     host.initReady = host.performBackgroundInit();
     // The rejection is consumed when the first instruction awaits initReady;
     // without this the process error reporter logs it as unhandled first.
@@ -938,7 +939,7 @@ export async function performAgentBackgroundInit(
 function describeStartupWait(host: AgentLifecycleHost): string | null {
     const pendingMcp = host.mcpStartupCoordinator?.describePendingConnections?.() ?? null;
     if (pendingMcp) return pendingMcp;
-    return host.initDone ? null : STARTUP_WAIT_STATUS;
+    return startupInitPhase(host) === 'initializing' ? STARTUP_WAIT_STATUS : null;
   }
 
 function waitForMcpFirstTurnDeadline(mcpReady: Promise<void>): Promise<void> {
@@ -952,12 +953,39 @@ function waitForMcpFirstTurnDeadline(mcpReady: Promise<void>): Promise<void> {
     });
   }
 
-export async function ensureAgentInitComplete(
+/**
+ * Startup init is tracked by two host facts so plain test hosts stay simple:
+ * `initReady` (pending work the first turn must await) and `initDone`
+ * (background init settled). Every reader goes through this derivation.
+ */
+export type StartupInitPhase = 'notStarted' | 'initializing' | 'awaitingFirstTurn' | 'finalizing' | 'complete';
+
+const initFinalizations = new WeakMap<AgentLifecycleHost, Promise<void>>();
+
+export function startupInitPhase(host: AgentLifecycleHost): StartupInitPhase {
+  if (initFinalizations.has(host)) return 'finalizing';
+  if (!host.initReady) return host.initDone ? 'complete' : 'notStarted';
+  return host.initDone ? 'awaitingFirstTurn' : 'initializing';
+}
+
+export function ensureAgentInitComplete(
   host: AgentLifecycleHost,
   signal?: AbortSignal,
 ): Promise<void> {
-    if (!host.initReady) return;
+  const inFlight = initFinalizations.get(host);
+  if (inFlight) return inFlight;
+  if (!host.initReady) return Promise.resolve();
+  const finalization = finalizeAgentInit(host, signal).finally(() => {
+    initFinalizations.delete(host);
+  });
+  initFinalizations.set(host, finalization);
+  return finalization;
+}
 
+async function finalizeAgentInit(
+  host: AgentLifecycleHost,
+  signal?: AbortSignal,
+): Promise<void> {
     const waitStatus = describeStartupWait(host);
     if (waitStatus) host.ui?.setWorking?.(true, waitStatus);
     try {
@@ -979,7 +1007,7 @@ export async function ensureAgentInitComplete(
       if (host.runtime?.options?.bare !== true) {
         await awaitLifecycleStep(host.hookManager.executeHooks('session-start', {
           sessionId: session?.metadata.sessionId,
-          sessionType: 'startup',
+          sessionType: host.initSessionType === 'resume' ? 'resume' : 'startup',
         }), signal);
       }
     } catch (error) {
@@ -1547,6 +1575,7 @@ export async function resumeAgentSession(host: AgentLifecycleHost, sessionId: st
       // initialization would clear that history and create an unwanted second session.
       host.initDone = true;
       host.initReady = Promise.resolve();
+      host.initSessionType = 'resume';
 
       try {
         const session = await host.restoreSessionState(sessionId, { preserveVisibleMessages: true });

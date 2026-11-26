@@ -1587,6 +1587,84 @@ describe("AutohandAcpAdapter", () => {
       // Should not throw for a session that does not exist
       await adapter.cancel({ sessionId: "nonexistent" });
     });
+
+    describe("with overlapping prompts on one session", () => {
+      let sessionId: string;
+      const signals: AbortSignal[] = [];
+      const releases: Array<(success: boolean) => void> = [];
+      const text = (value: string) => ({ sessionId, prompt: [{ type: "text" as const, text: value }] });
+
+      beforeEach(async () => {
+        signals.length = 0;
+        releases.length = 0;
+        mockAgent.runInstruction.mockImplementation((_instruction, options) => {
+          if (options?.signal) signals.push(options.signal);
+          return new Promise<boolean>((resolve) => releases.push(resolve));
+        });
+        await adapter.initialize(makeInitRequest());
+        ({ sessionId } = await adapter.newSession(makeNewSessionRequest()));
+      });
+
+      it("keeps the first prompt cancellable after a second prompt is queued behind it", async () => {
+        const first = adapter.prompt(text("first"));
+        const second = adapter.prompt(text("second"));
+        await vi.waitFor(() => expect(signals).toHaveLength(2));
+
+        await adapter.cancel({ sessionId });
+
+        expect(signals[0]?.aborted).toBe(true);
+        expect(signals[1]?.aborted).toBe(true);
+        releases.forEach((release) => release(false));
+        await expect(first).resolves.toEqual({ stopReason: "cancelled" });
+        await expect(second).resolves.toEqual({ stopReason: "cancelled" });
+      });
+
+      it("still reports a cancelled prompt as cancelled when the next prompt arrives before it settles", async () => {
+        const first = adapter.prompt(text("first"));
+        await vi.waitFor(() => expect(signals).toHaveLength(1));
+        await adapter.cancel({ sessionId });
+        const second = adapter.prompt(text("second"));
+        await vi.waitFor(() => expect(signals).toHaveLength(2));
+
+        expect(signals[1]?.aborted).toBe(false);
+        releases[0]?.(false);
+        await expect(first).resolves.toEqual({ stopReason: "cancelled" });
+        releases[1]?.(true);
+        await expect(second).resolves.toEqual({ stopReason: "end_turn" });
+      });
+
+      it("does not let a prompt that started after a cancel inherit it", async () => {
+        const first = adapter.prompt(text("first"));
+        await vi.waitFor(() => expect(signals).toHaveLength(1));
+        await adapter.cancel({ sessionId });
+        releases[0]?.(false);
+        await first;
+
+        const second = adapter.prompt(text("second"));
+        await vi.waitFor(() => expect(signals).toHaveLength(2));
+        expect(signals[1]?.aborted).toBe(false);
+        releases[1]?.(false);
+        await expect(second).rejects.toThrow();
+      });
+    });
+
+    it("cancels an outstanding out-of-turn question without silencing the next one", async () => {
+      let reply: ((value: { action: "accept"; content: { answer: string } }) => void) | undefined;
+      vi.mocked(connection.request).mockImplementation(() => new Promise(resolve => { reply = resolve as typeof reply; }));
+      await adapter.initialize(makeInitRequest({ clientCapabilities: { elicitation: { form: {} } } }));
+      const { sessionId } = await adapter.newSession(makeNewSessionRequest());
+      const ask = mockAgent.setFollowupQuestionCallback.mock.calls.at(-1)?.[0] as (question: string) => Promise<string | null | undefined>;
+
+      const first = ask("Which environment?");
+      await vi.waitFor(() => expect(connection.request).toHaveBeenCalledTimes(1));
+      await adapter.cancel({ sessionId });
+      await expect(first).resolves.toBeNull();
+
+      const second = ask("Which region?");
+      await vi.waitFor(() => expect(connection.request).toHaveBeenCalledTimes(2));
+      reply?.({ action: "accept", content: { answer: "Sydney" } });
+      await expect(second).resolves.toBe("Sydney");
+    });
   });
 
   // -------------------------------------------------------------------------

@@ -70,6 +70,23 @@ import {
   createSequencedQueuedWork,
   type SequencedQueuedWork,
 } from '../../utils/queuedWorkSequence.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
+
+export type InkRendererLifecycleState = 'idle' | 'mounted' | 'paused' | 'resuming' | 'stopped';
+export type InkRendererLifecycleEvent = 'start' | 'pause' | 'resume' | 'mounted' | 'stop';
+
+/** `resuming` covers resume()'s macrotask yield; a pause or stop landing there cancels the remount. */
+export const INK_RENDERER_LIFECYCLE = defineStateMachine<InkRendererLifecycleState, InkRendererLifecycleEvent>({
+  name: 'InkRenderer',
+  initial: 'idle',
+  transitions: {
+    idle: { start: 'mounted', stop: 'stopped' },
+    mounted: { pause: 'paused', stop: 'stopped' },
+    paused: { resume: 'resuming', stop: 'stopped' },
+    resuming: { mounted: 'mounted', pause: 'paused', stop: 'stopped' },
+    stopped: {},
+  },
+});
 
 export interface InkRendererOptions {
   /** Whether Axo was out last session; injectable for tests. Defaults to `~/.autohand/axo.json`. */
@@ -480,6 +497,8 @@ function patchStdoutForSyncOutput(preparePaint: (paint: string) => string, shoul
  * then uses ref-based state updates for all subsequent changes.
  */
 export class InkRenderer {
+  private readonly lifecycle = new StateMachine(INK_RENDERER_LIFECYCLE);
+  private pendingResume: Promise<void> | null = null;
   private instance: Instance | null = null;
   private fullScreenTranscript: FullScreenTranscript | undefined;
   private releaseScreen: (() => void) | undefined;
@@ -564,7 +583,7 @@ export class InkRenderer {
    * Start the Ink renderer
    */
   start(): void {
-    if (this.instance) {
+    if (!this.lifecycle.is('idle')) {
       return;
     }
 
@@ -590,6 +609,7 @@ export class InkRenderer {
       this.syncTips();
 
       this.instance = this.mountAgentUI();
+      this.lifecycle.send('start');
     } catch (error) {
       void this.stop().catch(() => undefined);
       this.releaseScreen?.();
@@ -682,6 +702,7 @@ export class InkRenderer {
    * Stop the Ink renderer and cleanup
    */
   async stop(): Promise<void> {
+    this.lifecycle.trySend('stop');
     let waitForExit: Promise<void> | undefined;
     try {
       if (this.keyboardProtocolEnabled) {
@@ -1672,8 +1693,12 @@ export class InkRenderer {
    * Use this before external prompts that need stdin access
    */
   pause(): void {
-    writeAutohandDebugLine(`[DEBUG] InkRenderer.pause: instance exists=${!!this.instance}`);
-    if (this.instance) {
+    writeAutohandDebugLine(`[DEBUG] InkRenderer.pause: lifecycle=${this.lifecycle.state}`);
+    if (!this.lifecycle.trySend('pause')) {
+      return;
+    }
+    const instance = this.instance;
+    if (instance) {
       // Sync state from wrapper before unmounting
       if (this.wrapperRef.current) {
         const currentInput = this.state.currentInput;
@@ -1694,14 +1719,13 @@ export class InkRenderer {
       // Clear the live composer frame before unmounting so it does not remain
       // above the fresh composer after the modal closes. resume() replays the
       // canonical chat transcript instead of relying on this frame's pixels.
-      const instance = this.instance;
       try {
         instance.clear();
       } finally {
         instance.unmount();
         this.releaseHeldConsole();
+        this.instance = null;
       }
-      this.instance = null;
 
       // Safety net: ensure stdin is in a clean paused, non-raw state before
       // modal prompts take ownership. Do not remove global listeners here:
@@ -1714,58 +1738,82 @@ export class InkRenderer {
    * Resume input handling by restarting the renderer with preserved state
    */
   async resume(): Promise<void> {
-    writeAutohandDebugLine(`[DEBUG] InkRenderer.resume: instance exists=${!!this.instance}`);
-    if (!this.instance) {
-      // Yield a macrotask so React 19's Scheduler flushes any pending passive
-      // effect cleanup from a just-unmounted Ink instance (from pause()).
-      // Ink's reconciler uses Scheduler.unstable_scheduleCallback (macrotask) for
-      // passive effects, so without this yield the previous instance's useInput
-      // cleanup runs AFTER the new instance's useInput effect, calling setRawMode(false)
-      // and removing the readable listener we just attached — symptom: composer
-      // renders but keyboard is frozen (stdin in cooked/line-buffered mode).
-      await new Promise<void>((resolve) => setImmediate(resolve));
-
-      // Ensure stdin is restored to proper state after Modal prompts
-      if (process.stdin.isTTY) {
-        safeSetRawMode(process.stdin, true);
-      }
-      // DO NOT call process.stdin.resume() here.
-      // After the modal's cleanup, the stream has no 'readable' listener,
-      // so resume() would switch it to flowing mode. When the Composer
-      // later attaches its own 'readable' listener, Node.js does NOT
-      // automatically switch back to paused mode, so the Composer never
-      // receives keystrokes.
-
-      // Clear terminal from cursor to end of screen to remove residual
-      // dynamic content (thinking, status, input box) from the previous
-      // Ink instance. This prevents composer stacking on modal return.
-      // \x1b[J = Erase in Display (clear from cursor to end of screen)
-      process.stdout.write('\x1b[J');
-
-      // Clear line and move to new line for clean restart
-      if (!this.fullScreenTranscript) process.stdout.write('\n');
-      this.fullScreenTranscript?.invalidate();
-
-      // Create fresh ref for new instance
-      this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
-      this.lastQueuedInstruction = null;
-
-      // Unmounting the previous Ink instance removes its visible primary-screen
-      // frame before the alternate-screen modal opens. Replay the canonical
-      // chatMessages state when remounting so modal commands never erase the
-      // user's transcript. Legacy arrays stay empty to avoid rendering their
-      // entries alongside the canonical chat history.
-      this.state = {
-        ...this.state,
-        staticChatMessageOffset: 0,
-        userMessages: [],
-        toolOutputs: [],
-        notifications: [],
-      };
-
-      this.instance = this.mountAgentUI();
-      writeAutohandDebugLine('[DEBUG] InkRenderer.resume: instance created successfully');
+    writeAutohandDebugLine(`[DEBUG] InkRenderer.resume: lifecycle=${this.lifecycle.state}`);
+    if (this.lifecycle.is('resuming')) {
+      await this.pendingResume;
+      return;
     }
+    if (!this.lifecycle.trySend('resume')) {
+      return;
+    }
+    const pending = this.remountAfterModal();
+    this.pendingResume = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.pendingResume === pending) this.pendingResume = null;
+    }
+  }
+
+  private async remountAfterModal(): Promise<void> {
+    // Yield a macrotask so React 19's Scheduler flushes any pending passive
+    // effect cleanup from a just-unmounted Ink instance (from pause()).
+    // Ink's reconciler uses Scheduler.unstable_scheduleCallback (macrotask) for
+    // passive effects, so without this yield the previous instance's useInput
+    // cleanup runs AFTER the new instance's useInput effect, calling setRawMode(false)
+    // and removing the readable listener we just attached — symptom: composer
+    // renders but keyboard is frozen (stdin in cooked/line-buffered mode).
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (!this.lifecycle.is('resuming')) {
+      return;
+    }
+
+    // Ensure stdin is restored to proper state after Modal prompts
+    if (process.stdin.isTTY) {
+      safeSetRawMode(process.stdin, true);
+    }
+    // DO NOT call process.stdin.resume() here.
+    // After the modal's cleanup, the stream has no 'readable' listener,
+    // so resume() would switch it to flowing mode. When the Composer
+    // later attaches its own 'readable' listener, Node.js does NOT
+    // automatically switch back to paused mode, so the Composer never
+    // receives keystrokes.
+
+    // Clear terminal from cursor to end of screen to remove residual
+    // dynamic content (thinking, status, input box) from the previous
+    // Ink instance. This prevents composer stacking on modal return.
+    // \x1b[J = Erase in Display (clear from cursor to end of screen)
+    process.stdout.write('\x1b[J');
+
+    // Clear line and move to new line for clean restart
+    if (!this.fullScreenTranscript) process.stdout.write('\n');
+    this.fullScreenTranscript?.invalidate();
+
+    // Create fresh ref for new instance
+    this.wrapperRef = React.createRef<AgentUIWrapperHandle>();
+    this.lastQueuedInstruction = null;
+
+    // Unmounting the previous Ink instance removes its visible primary-screen
+    // frame before the alternate-screen modal opens. Replay the canonical
+    // chatMessages state when remounting so modal commands never erase the
+    // user's transcript. Legacy arrays stay empty to avoid rendering their
+    // entries alongside the canonical chat history.
+    this.state = {
+      ...this.state,
+      staticChatMessageOffset: 0,
+      userMessages: [],
+      toolOutputs: [],
+      notifications: [],
+    };
+
+    try {
+      this.instance = this.mountAgentUI();
+    } catch (error) {
+      this.lifecycle.send('pause');
+      throw error;
+    }
+    this.lifecycle.send('mounted');
+    writeAutohandDebugLine('[DEBUG] InkRenderer.resume: instance created successfully');
   }
 
   /**
@@ -1982,6 +2030,10 @@ export class InkRenderer {
    * Check if the Ink renderer is currently mounted and running
    */
   isRunning(): boolean {
-    return this.instance !== null;
+    return this.lifecycle.is('mounted');
+  }
+
+  get lifecycleState(): InkRendererLifecycleState {
+    return this.lifecycle.state;
   }
 }

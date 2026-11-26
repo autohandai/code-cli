@@ -29,7 +29,7 @@ vi.mock('../../src/core/CodeQualityPipeline.js', () => ({
   })),
 }));
 
-describe('Quality Pipeline modalActive flag', () => {
+describe('Quality Pipeline modal scope', () => {
   it('uses a typed instruction runner port instead of an any host index signature', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync('src/core/agent/InstructionRunner.ts', 'utf-8');
@@ -48,35 +48,28 @@ describe('Quality Pipeline modalActive flag', () => {
     expect(agentSource).toContain('return this.instructionRunner.run(instruction, options)');
   });
 
-  it('should set modalActive=true before quality pipeline runs', async () => {
-    // Read the source code to verify the fix
+  it('opens a modal scope before the quality pipeline runs', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync('src/core/agent/InstructionRunner.ts', 'utf-8');
 
-    // Verify that modalActive is set to true before quality pipeline
-    expect(source).toContain('host.modalActive = true');
-    expect(source).toContain('host.modalActive = false');
-
-    // Verify the pattern: modalActive=true before runQualityPipeline
     const qualityPipelineSection = source.substring(
-      source.indexOf('if (host.lastIntent === \'implementation\' && host.filesModifiedThisSession)'),
+      source.indexOf('if (host.lastIntent === \'implementation\' && host.filesModifiedThisSession'),
       source.indexOf('await host.runQualityPipeline()') + 'await host.runQualityPipeline()'.length
     );
 
-    expect(qualityPipelineSection).toContain('host.modalActive = true');
+    expect(qualityPipelineSection).toContain('const leaveModal = host.enterModal()');
   });
 
-  it('should set modalActive=false after quality pipeline completes', async () => {
+  it('leaves the modal scope in a finally after the quality pipeline completes', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync('src/core/agent/InstructionRunner.ts', 'utf-8');
 
     const runQualityIndex = source.indexOf('await host.runQualityPipeline()');
-    const resetIndex = source.indexOf('host.modalActive = false', runQualityIndex);
+    const resetIndex = source.indexOf('leaveModal()', runQualityIndex);
 
     expect(runQualityIndex).toBeGreaterThanOrEqual(0);
     expect(resetIndex).toBeGreaterThan(runQualityIndex);
     expect(source.slice(runQualityIndex, resetIndex)).toContain('finally');
   });
-
 
 });

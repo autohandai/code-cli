@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
 import { atomicWriteFile } from '../../utils/atomicFile.js';
+import { defineStateMachine, StateMachine } from '../../utils/stateMachine.js';
 import { ActiveAgentRegistry, ACTIVE_AGENT_HEARTBEAT_INTERVAL_MS, type ActiveAgentActivity } from '../ActiveAgentRegistry.js';
 import { PeerDirectory, type PeerListQuery, type PeerListResult, type PeerRoute } from './PeerDirectory.js';
 import { createTransportIdentity } from './PeerIdentity.js';
@@ -68,6 +69,21 @@ export interface PeerClient {
   recordContext(messages: PeerMessageSelection[]): Promise<void>;
 }
 
+export type PeerEndpointState = 'idle' | 'starting' | 'running' | 'failed' | 'stopped';
+export type PeerEndpointEvent = 'start' | 'started' | 'failed' | 'stop';
+
+export const PEER_ENDPOINT_LIFECYCLE = defineStateMachine<PeerEndpointState, PeerEndpointEvent>({
+  name: 'PeerEndpoint',
+  initial: 'idle',
+  transitions: {
+    idle: { start: 'starting', stop: 'stopped' },
+    starting: { started: 'running', failed: 'failed', stop: 'stopped' },
+    running: { stop: 'stopped' },
+    failed: { stop: 'stopped' },
+    stopped: {},
+  },
+});
+
 interface LocalPrincipal { descriptor: PeerDescriptor; scope: PeerScope; ended: boolean; }
 const identifier = z.string().min(1).max(256).refine(value => !/[\x00-\x1f\x7f]/.test(value));
 const sendSchema = z.object({ to: identifier, content: z.string().min(1), messageId: identifier.optional(), topic: z.string().max(256).optional(), replyTo: identifier.optional(), expiresAt: z.string().optional() }).strict();
@@ -88,8 +104,7 @@ export class PeerMessaging implements PeerClient {
   private advertisement?: PeerAdvertisement;
   private startPromise?: Promise<void>;
   private stopPromise?: Promise<void>;
-  private started = false;
-  private stopped = false;
+  private readonly lifecycle = new StateMachine(PEER_ENDPOINT_LIFECYCLE);
   private heartbeat?: ReturnType<typeof setInterval>;
   private publishChain: Promise<void> = Promise.resolve();
   private eventChain: Promise<void> = Promise.resolve();
@@ -130,14 +145,21 @@ export class PeerMessaging implements PeerClient {
     return { ...structuredClone(this.root.descriptor), ...this.scopeIdentity, activity: safePeerLabel(this.options.activity?.().phase ?? 'idle') };
   }
 
+  get lifecycleState(): PeerEndpointState { return this.lifecycle.state; }
+
   start(): Promise<void> {
     if (this.stopped) return Promise.reject(new PeerError('PEER_OFFLINE', 'This peer incarnation has stopped.'));
-    this.startPromise ??= this.initialize();
-    return this.startPromise;
+    if (this.lifecycle.trySend('start')) {
+      this.startPromise = this.initialize().catch(error => {
+        this.lifecycle.trySend('failed');
+        throw error;
+      });
+    }
+    return this.startPromise!;
   }
 
   stop(): Promise<void> {
-    this.stopped = true;
+    this.lifecycle.trySend('stop');
     for (const wake of this.waiters) wake();
     this.stopPromise ??= this.shutdown();
     return this.stopPromise;
@@ -223,18 +245,20 @@ export class PeerMessaging implements PeerClient {
 
   async diagnostics() { return { ...await this.store.diagnostics(), ...this.transport.diagnostics(), subscribers: this.listeners.size, waits: this.waiters.size }; }
 
+  private get stopped(): boolean { return this.lifecycle.is('stopped'); }
+
   private async initialize(): Promise<void> {
-    if (!this.policy.enabled) return;
+    if (!this.policy.enabled) { this.lifecycle.trySend('started'); return; }
     this.scopeIdentity = await resolvePeerScope(this.options.workspaceRoot);
     await ensurePrivatePeerDirectory(this.options.home);
     await this.store.initialize();
     await atomicWriteFile(path.join(this.stateDirectory, 'identity.json'), JSON.stringify({ version: 1, instanceId: this.identity.instanceId, sessionId: this.options.sessionId }));
+    if (this.stopped) return;
     const advertisement = await this.transport.start();
     if (this.stopped) { await this.transport.close(); return; }
     this.advertisement = { ...advertisement, peerId: this.self.peerId, alias: this.self.alias, scope: this.policy.scope, ...this.scopeIdentity };
-    this.started = true;
     await this.publishPresence();
-    if (!this.stopped && !this.options.heartbeatManagedExternally) {
+    if (this.lifecycle.trySend('started') && !this.options.heartbeatManagedExternally) {
       this.heartbeat = setInterval(() => { void this.publishPresence().catch(() => {}); }, ACTIVE_AGENT_HEARTBEAT_INTERVAL_MS);
       this.heartbeat.unref?.();
     }
@@ -274,7 +298,7 @@ export class PeerMessaging implements PeerClient {
 
   private assertActive(principal: LocalPrincipal, capability?: PeerCapability): void {
     if (!this.policy.enabled) throw new PeerError('COMMUNICATION_DISABLED', 'Enable sessions.communication to use local peer messaging.');
-    if (this.stopped || !this.started) throw new PeerError('PEER_OFFLINE', 'This peer endpoint is not running.');
+    if (!this.lifecycle.is('running')) throw new PeerError('PEER_OFFLINE', 'This peer endpoint is not running.');
     if (principal.ended) throw new PeerError('TARGET_ENDED', 'This exact run has ended.');
     if (capability && !principal.descriptor.capabilities.includes(capability)) throw new PeerError('CAPABILITY_DENIED', `The bound principal lacks ${capability}.`);
   }
