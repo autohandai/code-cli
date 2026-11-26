@@ -1485,7 +1485,8 @@ program
     await sessionManager.initialize();
     const { sessions } = await import('./commands/sessions.js');
     const args = opts.project ? ['--project', opts.project] : [];
-    await sessions({ sessionManager, args });
+    const output = await sessions({ sessionManager, args });
+    if (output) console.log(output);
     process.exit(0);
   });
 

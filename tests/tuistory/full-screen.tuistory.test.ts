@@ -8,7 +8,7 @@ import { isTerminalMouseTrackingEnabled } from '../../src/testing/scenarios/mous
 import { composerCaretLine } from '../../src/testing/assertions/composerCaret.js';
 import { FULL_SCREEN_GUTTER } from '../../src/ui/ink/FullScreenFrame.js';
 import { clickFullScreenComposer, clickFullScreenTranscript, trackTranscriptRowDuringTurn, cycleFullScreenStartupModes, dragFullScreenTranscript, lastClipboardWrite, findHistoryDuringWork, inspectFullScreenStatusBar, requestFullScreenStartupWrite, seedFullScreenHistory, startFullScreenHeaderProbe, typeMultilineDraft, runFullScreenLiveOutputScenario } from '../../src/testing/scenarios/fullScreenScenario.js';
-import { launchTuistorySession } from '../../src/testing/drivers/tuistory-driver.js';
+import { expectCleanExit, launchTuistorySession, waitForExit } from '../../src/testing/drivers/tuistory-driver.js';
 import { outputViewport, LONG_OUTPUT_COMMAND, runLongOutputTurn } from '../../src/testing/scenarios/compactOutputScenario.js';
 import { createMockAuthServer, type MockAuthServer, createMockAutohandAINativeSequenceServer, type MockNativeToolServer, createTempAutohandHome, launchBuiltAutohand, exitInteractive, type TuistoryTempState } from './helpers/autohandTuistory.js';
 let server: MockNativeToolServer | undefined;
@@ -713,6 +713,36 @@ describe('full-screen terminal', () => {
     expect(viewport).toContain('Effective');
     expect(viewport).toContain('No AllowList entries');
     await exitInteractive(session);
+  });
+
+  it('lists saved sessions with /sessions and shows the current one with /session', async () => {
+    state = await createTempAutohandHome({ config: { features: { fullScreenMode: true }, ui: { promptSuggestions: false } } });
+    await seedFullScreenHistory(state.autohandHome, state.workspaceRoot);
+    const metadataPath = path.join(state.autohandHome, 'sessions', 'full-screen-history', 'metadata.json');
+    await writeFile(metadataPath, JSON.stringify({ ...JSON.parse(await readFile(metadataPath, 'utf8')), title: 'Seeded sessions listing' }));
+    session = await launchBuiltAutohand(['--config', state.configPath, '--offline'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000, cols: 120, rows: 40,
+    });
+    await session.waitForText('❯');
+    await session.type('/sessions'); await session.press('enter');
+    await session.waitForText('Seeded sessions listing', { timeout: 10_000 });
+    let viewport = outputViewport(session);
+    expect(viewport).toContain('full-screen-history');
+    expect(viewport).toContain('/resume <id>');
+
+    await session.type('/session'); await session.press('enter');
+    await session.waitForText('Current session', { timeout: 10_000 });
+    viewport = outputViewport(session);
+    expect(viewport).toMatch(/Messages:\s*\d+/);
+    await exitInteractive(session);
+
+    // The `autohand sessions` subcommand prints the same list and exits.
+    session = await launchBuiltAutohand(['sessions'], {
+      autohandHome: state.autohandHome, cwd: state.workspaceRoot, waitForDataTimeout: 15_000, cols: 120, rows: 40,
+    });
+    await waitForExit(session, 15_000);
+    expectCleanExit(session);
+    expect(session.readAll()).toContain('Seeded sessions listing');
   });
 
   it('marks command activity while reading history and returns to it without moving the draft', async () => {

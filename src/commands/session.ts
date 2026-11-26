@@ -12,23 +12,22 @@ export const metadata = {
     implemented: true
 };
 
+/** Returned rather than printed, so it shows in the full-screen transcript too (see /sessions). */
 export async function session(ctx: { sessionManager: SessionManager }): Promise<string | null> {
     const current = ctx.sessionManager.getCurrentSession();
     if (!current) {
-        console.log(chalk.yellow('No active session.'));
-        return null;
+        return chalk.yellow('No active session.');
     }
 
     const meta = current.metadata;
-    console.log(chalk.cyan('\nCurrent session'));
-    console.log(`${chalk.gray(' ID:')} ${chalk.white(meta.sessionId)}`);
-    if (meta.title) {
-        console.log(`${chalk.gray(' Name:')} ${chalk.white(meta.title)}`);
-    }
-    console.log(`${chalk.gray(' Project:')} ${chalk.white(meta.projectPath)}`);
-    console.log(`${chalk.gray(' Model:')} ${chalk.white(meta.model)}`);
-    console.log(`${chalk.gray(' Messages:')} ${chalk.white(meta.messageCount.toString())}`);
-    console.log(`${chalk.gray(' Started:')} ${chalk.white(new Date(meta.createdAt).toLocaleString())}`);
-    console.log();
-    return null;
+    const field = (label: string, value: string) => `${chalk.gray(` ${label}:`)} ${chalk.white(value)}`;
+    return [
+        chalk.cyan('Current session'),
+        field('ID', meta.sessionId),
+        ...(meta.title ? [field('Name', meta.title)] : []),
+        field('Project', meta.projectPath),
+        field('Model', meta.model),
+        field('Messages', meta.messageCount.toString()),
+        field('Started', new Date(meta.createdAt).toLocaleString()),
+    ].join('\n');
 }
