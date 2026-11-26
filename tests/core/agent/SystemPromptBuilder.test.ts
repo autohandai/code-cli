@@ -58,7 +58,10 @@ describe('SystemPromptBuilder', () => {
   );
 
   it('preserves the complete persistent-goal stop, ownership, and evidence contract', async () => {
-    const prompt = await createBuilder({ supportsNativeToolCalling: true }).build();
+    // The frozen slice ends at Response Format; the default-on peer section would otherwise sit inside it.
+    const prompt = await createBuilder({ supportsNativeToolCalling: true,
+      runtime: { options: {}, workspaceRoot: process.cwd(), config: { sessions: { communication: { enabled: false } } } },
+    }).build();
     const start = prompt.indexOf('### Persistent Goals\n');
     const end = prompt.indexOf('### Response Format\n', start);
     expect(start).toBeGreaterThanOrEqual(0);
@@ -104,6 +107,53 @@ describe('SystemPromptBuilder', () => {
     } finally {
       if (!wasEnabled) manager.disable();
     }
+  });
+
+  describe('local peer communication guidance', () => {
+    const peerHeading = '### Local Peer Communication\n';
+    const build = (config: Record<string, unknown>) => createBuilder({ supportsNativeToolCalling: true,
+      runtime: { options: {}, workspaceRoot: process.cwd(), config } }).build();
+
+    it('teaches the model to discover and message other sessions when the config leaves communication unset', async () => {
+      const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+      try {
+        const prompt = await build({});
+        expect(prompt).toContain(peerHeading);
+        expect(prompt).toContain('list_peers');
+        expect(prompt).toContain('send_peer_message');
+      } finally { platform.mockRestore(); }
+    });
+
+    it('tells the model to act on arriving peer requests under the default auto policy', async () => {
+      const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+      try {
+        const prompt = await build({});
+        const section = prompt.slice(prompt.indexOf(peerHeading));
+        expect(section).toContain('carry out the request');
+        expect(section).toContain('replyTo');
+      } finally { platform.mockRestore(); }
+    });
+
+    it('omits peer guidance when the session opts out', async () => {
+      expect(await build({ sessions: { communication: { enabled: false } } })).not.toContain(peerHeading);
+    });
+
+    it('omits peer guidance on Windows where the transport is unavailable', async () => {
+      const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+      try {
+        expect(await build({})).not.toContain(peerHeading);
+      } finally { platform.mockRestore(); }
+    });
+
+    it('tells a notify-only session that arrivals wait for the user', async () => {
+      const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+      try {
+        const prompt = await build({ sessions: { communication: { idleBehavior: 'notify' } } });
+        const section = prompt.slice(prompt.indexOf(peerHeading));
+        expect(section).not.toContain('carry out the request');
+        expect(section).toContain('wait for the user');
+      } finally { platform.mockRestore(); }
+    });
   });
 
   it('tells the model which shell executable and dialect command tools use', async () => {

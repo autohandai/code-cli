@@ -1480,7 +1480,7 @@ for agent IPC, local model servers, browser integration, and optional HTTP liste
     "communication": {
       "enabled": true,
       "scope": "workspace",
-      "idleBehavior": "notify",
+      "idleBehavior": "auto",
       "alias": "builder"
     }
   }
@@ -1491,7 +1491,7 @@ for agent IPC, local model servers, browser integration, and optional HTTP liste
 | --- | --- | --- |
 | `enabled` | `true` | Start authenticated local IPC and peer tools. Set `false` to opt out. |
 | `scope` | `workspace` | Maximum authorized scope: workspace, repository, or machine. Both peer policies must allow it. |
-| `idleBehavior` | `notify` | Notify while idle; `auto` explicitly allows peer-triggered turns within existing budgets. |
+| `idleBehavior` | `auto` | An arriving message starts a turn when the session is idle, within local permissions and the automatic reply budget. Set `notify` to only show arrivals and wait for the user. |
 | `alias` | Generated | Up to 64 letters, digits, dashes and underscores; starts with a letter. |
 | `coordinationDirectory` | `AUTOHAND_HOME` | Shared discovery/resource namespace; private inboxes stay in each profile. |
 | `allowResourceControl` | `false` | Permit explicit controller policy installation and resource grants. |

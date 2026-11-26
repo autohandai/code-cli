@@ -94,7 +94,7 @@ export function resolvePeerCommunicationSettings(config: unknown): ResolvedPeerC
   return {
     enabled: settings.enabled !== false,
     scope: settings.scope as PeerScope | undefined ?? 'workspace',
-    idleBehavior: settings.idleBehavior === 'auto' ? 'auto' : 'notify',
+    idleBehavior: settings.idleBehavior === 'notify' ? 'notify' : 'auto',
     ...(typeof settings.alias === 'string' ? { alias: settings.alias } : {}),
     ...(typeof settings.coordinationDirectory === 'string' ? { coordinationDirectory: settings.coordinationDirectory } : {}),
     allowResourceControl: settings.allowResourceControl === true,

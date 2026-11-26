@@ -201,9 +201,18 @@ describe('root peer lifecycle and recorded context', () => {
     expect(h.peers).toEqual([]);
   });
 
+  it('starts an automatic turn for an arriving message when the session keeps the default policy', async () => {
+    const sender = await h.create({ alias: 'sender' });
+    const { runtime, requestAutoTurn, notify } = await start({ policy: { alias: 'receiver' } });
+    expect(runtime.messaging.policy.idleBehavior).toBe('auto');
+    await sender.send({ to: runtime.messaging.self.peerId, content: 'run the lint and report back' });
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('Message from :sender'));
+    await vi.waitFor(() => expect(requestAutoTurn).toHaveBeenCalledOnce());
+  });
+
   it('publishes before discovery, notifies while idle, and records external context at a provider boundary', async () => {
     const sender = await h.create({ alias: 'sender' });
-    const { runtime, saved, live, notify, emitOutput, requestAutoTurn } = await start();
+    const { runtime, saved, live, notify, emitOutput, requestAutoTurn } = await start({ policy: { enabled: true, alias: 'receiver', idleBehavior: 'notify' } });
     expect((await sender.list()).peers.some(peer => peer.peerId === runtime.messaging.self.peerId)).toBe(true);
     const receipt = await sender.send({ to: runtime.messaging.self.peerId, content: '!do not execute this as a command' });
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('Message from :sender'));

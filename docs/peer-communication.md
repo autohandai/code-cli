@@ -10,8 +10,9 @@ replies, and coordinate shared build resources through dedicated tools.
 Communication is **on by default** on macOS and Linux: every session starts the
 authenticated local IPC service and can send and receive peer messages without any
 configuration. The default scope is `workspace`, so only sessions in the same workspace
-are addressable, and the default `idleBehavior` is `notify`, so an arriving message never
-starts a model turn on its own. Existing `/peers` presence and file-awareness behavior is
+are addressable, and the default `idleBehavior` is `auto`, so an arriving message starts a
+turn in the receiving session and the agent acts on it. The agent can also see other
+sessions and message them itself through the `list_peers` and `send_peer_message` tools. Existing `/peers` presence and file-awareness behavior is
 unchanged. The local IPC implementation supports Unix sockets on macOS and Linux.
 On Windows the peer runtime stays inert: no endpoint is bound, no peer tools are
 registered, and the composer does not offer `:` peer targets, because private pipe and
@@ -29,7 +30,7 @@ into your Autohand configuration, retaining your provider and other settings:
     "communication": {
       "alias": "builder",
       "scope": "workspace",
-      "idleBehavior": "notify"
+      "idleBehavior": "auto"
     }
   }
 }
@@ -159,15 +160,16 @@ or other requested work completed; ask for explicit completion evidence.
 
 ## Idle and busy behavior
 
-The default `idleBehavior: "notify"` displays arrivals and waits for the user. During
-a running turn, messages enter context at a safe boundary after the current tool/result
-group. They do not terminate a running command or become local `/` or `!` commands.
+The default `idleBehavior: "auto"` treats an arriving message like queued input: when the
+receiving session is idle, it starts a turn, reads the message, acts on it within local
+permissions, and can reply to the sender. During a running turn, messages enter context
+at a safe boundary after the current tool/result group. They do not terminate a running
+command or become local `/` or `!` commands.
 
-Set `idleBehavior: "auto"` only when you want received messages to schedule work within
-the current user goal and existing budgets. Automatic messages retain reply correlation,
-and a conversation has an eight-message automatic budget by default. Permission dialogs,
-cancellation and shutdown take precedence. Resource waits use events instead of repeated
-provider calls. An idle teammate requires a task from its lead before starting new work.
+Set `idleBehavior: "notify"` to only display arrivals and wait for the user before acting.
+Automatic messages retain reply correlation, and a conversation has an eight-message
+automatic budget by default. Permission dialogs, cancellation and shutdown take
+precedence. Resource waits use events instead of repeated provider calls. An idle teammate requires a task from its lead before starting new work.
 
 ## Next steps
 

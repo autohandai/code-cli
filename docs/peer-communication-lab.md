@@ -63,7 +63,8 @@ with Escape. In the reviewer session, use the message ID from the receipt:
 ```
 
 Checkpoint: preview alone leaves the message accepted and unread. The inbox explains
-when consumption occurs. With `notify`, receiving a message does not start an idle turn.
+when consumption occurs. This lab sets `notify`, so receiving a message does not start an
+idle turn; with the default `auto`, the receiver would start a turn and act on it.
 
 ## 4. Reply to the exact sender
 

@@ -3,7 +3,7 @@ import { isPeerCommunicationAvailable, resolvePeerCommunicationSettings } from '
 
 describe('peer communication configuration', () => {
   it('enables communication by default without changing awareness', () => {
-    expect(resolvePeerCommunicationSettings({})).toMatchObject({ enabled: true, scope: 'workspace', idleBehavior: 'notify' });
+    expect(resolvePeerCommunicationSettings({})).toMatchObject({ enabled: true, scope: 'workspace', idleBehavior: 'auto' });
     expect(resolvePeerCommunicationSettings({ sessions: { awareness: 'coordinate' } }).enabled).toBe(true);
   });
 
@@ -12,7 +12,17 @@ describe('peer communication configuration', () => {
   });
 
   it('honors an explicit opt-out', () => {
-    expect(resolvePeerCommunicationSettings({ sessions: { communication: { enabled: false } } })).toMatchObject({ enabled: false, scope: 'workspace', idleBehavior: 'notify' });
+    expect(resolvePeerCommunicationSettings({ sessions: { communication: { enabled: false } } })).toMatchObject({ enabled: false, scope: 'workspace', idleBehavior: 'auto' });
+  });
+
+  it('acts on arriving messages automatically by default', () => {
+    expect(resolvePeerCommunicationSettings({}).idleBehavior).toBe('auto');
+    expect(resolvePeerCommunicationSettings({ sessions: { communication: {} } }).idleBehavior).toBe('auto');
+    expect(resolvePeerCommunicationSettings({ sessions: { communication: { scope: 'machine' } } }).idleBehavior).toBe('auto');
+  });
+
+  it('honors an explicit notify-only idle policy', () => {
+    expect(resolvePeerCommunicationSettings({ sessions: { communication: { idleBehavior: 'notify' } } }).idleBehavior).toBe('notify');
   });
 
   it('enables only the user-selected scope and idle policy', () => {

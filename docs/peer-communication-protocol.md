@@ -176,7 +176,7 @@ All fields are under `sessions.communication`:
 | --- | --- | --- |
 | `enabled` | `true` | Start the local service and register available peer tools. Set `false` to opt out. |
 | `scope` | `workspace` | Maximum authorized scope; narrower selection remains possible. |
-| `idleBehavior` | `notify` | Display arrivals, or explicitly allow automatic turns with `auto`. |
+| `idleBehavior` | `auto` | Start an automatic turn for arrivals while idle; `notify` only displays them. |
 | `alias` | Generated | Valid readable alias; exact routing remains incarnation-based. |
 | `coordinationDirectory` | `AUTOHAND_HOME` | Shared presence, endpoint and resource namespace. |
 | `allowResourceControl` | `false` | Authorize policy installation and controller grants. |

@@ -2,23 +2,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Session } from 'tuistory';
-import { createTempAutohandHome, exitInteractive, launchBuiltAutohand, type TuistoryTempState } from './helpers/autohandTuistory.js';
+import { createMockOpenRouterServer, createTempAutohandHome, exitInteractive, launchBuiltAutohand, type MockOpenRouterServer, type TuistoryTempState } from './helpers/autohandTuistory.js';
 import { openPeerInbox, preserveDraftWhileClosingPeerPicker, selectPeerAndSend, waitForPeerComposer } from '../../src/testing/scenarios/peerCommunicationScenario.js';
 
 const sessions: Session[] = [];
 const states: TuistoryTempState[] = [];
+const servers: MockOpenRouterServer[] = [];
 afterEach(async () => {
   for (const session of sessions.splice(0)) {
     if (!session.exitInfo) await exitInteractive(session).catch(() => {});
     session.close();
   }
   for (const state of states.splice(0)) await state.cleanup();
+  for (const server of servers.splice(0)) await server.close();
 });
 
-async function pair() {
+async function pair(options: { communication?: Record<string, unknown>; config?: Record<string, unknown> } = {}) {
   const state = await createTempAutohandHome({ config: {
     ui: { promptSuggestions: false },
-    sessions: { awareness: 'warn', communication: { enabled: true, scope: 'workspace', idleBehavior: 'notify', alias: 'sender' } },
+    ...options.config,
+    sessions: { awareness: 'warn', communication: options.communication ?? { enabled: true, scope: 'workspace', idleBehavior: 'notify', alias: 'sender' } },
   } });
   states.push(state);
   const secondConfig = path.join(state.autohandHome, 'second', 'config.json');
@@ -59,6 +62,28 @@ describe('built CLI peer communication', () => {
     await receiver.press('enter');
     await receiver.text({ timeout: 20_000, waitFor: text => text.includes('To :sender') && text.includes('accepted') });
     await sender.text({ timeout: 20_000, waitFor: text => text.includes('Message from :receiver') });
+    await exitInteractive(receiver);
+    sessions.splice(sessions.indexOf(receiver), 1);
+    await exitInteractive(sender);
+    sessions.splice(sessions.indexOf(sender), 1);
+  });
+
+  it('acts on an arriving message automatically when the receiver keeps the default policy', async () => {
+    const provider = await createMockOpenRouterServer('PEER_REQUEST_HANDLED');
+    servers.push(provider);
+    const { sender, receiver } = await pair({
+      communication: { alias: 'sender' },
+      config: {
+        openrouter: { baseUrl: provider.baseUrl },
+        agent: { autoMemory: false, sessionRetryLimit: 0 },
+        ui: { promptSuggestions: false, showCompletionNotification: false, terminalBell: false },
+      },
+    });
+    const sent = await selectPeerAndSend(sender, 'receiver', 'Please summarize the workspace.');
+    expect(sent).toContain('accepted');
+    await receiver.text({ timeout: 20_000, waitFor: text => text.includes('Message from :sender') });
+    const handled = await receiver.text({ timeout: 30_000, waitFor: text => text.includes('PEER_REQUEST_HANDLED') });
+    expect(handled).toContain('PEER_REQUEST_HANDLED');
     await exitInteractive(receiver);
     sessions.splice(sessions.indexOf(receiver), 1);
     await exitInteractive(sender);
