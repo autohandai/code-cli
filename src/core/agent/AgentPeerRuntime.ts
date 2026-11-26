@@ -5,6 +5,7 @@ import type { AgentOutputEvent } from '../../types.js';
 import { PeerMessaging, type PeerMessagingOptions, type PeerEvent, type PeerClient } from '../../session/peers/PeerMessaging.js';
 import type { PeerCapability } from '../../session/peers/PeerProtocol.js';
 import { PeerError } from '../../session/peers/PeerProtocol.js';
+import { isPeerCommunicationAvailable } from '../../session/peers/PeerSettings.js';
 import { ResourceCoordinator } from '../../session/peers/ResourceCoordinator.js';
 import { defaultPeerAlias, safePeerLabel } from '../../session/peers/PeerScope.js';
 import { PeerCommunicationRuntime, formatPeerContext, type PeerContextEnvelope, type PeerRunRuntime } from './PeerCommunicationRuntime.js';
@@ -23,7 +24,6 @@ export class AgentPeerRuntime {
   readonly scheduler: PeerCommunicationRuntime;
   readonly coordinator: ResourceCoordinator;
   automatic = false;
-  private closed = false;
   private closing?: Promise<void>;
   private readonly runs = new Map<string, PeerRunRuntime>();
 
@@ -41,7 +41,7 @@ export class AgentPeerRuntime {
       principal: { peerId: client.self.peerId, instanceId: client.self.instanceId, ...(client.self.runId ? { runId: client.self.runId, enrollmentPeerId: this.messaging.self.peerId } : {}) },
       canControl: client.self.capabilities.includes('resource.control'),
       isPrincipalAlive: async principal => {
-        if (this.closed) return false;
+        if (this.closing) return false;
         if (principal.peerId === this.messaging.self.peerId) return true;
         try {
           const peer = await this.messaging.resolve(principal.peerId);
@@ -58,7 +58,7 @@ export class AgentPeerRuntime {
   }
 
   static async start(options: AgentPeerRuntimeOptions): Promise<AgentPeerRuntime | undefined> {
-    if (!options.policy?.enabled) return undefined;
+    if (!isPeerCommunicationAvailable(options.policy)) return undefined;
     const messaging = new PeerMessaging(options);
     let runtime: AgentPeerRuntime | undefined;
     try {
@@ -76,7 +76,6 @@ export class AgentPeerRuntime {
 
   close(): Promise<void> {
     if (this.closing) return this.closing;
-    this.closed = true;
     this.closing = completePeerCleanup([
       () => this.scheduler.close(),
       () => closePeerRuns(this.runs.values()),
@@ -88,6 +87,7 @@ export class AgentPeerRuntime {
   }
 
   bindRun(runId: string, alias: string, inherited?: PeerCapability[]): PeerRunRuntime {
+    if (this.closing) throw new PeerError('TARGET_ENDED', 'The peer runtime has closed.');
     const capabilities = inherited ?? this.messaging.self.capabilities.filter(capability => capability !== 'resource.control');
     const messaging = this.messaging.bindRun({ runId, alias: defaultPeerAlias(alias, createHash('sha256').update(runId).digest('hex')), capabilities });
     const coordinator = this.createCoordinator(messaging);

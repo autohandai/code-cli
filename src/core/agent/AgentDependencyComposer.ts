@@ -10,6 +10,7 @@ import { RunBudget } from './RunBudget.js';
 import { SessionAutoNamer } from './SessionAutoNamer.js';
 import { RepositoryReadiness } from './RepositoryReadiness.js';
 import { AxoResponder } from './AxoResponder.js';
+import { isPeerCommunicationAvailable } from '../../session/peers/PeerSettings.js';
 import { syncAgentTerminalTitleName } from './AgentSessionTitle.js';
 import type { PeerComposerDraft } from '../../ui/peerMention.js';
 import { randomUUID } from 'node:crypto';
@@ -543,7 +544,7 @@ export function initializeAgentDependencies(
     });
     host.simpleChatHandler = new SimpleChatHandler(host as unknown as SimpleChatAgent);
     const enabledToolDefinitions = DEFAULT_TOOL_DEFINITIONS.filter(definition => !PEER_TOOL_NAMES.has(definition.name)
-      || runtime.config.sessions?.communication?.enabled === true);
+      || isPeerCommunicationAvailable(runtime.config.sessions?.communication));
     const featureGatedToolDefinitions = isGoalFeatureEnabled(runtime.config)
       ? [...enabledToolDefinitions, ...GOAL_TOOL_DEFINITIONS]
       : enabledToolDefinitions;

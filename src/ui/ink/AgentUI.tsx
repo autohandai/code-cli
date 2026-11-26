@@ -1450,6 +1450,7 @@ export function AgentUI({
   const peerComposer = usePeerComposer({
     initialMetadata: state.peerInputMetadata,
     peerScopes, peersProvider, onPeersRefresh, onPeerMessage, onInstruction,
+    isLocalTarget: alias => (messageTargetsProviderRef.current?.() ?? []).some(target => target.alias.toLowerCase() === alias.toLowerCase()),
     read: () => ({ text: textBufferRef.current.getText(), cursor: getTextBufferCursorOffset(textBufferRef.current) }),
     replace: (text, cursor) => {
       const buffer = textBufferRef.current;

@@ -97,7 +97,7 @@ describe(': recipient trigger in the built CLI', () => {
   }, 90_000);
 
   it('explains how to turn peer messaging on when the other session on the project is presence-only', async () => {
-    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false }, sessions: { awareness: 'warn' } } });
+    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false }, sessions: { awareness: 'warn', communication: { enabled: false } } } });
     states.push(state);
     const otherConfigPath = path.join(state.autohandHome, 'other-session', 'config.json');
     await fs.mkdir(path.dirname(otherConfigPath), { recursive: true });
@@ -117,7 +117,7 @@ describe(': recipient trigger in the built CLI', () => {
     expect(picker).toContain('Peer messaging is off');
     expect(picker).not.toContain('cannot receive messages yet');
     expect(receipt).toMatch(/Session \w{8} cannot receive messages: Peer messaging is off\./);
-    expect(receipt.replace(/\s+/g, ' ')).toContain('sessions.communication.enabled');
+    expect(receipt.replace(/\s+/g, ' ')).toContain('sessions.communication.enabled = false');
     await exitInteractive(session);
     await exitInteractive(other);
   }, 90_000);

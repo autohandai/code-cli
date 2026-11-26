@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Session } from 'tuistory';
+import { ActiveAgentRegistry } from '../../src/session/ActiveAgentRegistry.js';
 import { seedTransferScenario, transferScenarioId } from '../../src/testing/scenarios/transferScenario.js';
 import { createTempAutohandHome, exitInteractive, launchBuiltAutohand, waitForExit, type TuistoryTempState } from './helpers/autohandTuistory.js';
 
@@ -41,7 +42,12 @@ describe('standalone transfer terminal flow', () => {
     sessions.push(session);
     await session.waitForText(`Resumed session web-${transferScenarioId}`, { timeout: 30_000 });
     await session.waitForText('❯');
-    const active = JSON.parse(await fs.readFile(path.join(state.autohandHome, 'active-agents', `web-${transferScenarioId}.json`), 'utf8'));
+    const active = await vi.waitFor(async () => {
+      const [record] = (await new ActiveAgentRegistry(path.join(state.autohandHome, 'active-agents')).listActive())
+        .filter(candidate => candidate.sessionId === `web-${transferScenarioId}`);
+      if (!record) throw new Error('Expected an active-agent record for the resumed session');
+      return record;
+    }, { timeout: 10_000, interval: 100 });
     expect(active).toMatchObject({ provider: 'autohandai', model: 'moa', mode: 'interactive' });
     await exitInteractive(session);
     expect(JSON.parse(await fs.readFile(state.configPath, 'utf8')).provider).toBe(JSON.parse(before).provider);

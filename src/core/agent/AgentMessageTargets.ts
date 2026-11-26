@@ -11,6 +11,7 @@ import {
 import type { AgentRun, AgentRunsSnapshot } from '../agents/AgentRunStore.js';
 import type { TeamMember } from '../teams/types.js';
 import type { ActiveAgentRecord } from '../../session/ActiveAgentRegistry.js';
+import type { PeerDescriptor, PeerScope } from '../../session/peers/PeerProtocol.js';
 
 export interface MessageTargetHost {
   agentRunStore?: { getSnapshot(): AgentRunsSnapshot | { runs: AgentRun[] }; sendMessage(id: string, message: string): Promise<boolean> } | null;
@@ -32,6 +33,20 @@ export function listAgentMessageTargets(host: MessageTargetHost): MessageTarget[
     peers: host.peerAwareness?.getPeers() ?? [],
     peerMessagingEnabled: host.peerMessaging?.policy.enabled === true,
   });
+}
+
+/**
+ * Peers the composer offers after `:`. This session's own sub-agent runs share its
+ * instance and are already listed as local run targets with direct delivery, so
+ * offering them again as peers would route the same worker through a second path.
+ */
+export function composerPeerTargets(
+  messaging: { self: Pick<PeerDescriptor, 'instanceId'>; cachedPeers(scope?: PeerScope): PeerDescriptor[] } | null | undefined,
+  scope: PeerScope,
+): PeerDescriptor[] {
+  if (!messaging) return [];
+  const ownInstance = messaging.self.instanceId;
+  return messaging.cachedPeers(scope).filter((peer) => peer.instanceId !== ownInstance);
 }
 
 /**

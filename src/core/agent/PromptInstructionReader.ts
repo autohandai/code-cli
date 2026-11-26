@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import { deliverAgentTargetMessage, type MessageTargetHost } from './AgentMessageTargets.js';
+import { composerPeerTargets, deliverAgentTargetMessage, listAgentMessageTargets, type MessageTargetHost } from './AgentMessageTargets.js';
 import { readInstruction, type PromptDraft } from '../../ui/inputPrompt.js';
 import { formatAgentSlashCommandResultForStdout } from './AgentCommandRuntime.js';
 import { isLikelyFilePathSlashInput } from '../slashInputDetection.js';
@@ -129,10 +129,11 @@ export async function promptForAgentInstruction(host: AgentPromptInstructionHost
           })),
         host.peerMessaging ? {
           scopes: allowedPeerScopes(host.peerMessaging.policy.scope),
-          peersProvider: scope => host.peerMessaging!.cachedPeers(scope),
+          peersProvider: scope => composerPeerTargets(host.peerMessaging, scope ?? 'workspace'),
           refresh: scope => host.peerMessaging!.list({ scope }),
           send: (input, options) => host.peerMessaging!.send(input, options),
           onReferences: references => host.setPeerReferences?.(references),
+          isLocalTarget: alias => listAgentMessageTargets(host).some(target => target.alias.toLowerCase() === alias.toLowerCase()),
         } : undefined,
       );
     } finally {

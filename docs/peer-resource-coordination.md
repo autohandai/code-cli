@@ -7,9 +7,10 @@ alone never grants access, frees capacity, or kills a running build.
 
 ## Configure the controller and participants
 
-Enable communication in each session. Use `machine` scope for different projects and
-set `allowResourceControl` only in sessions that you authorize to install policies and
-grant requests:
+Communication is on by default, so each session already participates. Use `machine` scope
+for different projects and set `allowResourceControl` only in sessions that you authorize
+to install policies and grant requests. A session that sets
+`sessions.communication.enabled` to `false` cannot request or grant resources:
 
 ```json
 {

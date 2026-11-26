@@ -7,6 +7,7 @@ is needed to start normal Autohand sessions.
 
 ## 1. Configure two participants
 
+Communication is on by default, so this step only sets a distinct alias per session.
 Create two local configuration files by copying your working configuration. Retain the
 provider settings. Merge this communication block into the first file:
 
@@ -14,7 +15,6 @@ provider settings. Merge this communication block into the first file:
 {
   "sessions": {
     "communication": {
-      "enabled": true,
       "scope": "workspace",
       "alias": "reviewer",
       "idleBehavior": "notify"
@@ -22,6 +22,9 @@ provider settings. Merge this communication block into the first file:
   }
 }
 ```
+
+If either file already sets `sessions.communication.enabled` to `false`, remove that line
+or set it to `true`; an explicit opt-out keeps the session presence-only.
 
 Use `builder` as the alias in the second file. Launch each terminal from the same project,
 using the same `AUTOHAND_HOME` and its own `AUTOHAND_CONFIG` path:

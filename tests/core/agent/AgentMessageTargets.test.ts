@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { describe, expect, it, vi } from 'vitest';
-import { deliverAgentTargetMessage, listAgentMessageTargets } from '../../../src/core/agent/AgentMessageTargets.js';
+import { composerPeerTargets, deliverAgentTargetMessage, listAgentMessageTargets } from '../../../src/core/agent/AgentMessageTargets.js';
 
 function host(overrides: Record<string, unknown> = {}) {
   const runs = [
@@ -45,11 +45,11 @@ describe('agent message targets', () => {
     expect(h.agentRunStore.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('names the setting that turns peer messaging on when a peer session is addressed', async () => {
+  it('names the setting that re-enables peer messaging when a peer session is addressed', async () => {
     const delivery = await deliverAgentTargetMessage(host(), ':peer-peer1234 hi');
     expect(delivery).toMatchObject({ ok: false });
     expect(delivery?.receipt).toContain('Session peer1234 cannot receive messages');
-    expect(delivery?.receipt).toContain('sessions.communication.enabled');
+    expect(delivery?.receipt).toContain('sessions.communication.enabled = false');
     expect(delivery?.receipt).not.toContain('yet');
   });
 
@@ -69,5 +69,26 @@ describe('agent message targets', () => {
     expect(await deliverAgentTargetMessage(h, ':reviewer hello')).toMatchObject({ ok: false });
     expect(await deliverAgentTargetMessage(h, 'tell :reviewer hello')).toBeNull();
     expect(await deliverAgentTargetMessage({} as never, ':reviewer hello')).toBeNull();
+  });
+});
+
+describe('composer peer targets', () => {
+  const descriptor = (peerId: string, instanceId: string, kind: 'root' | 'run' = 'root') =>
+    ({ peerId, instanceId, sessionId: `s-${peerId}`, alias: peerId, project: 'cli', kind, activity: 'idle', availability: 'available', capabilities: [] });
+
+  it('leaves out this session\'s own sub-agent runs, which the local run targets already address', () => {
+    const cachedPeers = vi.fn(() => [
+      descriptor('worker-run', 'self-instance', 'run'),
+      descriptor('other-root', 'other-instance'),
+      descriptor('other-run', 'other-instance', 'run'),
+    ]);
+    const messaging = { self: descriptor('me', 'self-instance'), cachedPeers };
+
+    expect(composerPeerTargets(messaging, 'workspace').map((peer) => peer.peerId)).toEqual(['other-root', 'other-run']);
+    expect(cachedPeers).toHaveBeenCalledWith('workspace');
+  });
+
+  it('returns no peers when messaging is not running', () => {
+    expect(composerPeerTargets(undefined, 'workspace')).toEqual([]);
   });
 });

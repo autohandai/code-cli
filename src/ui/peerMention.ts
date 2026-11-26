@@ -84,6 +84,23 @@ export function parsePeerInput(text: string): ParsedPeerInput {
   return { kind: 'instruction', text, references };
 }
 
+/**
+ * True when a submit should skip the peer path because every `:` mention names a local
+ * sub-agent run or teammate and none was bound to a peer in the picker. Local targets
+ * then reach their direct in-process delivery instead of failing peer resolution.
+ */
+export function deferPeerSubmitToLocalTargets(
+  text: string,
+  bindings: readonly PeerReference[],
+  isLocalTarget: ((alias: string) => boolean) | undefined,
+): boolean {
+  if (!isLocalTarget) return false;
+  const parsed = parsePeerInput(text);
+  const references = parsed.kind === 'direct' ? [parsed.reference] : parsed.references;
+  return references.length > 0 && references.every(reference =>
+    !bindings.some(binding => binding.alias === reference.alias) && isLocalTarget(reference.alias));
+}
+
 export function resolvePeerInput(text: string, bindings: readonly PeerReference[], peers: readonly PeerDescriptor[]): ResolvedPeerInput {
   const parsed = parsePeerInput(text);
   const resolve = (mention: PeerMention): PeerReference => {

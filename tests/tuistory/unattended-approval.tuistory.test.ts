@@ -70,6 +70,9 @@ describe('unattended approval boundary', () => {
       openrouter: { baseUrl: server.baseUrl }, agent: { maxIterations: 4, sessionRetryLimit: 0 },
       permissions: { mode: 'interactive', allowList: ['delegate_task', 'delegate_parallel'] },
       features: { automaticSpecialists: mode === 'pre-run' },
+      // Peer inbox checks before each specialist request change sibling
+      // scheduling; pinning peers off keeps the request count exact.
+      sessions: { communication: { enabled: false } },
     } });
     const agents = JSON.stringify({
       'ui-designer': { description: 'UI specialist', prompt: 'Complete the requested task.', tools: ['write_file'] },

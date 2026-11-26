@@ -174,7 +174,7 @@ All fields are under `sessions.communication`:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `enabled` | `false` | Start the local service and register available peer tools. |
+| `enabled` | `true` | Start the local service and register available peer tools. Set `false` to opt out. |
 | `scope` | `workspace` | Maximum authorized scope; narrower selection remains possible. |
 | `idleBehavior` | `notify` | Display arrivals, or explicitly allow automatic turns with `auto`. |
 | `alias` | Generated | Valid readable alias; exact routing remains incarnation-based. |

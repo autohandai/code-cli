@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PeerDescriptor, PeerReceipt, PeerScope } from '../../session/peers/PeerProtocol.js';
-import { bindPeerReference, matchPeerMention, parsePeerInput, resolvePeerInput, type PeerComposerDraft, type PeerInstructionMetadata, type PeerReference } from '../peerMention.js';
+import { bindPeerReference, deferPeerSubmitToLocalTargets, matchPeerMention, parsePeerInput, resolvePeerInput, type PeerComposerDraft, type PeerInstructionMetadata, type PeerReference } from '../peerMention.js';
 import { safePeerLabel } from '../../session/peers/PeerScope.js';
 
 export interface PeerComposerOptions {
@@ -9,6 +9,8 @@ export interface PeerComposerOptions {
   peersProvider?: (scope?: PeerScope) => PeerDescriptor[];
   onPeersRefresh?: (scope?: PeerScope) => Promise<unknown>;
   onPeerMessage?: (input: { to: string; content: string; replyTo?: string }) => Promise<PeerReceipt>;
+  /** Whether an alias names a local sub-agent run or teammate, which keeps its own delivery path. */
+  isLocalTarget?: (alias: string) => boolean;
   onInstruction: (text: string, metadata?: PeerInstructionMetadata) => void;
   read: () => { text: string; cursor: number };
   replace: (text: string, cursor: number) => void;
@@ -86,6 +88,7 @@ export function usePeerComposer(options: PeerComposerOptions) {
     if (!optionsRef.current.peersProvider) return false;
     const parsed = parsePeerInput(text);
     if (parsed.kind === 'instruction' && !parsed.references.length) return false;
+    if (deferPeerSubmitToLocalTargets(text, bindings.current, optionsRef.current.isLocalTarget)) return false;
     if (model.current.sending) return true;
     try {
       const resolved = resolvePeerInput(text, bindings.current, optionsRef.current.peersProvider(model.current.scope));

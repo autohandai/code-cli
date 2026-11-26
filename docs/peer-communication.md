@@ -7,21 +7,26 @@ workers on the same machine. Select a recipient with `:`, send a message immedia
 and follow its delivery receipt. Models can discover peers, exchange correlated
 replies, and coordinate shared build resources through dedicated tools.
 
-Communication is opt-in. Existing `/peers` presence and file-awareness behavior
-continues when communication is disabled. The local IPC implementation supports Unix
-sockets on macOS and Linux. Windows communication fails closed with
-`UNSUPPORTED_PLATFORM` until private pipe and process-job adapters are available.
-The ordinary CLI remains usable with communication disabled on Windows.
+Communication is **on by default** on macOS and Linux: every session starts the
+authenticated local IPC service and can send and receive peer messages without any
+configuration. The default scope is `workspace`, so only sessions in the same workspace
+are addressable, and the default `idleBehavior` is `notify`, so an arriving message never
+starts a model turn on its own. Existing `/peers` presence and file-awareness behavior is
+unchanged. The local IPC implementation supports Unix sockets on macOS and Linux.
+On Windows the peer runtime stays inert: no endpoint is bound, no peer tools are
+registered, and the composer does not offer `:` peer targets, because private pipe and
+process-job adapters are not implemented yet. The setting is accepted but has no effect
+there, and the ordinary CLI remains fully usable.
 
-## Enable communication
+## Configure communication
 
-Merge this into your Autohand configuration, retaining your provider and other settings:
+No configuration is required. To customize the alias, scope, or idle behavior, merge this
+into your Autohand configuration, retaining your provider and other settings:
 
 ```json
 {
   "sessions": {
     "communication": {
-      "enabled": true,
       "alias": "builder",
       "scope": "workspace",
       "idleBehavior": "notify"
@@ -30,9 +35,19 @@ Merge this into your Autohand configuration, retaining your provider and other s
 }
 ```
 
-Until a session enables communication, `:` still lists the other sessions on the project
-as presence-only `:peer-<id>` rows marked `○`. They cannot receive messages, and the row
-names this setting. Once both sessions enable it, each appears under its own alias.
+To opt out, set `enabled` to `false`:
+
+```json
+{
+  "sessions": {
+    "communication": { "enabled": false }
+  }
+}
+```
+
+A session that opts out keeps `/peers` presence and file awareness, but `:` lists it as a
+presence-only `:peer-<id>` row marked `○`. It cannot receive messages, and the row names
+this setting. Once both sessions have communication on, each appears under its own alias.
 
 Restart the participating sessions after editing configuration. Give the other session
 a different alias, such as `reviewer`. An alias starts with a letter and contains up to

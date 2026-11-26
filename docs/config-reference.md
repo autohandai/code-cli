@@ -1465,10 +1465,13 @@ When `enableRequestQueue` is enabled, you can continue typing messages while the
 
 ## Local Peer Communication
 
-Communication is independent of `sessions.awareness` and defaults off. Enable it to
-address other local sessions and published workers with the `:` composer or peer tools.
-Peer communication uses local Unix-domain sockets on macOS/Linux and requires no TCP
-or UDP port. See [Required Ports and Agent Transports](#required-ports-and-agent-transports)
+Communication is independent of `sessions.awareness` and is **on by default** on macOS
+and Linux, so sessions can address each other and published workers with the `:` composer
+or peer tools without any configuration. Set `enabled` to `false` to opt out; the session
+then keeps `/peers` presence and file awareness but cannot send or receive messages.
+Peer communication uses local Unix-domain sockets and requires no TCP or UDP port. On
+Windows the runtime stays inert: no endpoint is bound, no peer tools are registered, and
+the composer offers no `:` peer targets. The setting is accepted there but has no effect. See [Required Ports and Agent Transports](#required-ports-and-agent-transports)
 for agent IPC, local model servers, browser integration, and optional HTTP listeners.
 
 ```json
@@ -1486,7 +1489,7 @@ for agent IPC, local model servers, browser integration, and optional HTTP liste
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `enabled` | `false` | Start authenticated local IPC and peer tools. |
+| `enabled` | `true` | Start authenticated local IPC and peer tools. Set `false` to opt out. |
 | `scope` | `workspace` | Maximum authorized scope: workspace, repository, or machine. Both peer policies must allow it. |
 | `idleBehavior` | `notify` | Notify while idle; `auto` explicitly allows peer-triggered turns within existing budgets. |
 | `alias` | Generated | Up to 64 letters, digits, dashes and underscores; starts with a letter. |

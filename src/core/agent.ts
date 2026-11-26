@@ -10,6 +10,7 @@ import { selectCodeModeTools } from './agent/CodeModeRunner.js';
 import { usesAutohandAICloud } from '../providers/AutohandAIProvider.js';
 import type { RunBudget } from './agent/RunBudget.js';
 import { SteeringQueue } from './agent/SteeringQueue.js';
+import { isPeerCommunicationAvailable } from '../session/peers/PeerSettings.js';
 import { AgentProgramStatus, shouldWriteProgramStatus, withProgramStatusPrompt } from './agent/AgentProgramStatus.js';
 import { syncAgentTerminalTitleName } from './agent/AgentSessionTitle.js';
 import { shouldWriteTerminalTitle, TerminalTitleController } from '../ui/terminalTitle.js';
@@ -3182,12 +3183,12 @@ export class AutohandAgent {
     }
     await this.peerAwareness.adoptRepoBaseline().catch(() => {});
 
-    if (session && this.runtime.config.sessions?.communication?.enabled) {
+    if (session && isPeerCommunicationAvailable(this.runtime.config.sessions?.communication)) {
       let activatePeerRuntime = () => {};
       const peerRuntimeReady = new Promise<void>(resolve => { activatePeerRuntime = resolve; });
       this.peerRuntime = await AgentPeerRuntime.start({
         home: AUTOHAND_HOME, workspaceRoot: this.runtime.workspaceRoot, sessionId: session.metadata.sessionId,
-        policy: this.runtime.config.sessions.communication, heartbeatManagedExternally: true,
+        policy: this.runtime.config.sessions?.communication, heartbeatManagedExternally: true,
         activity: () => ({ phase: this.peerAwaitingInputCount ? 'waiting_input' : this.isInstructionActive ? 'thinking' : 'idle' }),
         appendContext: (message, recordId) => session.appendContext(message, recordId),
         addContext: content => this.conversation.addMessage({ role: 'user', content }),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bindPeerReference, matchPeerMention, parsePeerInput, resolvePeerInput } from '../../src/ui/peerMention.js';
+import { bindPeerReference, deferPeerSubmitToLocalTargets, matchPeerMention, parsePeerInput, resolvePeerInput } from '../../src/ui/peerMention.js';
 import type { PeerDescriptor } from '../../src/session/peers/PeerProtocol.js';
 
 const builder: PeerDescriptor = {
@@ -95,5 +95,32 @@ describe('stable recipient bindings', () => {
     expect(resolved).toMatchObject({ kind: 'instruction', references: [expect.objectContaining({ peerId: builder.peerId })] });
     expect(resolved).not.toHaveProperty('transcript');
     expect(resolved).not.toHaveProperty('attachments');
+  });
+});
+
+describe('local agent targets take precedence over unbound peer mentions', () => {
+  const local = (alias: string) => alias === 'colon-worker' || alias === 'builder';
+  const binding = { start: 0, end: 13, alias: 'colon-worker', peerId: 'peer-1', instanceId: 'other' };
+
+  it('hands a direct send to a local sub-agent or teammate back to the local delivery path', () => {
+    expect(deferPeerSubmitToLocalTargets(':colon-worker check the fixture', [], local)).toBe(true);
+  });
+
+  it('keeps a recipient the user explicitly bound in the peer picker on the peer path', () => {
+    expect(deferPeerSubmitToLocalTargets(':colon-worker check the fixture', [binding], local)).toBe(false);
+  });
+
+  it('keeps aliases that only exist as peers on the peer path', () => {
+    expect(deferPeerSubmitToLocalTargets(':reviewer check the fixture', [], local)).toBe(false);
+  });
+
+  it('defers an instruction only when every mention names a local target', () => {
+    expect(deferPeerSubmitToLocalTargets('ask :colon-worker and :builder to sync', [], local)).toBe(true);
+    expect(deferPeerSubmitToLocalTargets('ask :colon-worker and :reviewer to sync', [], local)).toBe(false);
+  });
+
+  it('never defers plain text or when no local targets exist', () => {
+    expect(deferPeerSubmitToLocalTargets('plain instruction', [], local)).toBe(false);
+    expect(deferPeerSubmitToLocalTargets(':colon-worker hi', [], undefined)).toBe(false);
   });
 });

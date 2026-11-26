@@ -31,6 +31,20 @@ async function start(overrides: Partial<AgentPeerRuntimeOptions> = {}) {
   return { runtime: runtime!, saved, live, notify, emitOutput, requestAutoTurn };
 }
 
+describe('platform gating', () => {
+  it('stays inert on Windows instead of binding an unsupported IPC endpoint', async () => {
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+    try {
+      const runtime = await AgentPeerRuntime.start({
+        home: h.home, workspaceRoot: h.workspaceRoot, sessionId: 'windows-root',
+        policy: { enabled: true, alias: 'windows-peer' },
+        appendContext: async () => {}, addContext: () => {}, notify: vi.fn(), emitOutput: vi.fn(), requestAutoTurn: async () => {},
+      });
+      expect(runtime).toBeUndefined();
+    } finally { platform.mockRestore(); }
+  });
+});
+
 describe('root peer lifecycle and recorded context', () => {
   it('pauses automatic arrivals while the root modal is open', async () => {
     const sender = await h.create();
@@ -158,6 +172,14 @@ describe('root peer lifecycle and recorded context', () => {
     expect(() => child.bindRun('after-end', 'stale')).toThrow('TARGET_ENDED');
   });
 
+  it('refuses to bind a child run once the root runtime has started closing', async () => {
+    const { runtime } = await start();
+    const closing = runtime.close();
+    expect(() => runtime.bindRun('late-child', 'late')).toThrow('TARGET_ENDED');
+    await closing;
+    expect(() => runtime.bindRun('after-close', 'late')).toThrow('TARGET_ENDED');
+  });
+
   it('binds and retires exact child runtimes without adding their inbox to root context', async () => {
     const sender = await h.create();
     const { runtime, saved, live } = await start();
@@ -173,8 +195,8 @@ describe('root peer lifecycle and recorded context', () => {
     expect((await runtime.messaging.list()).peers.some(peer => peer.peerId === child.messaging.self.peerId)).toBe(false);
   });
 
-  it('does not create an endpoint or runtime when communication is disabled', async () => {
-    const { runtime } = await start({ policy: {} });
+  it('does not create an endpoint or runtime when communication is explicitly disabled', async () => {
+    const { runtime } = await start({ policy: { enabled: false } });
     expect(runtime).toBeUndefined();
     expect(h.peers).toEqual([]);
   });

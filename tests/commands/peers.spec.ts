@@ -107,6 +107,36 @@ describe('/peers command', () => {
     expect(output).toBe('RENDERED_PEER_CARDS');
   });
 
+  it('keeps bare /peers on the awareness cards when peer messaging is on by default', async () => {
+    const { peers } = await vi.importActual<typeof import('../../src/commands/peers.js')>(
+      '../../src/commands/peers.js',
+    );
+    const manager = { getPeers: () => [peer('peer-1')] } as unknown as PeerAwarenessManager;
+    const list = vi.fn();
+    const peerMessaging = { policy: { enabled: true }, list } as never;
+    mockFormatPeerCards.mockReturnValueOnce('RENDERED_PEER_CARDS');
+
+    const output = await peers({ peerAwareness: manager, peerMessaging });
+
+    expect(output).toBe('RENDERED_PEER_CARDS');
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the messaging list for bare /peers when awareness is unavailable', async () => {
+    const { peers } = await vi.importActual<typeof import('../../src/commands/peers.js')>(
+      '../../src/commands/peers.js',
+    );
+    const peerMessaging = {
+      policy: { enabled: true },
+      self: { alias: 'me', peerId: 'peer-self' },
+      list: vi.fn(async () => ({ peers: [] })),
+    } as never;
+
+    const output = await peers({ peerMessaging });
+
+    expect(output).toContain('No peers in workspace scope.');
+  });
+
   it('reports availability instead of rendering when peer awareness is off', async () => {
     const { peers } = await vi.importActual<typeof import('../../src/commands/peers.js')>(
       '../../src/commands/peers.js',

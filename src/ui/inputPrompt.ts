@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import chalk from 'chalk';
-import { bindPeerReference, matchPeerMention, parsePeerInput, resolvePeerInput, type PeerReference, type PeerInstructionMetadata } from './peerMention.js';
+import { bindPeerReference, deferPeerSubmitToLocalTargets, matchPeerMention, parsePeerInput, resolvePeerInput, type PeerReference, type PeerInstructionMetadata } from './peerMention.js';
 import { getTypedMessageHistory, type TypedMessageHistory, type TypedMessageEntry } from '../session/TypedMessageHistory.js';
 import { safePeerLabel } from '../session/peers/PeerScope.js';
 import type { PeerClient } from '../session/peers/PeerMessaging.js';
@@ -1255,6 +1255,8 @@ export interface PeerPromptOptions {
   refresh?: (scope?: PeerScope) => Promise<unknown>;
   send: PeerClient['send'];
   onReferences?: (references: PeerReference[]) => void;
+  /** Whether an alias names a local sub-agent run or teammate, which keeps its own delivery path. */
+  isLocalTarget?: (alias: string) => boolean;
 }
 
 type PromptResult =
@@ -3028,7 +3030,7 @@ async function promptOnce(options: PromptOnceOptions): Promise<PromptResult> {
 
       if (peers) {
         const parsed = parsePeerInput(finalValue);
-        if (parsed.kind === 'direct' || parsed.references.length) {
+        if ((parsed.kind === 'direct' || parsed.references.length) && !deferPeerSubmitToLocalTargets(finalValue, peerBindings, peers.isLocalTarget)) {
           try {
             const resolved = resolvePeerInput(finalValue, peerBindings, peers.peersProvider(peerScope));
             if (resolved.kind === 'direct') {

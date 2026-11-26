@@ -1,5 +1,21 @@
 import { isPeerObject, PeerError, PEER_SCOPES, type PeerScope } from './PeerProtocol.js';
 
+/**
+ * The single source of truth for whether peer messaging can actually run.
+ *
+ * `resolvePeerCommunicationSettings` stays a pure config projection, so it reports the
+ * configured intent. Every runtime, UI, command and prompt gate must ask this helper
+ * instead of reading `communication.enabled` directly, otherwise a platform that cannot
+ * host the transport would still advertise peer targets and print opt-out advice for a
+ * setting the user never set.
+ */
+export function isPeerCommunicationAvailable(
+  settings: { enabled?: boolean } | undefined,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return settings?.enabled !== false && platform !== 'win32';
+}
+
 export interface PeerLimits {
   frameBytes: number;
   messageBytes: number;
@@ -76,7 +92,7 @@ export function resolvePeerCommunicationSettings(config: unknown): ResolvedPeerC
   if (settings.coordinationDirectory !== undefined && (typeof settings.coordinationDirectory !== 'string' || !settings.coordinationDirectory.trim() || settings.coordinationDirectory.includes('\0'))) throw new PeerError('INVALID_PARAMS', 'Communication coordinationDirectory must be a filesystem directory.');
   if (settings.resourceWaitTimeoutMs !== undefined && (typeof settings.resourceWaitTimeoutMs !== 'number' || !Number.isSafeInteger(settings.resourceWaitTimeoutMs) || settings.resourceWaitTimeoutMs <= 0)) throw new PeerError('INVALID_PARAMS', 'Communication resourceWaitTimeoutMs must be a positive integer.');
   return {
-    enabled: settings.enabled === true,
+    enabled: settings.enabled !== false,
     scope: settings.scope as PeerScope | undefined ?? 'workspace',
     idleBehavior: settings.idleBehavior === 'auto' ? 'auto' : 'notify',
     ...(typeof settings.alias === 'string' ? { alias: settings.alias } : {}),

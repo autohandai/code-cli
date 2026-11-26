@@ -55,4 +55,26 @@ describe('peer sends at the busy composer dispatch seam', () => {
     await handleAgentInkSubmittedInstruction(host as unknown as Parameters<typeof handleAgentInkSubmittedInstruction>[0], 'Tell :builder the patch is ready');
     expect(queued).toHaveBeenCalledWith('Tell :builder the patch is ready');
   });
+
+  it('delivers a leading address to a local sub-agent run instead of the peer service', async () => {
+    const sender = await h.create();
+    const send = vi.spyOn(sender, 'send');
+    const sendMessage = vi.fn().mockResolvedValue(true);
+    const notification = vi.fn();
+    const queued = vi.fn();
+    const runs = [{ id: 'subagent-1', source: 'delegate', name: 'colon-worker', task: 'Read', status: 'running', startedAt: 0, updatedAt: 0, cancellable: true, messageable: true }];
+    const host = {
+      isInstructionActive: true, peerMessaging: sender,
+      agentRunStore: { getSnapshot: () => ({ runs, updatedAt: 0 }), sendMessage },
+      parseSlashCommand: () => ({ command: '', args: [] }), handleSlashCommand: vi.fn(),
+      executeImmediateShellCommand: vi.fn(), inkInstructionResolver: null,
+      inkRenderer: { addUserMessage: vi.fn(), addAssistantMessage: vi.fn(), addNotification: notification, addQueuedInstruction: queued, isRunning: () => true },
+    };
+    await handleAgentInkSubmittedInstruction(host as unknown as Parameters<typeof handleAgentInkSubmittedInstruction>[0], ':colon-worker check the fixture');
+    expect(sendMessage).toHaveBeenCalledWith('subagent-1', 'check the fixture');
+    expect(send).not.toHaveBeenCalled();
+    expect(queued).not.toHaveBeenCalled();
+    expect(notification).toHaveBeenCalledWith(expect.stringContaining('Message queued for colon-worker'));
+  });
 });
+

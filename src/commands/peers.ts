@@ -35,13 +35,19 @@ function canRenderScreen(): boolean {
   return Boolean(process.stdout.isTTY && process.stdin.isTTY);
 }
 
-const PEER_HELP = '/peers [list [workspace|repository|machine]]\n/peers send <peer-id> <message>\n/peers inbox\n/peers reply <message-id> <message>\n/peers status <message-id>\nUse : in the composer to select a peer. Enable with sessions.communication.enabled = true.';
+const PEER_HELP = '/peers [list [workspace|repository|machine]]\n/peers send <peer-id> <message>\n/peers inbox\n/peers reply <message-id> <message>\n/peers status <message-id>\nUse : in the composer to select a peer. Peer messaging is on by default; remove sessions.communication.enabled = false to re-enable it.';
 
 export async function peers(ctx: PeersCommandContext, args: string[] = []): Promise<string | null> {
   const messaging = ctx.peerMessaging;
   if (args[0] === 'help' || args[0] === '--help') return PEER_HELP;
-  if (messaging?.policy.enabled || args.length) {
-    if (!messaging?.policy.enabled) return 'Local communication is disabled. Set sessions.communication.enabled to true.\n' + PEER_HELP;
+  const showAwareness = args.length === 0 && Boolean(ctx.peerAwareness);
+  if (!showAwareness && (messaging?.policy.enabled || args.length)) {
+    if (!messaging?.policy.enabled) {
+      const reason = process.platform === 'win32'
+        ? 'Local communication is unavailable on Windows; the CLI works without it.'
+        : 'Local communication is disabled. Remove sessions.communication.enabled = false and restart.';
+      return reason + '\n' + PEER_HELP;
+    }
     try {
       const operation = args[0] ?? 'list';
       if (operation === 'send' && args[1] && args.slice(2).join(' ').trim()) {

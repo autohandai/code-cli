@@ -82,16 +82,16 @@ describe('built CLI peer communication', () => {
     expect(failed).not.toContain('Message sent');
   });
 
-  it('keeps communication disabled by default with a useful enable instruction', async () => {
-    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false } } });
+  it('keeps communication disabled when explicitly opted out, with a useful re-enable instruction', async () => {
+    const state = await createTempAutohandHome({ config: { ui: { promptSuggestions: false }, sessions: { communication: { enabled: false } } } });
     states.push(state);
     const session = await launchBuiltAutohand(['--path', state.workspaceRoot, '--config', state.configPath, '--yes'], { autohandHome: state.autohandHome, cwd: state.workspaceRoot });
     sessions.push(session);
     await waitForPeerComposer(session);
     await session.type('/peers send peer-example hello');
     await session.press('enter');
-    const output = await session.text({ timeout: 20_000, waitFor: text => text.includes('sessions.communication.enabled') });
-    expect(output).toContain('sessions.communication.enabled');
+    const output = await session.text({ timeout: 20_000, waitFor: text => text.includes('sessions.communication.enabled = false') });
+    expect(output).toContain('sessions.communication.enabled = false');
     await exitInteractive(session);
     sessions.splice(sessions.indexOf(session), 1);
   });

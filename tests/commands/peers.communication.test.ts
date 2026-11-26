@@ -22,9 +22,9 @@ describe('/peers communication commands', () => {
     expect(output).not.toMatch(/accepted|Message sent/);
   });
 
-  it('explains how to enable communication while retaining the presence-only command', async () => {
+  it('explains how to re-enable communication while retaining the presence-only command', async () => {
     const output = await peers({}, ['send', 'peer-target', 'hello']);
-    expect(output).toContain('sessions.communication.enabled');
+    expect(output).toContain('sessions.communication.enabled = false');
   });
 
   it('validates command syntax and provides scoped discovery and inbox help', async () => {

@@ -43,8 +43,8 @@ export interface MessageTargetSources {
   peerMessagingEnabled?: boolean;
 }
 
-export const PEER_MESSAGING_DISABLED = 'Peer messaging is off. Set sessions.communication.enabled to true in both sessions and restart them.';
-export const PEER_MESSAGING_NOT_ADVERTISED = 'That session has peer messaging off. Set sessions.communication.enabled to true there and restart it.';
+export const PEER_MESSAGING_DISABLED = 'Peer messaging is off. Remove sessions.communication.enabled = false in both sessions and restart them.';
+export const PEER_MESSAGING_NOT_ADVERTISED = 'That session has peer messaging off. Remove sessions.communication.enabled = false there and restart it.';
 export const MESSAGE_TARGET_SUGGESTION_LIMIT = 8;
 
 /**

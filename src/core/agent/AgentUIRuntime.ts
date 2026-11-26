@@ -8,7 +8,8 @@ import chalk from 'chalk';
 import { isAxoInput } from '../../ui/axo/axoCommand.js';
 import { resolveMouseComposerCursor } from '../../ui/mouseReporting.js';
 import { shouldUseFullScreen } from '../../ui/terminal/alternateScreen.js';
-import { deliverAgentTargetMessage, listAgentMessageTargets } from './AgentMessageTargets.js';
+import { composerPeerTargets, deliverAgentTargetMessage, listAgentMessageTargets } from './AgentMessageTargets.js';
+import { isPeerCommunicationAvailable } from '../../session/peers/PeerSettings.js';
 import os from 'node:os';
 import ora from 'ora';
 import { createInkUIManager } from '../../ui/InkUIManager.js';
@@ -261,9 +262,9 @@ export function initializeAgentUIManager(host: AgentUIRuntimeHost): void {
         onSteer: (text: string) => { void steerAgentActiveInstruction(host, text); },
         onSteerQueuedMessage: (text: string) => trySteerAgentActiveInstruction(host, text),
         onWorkingSpinnerFrame: (frame: number) => host.terminalTitle?.setFrame(frame),
-        ...(host.runtime?.config?.sessions?.communication?.enabled === true ? {
-          peerScopes: allowedPeerScopes(host.runtime.config.sessions?.communication?.scope ?? 'workspace'),
-          peersProvider: scope => host.peerMessaging?.cachedPeers(scope) ?? [],
+        ...(isPeerCommunicationAvailable(host.runtime?.config?.sessions?.communication) ? {
+          peerScopes: allowedPeerScopes(host.runtime?.config?.sessions?.communication?.scope ?? 'workspace'),
+          peersProvider: scope => composerPeerTargets(host.peerMessaging, scope ?? 'workspace'),
           onPeersRefresh: scope => host.peerMessaging?.list({ scope }) ?? Promise.resolve(),
           onPeerMessage: (input: { to: string; content: string; replyTo?: string }) => host.peerMessaging.send(input),
         } : {}),
@@ -651,6 +652,15 @@ function trySteerAgentActiveInstruction(host: AgentUIRuntimeHost, text: string):
 export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHost, text: string, metadata?: PeerInstructionMetadata): Promise<void> {
     // `~axo` is the composer's easter egg; the UI handles it, and it never reaches the model.
     if (isAxoInput(text)) return;
+    // ":alias message" goes straight to that agent, even mid-turn, and never
+    // to the model. Local runs and teammates resolve first; any other alias
+    // falls through to the peer service.
+    const delivery = await deliverAgentTargetMessage(host, text);
+    if (delivery) {
+      host.inkRenderer?.addUserMessage?.(text.trim());
+      host.inkRenderer?.addNotification?.(delivery.receipt);
+      return;
+    }
     const peerInput = parsePeerInput(text);
     const messaging: PeerClient | undefined = host.peerMessaging;
     if (peerInput.kind === 'direct' && messaging?.policy.enabled) {
@@ -660,15 +670,6 @@ export async function handleAgentInkSubmittedInstruction(host: AgentUIRuntimeHos
     }
     if (isShellCommand(text)) {
       await host.executeImmediateShellCommand(parseShellCommand(text));
-      return;
-    }
-
-    // ":alias message" goes straight to that agent, even mid-turn, and never
-    // to the model.
-    const delivery = await deliverAgentTargetMessage(host, text);
-    if (delivery) {
-      host.inkRenderer?.addUserMessage?.(text.trim());
-      host.inkRenderer?.addNotification?.(delivery.receipt);
       return;
     }
 
